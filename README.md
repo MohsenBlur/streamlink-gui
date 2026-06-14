@@ -4,6 +4,27 @@ A portable, high-fidelity Windows desktop application built in Flutter to manage
 
 ---
 
+## 🚀 Quick Start (For Non-Technical Users)
+
+To start watching Twitch streams ad-free with low-latency and custom players, follow these 3 simple steps:
+
+### 1. Download the Required Software
+*   **Twitch Streamlink GUI (This App):** **[Download Latest Portable Zip](https://github.com/MohsenBlur/streamlink-gui/releases/download/v1.0.0/streamlink-gui-win-x64.zip)**
+*   **Streamlink (Required Backend):** **[Download Streamlink Installer](https://github.com/streamlink/streamlink/releases)** (Get the `.exe` installer for Windows)
+*   **VLC Media Player (Recommended Player):** **[Download VLC Player](https://www.videolan.org/vlc/)**
+
+### 2. Install & Run
+1.  Double-click the **Streamlink** installer and **VLC** installer you downloaded, and follow the setup wizard instructions.
+2.  Extract the downloaded **Twitch Streamlink GUI** zip file into a folder of your choice.
+3.  Open the extracted folder and double-click **`streamlink_gui.exe`** to launch the dashboard.
+
+### 3. Start Watching
+*   Add channels in the sidebar (e.g. type `limmy` or your favorite streamer, and click `+`).
+*   Click the **Settings gear icon** in the top left, select **Force VLC Player** as your player selection, and click **Save Changes**.
+*   Select your channel and click **Launch Streamlink** to open the feed in VLC!
+
+---
+
 ## Key Features
 
 *   **100% Portable & Self-Contained:** Uses a project-isolated local Flutter SDK environment (functioning like a python `venv`). No global Flutter/Dart installation is required.
