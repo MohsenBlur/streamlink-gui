@@ -62,6 +62,7 @@ class AppSettings {
   String defaultQuality = 'best';
   bool twitchLowLatency = true;
   String twitchOauthToken = '';
+  String playerType = 'default';
   String customPlayerPath = '';
   String customPlayerArgs = '';
 
@@ -69,6 +70,7 @@ class AppSettings {
     this.defaultQuality = 'best',
     this.twitchLowLatency = true,
     this.twitchOauthToken = '',
+    this.playerType = 'default',
     this.customPlayerPath = '',
     this.customPlayerArgs = '',
   });
@@ -77,6 +79,7 @@ class AppSettings {
         'default_quality': defaultQuality,
         'twitch_low_latency': twitchLowLatency,
         'twitch_oauth_token': twitchOauthToken,
+        'player_type': playerType,
         'custom_player_path': customPlayerPath,
         'custom_player_args': customPlayerArgs,
       };
@@ -85,6 +88,7 @@ class AppSettings {
         defaultQuality: json['default_quality'] ?? 'best',
         twitchLowLatency: json['twitch_low_latency'] ?? true,
         twitchOauthToken: json['twitch_oauth_token'] ?? '',
+        playerType: json['player_type'] ?? 'default',
         customPlayerPath: json['custom_player_path'] ?? '',
         customPlayerArgs: json['custom_player_args'] ?? '',
       );
@@ -129,6 +133,7 @@ class _MainScreenState extends State<MainScreen> {
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
     bool tempLowLatency = _settings.twitchLowLatency;
+    String tempPlayerType = _settings.playerType;
     final tokenController = TextEditingController(text: _settings.twitchOauthToken);
     final playerPathController = TextEditingController(text: _settings.customPlayerPath);
     final playerArgsController = TextEditingController(text: _settings.customPlayerArgs);
@@ -196,6 +201,50 @@ class _MainScreenState extends State<MainScreen> {
                       const SizedBox(height: 12),
                       const Divider(color: Colors.white12),
                       const SizedBox(height: 12),
+                      const Text('Video Player Selection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: tempPlayerType,
+                        decoration: const InputDecoration(
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'default', child: Text('System / Streamlink Default')),
+                          DropdownMenuItem(value: 'vlc', child: Text('Force VLC Player')),
+                          DropdownMenuItem(value: 'mpv', child: Text('Force MPV Player')),
+                          DropdownMenuItem(value: 'custom', child: Text('Use Custom Executable Path')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDialogState(() => tempPlayerType = val);
+                          }
+                        },
+                      ),
+                      if (tempPlayerType == 'custom') ...[
+                        const SizedBox(height: 14),
+                        const Text('Custom Player Executable Path', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: playerPathController,
+                          style: const TextStyle(fontSize: 13),
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      const Text('Custom Player Arguments (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: playerArgsController,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. --ontop --no-border (for mpv)',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(color: Colors.white12),
+                      const SizedBox(height: 12),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -223,26 +272,6 @@ class _MainScreenState extends State<MainScreen> {
                         'Using an OAuth token allows viewing subscriber-only streams and removes ads if subscribed or Turbo member.',
                         style: TextStyle(fontSize: 10, color: Colors.white38, height: 1.4),
                       ),
-                      const SizedBox(height: 18),
-                      const Text('Custom Player Executable Path (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: playerPathController,
-                        style: const TextStyle(fontSize: 13),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      const Text('Custom Player Arguments (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: playerArgsController,
-                        style: const TextStyle(fontSize: 13),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. --ontop --no-border (for mpv)',
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -258,6 +287,7 @@ class _MainScreenState extends State<MainScreen> {
                     setState(() {
                       _settings.defaultQuality = tempQuality;
                       _settings.twitchLowLatency = tempLowLatency;
+                      _settings.playerType = tempPlayerType;
                       _settings.twitchOauthToken = tokenController.text.trim();
                       _settings.customPlayerPath = playerPathController.text.trim();
                       _settings.customPlayerArgs = playerArgsController.text.trim();
@@ -336,6 +366,7 @@ class _MainScreenState extends State<MainScreen> {
                 _settings.defaultQuality = settingsJson['default_quality'] ?? 'best';
                 _settings.twitchLowLatency = settingsJson['twitch_low_latency'] ?? true;
                 _settings.twitchOauthToken = settingsJson['twitch_oauth_token'] ?? '';
+                _settings.playerType = settingsJson['player_type'] ?? 'default';
                 _settings.customPlayerPath = settingsJson['custom_player_path'] ?? '';
                 _settings.customPlayerArgs = settingsJson['custom_player_args'] ?? '';
               });
@@ -554,7 +585,11 @@ class _MainScreenState extends State<MainScreen> {
       args.add('--twitch-low-latency');
     }
 
-    if (_settings.customPlayerPath.trim().isNotEmpty) {
+    if (_settings.playerType == 'vlc') {
+      args.addAll(['--player', 'vlc']);
+    } else if (_settings.playerType == 'mpv') {
+      args.addAll(['--player', 'mpv']);
+    } else if (_settings.playerType == 'custom' && _settings.customPlayerPath.trim().isNotEmpty) {
       args.addAll(['--player', _settings.customPlayerPath.trim()]);
     }
 
