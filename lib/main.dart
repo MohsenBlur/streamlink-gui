@@ -58,6 +58,38 @@ class TwitchStreamlinkApp extends StatelessWidget {
   }
 }
 
+class AppSettings {
+  String defaultQuality = 'best';
+  bool twitchLowLatency = true;
+  String twitchOauthToken = '';
+  String customPlayerPath = '';
+  String customPlayerArgs = '';
+
+  AppSettings({
+    this.defaultQuality = 'best',
+    this.twitchLowLatency = true,
+    this.twitchOauthToken = '',
+    this.customPlayerPath = '',
+    this.customPlayerArgs = '',
+  });
+
+  Map<String, dynamic> toJson() => {
+        'default_quality': defaultQuality,
+        'twitch_low_latency': twitchLowLatency,
+        'twitch_oauth_token': twitchOauthToken,
+        'custom_player_path': customPlayerPath,
+        'custom_player_args': customPlayerArgs,
+      };
+
+  factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
+        defaultQuality: json['default_quality'] ?? 'best',
+        twitchLowLatency: json['twitch_low_latency'] ?? true,
+        twitchOauthToken: json['twitch_oauth_token'] ?? '',
+        customPlayerPath: json['custom_player_path'] ?? '',
+        customPlayerArgs: json['custom_player_args'] ?? '',
+      );
+}
+
 class TwitchChannel {
   final String username;
   String? id;
@@ -92,6 +124,159 @@ class _MainScreenState extends State<MainScreen> {
   bool _isGlobalLoading = false;
   final TextEditingController _searchController = TextEditingController();
   bool _isAdding = false;
+  final AppSettings _settings = AppSettings();
+
+  void _showSettingsDialog() {
+    String tempQuality = _settings.defaultQuality;
+    bool tempLowLatency = _settings.twitchLowLatency;
+    final tokenController = TextEditingController(text: _settings.twitchOauthToken);
+    final playerPathController = TextEditingController(text: _settings.customPlayerPath);
+    final playerArgsController = TextEditingController(text: _settings.customPlayerArgs);
+    bool obscureToken = true;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final theme = Theme.of(context);
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Icon(Icons.settings, color: theme.primaryColor),
+                  const SizedBox(width: 10),
+                  const Text('Streamlink Settings'),
+                ],
+              ),
+              backgroundColor: const Color(0xFF161B26),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              content: SizedBox(
+                width: 500,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Default Video Quality',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: tempQuality,
+                        decoration: const InputDecoration(
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'best', child: Text('Best Available')),
+                          DropdownMenuItem(value: '1080p60', child: Text('1080p 60fps')),
+                          DropdownMenuItem(value: '1080p', child: Text('1080p')),
+                          DropdownMenuItem(value: '720p60', child: Text('720p 60fps')),
+                          DropdownMenuItem(value: '720p', child: Text('720p')),
+                          DropdownMenuItem(value: '480p', child: Text('480p')),
+                          DropdownMenuItem(value: 'worst', child: Text('Worst Available')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDialogState(() => tempQuality = val);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Twitch Low Latency', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        subtitle: const Text('Reduces live stream delay, but may increase buffering on slow networks.', style: TextStyle(fontSize: 11)),
+                        value: tempLowLatency,
+                        activeColor: theme.primaryColor,
+                        onChanged: (val) {
+                          setDialogState(() => tempLowLatency = val);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(color: Colors.white12),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Twitch OAuth Token (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          TextButton(
+                            onPressed: () => _openExternalLink('https://twitchapps.com/tmi/'),
+                            child: const Text('Get Token', style: TextStyle(fontSize: 11)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: tokenController,
+                        obscureText: obscureToken,
+                        style: const TextStyle(fontSize: 13, fontFamily: 'Consolas'),
+                        decoration: InputDecoration(
+                          hintText: 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+                          suffixIcon: IconButton(
+                            icon: Icon(obscureToken ? Icons.visibility : Icons.visibility_off, size: 18),
+                            onPressed: () => setDialogState(() => obscureToken = !obscureToken),
+                          ),
+                        ),
+                      ),
+                      const Text(
+                        'Using an OAuth token allows viewing subscriber-only streams and removes ads if subscribed or Turbo member.',
+                        style: TextStyle(fontSize: 10, color: Colors.white38, height: 1.4),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text('Custom Player Executable Path (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: playerPathController,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text('Custom Player Arguments (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: playerArgsController,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: 'e.g. --ontop --no-border (for mpv)',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
+                  onPressed: () async {
+                    setState(() {
+                      _settings.defaultQuality = tempQuality;
+                      _settings.twitchLowLatency = tempLowLatency;
+                      _settings.twitchOauthToken = tokenController.text.trim();
+                      _settings.customPlayerPath = playerPathController.text.trim();
+                      _settings.customPlayerArgs = playerArgsController.text.trim();
+                    });
+                    await _saveChannels();
+                    if (mounted) {
+                      Navigator.pop(context);
+                      _showSnackBar('Settings saved successfully!', isError: false);
+                    }
+                  },
+                  child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   // Streamlink Process State
   Process? _activeStreamlinkProcess;
@@ -140,6 +325,21 @@ class _MainScreenState extends State<MainScreen> {
           final decoded = json.decode(content);
           if (decoded is List) {
             usernames = decoded.map((item) => item.toString()).toList();
+          } else if (decoded is Map) {
+            final channelsJson = decoded['channels'];
+            if (channelsJson is List) {
+              usernames = channelsJson.map((item) => item.toString()).toList();
+            }
+            final settingsJson = decoded['settings'];
+            if (settingsJson is Map<String, dynamic>) {
+              setState(() {
+                _settings.defaultQuality = settingsJson['default_quality'] ?? 'best';
+                _settings.twitchLowLatency = settingsJson['twitch_low_latency'] ?? true;
+                _settings.twitchOauthToken = settingsJson['twitch_oauth_token'] ?? '';
+                _settings.customPlayerPath = settingsJson['custom_player_path'] ?? '';
+                _settings.customPlayerArgs = settingsJson['custom_player_args'] ?? '';
+              });
+            }
           }
         }
       }
@@ -173,7 +373,11 @@ class _MainScreenState extends State<MainScreen> {
     try {
       final file = _getStorageFile();
       final usernames = _channels.map((c) => c.username).toList();
-      final content = json.encode(usernames);
+      final config = {
+        'channels': usernames,
+        'settings': _settings.toJson(),
+      };
+      final content = json.encode(config);
       await file.writeAsString(content);
     } catch (e) {
       _showSnackBar('Error saving channels: $e', isError: true);
@@ -339,10 +543,32 @@ class _MainScreenState extends State<MainScreen> {
       titleString = '${channel.username} - Offline Stream';
     }
 
+    final args = <String>[];
+    args.addAll(['--title', titleString]);
+
+    if (_settings.twitchOauthToken.trim().isNotEmpty) {
+      args.addAll(['--twitch-oauth-token', _settings.twitchOauthToken.trim()]);
+    }
+
+    if (_settings.twitchLowLatency) {
+      args.add('--twitch-low-latency');
+    }
+
+    if (_settings.customPlayerPath.trim().isNotEmpty) {
+      args.addAll(['--player', _settings.customPlayerPath.trim()]);
+    }
+
+    if (_settings.customPlayerArgs.trim().isNotEmpty) {
+      args.addAll(['--player-args', _settings.customPlayerArgs.trim()]);
+    }
+
+    args.add('twitch.tv/$channelName');
+    args.add(_settings.defaultQuality);
+
     setState(() {
       _streamlinkLogs.clear();
-      _streamlinkLogs.add('[System] Initializing Streamlink for twitch.tv/$channelName best with window title...');
-      _streamlinkLogs.add('[System] Window Title: "$titleString"');
+      _streamlinkLogs.add('[System] Initializing Streamlink for twitch.tv/$channelName ${_settings.defaultQuality}...');
+      _streamlinkLogs.add('[System] Arguments: ${args.join(" ")}');
       _isStreamlinkRunning = true;
       _runningChannel = channelName;
     });
@@ -351,12 +577,7 @@ class _MainScreenState extends State<MainScreen> {
       // Run streamlink in a shell
       final proc = await Process.start(
         'streamlink',
-        [
-          '--title',
-          titleString,
-          'twitch.tv/$channelName',
-          'best',
-        ],
+        args,
         runInShell: true,
       );
 
@@ -527,6 +748,13 @@ class _MainScreenState extends State<MainScreen> {
                             ),
                           ],
                         ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.settings, color: Colors.white70, size: 20),
+                        tooltip: 'Streamlink Settings',
+                        onPressed: _showSettingsDialog,
+                        hoverColor: theme.primaryColor.withOpacity(0.2),
+                        splashRadius: 20,
                       ),
                     ],
                   ),
