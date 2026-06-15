@@ -336,7 +336,69 @@ class _MainScreenState extends State<MainScreen> {
         return File('channels_config.json');
       }
       final exeDir = Directory(exePath).parent.path;
-      return File('$exeDir/channels_config.json');
+      final exeFile = File('$exeDir/channels_config.json');
+
+      // Helper to check if a directory is writable by attempting to create and delete a temporary file
+      bool isDirWritable(String path) {
+        try {
+          final testFile = File('$path/.write_test');
+          testFile.writeAsStringSync('test');
+          testFile.deleteSync();
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      // If the executable directory is writable, keep portable mode configuration in exeDir
+      if (isDirWritable(exeDir)) {
+        return exeFile;
+      }
+
+      // If not writable (e.g., Program Files), use the user's AppData/Config directory
+      String? appDataDir;
+      if (Platform.isWindows) {
+        appDataDir = Platform.environment['APPDATA'] ?? Platform.environment['LOCALAPPDATA'];
+      } else if (Platform.isMacOS) {
+        final home = Platform.environment['HOME'];
+        if (home != null) {
+          appDataDir = '$home/Library/Application Support';
+        }
+      } else if (Platform.isLinux) {
+        appDataDir = Platform.environment['XDG_CONFIG_HOME'];
+        if (appDataDir == null || appDataDir.isEmpty) {
+          final home = Platform.environment['HOME'];
+          if (home != null) {
+            appDataDir = '$home/.config';
+          }
+        }
+      }
+
+      if (appDataDir != null) {
+        final configDir = Directory('$appDataDir/TwitchStreamlinkGUI');
+        final appDataFile = File('${configDir.path}/channels_config.json');
+
+        // Migrate existing config file from exeDir if it exists but the AppData config doesn't
+        if (!appDataFile.existsSync() && exeFile.existsSync()) {
+          try {
+            if (!configDir.existsSync()) {
+              configDir.createSync(recursive: true);
+            }
+            exeFile.copySync(appDataFile.path);
+          } catch (_) {
+            // Ignore migration failure, fallback to clean config creation
+          }
+        } else if (!appDataFile.existsSync()) {
+          try {
+            if (!configDir.existsSync()) {
+              configDir.createSync(recursive: true);
+            }
+          } catch (_) {}
+        }
+        return appDataFile;
+      }
+
+      return exeFile;
     } catch (_) {
       return File('channels_config.json');
     }
