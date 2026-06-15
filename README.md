@@ -10,7 +10,7 @@ To start watching Twitch streams ad-free with low-latency and custom players, fo
 
 ### 1. Download the Required Software
 *   **Twitch Streamlink GUI (This App):** **[Download Latest Portable Zip](https://github.com/MohsenBlur/streamlink-gui/releases/download/v1.0.0/streamlink-gui-win-x64.zip)**
-*   **Streamlink (Required Backend):** **[Download Streamlink Installer](https://github.com/streamlink/streamlink/releases)** (Get the `.exe` installer for Windows)
+*   **Streamlink (Required Backend):** **[Download Streamlink Installer](https://github.com/streamlink/windows-builds/releases)** (Get the `.exe` installer for Windows)
 *   **VLC Media Player (Recommended Player):** **[Download VLC Player](https://www.videolan.org/vlc/)**
 
 ### 2. Install & Run
