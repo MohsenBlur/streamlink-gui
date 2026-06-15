@@ -48,3 +48,13 @@ app.*.map.json
 /.flutter-sdk/
 /build.log
 /channels_config.json
+
+# Local zip packages and binaries
+/*.zip
+*.exe
+.write_test
+
+# Environment / Secret configs
+.env
+.env.*
+
