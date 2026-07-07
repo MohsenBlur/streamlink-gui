@@ -155,6 +155,305 @@ class TwitchVideo {
   }
 }
 
+class TwitchVideoCard extends StatefulWidget {
+  final TwitchVideo vod;
+  final double scale;
+  final ThemeData theme;
+  final VoidCallback onPlay;
+  final String Function(String) formatNumber;
+  final double fontSize;
+  final bool isPlaying;
+  final AnimationController? pulseController;
+
+  const TwitchVideoCard({
+    Key? key,
+    required this.vod,
+    required this.scale,
+    required this.theme,
+    required this.onPlay,
+    required this.formatNumber,
+    required this.fontSize,
+    required this.isPlaying,
+    required this.pulseController,
+  }) : super(key: key);
+
+  @override
+  State<TwitchVideoCard> createState() => _TwitchVideoCardState();
+}
+
+class _TwitchVideoCardState extends State<TwitchVideoCard> {
+  bool _isHovered = false;
+
+  String _formatTwitchStyleDuration(String duration) {
+    final hourReg = RegExp(r'(\d+)h');
+    final minReg = RegExp(r'(\d+)m');
+    final secReg = RegExp(r'(\d+)s');
+    
+    final hourMatch = hourReg.firstMatch(duration);
+    final minMatch = minReg.firstMatch(duration);
+    final secMatch = secReg.firstMatch(duration);
+    
+    final hours = hourMatch != null ? int.parse(hourMatch.group(1)!) : 0;
+    final minutes = minMatch != null ? int.parse(minMatch.group(1)!) : 0;
+    final seconds = secMatch != null ? int.parse(secMatch.group(1)!) : 0;
+    
+    final sSec = seconds.toString().padLeft(2, '0');
+    if (hours > 0) {
+      final sMin = minutes.toString().padLeft(2, '0');
+      return '$hours:$sMin:$sSec';
+    } else {
+      return '$minutes:$sSec';
+    }
+  }
+
+  String _timeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inDays >= 365) {
+      final years = (difference.inDays / 365).floor();
+      return '$years year${years > 1 ? "s" : ""} ago';
+    } else if (difference.inDays >= 30) {
+      final months = (difference.inDays / 30).floor();
+      return '$months month${months > 1 ? "s" : ""} ago';
+    } else if (difference.inDays >= 7) {
+      final weeks = (difference.inDays / 7).floor();
+      return '$weeks week${weeks > 1 ? "s" : ""} ago';
+    } else if (difference.inDays >= 1) {
+      return '${difference.inDays} day${difference.inDays > 1 ? "s" : ""} ago';
+    } else if (difference.inHours >= 1) {
+      return '${difference.inHours} hour${difference.inHours > 1 ? "s" : ""} ago';
+    } else if (difference.inMinutes >= 1) {
+      return '${difference.inMinutes} minute${difference.inMinutes > 1 ? "s" : ""} ago';
+    } else {
+      return 'just now';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget.scale.round().clamp(200, 1280);
+    final h = (w * 9 / 16).round();
+    final thumbnailUrl = widget.vod.thumbnailUrl.isNotEmpty
+        ? widget.vod.thumbnailUrl.replaceAll('%{width}', w.toString()).replaceAll('%{height}', h.toString())
+        : null;
+
+    Widget buildCardContent() {
+      return MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: widget.onPlay,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF161B26),
+              borderRadius: BorderRadius.circular(12),
+              border: widget.isPlaying
+                  ? Border.all(
+                      color: widget.theme.primaryColor.withOpacity(0.4 + 0.6 * widget.pulseController!.value),
+                      width: 2.5,
+                    )
+                  : Border.all(
+                      color: _isHovered ? widget.theme.primaryColor.withOpacity(0.8) : const Color(0xFF1E2433),
+                      width: _isHovered ? 1.5 : 1.0,
+                    ),
+              boxShadow: widget.isPlaying
+                  ? [
+                      BoxShadow(
+                        color: widget.theme.primaryColor.withOpacity(0.35 * widget.pulseController!.value),
+                        blurRadius: 12 + 8 * widget.pulseController!.value,
+                        spreadRadius: 1 + 2 * widget.pulseController!.value,
+                      )
+                    ]
+                  : [
+                      BoxShadow(
+                        color: _isHovered 
+                            ? widget.theme.primaryColor.withOpacity(0.15) 
+                            : Colors.black.withOpacity(0.2),
+                        blurRadius: _isHovered ? 16 : 8,
+                        spreadRadius: _isHovered ? 2 : 0,
+                        offset: Offset(0, _isHovered ? 6 : 2),
+                      )
+                    ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 16:9 Thumbnail Header with overlays
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(11),
+                      topRight: Radius.circular(11),
+                    ),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        // Video Thumbnail
+                        thumbnailUrl != null
+                            ? Image.network(
+                                thumbnailUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) => Container(
+                                  color: const Color(0xFF1F2937),
+                                  child: const Icon(Icons.movie, color: Colors.white30, size: 32),
+                                ),
+                              )
+                            : Container(
+                                color: const Color(0xFF1F2937),
+                                child: const Icon(Icons.movie, color: Colors.white30, size: 32),
+                              ),
+
+                        // Top left duration badge
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.75),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              _formatTwitchStyleDuration(widget.vod.duration),
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ),
+                        ),
+
+                        // Top right NOW PLAYING badge if active
+                        if (widget.isPlaying && widget.pulseController != null)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: widget.theme.primaryColor.withOpacity(0.85 + 0.15 * widget.pulseController!.value),
+                                borderRadius: BorderRadius.circular(4),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: widget.theme.primaryColor.withOpacity(0.5 * widget.pulseController!.value),
+                                    blurRadius: 4,
+                                  )
+                                ]
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.play_arrow, size: 10, color: Colors.white),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'NOW PLAYING',
+                                    style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                        // High-Contrast Hover Play Icon Overlay
+                        Center(
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 150),
+                            opacity: _isHovered ? 1.0 : 0.0,
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black.withOpacity(0.6),
+                                border: Border.all(color: Colors.white.withOpacity(0.8), width: 2.0),
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow,
+                                size: 28,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // Bottom left views count badge
+                        Positioned(
+                          bottom: 8,
+                          left: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.75),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '${widget.formatNumber(widget.vod.viewCount)} views',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ),
+                        ),
+
+                        // Bottom right time-ago badge
+                        Positioned(
+                          bottom: 8,
+                          right: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.75),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              _timeAgo(widget.vod.publishedAt),
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                
+                // Title text area beneath thumbnail
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        widget.vod.title,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: widget.fontSize * (1.0 + (widget.scale - 200.0) / 400.0 * 0.8), 
+                          fontWeight: FontWeight.bold, 
+                          color: Colors.white, 
+                          height: 1.25
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (widget.isPlaying && widget.pulseController != null) {
+      return AnimatedBuilder(
+        animation: widget.pulseController!,
+        builder: (context, child) => buildCardContent(),
+      );
+    }
+
+    return buildCardContent();
+  }
+}
+
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -162,7 +461,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   final List<TwitchChannel> _channels = [];
   TwitchChannel? _selectedChannel;
   bool _isGlobalLoading = false;
@@ -180,6 +479,11 @@ class _MainScreenState extends State<MainScreen> {
   bool _isLoadingVods = false;
   String? _vodsError;
   double _vodScale = 350.0;
+  double _vodTitleFontSize = 14.0;
+  String? _playingVodId;
+  final TextEditingController _vodSearchController = TextEditingController();
+  AnimationController? _pulseController;
+  bool _sidebarCollapsed = false;
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
@@ -492,11 +796,17 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
     _loadChannels();
   }
 
   @override
   void dispose() {
+    _vodSearchController.dispose();
+    _pulseController?.dispose();
     _activeStreamlinkProcess?.kill();
     _searchController.dispose();
     _consoleScrollController.dispose();
@@ -968,6 +1278,7 @@ class _MainScreenState extends State<MainScreen> {
       _streamlinkLogs.add('[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${_settings.defaultQuality}...');
       _streamlinkLogs.add('[System] Arguments: ${args.join(" ")}');
       _isStreamlinkRunning = true;
+      _playingVodId = vod.id;
       _runningChannel = 'VOD: ${vod.title}';
     });
 
@@ -1006,6 +1317,7 @@ class _MainScreenState extends State<MainScreen> {
         if (!mounted) return;
         setState(() {
           _isStreamlinkRunning = false;
+          _playingVodId = null;
           _runningChannel = null;
           _streamlinkLogs.add('[System] Streamlink process exited with code $exitCode');
         });
@@ -1013,6 +1325,7 @@ class _MainScreenState extends State<MainScreen> {
     } catch (e) {
       setState(() {
         _isStreamlinkRunning = false;
+        _playingVodId = null;
         _runningChannel = null;
         _streamlinkLogs.add('[System Error] Failed to start Streamlink: $e');
       });
@@ -1449,6 +1762,30 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  String _timeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inDays >= 365) {
+      final years = (difference.inDays / 365).floor();
+      return '$years year${years > 1 ? "s" : ""} ago';
+    } else if (difference.inDays >= 30) {
+      final months = (difference.inDays / 30).floor();
+      return '$months month${months > 1 ? "s" : ""} ago';
+    } else if (difference.inDays >= 7) {
+      final weeks = (difference.inDays / 7).floor();
+      return '$weeks week${weeks > 1 ? "s" : ""} ago';
+    } else if (difference.inDays >= 1) {
+      return '${difference.inDays} day${difference.inDays > 1 ? "s" : ""} ago';
+    } else if (difference.inHours >= 1) {
+      return '${difference.inHours} hour${difference.inHours > 1 ? "s" : ""} ago';
+    } else if (difference.inMinutes >= 1) {
+      return '${difference.inMinutes} minute${difference.inMinutes > 1 ? "s" : ""} ago';
+    } else {
+      return 'just now';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1458,11 +1795,25 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           // Sidebar Panel
           Container(
-            width: 320,
+            width: _sidebarCollapsed ? 72.0 : 320.0,
             color: const Color(0xFF111420),
-            child: Column(
-              children: [
-                // Header / Branding
+            child: _sidebarCollapsed
+                ? _buildCollapsedSidebar(theme)
+                : Column(
+                    children: [
+                      // Collapse toggle button at the very top (prominent, size: 24)
+                      Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(top: 8, right: 8),
+                        child: IconButton(
+                          icon: const Icon(Icons.keyboard_double_arrow_left, color: Colors.white70, size: 24),
+                          tooltip: 'Collapse Sidebar',
+                          onPressed: () => setState(() => _sidebarCollapsed = true),
+                          hoverColor: theme.primaryColor.withOpacity(0.2),
+                          splashRadius: 22,
+                        ),
+                      ),
+                      // Header / Branding
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
                   decoration: const BoxDecoration(
@@ -1507,7 +1858,7 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.settings, color: Colors.white70, size: 20),
-                        tooltip: 'Streamlink Settings',
+                        tooltip: 'Settings',
                         onPressed: _showSettingsDialog,
                         hoverColor: theme.primaryColor.withOpacity(0.2),
                         splashRadius: 20,
@@ -1748,20 +2099,31 @@ class _MainScreenState extends State<MainScreen> {
                                     ),
                                   ),
                                   if (channel.isLive)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: const Text(
-                                        'LIVE',
-                                        style: TextStyle(
-                                          fontSize: 8,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
+                                    AnimatedBuilder(
+                                      animation: _pulseController!,
+                                      builder: (context, child) {
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.withOpacity(0.7 + 0.3 * _pulseController!.value),
+                                            borderRadius: BorderRadius.circular(4),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.red.withOpacity(0.4 * _pulseController!.value),
+                                                blurRadius: 4,
+                                              )
+                                            ]
+                                          ),
+                                          child: const Text(
+                                            'LIVE',
+                                            style: TextStyle(
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     ),
                                 ],
                               ),
@@ -1863,6 +2225,7 @@ class _MainScreenState extends State<MainScreen> {
 
   // Active Dashboard
   Widget _buildDashboard(ThemeData theme, TwitchChannel channel) {
+    final isSmall = MediaQuery.of(context).size.width < 950;
     return Column(
       children: [
         // Main Dashboard Body (Scrollable)
@@ -1886,38 +2249,231 @@ class _MainScreenState extends State<MainScreen> {
                         style: theme.textTheme.titleLarge?.copyWith(fontSize: 16, letterSpacing: 0.5),
                       ),
                       const SizedBox(width: 20),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.photo_size_select_large, size: 14, color: Colors.white38),
-                          const SizedBox(width: 6),
-                          const Text('Card Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
-                          SizedBox(
-                            width: 120,
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 2,
-                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                activeTrackColor: theme.primaryColor,
-                                inactiveTrackColor: Colors.white10,
-                                thumbColor: theme.primaryColor,
-                                overlayColor: theme.primaryColor.withOpacity(0.12),
-                              ),
-                              child: Slider(
-                                value: _vodScale,
-                                min: 200.0,
-                                max: 600.0,
-                                onChanged: (val) {
-                                  setState(() {
-                                    _vodScale = val;
-                                  });
-                                },
-                              ),
+                      isSmall
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                HoverOverlayMenu(
+                                  trigger: MouseRegion(
+                                    cursor: SystemMouseCursors.click,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF1E2433),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.white10),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.tune, color: Colors.white70, size: 16),
+                                          SizedBox(width: 4),
+                                          Text('VOD Settings', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  menu: Container(
+                                    width: 320,
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF161B26),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: const Color(0xFF1E2433)),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.5),
+                                          blurRadius: 10,
+                                        )
+                                      ],
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text('Filter Broadcasts:', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 6),
+                                        SizedBox(
+                                          height: 36,
+                                          child: TextField(
+                                            controller: _vodSearchController,
+                                            style: const TextStyle(fontSize: 12, color: Colors.white),
+                                            decoration: InputDecoration(
+                                              hintText: 'Filter VODs...',
+                                              hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
+                                              prefixIcon: const Icon(Icons.search, size: 14, color: Colors.white38),
+                                              contentPadding: EdgeInsets.zero,
+                                              filled: true,
+                                              fillColor: const Color(0xFF1E2433),
+                                              border: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(6),
+                                                borderSide: BorderSide.none,
+                                              ),
+                                            ),
+                                            onChanged: (val) {
+                                              setState(() {});
+                                            },
+                                          ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        
+                                        // Card Size Slider
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.photo_size_select_large, size: 14, color: Colors.white38),
+                                            const SizedBox(width: 6),
+                                            const Text('Card Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                                            Expanded(
+                                              child: SliderTheme(
+                                                data: SliderTheme.of(context).copyWith(
+                                                  trackHeight: 2,
+                                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                                  activeTrackColor: theme.primaryColor,
+                                                  inactiveTrackColor: Colors.white10,
+                                                  thumbColor: theme.primaryColor,
+                                                  overlayColor: theme.primaryColor.withOpacity(0.12),
+                                                ),
+                                                child: Slider(
+                                                  value: _vodScale,
+                                                  min: 200.0,
+                                                  max: 600.0,
+                                                  onChanged: (val) {
+                                                    setState(() {
+                                                      _vodScale = val;
+                                                    });
+                                                  },
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        
+                                        // Font Size Slider
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.format_size, size: 14, color: Colors.white38),
+                                            const SizedBox(width: 6),
+                                            const Text('Font Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                                            Expanded(
+                                              child: SliderTheme(
+                                                data: SliderTheme.of(context).copyWith(
+                                                  trackHeight: 2,
+                                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                                  activeTrackColor: theme.primaryColor,
+                                                  inactiveTrackColor: Colors.white10,
+                                                  thumbColor: theme.primaryColor,
+                                                  overlayColor: theme.primaryColor.withOpacity(0.12),
+                                                ),
+                                                child: Slider(
+                                                  value: _vodTitleFontSize,
+                                                  min: 11.0,
+                                                  max: 20.0,
+                                                  onChanged: (val) {
+                                                    setState(() {
+                                                      _vodTitleFontSize = val;
+                                                    });
+                                                  },
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // VOD Filter TextField
+                                SizedBox(
+                                  width: 130,
+                                  height: 28,
+                                  child: TextField(
+                                    controller: _vodSearchController,
+                                    style: const TextStyle(fontSize: 11, color: Colors.white),
+                                    decoration: InputDecoration(
+                                      hintText: 'Filter VODs...',
+                                      hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
+                                      prefixIcon: const Icon(Icons.search, size: 12, color: Colors.white38),
+                                      contentPadding: EdgeInsets.zero,
+                                      filled: true,
+                                      fillColor: const Color(0xFF1E2433),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(6),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
+                                    onChanged: (val) {
+                                      setState(() {});
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                // Card Size Slider
+                                const Icon(Icons.photo_size_select_large, size: 14, color: Colors.white38),
+                                const SizedBox(width: 6),
+                                const Text('Card Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                                SizedBox(
+                                  width: 110,
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                      activeTrackColor: theme.primaryColor,
+                                      inactiveTrackColor: Colors.white10,
+                                      thumbColor: theme.primaryColor,
+                                      overlayColor: theme.primaryColor.withOpacity(0.12),
+                                    ),
+                                    child: Slider(
+                                      value: _vodScale,
+                                      min: 200.0,
+                                      max: 600.0,
+                                      onChanged: (val) {
+                                        setState(() {
+                                          _vodScale = val;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                // Font Size Slider
+                                const Icon(Icons.format_size, size: 14, color: Colors.white38),
+                                const SizedBox(width: 6),
+                                const Text('Font: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                                SizedBox(
+                                  width: 90,
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                      activeTrackColor: theme.primaryColor,
+                                      inactiveTrackColor: Colors.white10,
+                                      thumbColor: theme.primaryColor,
+                                      overlayColor: theme.primaryColor.withOpacity(0.12),
+                                    ),
+                                    child: Slider(
+                                      value: _vodTitleFontSize,
+                                      min: 11.0,
+                                      max: 20.0,
+                                      onChanged: (val) {
+                                        setState(() {
+                                          _vodTitleFontSize = val;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      ),
                       if (_isLoadingVods) ...[
                         const SizedBox(width: 12),
                         const SizedBox(
@@ -1967,26 +2523,30 @@ class _MainScreenState extends State<MainScreen> {
       );
     }
     
-    if (_channelVods.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 40),
+    final searchQuery = _vodSearchController.text.trim().toLowerCase();
+    final filteredVods = searchQuery.isEmpty
+        ? _channelVods
+        : _channelVods.where((vod) => vod.title.toLowerCase().contains(searchQuery)).toList();
+
+    if (filteredVods.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
         child: Center(
-          child: Text('No past broadcasts found.', style: TextStyle(color: Colors.white38, fontSize: 13)),
+          child: Text(
+            searchQuery.isEmpty ? 'No past broadcasts found.' : 'No VODs match "$searchQuery".',
+            style: const TextStyle(color: Colors.white38, fontSize: 13),
+          ),
         ),
       );
     }
 
-    // Grid ratio adjusts slightly as we resize to give enough vertical space for titles/buttons
-    final childAspectRatio = _vodScale < 250
-        ? 0.72
-        : _vodScale < 350
-            ? 0.78
-            : 0.82;
+    // Dynamic Aspect Ratio based on VOD Card scale slider to optimize space (more landscape/square layout)
+    final childAspectRatio = 1.0 + ((_vodScale - 200) / 400.0) * 0.25;
 
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _channelVods.length,
+      itemCount: filteredVods.length,
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: _vodScale,
         crossAxisSpacing: 16,
@@ -1994,132 +2554,213 @@ class _MainScreenState extends State<MainScreen> {
         childAspectRatio: childAspectRatio,
       ),
       itemBuilder: (context, index) {
-        final vod = _channelVods[index];
-        final w = _vodScale.round().clamp(200, 1280);
-        final h = (w * 9 / 16).round();
-        final thumbnailUrl = vod.thumbnailUrl.isNotEmpty
-            ? vod.thumbnailUrl.replaceAll('%{width}', w.toString()).replaceAll('%{height}', h.toString())
-            : null;
-            
-        return Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF161B26),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF1E2433)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 16:9 Thumbnail Header with duration badge
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(12),
-                    topRight: Radius.circular(12),
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      thumbnailUrl != null
-                          ? Image.network(
-                              thumbnailUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => Container(
-                                color: const Color(0xFF1F2937),
-                                child: const Icon(Icons.movie, color: Colors.white30, size: 32),
-                              ),
-                            )
-                          : Container(
-                              color: const Color(0xFF1F2937),
-                              child: const Icon(Icons.movie, color: Colors.white30, size: 32),
-                            ),
-                      Positioned(
-                        bottom: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.75),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            vod.duration,
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              // Metadata & Play Button Section
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        vod.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
-                      ),
-                      const Spacer(),
-                      Row(
-                        children: [
-                          const Icon(Icons.calendar_today, size: 11, color: Colors.white38),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              '${vod.publishedAt.toLocal().toString().substring(0, 10)} ${vod.publishedAt.toLocal().toString().substring(11, 16)}',
-                              style: const TextStyle(fontSize: 11, color: Colors.white38),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.visibility, size: 11, color: Colors.white38),
-                          const SizedBox(width: 6),
-                          Text(
-                            _formatNumberString(vod.viewCount),
-                            style: const TextStyle(fontSize: 11, color: Colors.white38),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 36,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.primaryColor,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            padding: EdgeInsets.zero,
-                          ),
-                          onPressed: () => _launchStreamlinkForVod(vod),
-                          icon: const Icon(Icons.play_arrow, size: 16, color: Colors.white),
-                          label: const Text('Play VOD', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+        final vod = filteredVods[index];
+        return TwitchVideoCard(
+          vod: vod,
+          scale: _vodScale,
+          theme: theme,
+          onPlay: () => _launchStreamlinkForVod(vod),
+          formatNumber: _formatNumberString,
+          fontSize: _vodTitleFontSize,
+          isPlaying: _playingVodId == vod.id,
+          pulseController: _pulseController,
         );
       },
     );
   }
 
+  Widget _buildCollapsedSidebar(ThemeData theme) {
+    final activeList = _sidebarTab == 0 ? _channels : _followedChannels;
+    
+    return Column(
+      children: [
+        const SizedBox(height: 16),
+        // Expand Toggle Button
+        IconButton(
+          icon: const Icon(Icons.keyboard_double_arrow_right, color: Colors.white70, size: 24),
+          tooltip: 'Expand sidebar',
+          onPressed: () => setState(() => _sidebarCollapsed = false),
+          hoverColor: theme.primaryColor.withOpacity(0.2),
+          splashRadius: 22,
+        ),
+        IconButton(
+          icon: const Icon(Icons.settings, color: Colors.white70, size: 20),
+          tooltip: 'Settings',
+          onPressed: _showSettingsDialog,
+          hoverColor: theme.primaryColor.withOpacity(0.2),
+          splashRadius: 22,
+        ),
+        const SizedBox(height: 10),
+        const Divider(color: Color(0xFF1E2433), height: 1.5, thickness: 1.5),
+        const SizedBox(height: 16),
+        
+        // Tab toggle button (Custom List vs Followed List)
+        (() {
+          bool isHovered = false;
+          return StatefulBuilder(
+            builder: (context, setHoverState) {
+              return MouseRegion(
+                onEnter: (_) => setHoverState(() => isHovered = true),
+                onExit: (_) => setHoverState(() => isHovered = false),
+                child: Tooltip(
+                  message: _sidebarTab == 0 ? 'Custom List (Click to switch to Followed)' : 'Followed List (Click to switch to Custom)',
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          _sidebarTab = _sidebarTab == 0 ? 1 : 0;
+                          if (_sidebarTab == 1 && _followedChannels.isEmpty && !_isLoadingFollowed) {
+                            _loadFollowedChannels();
+                          }
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: theme.primaryColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: theme.primaryColor, width: 1.5),
+                        ),
+                        child: Icon(
+                          isHovered
+                              ? Icons.swap_horiz
+                              : (_sidebarTab == 0 ? Icons.star : Icons.people),
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        })(),
+        
+        const SizedBox(height: 16),
+        
+        // Global refresh action (icon button in collapsed mode)
+        Tooltip(
+          message: _sidebarTab == 0 ? 'Refresh Custom List' : 'Refresh Followed List',
+          child: IconButton(
+            icon: _isGlobalLoading || _isLoadingFollowed
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.refresh, color: Colors.white70, size: 18),
+            onPressed: _isGlobalLoading || _isLoadingFollowed
+                ? null
+                : (_sidebarTab == 0 ? _refreshAllChannels : _loadFollowedChannels),
+            hoverColor: theme.primaryColor.withOpacity(0.2),
+            splashRadius: 20,
+          ),
+        ),
+        
+        const SizedBox(height: 10),
+        const Divider(color: Color(0xFF1E2433), height: 1, thickness: 1),
+        const SizedBox(height: 12),
+        
+        // Collapsed channels list showing round avatar images with status glows & tooltips
+        Expanded(
+          child: ListView.builder(
+            itemCount: activeList.length,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemBuilder: (context, index) {
+              final ch = activeList[index];
+              final isSelected = _selectedChannel?.username == ch.username;
+              
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Tooltip(
+                  message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _selectedChannel = ch;
+                        _channelVods.clear();
+                        _isLoadingVods = true;
+                        _vodsError = null;
+                      });
+                      _fetchChannelStats(ch);
+                      if (_settings.twitchOauthToken.trim().isNotEmpty) {
+                        _fetchVodsForChannel(ch);
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(2.5),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected
+                              ? theme.primaryColor
+                              : (ch.isLive ? Colors.redAccent.withOpacity(0.4) : Colors.transparent),
+                          width: 2.0,
+                        ),
+                      ),
+                      child: Stack(
+                        alignment: Alignment.bottomRight,
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: const Color(0xFF1F2937),
+                            backgroundImage: ch.avatarUrl != null ? NetworkImage(ch.avatarUrl!) : null,
+                            child: ch.avatarUrl == null
+                                ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                : null,
+                          ),
+                          if (ch.isLive)
+                            Positioned(
+                              bottom: 0,
+                              right: 0,
+                              child: Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: Colors.redAccent,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: const Color(0xFF111420), width: 1),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOverlayActionItem({required IconData icon, required String label, VoidCallback? onPressed}) {
+    return SizedBox(
+      width: double.infinity,
+      height: 32,
+      child: TextButton.icon(
+        style: TextButton.styleFrom(
+          alignment: Alignment.centerLeft,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        ),
+        onPressed: onPressed,
+        icon: Icon(icon, size: 14, color: Colors.white70),
+        label: Text(label, style: const TextStyle(fontSize: 12)),
+      ),
+    );
+  }
+
   // Dashboard Header widget
   Widget _buildHeaderCard(ThemeData theme, TwitchChannel channel) {
+    final isSmall = MediaQuery.of(context).size.width < 950;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -2137,67 +2778,208 @@ class _MainScreenState extends State<MainScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Row 1: Profile Avatar & Info
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Profile Avatar
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: channel.isLive ? Colors.greenAccent : Colors.white24,
-                    width: 2.5,
+              // Avatar Left Block (width: 90)
+              SizedBox(
+                width: 90,
+                child: Center(
+                  child: AnimatedBuilder(
+                    animation: _pulseController!,
+                    builder: (context, child) {
+                      final pulseVal = _pulseController!.value;
+                      return Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: channel.isLive
+                                ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
+                                : Colors.white24,
+                            width: 2.5,
+                          ),
+                          boxShadow: channel.isLive
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.redAccent.withOpacity(0.2 * pulseVal),
+                                    blurRadius: 8 + 8 * pulseVal,
+                                    spreadRadius: 1 + 2 * pulseVal,
+                                  )
+                                ]
+                              : null,
+                        ),
+                        child: CircleAvatar(
+                          radius: 36,
+                          backgroundColor: const Color(0xFF1F2937),
+                          backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
+                          child: channel.avatarUrl == null
+                              ? const Icon(Icons.person, size: 36, color: Colors.white70)
+                              : null,
+                        ),
+                      );
+                    },
                   ),
-                ),
-                child: CircleAvatar(
-                  radius: 36,
-                  backgroundColor: const Color(0xFF1F2937),
-                  backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
-                  child: channel.avatarUrl == null
-                      ? const Icon(Icons.person, size: 36, color: Colors.white70)
-                      : null,
                 ),
               ),
               const SizedBox(width: 20),
               
-              // Info & Status
+              // Info Column & Actions (Blue Area)
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Username & Status (left), Action buttons (right - Blue Area)
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          channel.username,
-                          style: theme.textTheme.titleLarge?.copyWith(fontSize: 22),
-                        ),
-                        const SizedBox(width: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: channel.isLive
-                                ? Colors.green.withOpacity(0.15)
-                                : Colors.grey.withOpacity(0.15),
-                            border: Border.all(
-                              color: channel.isLive ? Colors.greenAccent : Colors.grey,
-                              width: 1,
+                        Row(
+                          children: [
+                            Text(
+                              channel.username,
+                              style: theme.textTheme.titleLarge?.copyWith(fontSize: 22),
                             ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            channel.isLive ? 'LIVE' : 'OFFLINE',
-                            style: TextStyle(
-                              color: channel.isLive ? Colors.greenAccent : Colors.grey,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
+                            const SizedBox(width: 10),
+                            if (channel.isLive)
+                              AnimatedBuilder(
+                                animation: _pulseController!,
+                                builder: (context, child) {
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.withOpacity(0.15 + 0.1 * _pulseController!.value),
+                                      border: Border.all(
+                                        color: Colors.redAccent.withOpacity(0.4 + 0.6 * _pulseController!.value),
+                                        width: 1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Text(
+                                      'LIVE',
+                                      style: TextStyle(
+                                        color: Colors.redAccent,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              )
+                            else
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.withOpacity(0.15),
+                                  border: Border.all(
+                                    color: Colors.grey,
+                                    width: 1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text(
+                                  'OFFLINE',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
+                        
+                        // Action buttons (Blue Area)
+                        isSmall
+                            ? HoverOverlayMenu(
+                                trigger: MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1E2433),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.white10),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.more_vert, color: Colors.white70, size: 16),
+                                        SizedBox(width: 4),
+                                        Text('Actions', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                menu: Container(
+                                  width: 160,
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF161B26),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFF1E2433)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.5),
+                                        blurRadius: 10,
+                                      )
+                                    ],
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _buildOverlayActionItem(
+                                        icon: Icons.open_in_new,
+                                        label: 'Open Channel',
+                                        onPressed: () {
+                                          _openExternalLink('https://twitch.tv/${channel.username}');
+                                        },
+                                      ),
+                                      const SizedBox(height: 4),
+                                      _buildOverlayActionItem(
+                                        icon: Icons.chat_bubble_outline,
+                                        label: 'Open Chat',
+                                        onPressed: () {
+                                          _openExternalLink('https://twitch.tv/${channel.username}/chat');
+                                        },
+                                      ),
+                                      const SizedBox(height: 4),
+                                      _buildOverlayActionItem(
+                                        icon: Icons.refresh,
+                                        label: 'Refresh Stats',
+                                        onPressed: channel.isLoading ? null : () => _fetchChannelStats(channel),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildMiniActionBtn(
+                                    icon: Icons.open_in_new,
+                                    tooltip: 'Open Twitch channel',
+                                    onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _buildMiniActionBtn(
+                                    icon: Icons.chat_bubble_outline,
+                                    tooltip: 'Open Twitch chat popout',
+                                    onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}/chat'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _buildMiniActionBtn(
+                                    icon: Icons.refresh,
+                                    tooltip: 'Refresh statistics',
+                                    onPressed: channel.isLoading ? null : () => _fetchChannelStats(channel),
+                                  ),
+                                ],
+                              ),
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
                     if (channel.isLive && channel.streamTitle != null) ...[
                       Text(
                         channel.streamTitle!,
@@ -2220,116 +3002,107 @@ class _MainScreenState extends State<MainScreen> {
                   ],
                 ),
               ),
-              const SizedBox(width: 20),
-              
-              // Quick actions container
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.primaryColor,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(160, 44),
-                      shadowColor: theme.primaryColor.withOpacity(0.4),
-                      elevation: 6,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    onPressed: () => _launchStreamlink(channel.username),
-                    icon: const Icon(Icons.play_arrow, size: 18),
-                    label: const Text('Launch Streamlink', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildMiniActionBtn(
-                        icon: Icons.open_in_new,
-                        tooltip: 'Open Twitch channel',
-                        onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}'),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildMiniActionBtn(
-                        icon: Icons.chat_bubble_outline,
-                        tooltip: 'Open Twitch chat popout',
-                        onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}/chat'),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildMiniActionBtn(
-                        icon: Icons.refresh,
-                        tooltip: 'Refresh statistics',
-                        onPressed: channel.isLoading ? null : () => _fetchChannelStats(channel),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
             ],
           ),
           
-          const SizedBox(height: 16),
-          const Divider(color: Colors.white10, height: 1),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           
-          // Compact Metadata chips Row
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
+          // Row 2: PLAY Button & Stats Chips (perfectly aligned horizontally!)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              if (channel.isLive) ...[
-                _buildHeaderChip(
-                  icon: Icons.visibility,
-                  color: Colors.redAccent,
-                  label: '${channel.viewerCount ?? "0"} viewers',
+              // PLAY Button Left Block (width: 90 - matches avatar column alignment)
+              SizedBox(
+                width: 90,
+                height: 32,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    elevation: 4,
+                  ),
+                  onPressed: () => _launchStreamlink(channel.username),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.play_arrow, size: 16),
+                      SizedBox(width: 4),
+                      Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ],
+                  ),
                 ),
-                _buildHeaderChip(
-                  icon: Icons.schedule,
-                  color: Colors.orangeAccent,
-                  label: channel.uptime ?? 'Live',
+              ),
+              const SizedBox(width: 20),
+              
+              // Stats Chips Block (Red Area)
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (channel.isLive) ...[
+                      _buildHeaderChip(
+                        icon: Icons.visibility,
+                        color: Colors.redAccent,
+                        label: '${channel.viewerCount ?? "0"} viewers',
+                      ),
+                      _buildHeaderChip(
+                        icon: Icons.schedule,
+                        color: Colors.orangeAccent,
+                        label: channel.uptime ?? 'Live',
+                      ),
+                    ],
+                    _buildHeaderChip(
+                      icon: Icons.people,
+                      color: theme.primaryColor,
+                      label: '${channel.followerCount ?? "N/A"} followers',
+                    ),
+                    _buildHeaderChip(
+                      icon: Icons.update,
+                      color: Colors.white38,
+                      label: channel.lastUpdated != null
+                          ? 'Updated: ${_timeAgo(channel.lastUpdated!)}'
+                          : 'Not updated',
+                    ),
+                  ],
                 ),
-              ],
-              _buildHeaderChip(
-                icon: Icons.people,
-                color: theme.primaryColor,
-                label: '${channel.followerCount ?? "N/A"} followers',
-              ),
-              _buildHeaderChip(
-                icon: Icons.badge,
-                color: Colors.white38,
-                label: 'ID: ${channel.id ?? "Unknown"}',
-              ),
-              _buildHeaderChip(
-                icon: Icons.update,
-                color: Colors.white38,
-                label: channel.lastUpdated != null
-                    ? 'Updated: ${channel.lastUpdated!.toLocal().toString().substring(11, 19)}'
-                    : 'Not updated',
               ),
             ],
           ),
           
           if (channel.errorMessage != null) ...[
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Error: ${channel.errorMessage}',
-                      style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis,
+            Row(
+              children: [
+                const SizedBox(width: 90),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Error: ${channel.errorMessage}',
+                            style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ],
@@ -2544,6 +3317,87 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class HoverOverlayMenu extends StatefulWidget {
+  final Widget trigger;
+  final Widget menu;
+  
+  const HoverOverlayMenu({
+    Key? key,
+    required this.trigger,
+    required this.menu,
+  }) : super(key: key);
+
+  @override
+  State<HoverOverlayMenu> createState() => _HoverOverlayMenuState();
+}
+
+class _HoverOverlayMenuState extends State<HoverOverlayMenu> {
+  OverlayEntry? _entry;
+  final LayerLink _layerLink = LayerLink();
+  bool _isHovered = false;
+
+  void _showMenu() {
+    if (_entry != null) return;
+    
+    _entry = OverlayEntry(
+      builder: (context) => Positioned(
+        child: CompositedTransformFollower(
+          link: _layerLink,
+          showWhenUnlinked: false,
+          targetAnchor: Alignment.bottomRight,
+          followerAnchor: Alignment.topRight,
+          offset: const Offset(0, 8),
+          child: MouseRegion(
+            onEnter: (_) {
+              setState(() => _isHovered = true);
+            },
+            onExit: (_) {
+              setState(() => _isHovered = false);
+              _hideMenu();
+            },
+            child: widget.menu,
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_entry!);
+  }
+
+  void _hideMenu() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (!mounted) return;
+      if (!_isHovered) {
+        _entry?.remove();
+        _entry = null;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _entry?.remove();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: MouseRegion(
+        onEnter: (_) {
+          setState(() => _isHovered = true);
+          _showMenu();
+        },
+        onExit: (_) {
+          setState(() => _isHovered = false);
+          _hideMenu();
+        },
+        child: widget.trigger,
       ),
     );
   }
