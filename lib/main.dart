@@ -1801,71 +1801,58 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 ? _buildCollapsedSidebar(theme)
                 : Column(
                     children: [
-                      // Collapse toggle button at the very top (prominent, size: 24)
                       Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(top: 8, right: 8),
-                        child: IconButton(
-                          icon: const Icon(Icons.keyboard_double_arrow_left, color: Colors.white70, size: 24),
-                          tooltip: 'Collapse Sidebar',
-                          onPressed: () => setState(() => _sidebarCollapsed = true),
-                          hoverColor: theme.primaryColor.withOpacity(0.2),
-                          splashRadius: 22,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                        decoration: const BoxDecoration(
+                          border: Border(bottom: BorderSide(color: Color(0xFF1E2433), width: 1.5)),
                         ),
-                      ),
-                      // Header / Branding
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Color(0xFF1E2433), width: 1.5)),
-                  ),
-                  child: Row(
-                    children: [
-                      _authenticatedUserAvatar != null
-                          ? CircleAvatar(
-                              radius: 20,
-                              backgroundColor: const Color(0xFF1F2937),
-                              backgroundImage: NetworkImage(_authenticatedUserAvatar!),
-                            )
-                          : Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: theme.primaryColor.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: theme.primaryColor, width: 1.5),
-                              ),
-                              child: Icon(Icons.live_tv, color: theme.colorScheme.secondary, size: 24),
-                            ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
                           children: [
-                            Text(
-                              'Streamlink Twitch',
-                              style: theme.textTheme.titleLarge?.copyWith(fontSize: 18),
-                              overflow: TextOverflow.ellipsis,
+                            _authenticatedUserAvatar != null
+                                ? CircleAvatar(
+                                    radius: 20,
+                                    backgroundColor: const Color(0xFF1F2937),
+                                    backgroundImage: NetworkImage(_authenticatedUserAvatar!),
+                                  )
+                                : Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: theme.primaryColor.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: theme.primaryColor, width: 1.5),
+                                    ),
+                                    child: Icon(Icons.live_tv, color: theme.colorScheme.secondary, size: 24),
+                                  ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Streamlink Twitch',
+                                    style: theme.textTheme.titleLarge?.copyWith(fontSize: 18),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    _authenticatedUserLogin != null
+                                        ? 'User: $_authenticatedUserLogin'
+                                        : 'DecAPI Live stats manager',
+                                    style: theme.textTheme.bodyMedium?.copyWith(fontSize: 11),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
                             ),
-                            Text(
-                              _authenticatedUserLogin != null
-                                  ? 'User: $_authenticatedUserLogin'
-                                  : 'DecAPI Live stats manager',
-                              style: theme.textTheme.bodyMedium?.copyWith(fontSize: 11),
-                              overflow: TextOverflow.ellipsis,
+                            IconButton(
+                              icon: const Icon(Icons.keyboard_double_arrow_left, color: Colors.white70, size: 20),
+                              tooltip: 'Collapse Sidebar',
+                              onPressed: () => setState(() => _sidebarCollapsed = true),
+                              hoverColor: theme.primaryColor.withOpacity(0.2),
+                              splashRadius: 20,
                             ),
                           ],
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.settings, color: Colors.white70, size: 20),
-                        tooltip: 'Settings',
-                        onPressed: _showSettingsDialog,
-                        hoverColor: theme.primaryColor.withOpacity(0.2),
-                        splashRadius: 20,
-                      ),
-                    ],
-                  ),
-                ),
                 
                 // Add channel section
                 Padding(
@@ -2162,6 +2149,26 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                         },
                       );
                     },
+                  ),
+                ),
+                // Settings bottom bar (Bottom Left)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: const BoxDecoration(
+                    border: Border(top: BorderSide(color: Color(0xFF1E2433), width: 1)),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.settings, color: Colors.white60, size: 20),
+                        tooltip: 'Settings',
+                        onPressed: _showSettingsDialog,
+                        hoverColor: theme.primaryColor.withOpacity(0.2),
+                        splashRadius: 20,
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -2583,13 +2590,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           hoverColor: theme.primaryColor.withOpacity(0.2),
           splashRadius: 22,
         ),
-        IconButton(
-          icon: const Icon(Icons.settings, color: Colors.white70, size: 20),
-          tooltip: 'Settings',
-          onPressed: _showSettingsDialog,
-          hoverColor: theme.primaryColor.withOpacity(0.2),
-          splashRadius: 22,
-        ),
         const SizedBox(height: 10),
         const Divider(color: Color(0xFF1E2433), height: 1.5, thickness: 1.5),
         const SizedBox(height: 16),
@@ -2734,6 +2734,26 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 ),
               );
             },
+          ),
+        ),
+        
+        // Settings bottom bar (Bottom Center)
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          width: double.infinity,
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: Color(0xFF1E2433), width: 1)),
+          ),
+          child: Center(
+            child: IconButton(
+              icon: const Icon(Icons.settings, color: Colors.white60, size: 20),
+              tooltip: 'Settings',
+              onPressed: _showSettingsDialog,
+              hoverColor: theme.primaryColor.withOpacity(0.2),
+              splashRadius: 20,
+              constraints: const BoxConstraints(),
+              padding: EdgeInsets.zero,
+            ),
           ),
         ),
       ],
