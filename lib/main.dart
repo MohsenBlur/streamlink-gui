@@ -183,6 +183,51 @@ class TwitchVideoCard extends StatefulWidget {
 
 class _TwitchVideoCardState extends State<TwitchVideoCard> {
   bool _isHovered = false;
+  List<String>? _games;
+  bool _isLoadingGames = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGames();
+  }
+
+  @override
+  void didUpdateWidget(covariant TwitchVideoCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.vod.id != widget.vod.id) {
+      _games = null;
+      _loadGames();
+    }
+  }
+
+  Future<void> _loadGames() async {
+    if (widget.vod.id.isEmpty) return;
+    setState(() {
+      _isLoadingGames = true;
+    });
+    try {
+      final response = await http.get(Uri.parse('https://decapi.me/twitch/video_game/${widget.vod.id}'));
+      if (response.statusCode == 200) {
+        final resText = response.body.trim();
+        if (resText.isNotEmpty && !resText.toLowerCase().contains('invalid video') && !resText.toLowerCase().contains('error')) {
+          if (mounted) {
+            setState(() {
+              _games = resText.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+            });
+          }
+        }
+      }
+    } catch (_) {
+      // Fail silently, games stays null
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingGames = false;
+        });
+      }
+    }
+  }
 
   String _formatTwitchStyleDuration(String duration) {
     final hourReg = RegExp(r'(\d+)h');
@@ -228,6 +273,65 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
     } else {
       return 'just now';
     }
+  }
+
+  Widget _buildGameBadge(ThemeData theme) {
+    final firstGame = _games![0];
+    final hasMultiple = _games!.length > 1;
+    
+    final mainBadge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.sports_esports, size: 10, color: Colors.white70),
+          const SizedBox(width: 4),
+          Text(
+            firstGame,
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+        ],
+      ),
+    );
+
+    if (!hasMultiple) return mainBadge;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // Back card layer 2
+        Positioned(
+          top: 4,
+          left: 4,
+          right: -4,
+          bottom: -4,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.4),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ),
+        // Back card layer 1
+        Positioned(
+          top: 2,
+          left: 2,
+          right: -2,
+          bottom: -2,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ),
+        mainBadge,
+      ],
+    );
   }
 
   @override
@@ -326,36 +430,68 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                           ),
                         ),
 
-                        // Top right NOW PLAYING badge if active
-                        if (widget.isPlaying && widget.pulseController != null)
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: widget.theme.primaryColor.withOpacity(0.85 + 0.15 * widget.pulseController!.value),
-                                borderRadius: BorderRadius.circular(4),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: widget.theme.primaryColor.withOpacity(0.5 * widget.pulseController!.value),
-                                    blurRadius: 4,
-                                  )
-                                ]
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.play_arrow, size: 10, color: Colors.white),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'NOW PLAYING',
-                                    style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                        // Top right Overlays (Videogame Badge & NOW PLAYING badge)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (_games != null && _games!.isNotEmpty) ...[
+                                Tooltip(
+                                  message: _games!.join('\n'),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF161B26),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: const Color(0xFF1E2433)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.3),
+                                        blurRadius: 6,
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            ),
+                                  textStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  preferBelow: true,
+                                  child: _buildGameBadge(widget.theme),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              if (widget.isPlaying && widget.pulseController != null)
+                                AnimatedBuilder(
+                                  animation: widget.pulseController!,
+                                  builder: (context, child) {
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: widget.theme.primaryColor.withOpacity(0.85 + 0.15 * widget.pulseController!.value),
+                                        borderRadius: BorderRadius.circular(4),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: widget.theme.primaryColor.withOpacity(0.5 * widget.pulseController!.value),
+                                            blurRadius: 4,
+                                          )
+                                        ]
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.play_arrow, size: 10, color: Colors.white),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'NOW PLAYING',
+                                            style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                            ],
                           ),
+                        ),
 
                         // High-Contrast Hover Play Icon Overlay
                         Center(
