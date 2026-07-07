@@ -65,6 +65,8 @@ class AppSettings {
   String playerType = 'default';
   String customPlayerPath = '';
   String customPlayerArgs = '';
+  String twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+  int localServerPort = 65432;
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -73,6 +75,8 @@ class AppSettings {
     this.playerType = 'default',
     this.customPlayerPath = '',
     this.customPlayerArgs = '',
+    this.twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+    this.localServerPort = 65432,
   });
 
   Map<String, dynamic> toJson() => {
@@ -82,6 +86,8 @@ class AppSettings {
         'player_type': playerType,
         'custom_player_path': customPlayerPath,
         'custom_player_args': customPlayerArgs,
+        'twitch_client_id': twitchClientId,
+        'local_server_port': localServerPort,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -91,6 +97,8 @@ class AppSettings {
         playerType: json['player_type'] ?? 'default',
         customPlayerPath: json['custom_player_path'] ?? '',
         customPlayerArgs: json['custom_player_args'] ?? '',
+        twitchClientId: json['twitch_client_id'] ?? 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+        localServerPort: json['local_server_port'] ?? 65432,
       );
 }
 
@@ -115,6 +123,38 @@ class TwitchChannel {
       TwitchChannel(username: json['username'] as String);
 }
 
+class TwitchVideo {
+  final String id;
+  final String title;
+  final String duration;
+  final String thumbnailUrl;
+  final String viewCount;
+  final DateTime publishedAt;
+
+  TwitchVideo({
+    required this.id,
+    required this.title,
+    required this.duration,
+    required this.thumbnailUrl,
+    required this.viewCount,
+    required this.publishedAt,
+  });
+
+  factory TwitchVideo.fromJson(Map<String, dynamic> json) {
+    final rawDuration = json['duration'] as String? ?? '0s';
+    final rawViewCount = json['view_count'] as int? ?? 0;
+    
+    return TwitchVideo(
+      id: json['id'] as String,
+      title: json['title'] as String? ?? 'No Title',
+      duration: rawDuration,
+      thumbnailUrl: json['thumbnail_url'] as String? ?? '',
+      viewCount: rawViewCount.toString(),
+      publishedAt: DateTime.parse(json['published_at'] as String),
+    );
+  }
+}
+
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -130,6 +170,17 @@ class _MainScreenState extends State<MainScreen> {
   bool _isAdding = false;
   final AppSettings _settings = AppSettings();
 
+  HttpServer? _oauthServer;
+  List<TwitchChannel> _followedChannels = [];
+  bool _isLoadingFollowed = false;
+  String? _authenticatedUserLogin;
+  String? _authenticatedUserAvatar;
+  int _sidebarTab = 0; // 0 = Custom List, 1 = Followed
+  List<TwitchVideo> _channelVods = [];
+  bool _isLoadingVods = false;
+  String? _vodsError;
+  double _vodScale = 350.0;
+
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
     bool tempLowLatency = _settings.twitchLowLatency;
@@ -137,6 +188,8 @@ class _MainScreenState extends State<MainScreen> {
     final tokenController = TextEditingController(text: _settings.twitchOauthToken);
     final playerPathController = TextEditingController(text: _settings.customPlayerPath);
     final playerArgsController = TextEditingController(text: _settings.customPlayerArgs);
+    final clientIdController = TextEditingController(text: _settings.twitchClientId);
+    final portController = TextEditingController(text: _settings.localServerPort.toString());
     bool obscureToken = true;
 
     showDialog(
@@ -245,32 +298,138 @@ class _MainScreenState extends State<MainScreen> {
                       const SizedBox(height: 12),
                       const Divider(color: Colors.white12),
                       const SizedBox(height: 12),
+                      const Text('Twitch API Authentication', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0C0F17),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white10),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      _settings.twitchOauthToken.trim().isNotEmpty ? Icons.check_circle : Icons.error_outline,
+                                      color: _settings.twitchOauthToken.trim().isNotEmpty ? Colors.green : Colors.orange,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _settings.twitchOauthToken.trim().isNotEmpty
+                                          ? (_authenticatedUserLogin != null ? 'Connected: $_authenticatedUserLogin' : 'Connected')
+                                          : 'Not connected',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: _settings.twitchOauthToken.trim().isNotEmpty ? Colors.green : Colors.orange,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: theme.primaryColor,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () {
+                                    // Start local server and open browser
+                                    _startOAuthServer();
+                                    Navigator.pop(context);
+                                  },
+                                  icon: const Icon(Icons.login, size: 12, color: Colors.white),
+                                  label: const Text('Connect Account', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                ),
+                              ],
+                            ),
+                            if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Connecting allows you to automatically load your followed channels, view channel VOD lists, stream subscriber-only feeds, and remove ads.',
+                                style: TextStyle(fontSize: 10, color: Colors.white38, height: 1.4),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Twitch OAuth Token (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                          TextButton(
-                            onPressed: () => _openExternalLink('https://twitchapps.com/tmi/'),
-                            child: const Text('Get Token', style: TextStyle(fontSize: 11)),
+                          Expanded(
+                            flex: 3,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Twitch Client ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                const SizedBox(height: 4),
+                                TextField(
+                                  controller: clientIdController,
+                                  style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Twitch Client ID',
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 2,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Local Port', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                const SizedBox(height: 4),
+                                TextField(
+                                  controller: portController,
+                                  style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
+                                  keyboardType: TextInputType.number,
+                                  decoration: const InputDecoration(
+                                    hintText: '65432',
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Twitch OAuth Token (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          TextButton(
+                            style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                            onPressed: () => _openExternalLink('https://twitchapps.com/tmi/'),
+                            child: const Text('Get Token Manually', style: TextStyle(fontSize: 11)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
                       TextField(
                         controller: tokenController,
                         obscureText: obscureToken,
-                        style: const TextStyle(fontSize: 13, fontFamily: 'Consolas'),
+                        style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
                         decoration: InputDecoration(
                           hintText: 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                           suffixIcon: IconButton(
-                            icon: Icon(obscureToken ? Icons.visibility : Icons.visibility_off, size: 18),
+                            icon: Icon(obscureToken ? Icons.visibility : Icons.visibility_off, size: 16),
                             onPressed: () => setDialogState(() => obscureToken = !obscureToken),
+                            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                            padding: EdgeInsets.zero,
                           ),
                         ),
-                      ),
-                      const Text(
-                        'Using an OAuth token allows viewing subscriber-only streams and removes ads if subscribed or Turbo member.',
-                        style: TextStyle(fontSize: 10, color: Colors.white38, height: 1.4),
                       ),
                     ],
                   ),
@@ -291,8 +450,23 @@ class _MainScreenState extends State<MainScreen> {
                       _settings.twitchOauthToken = tokenController.text.trim();
                       _settings.customPlayerPath = playerPathController.text.trim();
                       _settings.customPlayerArgs = playerArgsController.text.trim();
+                      _settings.twitchClientId = clientIdController.text.trim();
+                      _settings.localServerPort = int.tryParse(portController.text.trim()) ?? 65432;
                     });
                     await _saveChannels();
+                    
+                    // Re-trigger load followed channels if token is present
+                    if (_settings.twitchOauthToken.trim().isNotEmpty) {
+                      _loadFollowedChannels();
+                    } else {
+                      setState(() {
+                        _followedChannels.clear();
+                        _authenticatedUserLogin = null;
+                        _authenticatedUserAvatar = null;
+                        _sidebarTab = 0;
+                      });
+                    }
+
                     if (mounted) {
                       Navigator.pop(context);
                       _showSnackBar('Settings saved successfully!', isError: false);
@@ -326,6 +500,7 @@ class _MainScreenState extends State<MainScreen> {
     _activeStreamlinkProcess?.kill();
     _searchController.dispose();
     _consoleScrollController.dispose();
+    _oauthServer?.close(force: true);
     super.dispose();
   }
 
@@ -431,6 +606,8 @@ class _MainScreenState extends State<MainScreen> {
                 _settings.playerType = settingsJson['player_type'] ?? 'default';
                 _settings.customPlayerPath = settingsJson['custom_player_path'] ?? '';
                 _settings.customPlayerArgs = settingsJson['custom_player_args'] ?? '';
+                _settings.twitchClientId = settingsJson['twitch_client_id'] ?? 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+                _settings.localServerPort = settingsJson['local_server_port'] ?? 65432;
               });
             }
           }
@@ -454,6 +631,9 @@ class _MainScreenState extends State<MainScreen> {
 
       // Fetch stats for all loaded channels
       await _refreshAllChannels();
+      if (_settings.twitchOauthToken.trim().isNotEmpty) {
+        _loadFollowedChannels();
+      }
     } catch (e) {
       _showSnackBar('Error loading saved channels: $e', isError: true);
     } finally {
@@ -477,7 +657,391 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  String _getRawOauthToken() {
+    String token = _settings.twitchOauthToken.trim();
+    if (token.startsWith('oauth:')) {
+      token = token.substring(6);
+    }
+    return token;
+  }
+
+  Future<void> _startOAuthServer() async {
+    if (_oauthServer != null) {
+      try {
+        await _oauthServer!.close(force: true);
+      } catch (_) {}
+    }
+
+    final port = _settings.localServerPort;
+    try {
+      _oauthServer = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+      _showSnackBar('OAuth server started on port $port. Opening browser...', isError: false);
+
+      final clientId = _settings.twitchClientId.trim().isNotEmpty
+          ? _settings.twitchClientId.trim()
+          : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+      final authUrl = 'https://id.twitch.tv/oauth2/authorize'
+          '?client_id=$clientId'
+          '&redirect_uri=http://localhost:$port'
+          '&response_type=token'
+          '&scope=user:read:follows';
+
+      await _openExternalLink(authUrl);
+
+      _oauthServer!.listen((HttpRequest request) async {
+        final response = request.response;
+        response.headers.contentType = ContentType.html;
+
+        if (request.uri.path == '/') {
+          response.write('''
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Twitch Streamlink GUI Login</title>
+  <style>
+    body {
+      background-color: #0c0f17;
+      color: #ffffff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card {
+      background-color: #161b26;
+      border: 1px solid #1e2433;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+      text-align: center;
+      max-width: 400px;
+    }
+    h2 { color: #9146ff; margin-top: 0; }
+    .spinner {
+      border: 4px solid rgba(255,255,255,0.1);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border-left-color: #9146ff;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Twitch Authorization</h2>
+    <div id="status">Connecting with Streamlink Twitch GUI...</div>
+    <div id="loader" class="spinner"></div>
+  </div>
+  <script>
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const token = params.get('access_token');
+    if (token) {
+      fetch('/token?access_token=' + token)
+        .then(() => {
+          document.getElementById('status').innerText = 'Authentication successful! You can close this tab now.';
+          document.getElementById('loader').style.display = 'none';
+        })
+        .catch(err => {
+          document.getElementById('status').innerText = 'Error saving token to application.';
+          document.getElementById('loader').style.display = 'none';
+        });
+    } else {
+      document.getElementById('status').innerText = 'No access token found in URL fragment.';
+      document.getElementById('loader').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
+          ''');
+          await response.close();
+        } else if (request.uri.path == '/token') {
+          final token = request.uri.queryParameters['access_token'];
+          if (token != null && token.isNotEmpty) {
+            setState(() {
+              _settings.twitchOauthToken = 'oauth:$token';
+            });
+            await _saveChannels();
+            _showSnackBar('Twitch account connected successfully!', isError: false);
+            _loadFollowedChannels();
+          }
+          response.write('OK');
+          await response.close();
+
+          await _oauthServer!.close(force: true);
+          _oauthServer = null;
+        } else {
+          response.statusCode = HttpStatus.notFound;
+          response.write('Not found');
+          await response.close();
+        }
+      });
+    } catch (e) {
+      _showSnackBar('Failed to start local login server: $e', isError: true);
+    }
+  }
+
+  Future<void> _loadFollowedChannels() async {
+    final token = _getRawOauthToken();
+    if (token.isEmpty) return;
+
+    setState(() {
+      _isLoadingFollowed = true;
+    });
+
+    try {
+      final clientId = _settings.twitchClientId.trim().isNotEmpty
+          ? _settings.twitchClientId.trim()
+          : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+      final headers = {
+        'Client-Id': clientId,
+        'Authorization': 'Bearer $token',
+      };
+
+      final userRes = await http.get(
+        Uri.parse('https://api.twitch.tv/helix/users'),
+        headers: headers,
+      );
+
+      if (userRes.statusCode != 200) {
+        throw Exception('Failed to get user profile: ${userRes.body}');
+      }
+
+      final userData = json.decode(userRes.body);
+      if (userData['data'] == null || userData['data'].isEmpty) {
+        throw Exception('User data empty');
+      }
+
+      final userId = userData['data'][0]['id'] as String;
+      final userLogin = userData['data'][0]['login'] as String;
+      final userAvatar = userData['data'][0]['profile_image_url'] as String?;
+
+      setState(() {
+        _authenticatedUserLogin = userLogin;
+        _authenticatedUserAvatar = userAvatar;
+      });
+
+      final followsRes = await http.get(
+        Uri.parse('https://api.twitch.tv/helix/channels/followed?user_id=$userId&first=100'),
+        headers: headers,
+      );
+
+      if (followsRes.statusCode != 200) {
+        throw Exception('Failed to get followed channels: ${followsRes.body}');
+      }
+
+      final followsData = json.decode(followsRes.body);
+      final List<dynamic> data = followsData['data'] ?? [];
+
+      final List<TwitchChannel> tempFollowed = [];
+      for (var item in data) {
+        final name = item['broadcaster_login'] as String;
+        final channel = TwitchChannel(username: name.toLowerCase().trim());
+        channel.id = item['broadcaster_id'] as String;
+        channel.game = item['game_name'] as String?;
+        tempFollowed.add(channel);
+      }
+
+      setState(() {
+        _followedChannels = tempFollowed;
+      });
+
+      for (var ch in _followedChannels) {
+        _fetchChannelStats(ch);
+      }
+    } catch (e) {
+      _showSnackBar('Error loading followed channels: $e', isError: true);
+    } finally {
+      setState(() {
+        _isLoadingFollowed = false;
+      });
+    }
+  }
+
+  Future<void> _fetchVodsForChannel(TwitchChannel channel) async {
+    final token = _getRawOauthToken();
+    if (token.isEmpty) return;
+
+    setState(() {
+      _isLoadingVods = true;
+      _vodsError = null;
+    });
+
+    try {
+      if (channel.id == null || channel.id!.isEmpty) {
+        final idResponse = await http.get(Uri.parse('https://decapi.me/twitch/id/${channel.username}'));
+        if (idResponse.statusCode == 200) {
+          final resText = idResponse.body.trim();
+          if (!resText.toLowerCase().contains('user not found')) {
+            channel.id = resText;
+          }
+        }
+      }
+
+      if (channel.id == null || channel.id!.isEmpty) {
+        throw Exception('Could not resolve Twitch User ID for ${channel.username}');
+      }
+
+      final clientId = _settings.twitchClientId.trim().isNotEmpty
+          ? _settings.twitchClientId.trim()
+          : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+      final headers = {
+        'Client-Id': clientId,
+        'Authorization': 'Bearer $token',
+      };
+
+      final response = await http.get(
+        Uri.parse('https://api.twitch.tv/helix/videos?user_id=${channel.id}&type=archive&first=10'),
+        headers: headers,
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Twitch API error: ${response.statusCode} - ${response.body}');
+      }
+
+      final data = json.decode(response.body);
+      final List<dynamic> videosList = data['data'] ?? [];
+
+      setState(() {
+        _channelVods = videosList.map((item) => TwitchVideo.fromJson(item)).toList();
+      });
+    } catch (e) {
+      setState(() {
+        _vodsError = e.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      setState(() {
+        _isLoadingVods = false;
+      });
+    }
+  }
+
+  Future<void> _launchStreamlinkForVod(TwitchVideo vod) async {
+    if (_isStreamlinkRunning) {
+      _showSnackBar('Stopping active stream before starting a new one...', isError: false);
+      _stopStreamlink();
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    String titleString = '${_selectedChannel?.username ?? "VOD"} - ${vod.title}';
+    final args = <String>[];
+    args.addAll(['--title', titleString]);
+
+    final token = _getRawOauthToken();
+    final clientId = _settings.twitchClientId.trim().isNotEmpty
+        ? _settings.twitchClientId.trim()
+        : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+    // Streamlink's Twitch plugin requests playback tokens via Twitch's private GraphQL API (gql.twitch.tv),
+    // which only accepts authentication generated by Twitch's first-party web Client ID.
+    // If a custom developer Client ID is used, we must NOT pass the token to Streamlink, or it will throw an Unauthorized error.
+    if (token.isNotEmpty && clientId == 'kimne78kx3ncx6brgo4mv6wki5h1ko') {
+      args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
+    }
+
+    if (_settings.playerType == 'vlc') {
+      args.addAll(['--player', 'vlc']);
+    } else if (_settings.playerType == 'mpv') {
+      args.addAll(['--player', 'mpv']);
+    } else if (_settings.playerType == 'custom' && _settings.customPlayerPath.trim().isNotEmpty) {
+      args.addAll(['--player', _settings.customPlayerPath.trim()]);
+    }
+
+    if (_settings.customPlayerArgs.trim().isNotEmpty) {
+      args.addAll(['--player-args', _settings.customPlayerArgs.trim()]);
+    }
+
+    args.add('twitch.tv/videos/${vod.id}');
+    args.add(_settings.defaultQuality);
+
+    setState(() {
+      _streamlinkLogs.clear();
+      _streamlinkLogs.add('[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${_settings.defaultQuality}...');
+      _streamlinkLogs.add('[System] Arguments: ${args.join(" ")}');
+      _isStreamlinkRunning = true;
+      _runningChannel = 'VOD: ${vod.title}';
+    });
+
+    try {
+      final proc = await Process.start(
+        'streamlink',
+        args,
+        runInShell: true,
+      );
+
+      _activeStreamlinkProcess = proc;
+
+      proc.stdout.transform(utf8.decoder).listen((data) {
+        if (!mounted) return;
+        setState(() {
+          for (var line in data.split('\n')) {
+            if (line.trim().isNotEmpty) {
+              _streamlinkLogs.add('[Streamlink] ${line.trim()}');
+            }
+          }
+        });
+      });
+
+      proc.stderr.transform(utf8.decoder).listen((data) {
+        if (!mounted) return;
+        setState(() {
+          for (var line in data.split('\n')) {
+            if (line.trim().isNotEmpty) {
+              _streamlinkLogs.add('[Streamlink ERR] ${line.trim()}');
+            }
+          }
+        });
+      });
+
+      proc.exitCode.then((exitCode) {
+        if (!mounted) return;
+        setState(() {
+          _isStreamlinkRunning = false;
+          _runningChannel = null;
+          _streamlinkLogs.add('[System] Streamlink process exited with code $exitCode');
+        });
+      });
+    } catch (e) {
+      setState(() {
+        _isStreamlinkRunning = false;
+        _runningChannel = null;
+        _streamlinkLogs.add('[System Error] Failed to start Streamlink: $e');
+      });
+      _showSnackBar('Failed to start Streamlink: $e', isError: true);
+    }
+  }
+
   // Fetch DecAPI statistics for a single channel
+  String _calculateUptime(String startedAtStr) {
+    try {
+      final startedAt = DateTime.parse(startedAtStr);
+      final diff = DateTime.now().toUtc().difference(startedAt);
+      final hours = diff.inHours;
+      final minutes = diff.inMinutes.remainder(60);
+      final seconds = diff.inSeconds.remainder(60);
+      
+      if (hours > 0) {
+        return '${hours}h ${minutes}m ${seconds}s';
+      } else if (minutes > 0) {
+        return '${minutes}m ${seconds}s';
+      } else {
+        return '${seconds}s';
+      }
+    } catch (_) {
+      return 'Live';
+    }
+  }
+
+  // Fetch DecAPI or official Twitch Helix statistics for a single channel
   Future<void> _fetchChannelStats(TwitchChannel channel) async {
     setState(() {
       channel.isLoading = true;
@@ -485,62 +1049,139 @@ class _MainScreenState extends State<MainScreen> {
     });
 
     final username = channel.username;
+    final token = _getRawOauthToken();
+    final clientId = _settings.twitchClientId.trim().isNotEmpty
+        ? _settings.twitchClientId.trim()
+        : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
     try {
-      // 1. Verify/Fetch User ID
-      final idResponse = await http.get(Uri.parse('https://decapi.me/twitch/id/$username'));
-      if (idResponse.statusCode == 200) {
-        final resText = idResponse.body.trim();
-        if (resText.toLowerCase().contains('user not found')) {
-          throw Exception('Twitch user "$username" not found on Twitch.');
+      if (token.isNotEmpty) {
+        // Authenticated: Use Helix API
+        final headers = {
+          'Client-Id': clientId,
+          'Authorization': 'Bearer $token',
+        };
+
+        // 1. Resolve ID & Profile Avatar if not cached
+        if (channel.id == null || channel.id!.isEmpty || channel.avatarUrl == null || channel.avatarUrl!.isEmpty) {
+          final userRes = await http.get(
+            Uri.parse('https://api.twitch.tv/helix/users?login=$username'),
+            headers: headers,
+          );
+          if (userRes.statusCode == 200) {
+            final userData = json.decode(userRes.body);
+            if (userData['data'] != null && userData['data'].isNotEmpty) {
+              channel.id = userData['data'][0]['id'] as String;
+              channel.avatarUrl = userData['data'][0]['profile_image_url'] as String?;
+            } else {
+              throw Exception('Twitch user "$username" not found.');
+            }
+          } else {
+            throw Exception('Helix User API error: status ${userRes.statusCode}');
+          }
         }
-        channel.id = resText;
-      } else {
-        throw Exception('API returned status code ${idResponse.statusCode}');
-      }
 
-      // 2. Fetch Avatar, Uptime, Followers, Viewers, Game, and Title in parallel
-      final futures = await Future.wait([
-        http.get(Uri.parse('https://decapi.me/twitch/avatar/$username')),
-        http.get(Uri.parse('https://decapi.me/twitch/uptime/$username')),
-        http.get(Uri.parse('https://decapi.me/twitch/followcount/$username')),
-        http.get(Uri.parse('https://decapi.me/twitch/viewercount/$username')),
-        http.get(Uri.parse('https://decapi.me/twitch/game/$username')),
-        http.get(Uri.parse('https://decapi.me/twitch/title/$username')),
-      ]);
-
-      if (futures[0].statusCode == 200) {
-        channel.avatarUrl = futures[0].body.trim();
-      }
-      
-      if (futures[1].statusCode == 200) {
-        final uptimeStr = futures[1].body.trim();
-        if (uptimeStr.toLowerCase().contains('offline')) {
-          channel.isLive = false;
-          channel.uptime = 'Offline';
+        // 2. Fetch Stream status
+        final streamRes = await http.get(
+          Uri.parse('https://api.twitch.tv/helix/streams?user_id=${channel.id}'),
+          headers: headers,
+        );
+        if (streamRes.statusCode == 200) {
+          final streamData = json.decode(streamRes.body);
+          if (streamData['data'] != null && streamData['data'].isNotEmpty) {
+            final stream = streamData['data'][0];
+            channel.isLive = true;
+            channel.streamTitle = stream['title'] as String?;
+            channel.game = stream['game_name'] as String?;
+            channel.viewerCount = stream['viewer_count']?.toString() ?? '0';
+            
+            final startedAt = stream['started_at'] as String?;
+            if (startedAt != null) {
+              channel.uptime = _calculateUptime(startedAt);
+            } else {
+              channel.uptime = 'Live';
+            }
+          } else {
+            channel.isLive = false;
+            channel.uptime = 'Offline';
+            channel.viewerCount = '0';
+            channel.game = 'Offline';
+            channel.streamTitle = 'No active broadcast';
+          }
         } else {
-          channel.isLive = true;
-          channel.uptime = uptimeStr;
+          throw Exception('Helix Stream API error: status ${streamRes.statusCode}');
         }
-      }
 
-      if (futures[2].statusCode == 200) {
-        channel.followerCount = _formatNumberString(futures[2].body.trim());
-      }
-
-      if (channel.isLive) {
-        if (futures[3].statusCode == 200) {
-          channel.viewerCount = _formatNumberString(futures[3].body.trim());
-        }
-        if (futures[4].statusCode == 200) {
-          channel.game = futures[4].body.trim();
-        }
-        if (futures[5].statusCode == 200) {
-          channel.streamTitle = futures[5].body.trim();
+        // 3. Fetch Follower count
+        final followsRes = await http.get(
+          Uri.parse('https://api.twitch.tv/helix/channels/followers?broadcaster_id=${channel.id}'),
+          headers: headers,
+        );
+        if (followsRes.statusCode == 200) {
+          final followsData = json.decode(followsRes.body);
+          final totalFollowers = followsData['total'] as int?;
+          if (totalFollowers != null) {
+            channel.followerCount = _formatNumberString(totalFollowers.toString());
+          }
         }
       } else {
-        channel.viewerCount = '0';
-        channel.game = 'Offline';
-        channel.streamTitle = 'No active broadcast';
+        // Unauthenticated: Fallback to DecAPI
+        // 1. Verify/Fetch User ID
+        final idResponse = await http.get(Uri.parse('https://decapi.me/twitch/id/$username'));
+        if (idResponse.statusCode == 200) {
+          final resText = idResponse.body.trim();
+          if (resText.toLowerCase().contains('user not found')) {
+            throw Exception('Twitch user "$username" not found on Twitch.');
+          }
+          channel.id = resText;
+        } else {
+          throw Exception('API returned status code ${idResponse.statusCode}');
+        }
+
+        // 2. Fetch Uptime, Avatar, Followers, Viewers, Game, and Title in parallel
+        final futures = await Future.wait([
+          http.get(Uri.parse('https://decapi.me/twitch/avatar/$username')),
+          http.get(Uri.parse('https://decapi.me/twitch/uptime/$username')),
+          http.get(Uri.parse('https://decapi.me/twitch/followcount/$username')),
+          http.get(Uri.parse('https://decapi.me/twitch/viewercount/$username')),
+          http.get(Uri.parse('https://decapi.me/twitch/game/$username')),
+          http.get(Uri.parse('https://decapi.me/twitch/title/$username')),
+        ]);
+
+        if (futures[0].statusCode == 200) {
+          channel.avatarUrl = futures[0].body.trim();
+        }
+        
+        if (futures[1].statusCode == 200) {
+          final uptimeStr = futures[1].body.trim();
+          if (uptimeStr.toLowerCase().contains('offline')) {
+            channel.isLive = false;
+            channel.uptime = 'Offline';
+          } else {
+            channel.isLive = true;
+            channel.uptime = uptimeStr;
+          }
+        }
+
+        if (futures[2].statusCode == 200) {
+          channel.followerCount = _formatNumberString(futures[2].body.trim());
+        }
+
+        if (channel.isLive) {
+          if (futures[3].statusCode == 200) {
+            channel.viewerCount = _formatNumberString(futures[3].body.trim());
+          }
+          if (futures[4].statusCode == 200) {
+            channel.game = futures[4].body.trim();
+          }
+          if (futures[5].statusCode == 200) {
+            channel.streamTitle = futures[5].body.trim();
+          }
+        } else {
+          channel.viewerCount = '0';
+          channel.game = 'Offline';
+          channel.streamTitle = 'No active broadcast';
+        }
       }
 
       channel.lastUpdated = DateTime.now();
@@ -639,8 +1280,16 @@ class _MainScreenState extends State<MainScreen> {
     final args = <String>[];
     args.addAll(['--title', titleString]);
 
-    if (_settings.twitchOauthToken.trim().isNotEmpty) {
-      args.addAll(['--twitch-oauth-token', _settings.twitchOauthToken.trim()]);
+    final token = _getRawOauthToken();
+    final clientId = _settings.twitchClientId.trim().isNotEmpty
+        ? _settings.twitchClientId.trim()
+        : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+    // Streamlink's Twitch plugin requests playback tokens via Twitch's private GraphQL API (gql.twitch.tv),
+    // which only accepts authentication generated by Twitch's first-party web Client ID.
+    // If a custom developer Client ID is used, we must NOT pass the token to Streamlink, or it will throw an Unauthorized error.
+    if (token.isNotEmpty && clientId == 'kimne78kx3ncx6brgo4mv6wki5h1ko') {
+      args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
     }
 
     if (_settings.twitchLowLatency) {
@@ -754,11 +1403,13 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  // Open link in default web browser using OS explorer
+  // Open link in default web browser using OS cmd start
   Future<void> _openExternalLink(String url) async {
     try {
       if (Platform.isWindows) {
-        await Process.run('explorer', [url]);
+        // cmd.exe parses ampersands (&) as command separators, so we must escape them with carets (^)
+        final escapedUrl = url.replaceAll('&', '^&');
+        await Process.run('cmd', ['/c', 'start', '""', escapedUrl], runInShell: false);
       } else {
         _showSnackBar('Unsupported platform for launching external link', isError: true);
       }
@@ -819,15 +1470,21 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                   child: Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: theme.primaryColor.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: theme.primaryColor, width: 1.5),
-                        ),
-                        child: Icon(Icons.live_tv, color: theme.colorScheme.secondary, size: 24),
-                      ),
+                      _authenticatedUserAvatar != null
+                          ? CircleAvatar(
+                              radius: 20,
+                              backgroundColor: const Color(0xFF1F2937),
+                              backgroundImage: NetworkImage(_authenticatedUserAvatar!),
+                            )
+                          : Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: theme.primaryColor.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: theme.primaryColor, width: 1.5),
+                              ),
+                              child: Icon(Icons.live_tv, color: theme.colorScheme.secondary, size: 24),
+                            ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
@@ -839,7 +1496,9 @@ class _MainScreenState extends State<MainScreen> {
                               overflow: TextOverflow.ellipsis,
                             ),
                             Text(
-                              'DecAPI Live stats manager',
+                              _authenticatedUserLogin != null
+                                  ? 'User: $_authenticatedUserLogin'
+                                  : 'DecAPI Live stats manager',
                               style: theme.textTheme.bodyMedium?.copyWith(fontSize: 11),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -900,6 +1559,82 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                 ),
 
+                // Sidebar Tabs (Only if authenticated)
+                if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF161B26),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF1E2433)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _sidebarTab = 0),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _sidebarTab == 0 ? theme.primaryColor : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Center(
+                                  child: Text(
+                                    'Custom List',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () {
+                                setState(() => _sidebarTab = 1);
+                                if (_followedChannels.isEmpty && !_isLoadingFollowed) {
+                                  _loadFollowedChannels();
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _sidebarTab == 1 ? theme.primaryColor : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Center(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Text(
+                                        'Followed',
+                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                      ),
+                                      if (_isLoadingFollowed) ...[
+                                        const SizedBox(width: 6),
+                                        const SizedBox(
+                                          width: 10,
+                                          height: 10,
+                                          child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                ],
+
                 // Global Actions
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -912,15 +1647,17 @@ class _MainScreenState extends State<MainScreen> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             foregroundColor: Colors.white70,
                           ),
-                          onPressed: _isGlobalLoading ? null : _refreshAllChannels,
-                          icon: _isGlobalLoading
+                          onPressed: _isGlobalLoading || _isLoadingFollowed
+                              ? null
+                              : (_sidebarTab == 0 ? _refreshAllChannels : _loadFollowedChannels),
+                          icon: _isGlobalLoading || _isLoadingFollowed
                               ? const SizedBox(
                                   width: 12,
                                   height: 12,
                                   child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
                                 )
                               : const Icon(Icons.refresh, size: 14),
-                          label: const Text('Refresh All', style: TextStyle(fontSize: 12)),
+                          label: Text(_sidebarTab == 0 ? 'Refresh All' : 'Refresh Follows', style: const TextStyle(fontSize: 12)),
                         ),
                       ),
                     ],
@@ -930,117 +1667,140 @@ class _MainScreenState extends State<MainScreen> {
                 
                 // Channel list
                 Expanded(
-                  child: _isGlobalLoading && _channels.isEmpty
-                      ? const Center(child: CircularProgressIndicator())
-                      : _channels.isEmpty
-                          ? const Center(
-                              child: Text('No channels saved.\nAdd one above.', textAlign: TextAlign.center),
-                            )
-                          : ListView.builder(
-                              itemCount: _channels.length,
-                              itemBuilder: (context, index) {
-                                final channel = _channels[index];
-                                final isSelected = _selectedChannel?.username == channel.username;
-                                return Container(
-                                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    color: isSelected
-                                        ? theme.primaryColor.withOpacity(0.15)
-                                        : Colors.transparent,
-                                    border: Border.all(
-                                      color: isSelected
-                                          ? theme.primaryColor.withOpacity(0.4)
-                                          : Colors.transparent,
-                                      width: 1,
+                  child: Builder(
+                    builder: (context) {
+                      final listToDisplay = _sidebarTab == 0 ? _channels : _followedChannels;
+                      final isLoading = _sidebarTab == 0 ? _isGlobalLoading : _isLoadingFollowed;
+
+                      if (isLoading && listToDisplay.isEmpty) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (listToDisplay.isEmpty) {
+                        return Center(
+                          child: Text(
+                            _sidebarTab == 0
+                                ? 'No channels saved.\nAdd one above.'
+                                : 'No followed channels found.\nMake sure your account is connected.',
+                            textAlign: TextAlign.center,
+                          ),
+                        );
+                      }
+
+                      return ListView.builder(
+                        itemCount: listToDisplay.length,
+                        itemBuilder: (context, index) {
+                          final channel = listToDisplay[index];
+                          final isSelected = _selectedChannel?.username == channel.username;
+                          return Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              color: isSelected
+                                  ? theme.primaryColor.withOpacity(0.15)
+                                  : Colors.transparent,
+                              border: Border.all(
+                                color: isSelected
+                                    ? theme.primaryColor.withOpacity(0.4)
+                                    : Colors.transparent,
+                                width: 1,
+                              ),
+                            ),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.only(left: 12, right: 4),
+                              leading: Stack(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: const Color(0xFF1F2937),
+                                    backgroundImage: channel.avatarUrl != null
+                                        ? NetworkImage(channel.avatarUrl!)
+                                        : null,
+                                    child: channel.avatarUrl == null
+                                        ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                        : null,
+                                  ),
+                                  Positioned(
+                                    bottom: 0,
+                                    right: 0,
+                                    child: Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: channel.isLive ? Colors.green : Colors.grey,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: const Color(0xFF111420), width: 1.5),
+                                      ),
                                     ),
                                   ),
-                                  child: ListTile(
-                                    contentPadding: const EdgeInsets.only(left: 12, right: 4),
-                                    leading: Stack(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 18,
-                                          backgroundColor: const Color(0xFF1F2937),
-                                          backgroundImage: channel.avatarUrl != null
-                                              ? NetworkImage(channel.avatarUrl!)
-                                              : null,
-                                          child: channel.avatarUrl == null
-                                              ? const Icon(Icons.person, size: 18, color: Colors.white70)
-                                              : null,
-                                        ),
-                                        Positioned(
-                                          bottom: 0,
-                                          right: 0,
-                                          child: Container(
-                                            width: 10,
-                                            height: 10,
-                                            decoration: BoxDecoration(
-                                              color: channel.isLive ? Colors.green : Colors.grey,
-                                              shape: BoxShape.circle,
-                                              border: Border.all(color: const Color(0xFF111420), width: 1.5),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
+                                ],
+                              ),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      channel.username,
+                                      style: theme.textTheme.bodyLarge?.copyWith(
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                        fontSize: 14,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                    title: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            channel.username,
-                                            style: theme.textTheme.bodyLarge?.copyWith(
-                                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                              fontSize: 14,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
+                                  ),
+                                  if (channel.isLive)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'LIVE',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
                                         ),
-                                        if (channel.isLive)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: Colors.red,
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: const Text(
-                                              'LIVE',
-                                              style: TextStyle(
-                                                fontSize: 8,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
+                                      ),
                                     ),
-                                    subtitle: channel.isLoading
-                                        ? const Padding(
-                                            padding: EdgeInsets.only(top: 4),
-                                            child: LinearProgressIndicator(minHeight: 1.5),
-                                          )
-                                        : Text(
-                                            channel.isLive
-                                                ? (channel.game ?? 'Playing...')
-                                                : 'Offline',
-                                            style: const TextStyle(fontSize: 11),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                    trailing: IconButton(
+                                ],
+                              ),
+                              subtitle: channel.isLoading
+                                  ? const Padding(
+                                      padding: EdgeInsets.only(top: 4),
+                                      child: LinearProgressIndicator(minHeight: 1.5),
+                                    )
+                                  : Text(
+                                      channel.isLive
+                                          ? (channel.game ?? 'Playing...')
+                                          : 'Offline',
+                                      style: const TextStyle(fontSize: 11),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                              trailing: _sidebarTab == 0
+                                  ? IconButton(
                                       icon: const Icon(Icons.close, size: 16, color: Colors.white30),
                                       onPressed: () => _removeChannel(channel),
                                       hoverColor: Colors.red.withOpacity(0.2),
                                       splashRadius: 18,
-                                    ),
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedChannel = channel;
-                                      });
-                                    },
-                                  ),
-                                );
+                                    )
+                                  : null,
+                              onTap: () {
+                                setState(() {
+                                  _selectedChannel = channel;
+                                  _channelVods.clear();
+                                  _vodsError = null;
+                                });
+                                if (_settings.twitchOauthToken.trim().isNotEmpty) {
+                                  _fetchVodsForChannel(channel);
+                                }
                               },
                             ),
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -1114,62 +1874,63 @@ class _MainScreenState extends State<MainScreen> {
               children: [
                 // Live/Profile Header Card
                 _buildHeaderCard(theme, channel),
-                const SizedBox(height: 24),
                 
-                // Statistics Grid Section
-                Text(
-                  'Live Statistics',
-                  style: theme.textTheme.titleLarge?.copyWith(fontSize: 16, letterSpacing: 0.5),
-                ),
-                const SizedBox(height: 12),
-                
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 1.6,
-                  children: [
-                    _buildStatCard(
-                      icon: Icons.title,
-                      iconColor: theme.colorScheme.secondary,
-                      title: 'Stream Title',
-                      value: channel.isLive ? (channel.streamTitle ?? 'No Title') : 'Offline',
-                      isLongText: true,
-                    ),
-                    _buildStatCard(
-                      icon: Icons.gamepad,
-                      iconColor: theme.colorScheme.secondary,
-                      title: 'Current Game / Category',
-                      value: channel.isLive ? (channel.game ?? 'N/A') : 'Offline',
-                    ),
-                    _buildStatCard(
-                      icon: Icons.schedule,
-                      iconColor: Colors.orangeAccent,
-                      title: 'Uptime',
-                      value: channel.isLive ? (channel.uptime ?? 'N/A') : 'Offline',
-                    ),
-                    _buildStatCard(
-                      icon: Icons.visibility,
-                      iconColor: Colors.redAccent,
-                      title: 'Live Viewers',
-                      value: channel.isLive ? (channel.viewerCount ?? '0') : '0',
-                    ),
-                    _buildStatCard(
-                      icon: Icons.people,
-                      iconColor: theme.primaryColor,
-                      title: 'Followers',
-                      value: channel.followerCount ?? 'N/A',
-                    ),
-                    _buildStatCard(
-                      icon: Icons.badge,
-                      iconColor: Colors.grey,
-                      title: 'Twitch User ID',
-                      value: channel.id ?? 'Fetching...',
-                    ),
-                  ],
-                ),
+                // VOD section (Only shown if token is configured)
+                if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
+                  const SizedBox(height: 32),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Recent Broadcasts (VODs)',
+                        style: theme.textTheme.titleLarge?.copyWith(fontSize: 16, letterSpacing: 0.5),
+                      ),
+                      const SizedBox(width: 20),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.photo_size_select_large, size: 14, color: Colors.white38),
+                          const SizedBox(width: 6),
+                          const Text('Card Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                          SizedBox(
+                            width: 120,
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 2,
+                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                activeTrackColor: theme.primaryColor,
+                                inactiveTrackColor: Colors.white10,
+                                thumbColor: theme.primaryColor,
+                                overlayColor: theme.primaryColor.withOpacity(0.12),
+                              ),
+                              child: Slider(
+                                value: _vodScale,
+                                min: 200.0,
+                                max: 600.0,
+                                onChanged: (val) {
+                                  setState(() {
+                                    _vodScale = val;
+                                  });
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_isLoadingVods) ...[
+                        const SizedBox(width: 12),
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _buildVodsList(theme),
+                ],
               ],
             ),
           ),
@@ -1178,6 +1939,182 @@ class _MainScreenState extends State<MainScreen> {
         // Streamlink logs console drawer (Bottom Panel)
         _buildConsolePanel(theme),
       ],
+    );
+  }
+
+  Widget _buildVodsList(ThemeData theme) {
+    if (_isLoadingVods && _channelVods.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 40),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    
+    if (_vodsError != null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.redAccent.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+        ),
+        child: Text(
+          'Error loading VODs: $_vodsError',
+          style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+        ),
+      );
+    }
+    
+    if (_channelVods.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: Text('No past broadcasts found.', style: TextStyle(color: Colors.white38, fontSize: 13)),
+        ),
+      );
+    }
+
+    // Grid ratio adjusts slightly as we resize to give enough vertical space for titles/buttons
+    final childAspectRatio = _vodScale < 250
+        ? 0.72
+        : _vodScale < 350
+            ? 0.78
+            : 0.82;
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _channelVods.length,
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: _vodScale,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: childAspectRatio,
+      ),
+      itemBuilder: (context, index) {
+        final vod = _channelVods[index];
+        final w = _vodScale.round().clamp(200, 1280);
+        final h = (w * 9 / 16).round();
+        final thumbnailUrl = vod.thumbnailUrl.isNotEmpty
+            ? vod.thumbnailUrl.replaceAll('%{width}', w.toString()).replaceAll('%{height}', h.toString())
+            : null;
+            
+        return Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF161B26),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF1E2433)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 16:9 Thumbnail Header with duration badge
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      thumbnailUrl != null
+                          ? Image.network(
+                              thumbnailUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => Container(
+                                color: const Color(0xFF1F2937),
+                                child: const Icon(Icons.movie, color: Colors.white30, size: 32),
+                              ),
+                            )
+                          : Container(
+                              color: const Color(0xFF1F2937),
+                              child: const Icon(Icons.movie, color: Colors.white30, size: 32),
+                            ),
+                      Positioned(
+                        bottom: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.75),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            vod.duration,
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              
+              // Metadata & Play Button Section
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        vod.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
+                      ),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today, size: 11, color: Colors.white38),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${vod.publishedAt.toLocal().toString().substring(0, 10)} ${vod.publishedAt.toLocal().toString().substring(11, 16)}',
+                              style: const TextStyle(fontSize: 11, color: Colors.white38),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.visibility, size: 11, color: Colors.white38),
+                          const SizedBox(width: 6),
+                          Text(
+                            _formatNumberString(vod.viewCount),
+                            style: const TextStyle(fontSize: 11, color: Colors.white38),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 36,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: theme.primaryColor,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            padding: EdgeInsets.zero,
+                          ),
+                          onPressed: () => _launchStreamlinkForVod(vod),
+                          icon: const Icon(Icons.play_arrow, size: 16, color: Colors.white),
+                          label: const Text('Play VOD', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1197,140 +2134,225 @@ class _MainScreenState extends State<MainScreen> {
           )
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Profile Avatar
-          Container(
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: channel.isLive ? Colors.greenAccent : Colors.white24,
-                width: 2.5,
-              ),
-            ),
-            child: CircleAvatar(
-              radius: 40,
-              backgroundColor: const Color(0xFF1F2937),
-              backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
-              child: channel.avatarUrl == null
-                  ? const Icon(Icons.person, size: 40, color: Colors.white70)
-                  : null,
-            ),
-          ),
-          const SizedBox(width: 20),
-          
-          // Info & Status
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      channel.username,
-                      style: theme.textTheme.titleLarge?.copyWith(fontSize: 22),
-                    ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: channel.isLive
-                            ? Colors.green.withOpacity(0.15)
-                            : Colors.grey.withOpacity(0.15),
-                        border: Border.all(
-                          color: channel.isLive ? Colors.greenAccent : Colors.grey,
-                          width: 1,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        channel.isLive ? 'LIVE' : 'OFFLINE',
-                        style: TextStyle(
-                          color: channel.isLive ? Colors.greenAccent : Colors.grey,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  channel.isLive
-                      ? 'Streaming: ${channel.game ?? "Unknown Game"}'
-                      : 'Channel is currently offline',
-                  style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(Icons.update, size: 12, color: Colors.white38),
-                    const SizedBox(width: 4),
-                    Text(
-                      channel.lastUpdated != null
-                          ? 'Last updated: ${channel.lastUpdated!.toLocal().toString().substring(11, 19)}'
-                          : 'Not updated yet',
-                      style: const TextStyle(fontSize: 11, color: Colors.white38),
-                    ),
-                    const SizedBox(width: 12),
-                    if (channel.errorMessage != null)
-                      Flexible(
-                        child: Text(
-                          'Error: ${channel.errorMessage}',
-                          style: const TextStyle(color: Colors.redAccent, fontSize: 11),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          
-          // Quick actions container
-          Column(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.primaryColor,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(160, 44),
-                  shadowColor: theme.primaryColor.withOpacity(0.4),
-                  elevation: 6,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              // Profile Avatar
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: channel.isLive ? Colors.greenAccent : Colors.white24,
+                    width: 2.5,
+                  ),
                 ),
-                onPressed: () => _launchStreamlink(channel.username),
-                icon: const Icon(Icons.play_arrow, size: 18),
-                label: const Text('Launch Streamlink', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: CircleAvatar(
+                  radius: 36,
+                  backgroundColor: const Color(0xFF1F2937),
+                  backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
+                  child: channel.avatarUrl == null
+                      ? const Icon(Icons.person, size: 36, color: Colors.white70)
+                      : null,
+                ),
               ),
-              const SizedBox(height: 10),
-              Row(
+              const SizedBox(width: 20),
+              
+              // Info & Status
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          channel.username,
+                          style: theme.textTheme.titleLarge?.copyWith(fontSize: 22),
+                        ),
+                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: channel.isLive
+                                ? Colors.green.withOpacity(0.15)
+                                : Colors.grey.withOpacity(0.15),
+                            border: Border.all(
+                              color: channel.isLive ? Colors.greenAccent : Colors.grey,
+                              width: 1,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            channel.isLive ? 'LIVE' : 'OFFLINE',
+                            style: TextStyle(
+                              color: channel.isLive ? Colors.greenAccent : Colors.grey,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    if (channel.isLive && channel.streamTitle != null) ...[
+                      Text(
+                        channel.streamTitle!,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+                    Text(
+                      channel.isLive
+                          ? 'Streaming: ${channel.game ?? "Unknown Game"}'
+                          : 'Channel is currently offline',
+                      style: TextStyle(
+                        fontSize: 13, 
+                        color: channel.isLive ? Colors.white70 : Colors.white38,
+                        fontWeight: channel.isLive ? FontWeight.w500 : FontWeight.normal
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              
+              // Quick actions container
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  // Open Twitch Browser button
-                  _buildMiniActionBtn(
-                    icon: Icons.open_in_new,
-                    tooltip: 'Open Twitch channel',
-                    onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}'),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.primaryColor,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(160, 44),
+                      shadowColor: theme.primaryColor.withOpacity(0.4),
+                      elevation: 6,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () => _launchStreamlink(channel.username),
+                    icon: const Icon(Icons.play_arrow, size: 18),
+                    label: const Text('Launch Streamlink', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
-                  const SizedBox(width: 8),
-                  // Chat popout button
-                  _buildMiniActionBtn(
-                    icon: Icons.chat_bubble_outline,
-                    tooltip: 'Open Twitch chat popout',
-                    onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}/chat'),
-                  ),
-                  const SizedBox(width: 8),
-                  // Manual Refresh button
-                  _buildMiniActionBtn(
-                    icon: Icons.refresh,
-                    tooltip: 'Refresh statistics',
-                    onPressed: channel.isLoading ? null : () => _fetchChannelStats(channel),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildMiniActionBtn(
+                        icon: Icons.open_in_new,
+                        tooltip: 'Open Twitch channel',
+                        onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}'),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildMiniActionBtn(
+                        icon: Icons.chat_bubble_outline,
+                        tooltip: 'Open Twitch chat popout',
+                        onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}/chat'),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildMiniActionBtn(
+                        icon: Icons.refresh,
+                        tooltip: 'Refresh statistics',
+                        onPressed: channel.isLoading ? null : () => _fetchChannelStats(channel),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ],
+          ),
+          
+          const SizedBox(height: 16),
+          const Divider(color: Colors.white10, height: 1),
+          const SizedBox(height: 16),
+          
+          // Compact Metadata chips Row
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              if (channel.isLive) ...[
+                _buildHeaderChip(
+                  icon: Icons.visibility,
+                  color: Colors.redAccent,
+                  label: '${channel.viewerCount ?? "0"} viewers',
+                ),
+                _buildHeaderChip(
+                  icon: Icons.schedule,
+                  color: Colors.orangeAccent,
+                  label: channel.uptime ?? 'Live',
+                ),
+              ],
+              _buildHeaderChip(
+                icon: Icons.people,
+                color: theme.primaryColor,
+                label: '${channel.followerCount ?? "N/A"} followers',
+              ),
+              _buildHeaderChip(
+                icon: Icons.badge,
+                color: Colors.white38,
+                label: 'ID: ${channel.id ?? "Unknown"}',
+              ),
+              _buildHeaderChip(
+                icon: Icons.update,
+                color: Colors.white38,
+                label: channel.lastUpdated != null
+                    ? 'Updated: ${channel.lastUpdated!.toLocal().toString().substring(11, 19)}'
+                    : 'Not updated',
+              ),
+            ],
+          ),
+          
+          if (channel.errorMessage != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Error: ${channel.errorMessage}',
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderChip({required IconData icon, required Color color, required String label}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C0F17),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.w500),
           ),
         ],
       ),
