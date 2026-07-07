@@ -484,6 +484,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   final TextEditingController _vodSearchController = TextEditingController();
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
+  String? _vodPaginationCursor;
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
@@ -1176,13 +1177,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _fetchVodsForChannel(TwitchChannel channel) async {
+  Future<void> _fetchVodsForChannel(TwitchChannel channel, {bool loadMore = false}) async {
     final token = _getRawOauthToken();
     if (token.isEmpty) return;
 
     setState(() {
       _isLoadingVods = true;
       _vodsError = null;
+      if (!loadMore) {
+        _channelVods = [];
+        _vodPaginationCursor = null;
+      }
     });
 
     try {
@@ -1209,8 +1214,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         'Authorization': 'Bearer $token',
       };
 
+      String url = 'https://api.twitch.tv/helix/videos?user_id=${channel.id}&type=archive&first=20';
+      if (loadMore && _vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty) {
+        url += '&after=$_vodPaginationCursor';
+      }
+
       final response = await http.get(
-        Uri.parse('https://api.twitch.tv/helix/videos?user_id=${channel.id}&type=archive&first=10'),
+        Uri.parse(url),
         headers: headers,
       );
 
@@ -1220,9 +1230,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
       final data = json.decode(response.body);
       final List<dynamic> videosList = data['data'] ?? [];
+      final nextCursor = data['pagination']?['cursor'];
 
       setState(() {
-        _channelVods = videosList.map((item) => TwitchVideo.fromJson(item)).toList();
+        _vodPaginationCursor = nextCursor;
+        final newVods = videosList.map((item) => TwitchVideo.fromJson(item)).toList();
+        if (loadMore) {
+          _channelVods.addAll(newVods);
+        } else {
+          _channelVods = newVods;
+        }
       });
     } catch (e) {
       setState(() {
@@ -2493,6 +2510,40 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                   ),
                   const SizedBox(height: 16),
                   _buildVodsList(theme),
+                  if (_vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty && _channelVods.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    Center(
+                      child: SizedBox(
+                        width: 180,
+                        height: 40,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1E2433),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            elevation: 0,
+                          ),
+                          onPressed: _isLoadingVods
+                              ? null
+                              : () => _fetchVodsForChannel(channel, loadMore: true),
+                          child: _isLoadingVods
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.expand_more, size: 18),
+                                    SizedBox(width: 6),
+                                    Text('Load More VODs', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ],
             ),
