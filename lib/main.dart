@@ -471,25 +471,55 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (widget.showGamesOnThumbnails && _games != null && _games!.isNotEmpty) ...[
-                                Tooltip(
-                                  message: _games!.join('\n'),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF161B26),
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(color: const Color(0xFF1E2433)),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.3),
-                                        blurRadius: 6,
-                                      ),
-                                    ],
+                              if (_games != null && _games!.isNotEmpty) ...[
+                                if (widget.showGamesOnThumbnails)
+                                  Container(
+                                    constraints: BoxConstraints(maxWidth: widget.scale * 0.5),
+                                    child: Wrap(
+                                      spacing: 4,
+                                      runSpacing: 4,
+                                      alignment: WrapAlignment.end,
+                                      children: _games!.map((game) {
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(0.75),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.sports_esports, size: 9, color: Colors.white70),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                game,
+                                                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  )
+                                else
+                                  Tooltip(
+                                    message: _games!.join('\n'),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF161B26),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: const Color(0xFF1E2433)),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.3),
+                                          blurRadius: 6,
+                                        ),
+                                      ],
+                                    ),
+                                    textStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    preferBelow: true,
+                                    child: _buildGameBadge(widget.theme),
                                   ),
-                                  textStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  preferBelow: true,
-                                  child: _buildGameBadge(widget.theme),
-                                ),
                                 const SizedBox(width: 8),
                               ],
                               if (widget.isPlaying && widget.pulseController != null)
@@ -2528,7 +2558,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                                   children: [
                                                     Icon(Icons.sports_esports, size: 14, color: Colors.white54),
                                                     SizedBox(width: 6),
-                                                    Text('Show Games on Thumbnails', style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold)),
+                                                    Text('Show All Games on Thumbnails', style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold)),
                                                   ],
                                                 ),
                                                 Transform.scale(
@@ -2648,9 +2678,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                           : Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                // Show Games on Thumbnails switch
+                                // Show All Games on Thumbnails switch
                                 Tooltip(
-                                  message: 'Show played games on thumbnails by default',
+                                  message: 'Show all played games on thumbnails at a glance',
                                   decoration: BoxDecoration(
                                     color: const Color(0xFF161B26),
                                     borderRadius: BorderRadius.circular(6),
@@ -2663,7 +2693,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                     children: [
                                       const Icon(Icons.sports_esports, size: 14, color: Colors.white38),
                                       const SizedBox(width: 4),
-                                      const Text('Show Games', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+                                      const Text('Show All Games', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
                                       Transform.scale(
                                         scale: 0.7,
                                         child: Switch(
