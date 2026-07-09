@@ -404,7 +404,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                 child: FractionallySizedBox(
                                   widthFactor: widget.vod.watchProgress!.clamp(0.0, 1.0),
                                   child: Container(
-                                    color: Colors.redAccent,
+                                    color: widget.theme.primaryColor,
                                   ),
                                 ),
                               ),
@@ -757,6 +757,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               content: SizedBox(
                 width: 500,
                 child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(right: 18),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
