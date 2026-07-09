@@ -164,6 +164,7 @@ class TwitchVideoCard extends StatefulWidget {
   final double fontSize;
   final bool isPlaying;
   final AnimationController? pulseController;
+  final bool showGamesOnThumbnails;
 
   const TwitchVideoCard({
     Key? key,
@@ -175,6 +176,7 @@ class TwitchVideoCard extends StatefulWidget {
     required this.fontSize,
     required this.isPlaying,
     required this.pulseController,
+    required this.showGamesOnThumbnails,
   }) : super(key: key);
 
   @override
@@ -469,7 +471,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (_games != null && _games!.isNotEmpty) ...[
+                              if (widget.showGamesOnThumbnails && _games != null && _games!.isNotEmpty) ...[
                                 Tooltip(
                                   message: _games!.join('\n'),
                                   decoration: BoxDecoration(
@@ -524,22 +526,56 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                           ),
                         ),
 
-                        // High-Contrast Hover Play Icon Overlay
-                        Center(
+                        // High-Contrast Hover Play Icon Overlay (reveals play button and all games if showGamesOnThumbnails is off)
+                        Positioned.fill(
                           child: AnimatedOpacity(
                             duration: const Duration(milliseconds: 150),
                             opacity: _isHovered ? 1.0 : 0.0,
                             child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black.withOpacity(0.6),
-                                border: Border.all(color: Colors.white.withOpacity(0.8), width: 2.0),
-                              ),
-                              child: const Icon(
-                                Icons.play_arrow,
-                                size: 28,
-                                color: Colors.white,
+                              color: Colors.black.withOpacity(0.4),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.black.withOpacity(0.6),
+                                      border: Border.all(color: Colors.white.withOpacity(0.8), width: 2.0),
+                                    ),
+                                    child: const Icon(
+                                      Icons.play_arrow,
+                                      size: 28,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  if (!widget.showGamesOnThumbnails && _games != null && _games!.isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.85),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: Colors.white24, width: 0.5),
+                                        ),
+                                        child: Text(
+                                          _games!.join('  •  '),
+                                          textAlign: TextAlign.center,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                            letterSpacing: 0.2,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ),
@@ -652,6 +688,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
   String? _vodPaginationCursor;
+  bool _showGamesOnThumbnails = true;
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
@@ -2482,6 +2519,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                       mainAxisSize: MainAxisSize.min,
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
+                                        StatefulBuilder(
+                                          builder: (context, setMenuState) {
+                                            return Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                const Row(
+                                                  children: [
+                                                    Icon(Icons.sports_esports, size: 14, color: Colors.white54),
+                                                    SizedBox(width: 6),
+                                                    Text('Show Games on Thumbnails', style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold)),
+                                                  ],
+                                                ),
+                                                Transform.scale(
+                                                  scale: 0.8,
+                                                  child: Switch(
+                                                    value: _showGamesOnThumbnails,
+                                                    activeColor: theme.primaryColor,
+                                                    onChanged: (val) {
+                                                      setState(() {
+                                                        _showGamesOnThumbnails = val;
+                                                      });
+                                                      setMenuState(() {});
+                                                    },
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                        const SizedBox(height: 12),
                                         const Text('Filter Broadcasts:', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
                                         const SizedBox(height: 6),
                                         SizedBox(
@@ -2581,6 +2648,38 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                           : Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                // Show Games on Thumbnails switch
+                                Tooltip(
+                                  message: 'Show played games on thumbnails by default',
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF161B26),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: const Color(0xFF1E2433)),
+                                  ),
+                                  textStyle: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.sports_esports, size: 14, color: Colors.white38),
+                                      const SizedBox(width: 4),
+                                      const Text('Show Games', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+                                      Transform.scale(
+                                        scale: 0.7,
+                                        child: Switch(
+                                          value: _showGamesOnThumbnails,
+                                          activeColor: theme.primaryColor,
+                                          onChanged: (val) {
+                                            setState(() {
+                                              _showGamesOnThumbnails = val;
+                                            });
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
                                 // VOD Filter TextField
                                 SizedBox(
                                   width: 130,
@@ -2789,6 +2888,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           fontSize: _vodTitleFontSize,
           isPlaying: _playingVodId == vod.id,
           pulseController: _pulseController,
+          showGamesOnThumbnails: _showGamesOnThumbnails,
         );
       },
     );
