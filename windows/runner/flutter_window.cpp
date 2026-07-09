@@ -40,6 +40,25 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  HWND hwnd = GetHandle();
+  WINDOWPLACEMENT wp = { sizeof(wp) };
+  if (GetWindowPlacement(hwnd, &wp)) {
+    HKEY hKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\TwitchStreamlinkGUI", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+      DWORD x = wp.rcNormalPosition.left;
+      DWORD y = wp.rcNormalPosition.top;
+      DWORD w = wp.rcNormalPosition.right - wp.rcNormalPosition.left;
+      DWORD h = wp.rcNormalPosition.bottom - wp.rcNormalPosition.top;
+      
+      RegSetValueExW(hKey, L"WindowX", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&x), sizeof(x));
+      RegSetValueExW(hKey, L"WindowY", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&y), sizeof(y));
+      RegSetValueExW(hKey, L"WindowW", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&w), sizeof(w));
+      RegSetValueExW(hKey, L"WindowH", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&h), sizeof(h));
+      
+      RegCloseKey(hKey);
+    }
+  }
+
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

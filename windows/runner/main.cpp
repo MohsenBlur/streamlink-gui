@@ -24,9 +24,36 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
+  int x = 10;
+  int y = 10;
+  int width = 1280;
+  int height = 720;
+  
+  HKEY hKey;
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\TwitchStreamlinkGUI", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+    DWORD dwType = REG_DWORD;
+    DWORD dwSize = sizeof(DWORD);
+    DWORD dwVal = 0;
+    
+    if (RegQueryValueExW(hKey, L"WindowX", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
+      x = static_cast<int>(dwVal);
+    }
+    if (RegQueryValueExW(hKey, L"WindowY", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
+      y = static_cast<int>(dwVal);
+    }
+    if (RegQueryValueExW(hKey, L"WindowW", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
+      width = static_cast<int>(dwVal);
+    }
+    if (RegQueryValueExW(hKey, L"WindowH", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
+      height = static_cast<int>(dwVal);
+    }
+    
+    RegCloseKey(hKey);
+  }
+
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  Win32Window::Point origin(x, y);
+  Win32Window::Size size(width, height);
   if (!window.Create(L"streamlink_gui", origin, size)) {
     return EXIT_FAILURE;
   }

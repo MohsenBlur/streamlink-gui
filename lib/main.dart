@@ -70,6 +70,7 @@ class AppSettings {
   String twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
   int localServerPort = 65432;
   int watchedThreshold = 96;
+  bool sidebarCollapsed = false;
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -82,6 +83,7 @@ class AppSettings {
     this.twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko',
     this.localServerPort = 65432,
     this.watchedThreshold = 96,
+    this.sidebarCollapsed = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -95,6 +97,7 @@ class AppSettings {
         'twitch_client_id': twitchClientId,
         'local_server_port': localServerPort,
         'watched_threshold': watchedThreshold,
+        'sidebar_collapsed': sidebarCollapsed,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -108,6 +111,7 @@ class AppSettings {
         twitchClientId: json['twitch_client_id'] ?? 'kimne78kx3ncx6brgo4mv6wki5h1ko',
         localServerPort: json['local_server_port'] ?? 65432,
         watchedThreshold: json['watched_threshold'] ?? 96,
+        sidebarCollapsed: json['sidebar_collapsed'] ?? false,
       );
 }
 
@@ -757,7 +761,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               content: SizedBox(
                 width: 500,
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(right: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1432,6 +1436,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 _settings.twitchClientId = settingsJson['twitch_client_id'] ?? 'kimne78kx3ncx6brgo4mv6wki5h1ko';
                 _settings.localServerPort = settingsJson['local_server_port'] ?? 65432;
                 _settings.watchedThreshold = settingsJson['watched_threshold'] ?? 96;
+                _settings.sidebarCollapsed = settingsJson['sidebar_collapsed'] ?? false;
+                _sidebarCollapsed = _settings.sidebarCollapsed;
               });
             }
           }
@@ -2677,7 +2683,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                             IconButton(
                               icon: const Icon(Icons.keyboard_double_arrow_left, color: Colors.white70, size: 20),
                               tooltip: 'Collapse Sidebar',
-                              onPressed: () => setState(() => _sidebarCollapsed = true),
+                              onPressed: () {
+                                setState(() {
+                                  _sidebarCollapsed = true;
+                                  _settings.sidebarCollapsed = true;
+                                });
+                                _saveChannels();
+                              },
                               hoverColor: theme.primaryColor.withOpacity(0.2),
                               splashRadius: 20,
                             ),
@@ -3721,7 +3733,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         IconButton(
           icon: const Icon(Icons.keyboard_double_arrow_right, color: Colors.white70, size: 24),
           tooltip: 'Expand sidebar',
-          onPressed: () => setState(() => _sidebarCollapsed = false),
+          onPressed: () {
+            setState(() {
+              _sidebarCollapsed = false;
+              _settings.sidebarCollapsed = false;
+            });
+            _saveChannels();
+          },
           hoverColor: theme.primaryColor.withOpacity(0.2),
           splashRadius: 22,
         ),
