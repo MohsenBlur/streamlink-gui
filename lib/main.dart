@@ -207,13 +207,44 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
       _isLoadingGames = true;
     });
     try {
-      final response = await http.get(Uri.parse('https://decapi.me/twitch/video_game/${widget.vod.id}'));
+      final body = json.encode({
+        'operationName': 'VideoPlayer_ChapterSelectButtonVideo',
+        'variables': {
+          'videoID': widget.vod.id,
+        },
+        'extensions': {
+          'persistedQuery': {
+            'version': 1,
+            'sha256Hash': '71835d5ef425e154bf282453a926d99b328cdc5e32f36d3a209d0f4778b41203',
+          },
+        },
+      });
+
+      final response = await http.post(
+        Uri.parse('https://gql.twitch.tv/gql'),
+        headers: {
+          'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+          'Content-Type': 'application/json',
+        },
+        body: body,
+      );
+
       if (response.statusCode == 200) {
-        final resText = response.body.trim();
-        if (resText.isNotEmpty && !resText.toLowerCase().contains('invalid video') && !resText.toLowerCase().contains('error')) {
+        final decoded = json.decode(response.body);
+        final moments = decoded['data']?['video']?['moments']?['edges'] as List<dynamic>?;
+        if (moments != null) {
+          final List<String> fetchedGames = [];
+          for (final edge in moments) {
+            final gameName = edge['node']?['details']?['game']?['displayName'] as String?;
+            if (gameName != null && gameName.isNotEmpty) {
+              fetchedGames.add(gameName);
+            }
+          }
+          final uniqueGames = fetchedGames.toSet().toList();
+          
           if (mounted) {
             setState(() {
-              _games = resText.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+              _games = uniqueGames;
             });
           }
         }
