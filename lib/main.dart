@@ -1578,8 +1578,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 vod.watchProgress = position / totalSeconds;
               }
             }
+          } else {
+            print('[VOD Progress Fetch] Failed to load progress for video ${vod.id}: status code ${progressResponse.statusCode}');
           }
-        } catch (_) {}
+        } catch (e) {
+          print('[VOD Progress Fetch Error] Failed to load progress for video ${vod.id}: $e');
+        }
       }));
 
       setState(() {
