@@ -2476,11 +2476,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Recent Broadcasts (VODs)',
-                        style: theme.textTheme.titleLarge?.copyWith(fontSize: 16, letterSpacing: 0.5),
-                      ),
-                      const SizedBox(width: 20),
+                      const SizedBox.shrink(),
                       isSmall
                           ? Row(
                               mainAxisSize: MainAxisSize.min,
