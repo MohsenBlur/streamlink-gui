@@ -646,7 +646,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   bool _sidebarCollapsed = false;
   String? _vodPaginationCursor;
   bool _showGamesOnThumbnails = true;
-  String? _selectedGameFilter;
+  Set<String> _selectedGamesFilter = {};
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
@@ -2362,7 +2362,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                 setState(() {
                                   _selectedChannel = channel;
                                   _channelVods.clear();
-                                  _selectedGameFilter = null;
+                                  _selectedGamesFilter.clear();
                                   _vodsError = null;
                                 });
                                 if (_settings.twitchOauthToken.trim().isNotEmpty) {
@@ -2581,43 +2581,87 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                         StatefulBuilder(
                                           builder: (context, setMenuState) {
                                             final uniqueGames = _channelVods.expand((vod) => vod.games).toSet().toList()..sort();
+                                            if (uniqueGames.isEmpty) return const SizedBox.shrink();
                                             return Column(
                                               crossAxisAlignment: CrossAxisAlignment.start,
                                               children: [
-                                                const Text('Filter by Game:', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
-                                                const SizedBox(height: 6),
+                                                Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    const Text('Filter by Games:', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+                                                    if (_selectedGamesFilter.isNotEmpty)
+                                                      GestureDetector(
+                                                        onTap: () {
+                                                          setState(() {
+                                                            _selectedGamesFilter.clear();
+                                                          });
+                                                          setMenuState(() {});
+                                                        },
+                                                        child: Text(
+                                                          'Clear All',
+                                                          style: TextStyle(fontSize: 10, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 8),
                                                 Container(
-                                                  height: 36,
-                                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                                  constraints: const BoxConstraints(maxHeight: 120),
                                                   decoration: BoxDecoration(
                                                     color: const Color(0xFF1E2433),
                                                     borderRadius: BorderRadius.circular(6),
                                                   ),
-                                                  child: DropdownButtonHideUnderline(
-                                                    child: DropdownButton<String?>(
-                                                      value: _selectedGameFilter,
-                                                      hint: const Text('All Games', style: TextStyle(fontSize: 12, color: Colors.white70)),
-                                                      dropdownColor: const Color(0xFF161B26),
-                                                      isExpanded: true,
-                                                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white38),
-                                                      style: const TextStyle(fontSize: 12, color: Colors.white),
-                                                      items: [
-                                                        const DropdownMenuItem<String?>(
-                                                          value: null,
-                                                          child: Text('All Games', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                                                  child: ListView(
+                                                    shrinkWrap: true,
+                                                    padding: const EdgeInsets.symmetric(vertical: 4),
+                                                    children: uniqueGames.map((game) {
+                                                      final isChecked = _selectedGamesFilter.contains(game);
+                                                      return InkWell(
+                                                        onTap: () {
+                                                          setState(() {
+                                                            if (isChecked) {
+                                                              _selectedGamesFilter.remove(game);
+                                                            } else {
+                                                              _selectedGamesFilter.add(game);
+                                                            }
+                                                          });
+                                                          setMenuState(() {});
+                                                        },
+                                                        child: Padding(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                          child: Row(
+                                                            children: [
+                                                              SizedBox(
+                                                                width: 16,
+                                                                height: 16,
+                                                                child: Checkbox(
+                                                                  value: isChecked,
+                                                                  activeColor: theme.primaryColor,
+                                                                  checkColor: Colors.white,
+                                                                  onChanged: (val) {
+                                                                    setState(() {
+                                                                      if (isChecked) {
+                                                                        _selectedGamesFilter.remove(game);
+                                                                      } else {
+                                                                        _selectedGamesFilter.add(game);
+                                                                      }
+                                                                    });
+                                                                    setMenuState(() {});
+                                                                  },
+                                                                ),
+                                                              ),
+                                                              const SizedBox(width: 8),
+                                                              Expanded(
+                                                                child: Text(
+                                                                  game,
+                                                                  style: const TextStyle(fontSize: 11, color: Colors.white),
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
                                                         ),
-                                                        ...uniqueGames.map((game) => DropdownMenuItem<String?>(
-                                                          value: game,
-                                                          child: Text(game, style: const TextStyle(fontSize: 12, color: Colors.white)),
-                                                        )),
-                                                      ],
-                                                      onChanged: (val) {
-                                                        setState(() {
-                                                          _selectedGameFilter = val;
-                                                        });
-                                                        setMenuState(() {});
-                                                      },
-                                                    ),
+                                                      );
+                                                    }).toList(),
                                                   ),
                                                 ),
                                               ],
@@ -2730,6 +2774,75 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                     ],
                                   ),
                                 ),
+                                const SizedBox(width: 8),
+                                // VOD game filter multi-select
+                                PopupMenuButton<String>(
+                                  icon: Icon(
+                                    _selectedGamesFilter.isEmpty ? Icons.filter_alt_outlined : Icons.filter_alt,
+                                    color: _selectedGamesFilter.isEmpty ? Colors.white70 : theme.primaryColor,
+                                    size: 16,
+                                  ),
+                                  tooltip: 'Filter VODs by Games',
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: const BorderSide(color: Color(0xFF1E2433)),
+                                  ),
+                                  color: const Color(0xFF161B26),
+                                  onSelected: (game) {
+                                    setState(() {
+                                      if (game == '__all__') {
+                                        _selectedGamesFilter.clear();
+                                      } else {
+                                        if (_selectedGamesFilter.contains(game)) {
+                                          _selectedGamesFilter.remove(game);
+                                        } else {
+                                          _selectedGamesFilter.add(game);
+                                        }
+                                      }
+                                    });
+                                  },
+                                  itemBuilder: (context) {
+                                    final uniqueGames = _channelVods.expand((vod) => vod.games).toSet().toList()..sort();
+                                    return [
+                                      PopupMenuItem<String>(
+                                        value: '__all__',
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.all_inclusive,
+                                              size: 14,
+                                              color: _selectedGamesFilter.isEmpty ? theme.primaryColor : Colors.white70,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'All Games',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: _selectedGamesFilter.isEmpty ? FontWeight.bold : FontWeight.normal,
+                                                color: _selectedGamesFilter.isEmpty ? theme.primaryColor : Colors.white,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      ...uniqueGames.map((game) {
+                                        final isSelected = _selectedGamesFilter.contains(game);
+                                        return CheckedPopupMenuItem<String>(
+                                          value: game,
+                                          checked: isSelected,
+                                          child: Text(
+                                            game,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                              color: isSelected ? theme.primaryColor : Colors.white,
+                                            ),
+                                          ),
+                                        );
+                                      }),
+                                    ];
+                                  },
+                                ),
                                 const SizedBox(width: 10),
                                 // VOD Filter TextField
                                 SizedBox(
@@ -2754,78 +2867,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                       setState(() {});
                                     },
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                PopupMenuButton<String?>(
-                                  icon: Icon(
-                                    _selectedGameFilter == null ? Icons.filter_alt_outlined : Icons.filter_alt,
-                                    color: _selectedGameFilter == null ? Colors.white70 : theme.primaryColor,
-                                    size: 16,
-                                  ),
-                                  tooltip: 'Filter VODs by Game',
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    side: const BorderSide(color: Color(0xFF1E2433)),
-                                  ),
-                                  color: const Color(0xFF161B26),
-                                  onSelected: (game) {
-                                    setState(() {
-                                      _selectedGameFilter = game;
-                                    });
-                                  },
-                                  itemBuilder: (context) {
-                                    final uniqueGames = _channelVods.expand((vod) => vod.games).toSet().toList()..sort();
-                                    return [
-                                      PopupMenuItem<String?>(
-                                        value: null,
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              Icons.all_inclusive,
-                                              size: 14,
-                                              color: _selectedGameFilter == null ? theme.primaryColor : Colors.white70,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              'All Games',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: _selectedGameFilter == null ? FontWeight.bold : FontWeight.normal,
-                                                color: _selectedGameFilter == null ? theme.primaryColor : Colors.white,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      ...uniqueGames.map((game) {
-                                        final isSelected = _selectedGameFilter == game;
-                                        return PopupMenuItem<String?>(
-                                          value: game,
-                                          child: Row(
-                                            children: [
-                                              Icon(
-                                                Icons.sports_esports,
-                                                size: 14,
-                                                color: isSelected ? theme.primaryColor : Colors.white70,
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: Text(
-                                                  game,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                                    color: isSelected ? theme.primaryColor : Colors.white,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      }),
-                                    ];
-                                  },
                                 ),
                                 const SizedBox(width: 14),
                                 // Card Size Slider
@@ -2975,8 +3016,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       final matchesSearch = searchQuery.isEmpty ||
           vod.title.toLowerCase().contains(searchQuery) ||
           vod.games.any((game) => game.toLowerCase().contains(searchQuery));
-      final matchesGameFilter = _selectedGameFilter == null ||
-          vod.games.contains(_selectedGameFilter);
+      final matchesGameFilter = _selectedGamesFilter.isEmpty ||
+          vod.games.any((game) => _selectedGamesFilter.contains(game));
       return matchesSearch && matchesGameFilter;
     }).toList();
 
@@ -2985,8 +3026,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Center(
           child: Text(
-            _selectedGameFilter != null
-                ? 'No past broadcasts match game filter "$_selectedGameFilter".'
+            _selectedGamesFilter.isNotEmpty
+                ? 'No past broadcasts match game filter "${_selectedGamesFilter.join(', ')}".'
                 : (searchQuery.isEmpty ? 'No past broadcasts found.' : 'No VODs match "$searchQuery".'),
             style: const TextStyle(color: Colors.white38, fontSize: 13),
           ),
@@ -3131,7 +3172,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                       setState(() {
                         _selectedChannel = ch;
                         _channelVods.clear();
-                        _selectedGameFilter = null;
+                        _selectedGamesFilter.clear();
                         _isLoadingVods = true;
                         _vodsError = null;
                       });
