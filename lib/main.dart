@@ -734,6 +734,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     final portController = TextEditingController(text: _settings.localServerPort.toString());
     bool obscureToken = true;
     bool obscureWebToken = true;
+    bool isTestingToken = false;
+    String? tokenTestResult;
+    bool isTokenValid = false;
 
     showDialog(
       context: context,
@@ -1010,28 +1013,129 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('Twitch Browser Token (Optional, for VOD Sync)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                          Tooltip(
-                            message: 'Copy twilight.oauthToken from twitch.tv local storage in browser DevTools.',
-                            child: Icon(Icons.info_outline, size: 14, color: theme.primaryColor),
+                          IconButton(
+                            icon: const Icon(Icons.help_outline, size: 16),
+                            color: theme.primaryColor,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () => _showBrowserTokenHelp(context),
+                            tooltip: 'How to get Browser Token',
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
-                      TextField(
-                        controller: webTokenController,
-                        obscureText: obscureWebToken,
-                        style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. 5vnv4iix6wz8y31ok3p7xlccuyb72s',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          suffixIcon: IconButton(
-                            icon: Icon(obscureWebToken ? Icons.visibility : Icons.visibility_off, size: 16),
-                            onPressed: () => setDialogState(() => obscureWebToken = !obscureWebToken),
-                            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-                            padding: EdgeInsets.zero,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: webTokenController,
+                              obscureText: obscureWebToken,
+                              style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
+                              decoration: InputDecoration(
+                                hintText: 'e.g. 5vnv4iix6wz8y31ok3p7xlccuyb72s',
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                suffixIcon: IconButton(
+                                  icon: Icon(obscureWebToken ? Icons.visibility : Icons.visibility_off, size: 16),
+                                  onPressed: () => setDialogState(() => obscureWebToken = !obscureWebToken),
+                                  constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                                  padding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            height: 36,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isTestingToken ? const Color(0xFF1E2433) : theme.primaryColor,
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              onPressed: isTestingToken
+                                  ? null
+                                  : () async {
+                                      final rawInput = webTokenController.text.trim();
+                                      if (rawInput.isEmpty) {
+                                        setDialogState(() {
+                                          tokenTestResult = 'Please enter a token first.';
+                                          isTokenValid = false;
+                                        });
+                                        return;
+                                      }
+                                      setDialogState(() {
+                                        isTestingToken = true;
+                                        tokenTestResult = null;
+                                      });
+                                      
+                                      String testToken = rawInput;
+                                      if (testToken.startsWith('oauth:')) {
+                                        testToken = testToken.substring(6);
+                                      }
+                                      
+                                      try {
+                                        final valUrl = Uri.parse('https://id.twitch.tv/oauth2/validate');
+                                        final valRes = await http.get(valUrl, headers: {
+                                          'Authorization': 'OAuth $testToken',
+                                        }).timeout(const Duration(seconds: 5));
+                                        
+                                        if (valRes.statusCode == 200) {
+                                          final decoded = json.decode(valRes.body);
+                                          final login = decoded['login'] as String?;
+                                          setDialogState(() {
+                                            isTestingToken = false;
+                                            isTokenValid = true;
+                                            tokenTestResult = 'Success! Connected as: $login';
+                                          });
+                                        } else {
+                                          setDialogState(() {
+                                            isTestingToken = false;
+                                            isTokenValid = false;
+                                            tokenTestResult = 'Invalid token (Status ${valRes.statusCode})';
+                                          });
+                                        }
+                                      } catch (e) {
+                                        setDialogState(() {
+                                          isTestingToken = false;
+                                          isTokenValid = false;
+                                          tokenTestResult = 'Connection error: $e';
+                                        });
+                                      }
+                                    },
+                              child: isTestingToken
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white60),
+                                    )
+                                  : const Text('Test', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
                       ),
+                      if (tokenTestResult != null) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              isTokenValid ? Icons.check_circle : Icons.error,
+                              size: 14,
+                              color: isTokenValid ? Colors.green : Colors.redAccent,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                tokenTestResult!,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: isTokenValid ? Colors.green : Colors.redAccent,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1083,6 +1187,113 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           },
         );
       },
+    );
+  }
+
+  void _showBrowserTokenHelp(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.help_outline, color: theme.primaryColor),
+              const SizedBox(width: 10),
+              const Text('How to get Browser Token'),
+            ],
+          ),
+          backgroundColor: const Color(0xFF161B26),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'To enable background watch progress syncing and VOD progress bars, you must copy your first-party browser login token from Twitch:',
+                    style: TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildStep(
+                    '1',
+                    'Open your web browser (Chrome, Firefox, Edge, etc.), go to twitch.tv, and make sure you are logged in to your account.',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildStep(
+                    '2',
+                    'Press F12 (or right-click anywhere on the page and select Inspect) to open the Developer Tools panel.',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildStep(
+                    '3',
+                    'Locate your cookies:\n'
+                    '• Chrome/Edge/Opera: Go to the Application tab -> expand Cookies on the left -> select https://www.twitch.tv\n'
+                    '• Firefox: Go to the Storage tab -> expand Cookies -> select https://www.twitch.tv',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildStep(
+                    '4',
+                    'In the list of cookies, find the one named auth-token. Double-click its value, copy it, and paste it into the settings field.',
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(color: Colors.white10),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Icon(Icons.info, size: 14, color: Colors.white30),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Note: Do NOT click "Log Out" on the Twitch website after copying this token. Clicking log out will immediately revoke the token on Twitch\'s servers.',
+                          style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.4), height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Got it!', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildStep(String number, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 20,
+          height: 20,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            color: Color(0xFF1E2433),
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            number,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orangeAccent),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(fontSize: 13, color: Colors.white, height: 1.35),
+          ),
+        ),
+      ],
     );
   }
 
