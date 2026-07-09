@@ -19,6 +19,7 @@ class TwitchStreamlinkApp extends StatelessWidget {
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         brightness: Brightness.dark,
+        fontFamily: 'Segoe UI',
         scaffoldBackgroundColor: const Color(0xFF0C0F17),
         primaryColor: const Color(0xFF9146FF), // Twitch Purple
         colorScheme: const ColorScheme.dark(
@@ -36,9 +37,9 @@ class TwitchStreamlinkApp extends StatelessWidget {
           ),
         ),
         textTheme: const TextTheme(
-          titleLarge: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, color: Colors.white),
-          bodyLarge: TextStyle(fontFamily: 'Inter', color: Color(0xFFE2E8F0)),
-          bodyMedium: TextStyle(fontFamily: 'Inter', color: Color(0xFF94A3B8)),
+          titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          bodyLarge: TextStyle(color: Color(0xFFE2E8F0)),
+          bodyMedium: TextStyle(color: Color(0xFF94A3B8)),
         ),
         inputDecorationTheme: const InputDecorationTheme(
           filled: true,
@@ -3122,6 +3123,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                   ),
                                   menu: Container(
                                     width: 320,
+                                    constraints: BoxConstraints(
+                                      maxHeight: MediaQuery.of(context).size.height * 0.75,
+                                    ),
                                     padding: const EdgeInsets.all(16),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFF161B26),
@@ -3134,9 +3138,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                         )
                                       ],
                                     ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                    child: SingleChildScrollView(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         StatefulBuilder(
                                           builder: (context, setMenuState) {
@@ -3352,6 +3357,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                       ],
                                     ),
                                   ),
+                                ),
                                 ),
                               ],
                             )
@@ -4534,7 +4540,13 @@ class _HoverOverlayMenuState extends State<HoverOverlayMenu> {
               setState(() => _isHovered = false);
               _hideMenu();
             },
-            child: widget.menu,
+            child: Theme(
+              data: Theme.of(context),
+              child: Material(
+                color: Colors.transparent,
+                child: widget.menu,
+              ),
+            ),
           ),
         ),
       ),
