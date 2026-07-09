@@ -63,6 +63,7 @@ class AppSettings {
   String defaultQuality = 'best';
   bool twitchLowLatency = true;
   String twitchOauthToken = '';
+  String twitchWebOauthToken = '';
   String playerType = 'default';
   String customPlayerPath = '';
   String customPlayerArgs = '';
@@ -74,6 +75,7 @@ class AppSettings {
     this.defaultQuality = 'best',
     this.twitchLowLatency = true,
     this.twitchOauthToken = '',
+    this.twitchWebOauthToken = '',
     this.playerType = 'default',
     this.customPlayerPath = '',
     this.customPlayerArgs = '',
@@ -86,6 +88,7 @@ class AppSettings {
         'default_quality': defaultQuality,
         'twitch_low_latency': twitchLowLatency,
         'twitch_oauth_token': twitchOauthToken,
+        'twitch_web_oauth_token': twitchWebOauthToken,
         'player_type': playerType,
         'custom_player_path': customPlayerPath,
         'custom_player_args': customPlayerArgs,
@@ -98,6 +101,7 @@ class AppSettings {
         defaultQuality: json['default_quality'] ?? 'best',
         twitchLowLatency: json['twitch_low_latency'] ?? true,
         twitchOauthToken: json['twitch_oauth_token'] ?? '',
+        twitchWebOauthToken: json['twitch_web_oauth_token'] ?? '',
         playerType: json['player_type'] ?? 'default',
         customPlayerPath: json['custom_player_path'] ?? '',
         customPlayerArgs: json['custom_player_args'] ?? '',
@@ -715,6 +719,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Set<String> _selectedGamesFilter = {};
   Timer? _vodProgressTimer;
   int _lastSyncedPosition = 0;
+  bool _isWebTokenExpired = false;
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
@@ -722,11 +727,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     String tempPlayerType = _settings.playerType;
     int tempWatchedThreshold = _settings.watchedThreshold;
     final tokenController = TextEditingController(text: _settings.twitchOauthToken);
+    final webTokenController = TextEditingController(text: _settings.twitchWebOauthToken);
     final playerPathController = TextEditingController(text: _settings.customPlayerPath);
     final playerArgsController = TextEditingController(text: _settings.customPlayerArgs);
     final clientIdController = TextEditingController(text: _settings.twitchClientId);
     final portController = TextEditingController(text: _settings.localServerPort.toString());
     bool obscureToken = true;
+    bool obscureWebToken = true;
 
     showDialog(
       context: context,
@@ -998,6 +1005,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Twitch Browser Token (Optional, for VOD Sync)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          Tooltip(
+                            message: 'Copy twilight.oauthToken from twitch.tv local storage in browser DevTools.',
+                            child: Icon(Icons.info_outline, size: 14, color: theme.primaryColor),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: webTokenController,
+                        obscureText: obscureWebToken,
+                        style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
+                        decoration: InputDecoration(
+                          hintText: 'e.g. 5vnv4iix6wz8y31ok3p7xlccuyb72s',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          suffixIcon: IconButton(
+                            icon: Icon(obscureWebToken ? Icons.visibility : Icons.visibility_off, size: 16),
+                            onPressed: () => setDialogState(() => obscureWebToken = !obscureWebToken),
+                            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                            padding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1016,10 +1050,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                       _settings.playerType = tempPlayerType;
                       _settings.watchedThreshold = tempWatchedThreshold;
                       _settings.twitchOauthToken = tokenController.text.trim();
+                      _settings.twitchWebOauthToken = webTokenController.text.trim();
                       _settings.customPlayerPath = playerPathController.text.trim();
                       _settings.customPlayerArgs = playerArgsController.text.trim();
                       _settings.twitchClientId = clientIdController.text.trim();
                       _settings.localServerPort = int.tryParse(portController.text.trim()) ?? 65432;
+                      _isWebTokenExpired = false;
                     });
                     await _saveChannels();
                     
@@ -1539,50 +1575,63 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           }
         } catch (_) {}
 
-        // 2. Fetch watch progress via GQL viewingHistory query
-        try {
-          final progressBody = json.encode({
-            'query': '''
-              query(\$videoID: ID!) {
-                video(id: \$videoID) {
-                  self {
-                    viewingHistory {
-                      position
+        // 2. Fetch watch progress via GQL viewingHistory query if web token is present
+        String webToken = _settings.twitchWebOauthToken.trim();
+        if (webToken.startsWith('oauth:')) {
+          webToken = webToken.substring(6);
+        }
+        if (webToken.isNotEmpty) {
+          try {
+            final progressBody = json.encode({
+              'query': '''
+                query(\$videoID: ID!) {
+                  video(id: \$videoID) {
+                    self {
+                      viewingHistory {
+                        position
+                      }
                     }
                   }
                 }
+              ''',
+              'variables': {
+                'videoID': vod.id,
+              },
+            });
+
+            final progressResponse = await http.post(
+              Uri.parse('https://gql.twitch.tv/gql'),
+              headers: {
+                'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+                'Authorization': 'OAuth $webToken',
+                'Content-Type': 'application/json',
+              },
+              body: progressBody,
+            );
+
+            if (progressResponse.statusCode == 200) {
+              final decoded = json.decode(progressResponse.body);
+              final position = decoded['data']?['video']?['self']?['viewingHistory']?['position'] as int?;
+              if (position != null) {
+                vod.watchPosition = position;
+                final totalSeconds = _parseDurationToSeconds(vod.duration);
+                if (totalSeconds > 0) {
+                  vod.watchProgress = position / totalSeconds;
+                }
               }
-            ''',
-            'variables': {
-              'videoID': vod.id,
-            },
-          });
-
-          final progressResponse = await http.post(
-            Uri.parse('https://gql.twitch.tv/gql'),
-            headers: {
-              'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
-              'Authorization': 'OAuth $token',
-              'Content-Type': 'application/json',
-            },
-            body: progressBody,
-          );
-
-          if (progressResponse.statusCode == 200) {
-            final decoded = json.decode(progressResponse.body);
-            final position = decoded['data']?['video']?['self']?['viewingHistory']?['position'] as int?;
-            if (position != null) {
-              vod.watchPosition = position;
-              final totalSeconds = _parseDurationToSeconds(vod.duration);
-              if (totalSeconds > 0) {
-                vod.watchProgress = position / totalSeconds;
+            } else {
+              print('[VOD Progress Fetch] Failed to load progress for video ${vod.id}: status code ${progressResponse.statusCode}');
+              if (progressResponse.statusCode == 401) {
+                if (mounted && !_isWebTokenExpired) {
+                  setState(() {
+                    _isWebTokenExpired = true;
+                  });
+                }
               }
             }
-          } else {
-            print('[VOD Progress Fetch] Failed to load progress for video ${vod.id}: status code ${progressResponse.statusCode}');
+          } catch (e) {
+            print('[VOD Progress Fetch Error] Failed to load progress for video ${vod.id}: $e');
           }
-        } catch (e) {
-          print('[VOD Progress Fetch Error] Failed to load progress for video ${vod.id}: $e');
         }
       }));
 
@@ -1636,9 +1685,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _startVODProgressTracker(TwitchVideo vod, String token) {
+  void _startVODProgressTracker(TwitchVideo vod) {
     _stopVODProgressTracker();
     _lastSyncedPosition = -1; // Reset last synced position
+
+    String webToken = _settings.twitchWebOauthToken.trim();
+    if (webToken.startsWith('oauth:')) {
+      webToken = webToken.substring(6);
+    }
+    if (webToken.isEmpty) {
+      print('[VOD Progress Sync] No Browser OAuth Token configured. Skipping sync.');
+      return;
+    }
 
     _vodProgressTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       final isVlc = _settings.playerType == 'vlc' || 
@@ -1661,7 +1719,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             final state = data['state'] as String?;
             final time = data['time'] as int?;
             if (state == 'playing' && time != null && time > 0) {
-              _syncVODProgressToTwitch(vod.id, time, token);
+              _syncVODProgressToTwitch(vod.id, time, webToken);
             }
           }
         } catch (_) {}
@@ -1694,7 +1752,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               } catch (_) {}
             }
             if (timePos != null && !isPaused) {
-              _syncVODProgressToTwitch(vod.id, timePos.round(), token);
+              _syncVODProgressToTwitch(vod.id, timePos.round(), webToken);
             }
           }
         } catch (_) {}
@@ -1707,7 +1765,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _vodProgressTimer = null;
   }
 
-  Future<void> _syncVODProgressToTwitch(String videoID, int position, String token) async {
+  Future<void> _syncVODProgressToTwitch(String videoID, int position, String webToken) async {
     // Only sync if position changed by more than 2 seconds to avoid unnecessary updates
     if ((position - _lastSyncedPosition).abs() < 3) return;
     _lastSyncedPosition = position;
@@ -1734,13 +1792,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         Uri.parse('https://gql.twitch.tv/gql'),
         headers: {
           'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
-          'Authorization': 'OAuth $token',
+          'Authorization': 'OAuth $webToken',
           'Content-Type': 'application/json',
         },
         body: body,
       );
 
       print('[VOD Progress Sync] Twitch tracking status: ${response.statusCode}');
+
+      if (response.statusCode == 401) {
+        print('[VOD Progress Sync] Browser OAuth Token has expired (401). Stopping tracking.');
+        _stopVODProgressTracker();
+        if (mounted && !_isWebTokenExpired) {
+          setState(() {
+            _isWebTokenExpired = true;
+          });
+        }
+        return;
+      }
 
       // Update local card progress dynamically
       final vodIndex = _channelVods.indexWhere((v) => v.id == videoID);
@@ -1835,7 +1904,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       );
 
       _activeStreamlinkProcess = proc;
-      _startVODProgressTracker(vod, token);
+      _startVODProgressTracker(vod);
 
       proc.stdout.transform(utf8.decoder).listen((data) {
         if (!mounted) return;
@@ -3259,6 +3328,48 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                     ],
                   ),
                   const SizedBox(height: 16),
+                  if (_isWebTokenExpired) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.orangeAccent.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Your Twitch Browser OAuth Token has expired. VOD watch progress tracking is currently paused.',
+                              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              backgroundColor: Colors.orangeAccent.withOpacity(0.2),
+                              foregroundColor: Colors.orangeAccent,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            onPressed: _showSettingsDialog,
+                            child: const Text('Update Token', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white60, size: 16),
+                            onPressed: () {
+                              setState(() {
+                                _isWebTokenExpired = false;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   _buildVodsList(theme),
                   if (_vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty && _channelVods.isNotEmpty) ...[
                     const SizedBox(height: 24),
