@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -67,6 +68,7 @@ class AppSettings {
   String customPlayerArgs = '';
   String twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
   int localServerPort = 65432;
+  int watchedThreshold = 96;
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -77,6 +79,7 @@ class AppSettings {
     this.customPlayerArgs = '',
     this.twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko',
     this.localServerPort = 65432,
+    this.watchedThreshold = 96,
   });
 
   Map<String, dynamic> toJson() => {
@@ -88,6 +91,7 @@ class AppSettings {
         'custom_player_args': customPlayerArgs,
         'twitch_client_id': twitchClientId,
         'local_server_port': localServerPort,
+        'watched_threshold': watchedThreshold,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -99,6 +103,7 @@ class AppSettings {
         customPlayerArgs: json['custom_player_args'] ?? '',
         twitchClientId: json['twitch_client_id'] ?? 'kimne78kx3ncx6brgo4mv6wki5h1ko',
         localServerPort: json['local_server_port'] ?? 65432,
+        watchedThreshold: json['watched_threshold'] ?? 96,
       );
 }
 
@@ -131,6 +136,8 @@ class TwitchVideo {
   final String viewCount;
   final DateTime publishedAt;
   List<String> games = [];
+  int? watchPosition;
+  double? watchProgress;
 
   TwitchVideo({
     required this.id,
@@ -140,6 +147,8 @@ class TwitchVideo {
     required this.viewCount,
     required this.publishedAt,
     this.games = const [],
+    this.watchPosition,
+    this.watchProgress,
   });
 
   factory TwitchVideo.fromJson(Map<String, dynamic> json) {
@@ -167,6 +176,7 @@ class TwitchVideoCard extends StatefulWidget {
   final bool isPlaying;
   final AnimationController? pulseController;
   final bool showGamesOnThumbnails;
+  final int watchedThreshold;
 
   const TwitchVideoCard({
     Key? key,
@@ -179,6 +189,7 @@ class TwitchVideoCard extends StatefulWidget {
     required this.isPlaying,
     required this.pulseController,
     required this.showGamesOnThumbnails,
+    required this.watchedThreshold,
   }) : super(key: key);
 
   @override
@@ -373,20 +384,75 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                 child: const Icon(Icons.movie, color: Colors.white30, size: 32),
                               ),
 
+                        // Video Thumbnail Progress Bar
+                        if (widget.vod.watchProgress != null && 
+                            widget.vod.watchProgress! > 0.0 && 
+                            widget.vod.watchProgress! < (widget.watchedThreshold / 100.0))
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              height: 4,
+                              color: Colors.black45,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: FractionallySizedBox(
+                                  widthFactor: widget.vod.watchProgress!.clamp(0.0, 1.0),
+                                  child: Container(
+                                    color: Colors.redAccent,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
                         // Top left duration badge
                         Positioned(
                           top: 8,
                           left: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.75),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              _formatTwitchStyleDuration(widget.vod.duration),
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.75),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  _formatTwitchStyleDuration(widget.vod.duration),
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                ),
+                              ),
+                              if (widget.vod.watchProgress != null && widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0)) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withOpacity(0.85),
+                                    borderRadius: BorderRadius.circular(4),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.3),
+                                        blurRadius: 4,
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.check_circle, size: 10, color: Colors.white),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'WATCHED',
+                                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
 
@@ -647,11 +713,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   String? _vodPaginationCursor;
   bool _showGamesOnThumbnails = true;
   Set<String> _selectedGamesFilter = {};
+  Timer? _vodProgressTimer;
+  int _lastSyncedPosition = 0;
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
     bool tempLowLatency = _settings.twitchLowLatency;
     String tempPlayerType = _settings.playerType;
+    int tempWatchedThreshold = _settings.watchedThreshold;
     final tokenController = TextEditingController(text: _settings.twitchOauthToken);
     final playerPathController = TextEditingController(text: _settings.customPlayerPath);
     final playerArgsController = TextEditingController(text: _settings.customPlayerArgs);
@@ -752,6 +821,37 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                           ),
                         ),
                       ],
+                      const SizedBox(height: 14),
+                      Text('Watched VOD Completion Threshold: $tempWatchedThreshold%', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Text('50%', style: TextStyle(fontSize: 11, color: Colors.white30)),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 2,
+                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                activeTrackColor: theme.primaryColor,
+                                inactiveTrackColor: Colors.white10,
+                                thumbColor: theme.primaryColor,
+                              ),
+                              child: Slider(
+                                value: tempWatchedThreshold.toDouble(),
+                                min: 50.0,
+                                max: 100.0,
+                                divisions: 50,
+                                onChanged: (val) {
+                                  setDialogState(() {
+                                    tempWatchedThreshold = val.round();
+                                  });
+                                },
+                              ),
+                            ),
+                          ),
+                          const Text('100%', style: TextStyle(fontSize: 11, color: Colors.white30)),
+                        ],
+                      ),
                       const SizedBox(height: 18),
                       const Text('Custom Player Arguments (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                       const SizedBox(height: 6),
@@ -914,6 +1014,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                       _settings.defaultQuality = tempQuality;
                       _settings.twitchLowLatency = tempLowLatency;
                       _settings.playerType = tempPlayerType;
+                      _settings.watchedThreshold = tempWatchedThreshold;
                       _settings.twitchOauthToken = tokenController.text.trim();
                       _settings.customPlayerPath = playerPathController.text.trim();
                       _settings.customPlayerArgs = playerArgsController.text.trim();
@@ -1396,8 +1497,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
       final newVods = videosList.map((item) => TwitchVideo.fromJson(item)).toList();
 
-      // Fetch games in parallel for each VOD using GQL persisted query
+      // Fetch games and watch progress in parallel for each VOD using GQL queries
       await Future.wait(newVods.map((vod) async {
+        // 1. Fetch games via persisted GQL query
         try {
           final body = json.encode({
             'operationName': 'VideoPlayer_ChapterSelectButtonVideo',
@@ -1435,9 +1537,49 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               vod.games = fetchedGames.toSet().toList();
             }
           }
-        } catch (_) {
-          // Fail silently
-        }
+        } catch (_) {}
+
+        // 2. Fetch watch progress via GQL viewingHistory query
+        try {
+          final progressBody = json.encode({
+            'query': '''
+              query(\$videoID: ID!) {
+                video(id: \$videoID) {
+                  self {
+                    viewingHistory {
+                      position
+                    }
+                  }
+                }
+              }
+            ''',
+            'variables': {
+              'videoID': vod.id,
+            },
+          });
+
+          final progressResponse = await http.post(
+            Uri.parse('https://gql.twitch.tv/gql'),
+            headers: {
+              'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+              'Authorization': 'OAuth $token',
+              'Content-Type': 'application/json',
+            },
+            body: progressBody,
+          );
+
+          if (progressResponse.statusCode == 200) {
+            final decoded = json.decode(progressResponse.body);
+            final position = decoded['data']?['video']?['self']?['viewingHistory']?['position'] as int?;
+            if (position != null) {
+              vod.watchPosition = position;
+              final totalSeconds = _parseDurationToSeconds(vod.duration);
+              if (totalSeconds > 0) {
+                vod.watchProgress = position / totalSeconds;
+              }
+            }
+          }
+        } catch (_) {}
       }));
 
       setState(() {
@@ -1456,6 +1598,160 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       setState(() {
         _isLoadingVods = false;
       });
+    }
+  }
+
+  int _parseDurationToSeconds(String duration) {
+    try {
+      final hourReg = RegExp(r'(\d+)h');
+      final minReg = RegExp(r'(\d+)m');
+      final secReg = RegExp(r'(\d+)s');
+
+      int hours = 0;
+      int minutes = 0;
+      int seconds = 0;
+
+      final hMatch = hourReg.firstMatch(duration);
+      if (hMatch != null) {
+        hours = int.parse(hMatch.group(1)!);
+      }
+
+      final mMatch = minReg.firstMatch(duration);
+      if (mMatch != null) {
+        minutes = int.parse(mMatch.group(1)!);
+      }
+
+      final sMatch = secReg.firstMatch(duration);
+      if (sMatch != null) {
+        seconds = int.parse(sMatch.group(1)!);
+      }
+
+      return (hours * 3600) + (minutes * 60) + seconds;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  void _startVODProgressTracker(TwitchVideo vod, String token) {
+    _stopVODProgressTracker();
+    _lastSyncedPosition = -1; // Reset last synced position
+
+    _vodProgressTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      final isVlc = _settings.playerType == 'vlc' || 
+          (_settings.playerType == 'custom' && _settings.customPlayerPath.toLowerCase().contains('vlc'));
+      final isMpv = _settings.playerType == 'mpv' || 
+          (_settings.playerType == 'custom' && _settings.customPlayerPath.toLowerCase().contains('mpv'));
+
+      if (isVlc) {
+        try {
+          final auth = 'Basic ' + base64Encode(utf8.encode(':streamlink'));
+          final response = await http.get(
+            Uri.parse('http://localhost:8089/requests/status.json'),
+            headers: {
+              'Authorization': auth,
+            },
+          ).timeout(const Duration(seconds: 2));
+
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+            final state = data['state'] as String?;
+            final time = data['time'] as int?;
+            if (state == 'playing' && time != null && time > 0) {
+              _syncVODProgressToTwitch(vod.id, time, token);
+            }
+          }
+        } catch (_) {}
+      } else if (isMpv) {
+        try {
+          final socket = await Socket.connect('127.0.0.1', 8089, timeout: const Duration(seconds: 2));
+          String responseBuffer = '';
+          socket.listen((data) {
+            responseBuffer += utf8.decode(data);
+            if (responseBuffer.contains('\n')) {
+              socket.destroy();
+            }
+          });
+          socket.write('{"command": ["get_property", "time-pos"]}\n');
+          socket.write('{"command": ["get_property", "pause"]}\n');
+          await Future.delayed(const Duration(milliseconds: 300));
+
+          final lines = responseBuffer.split('\n').where((l) => l.trim().isNotEmpty).toList();
+          if (lines.isNotEmpty) {
+            double? timePos;
+            bool isPaused = false;
+            for (final line in lines) {
+              try {
+                final parsed = json.decode(line);
+                if (parsed['data'] is num) {
+                  timePos = (parsed['data'] as num).toDouble();
+                } else if (parsed['data'] is bool) {
+                  isPaused = parsed['data'] as bool;
+                }
+              } catch (_) {}
+            }
+            if (timePos != null && !isPaused) {
+              _syncVODProgressToTwitch(vod.id, timePos.round(), token);
+            }
+          }
+        } catch (_) {}
+      }
+    });
+  }
+
+  void _stopVODProgressTracker() {
+    _vodProgressTimer?.cancel();
+    _vodProgressTimer = null;
+  }
+
+  Future<void> _syncVODProgressToTwitch(String videoID, int position, String token) async {
+    // Only sync if position changed by more than 2 seconds to avoid unnecessary updates
+    if ((position - _lastSyncedPosition).abs() < 3) return;
+    _lastSyncedPosition = position;
+
+    try {
+      print('[VOD Progress Sync] Sending position update: ${position}s');
+      final body = json.encode({
+        'query': '''
+          mutation(\$videoID: ID!, \$position: Int!) {
+            updateVideoPlaybackPosition(input: {videoID: \$videoID, position: \$position}) {
+              error {
+                code
+              }
+            }
+          }
+        ''',
+        'variables': {
+          'videoID': videoID,
+          'position': position,
+        },
+      });
+
+      final response = await http.post(
+        Uri.parse('https://gql.twitch.tv/gql'),
+        headers: {
+          'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+          'Authorization': 'OAuth $token',
+          'Content-Type': 'application/json',
+        },
+        body: body,
+      );
+
+      print('[VOD Progress Sync] Twitch tracking status: ${response.statusCode}');
+
+      // Update local card progress dynamically
+      final vodIndex = _channelVods.indexWhere((v) => v.id == videoID);
+      if (vodIndex != -1) {
+        setState(() {
+          final currentVod = _channelVods[vodIndex];
+          currentVod.watchPosition = position;
+          final totalSeconds = _parseDurationToSeconds(currentVod.duration);
+          if (totalSeconds > 0) {
+            currentVod.watchProgress = position / totalSeconds;
+          }
+        });
+      }
+    } catch (e) {
+      print('[VOD Progress Sync Error] Failed to sync progress: $e');
     }
   }
 
@@ -1482,16 +1778,37 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
     }
 
+    final extraArgsList = <String>[];
     if (_settings.playerType == 'vlc') {
       args.addAll(['--player', 'vlc']);
+      extraArgsList.addAll(['--extraintf=http', '--http-port=8089', '--http-password=streamlink']);
     } else if (_settings.playerType == 'mpv') {
       args.addAll(['--player', 'mpv']);
+      extraArgsList.add('--input-ipc-server=127.0.0.1:8089');
     } else if (_settings.playerType == 'custom' && _settings.customPlayerPath.trim().isNotEmpty) {
       args.addAll(['--player', _settings.customPlayerPath.trim()]);
+      final lowerPath = _settings.customPlayerPath.toLowerCase();
+      if (lowerPath.contains('vlc')) {
+        extraArgsList.addAll(['--extraintf=http', '--http-port=8089', '--http-password=streamlink']);
+      } else if (lowerPath.contains('mpv')) {
+        extraArgsList.add('--input-ipc-server=127.0.0.1:8089');
+      }
     }
 
+    String combinedPlayerArgs = '';
     if (_settings.customPlayerArgs.trim().isNotEmpty) {
-      args.addAll(['--player-args', _settings.customPlayerArgs.trim()]);
+      combinedPlayerArgs = _settings.customPlayerArgs.trim();
+    }
+    if (extraArgsList.isNotEmpty) {
+      if (combinedPlayerArgs.isNotEmpty) {
+        combinedPlayerArgs += ' ' + extraArgsList.join(' ');
+      } else {
+        combinedPlayerArgs = extraArgsList.join(' ');
+      }
+    }
+
+    if (combinedPlayerArgs.isNotEmpty) {
+      args.addAll(['--player-args', combinedPlayerArgs]);
     }
 
     args.add('twitch.tv/videos/${vod.id}');
@@ -1514,6 +1831,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       );
 
       _activeStreamlinkProcess = proc;
+      _startVODProgressTracker(vod, token);
 
       proc.stdout.transform(utf8.decoder).listen((data) {
         if (!mounted) return;
@@ -1545,6 +1863,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           _runningChannel = null;
           _streamlinkLogs.add('[System] Streamlink process exited with code $exitCode');
         });
+        _stopVODProgressTracker();
       });
     } catch (e) {
       setState(() {
@@ -1925,6 +2244,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _isStreamlinkRunning = false;
       });
       _scrollToConsoleBottom();
+      _stopVODProgressTracker();
     }
   }
 
@@ -3056,6 +3376,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           isPlaying: _playingVodId == vod.id,
           pulseController: _pulseController,
           showGamesOnThumbnails: _showGamesOnThumbnails,
+          watchedThreshold: _settings.watchedThreshold,
         );
       },
     );
