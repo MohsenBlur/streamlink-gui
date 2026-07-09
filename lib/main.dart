@@ -130,6 +130,7 @@ class TwitchVideo {
   final String thumbnailUrl;
   final String viewCount;
   final DateTime publishedAt;
+  List<String> games = [];
 
   TwitchVideo({
     required this.id,
@@ -138,6 +139,7 @@ class TwitchVideo {
     required this.thumbnailUrl,
     required this.viewCount,
     required this.publishedAt,
+    this.games = const [],
   });
 
   factory TwitchVideo.fromJson(Map<String, dynamic> json) {
@@ -185,82 +187,7 @@ class TwitchVideoCard extends StatefulWidget {
 
 class _TwitchVideoCardState extends State<TwitchVideoCard> {
   bool _isHovered = false;
-  List<String>? _games;
-  bool _isLoadingGames = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadGames();
-  }
-
-  @override
-  void didUpdateWidget(covariant TwitchVideoCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.vod.id != widget.vod.id) {
-      _games = null;
-      _loadGames();
-    }
-  }
-
-  Future<void> _loadGames() async {
-    if (widget.vod.id.isEmpty) return;
-    setState(() {
-      _isLoadingGames = true;
-    });
-    try {
-      final body = json.encode({
-        'operationName': 'VideoPlayer_ChapterSelectButtonVideo',
-        'variables': {
-          'videoID': widget.vod.id,
-        },
-        'extensions': {
-          'persistedQuery': {
-            'version': 1,
-            'sha256Hash': '71835d5ef425e154bf282453a926d99b328cdc5e32f36d3a209d0f4778b41203',
-          },
-        },
-      });
-
-      final response = await http.post(
-        Uri.parse('https://gql.twitch.tv/gql'),
-        headers: {
-          'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
-          'Content-Type': 'application/json',
-        },
-        body: body,
-      );
-
-      if (response.statusCode == 200) {
-        final decoded = json.decode(response.body);
-        final moments = decoded['data']?['video']?['moments']?['edges'] as List<dynamic>?;
-        if (moments != null) {
-          final List<String> fetchedGames = [];
-          for (final edge in moments) {
-            final gameName = edge['node']?['details']?['game']?['displayName'] as String?;
-            if (gameName != null && gameName.isNotEmpty) {
-              fetchedGames.add(gameName);
-            }
-          }
-          final uniqueGames = fetchedGames.toSet().toList();
-          
-          if (mounted) {
-            setState(() {
-              _games = uniqueGames;
-            });
-          }
-        }
-      }
-    } catch (_) {
-      // Fail silently, games stays null
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingGames = false;
-        });
-      }
-    }
-  }
+  List<String>? get _games => widget.vod.games;
 
   String _formatTwitchStyleDuration(String duration) {
     final hourReg = RegExp(r'(\d+)h');
@@ -719,6 +646,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   bool _sidebarCollapsed = false;
   String? _vodPaginationCursor;
   bool _showGamesOnThumbnails = true;
+  String? _selectedGameFilter;
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
@@ -1466,9 +1394,54 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       final List<dynamic> videosList = data['data'] ?? [];
       final nextCursor = data['pagination']?['cursor'];
 
+      final newVods = videosList.map((item) => TwitchVideo.fromJson(item)).toList();
+
+      // Fetch games in parallel for each VOD using GQL persisted query
+      await Future.wait(newVods.map((vod) async {
+        try {
+          final body = json.encode({
+            'operationName': 'VideoPlayer_ChapterSelectButtonVideo',
+            'variables': {
+              'videoID': vod.id,
+            },
+            'extensions': {
+              'persistedQuery': {
+                'version': 1,
+                'sha256Hash': '71835d5ef425e154bf282453a926d99b328cdc5e32f36d3a209d0f4778b41203',
+              },
+            },
+          });
+
+          final gResponse = await http.post(
+            Uri.parse('https://gql.twitch.tv/gql'),
+            headers: {
+              'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+              'Content-Type': 'application/json',
+            },
+            body: body,
+          );
+
+          if (gResponse.statusCode == 200) {
+            final decoded = json.decode(gResponse.body);
+            final moments = decoded['data']?['video']?['moments']?['edges'] as List<dynamic>?;
+            if (moments != null) {
+              final List<String> fetchedGames = [];
+              for (final edge in moments) {
+                final gameName = edge['node']?['details']?['game']?['displayName'] as String?;
+                if (gameName != null && gameName.isNotEmpty) {
+                  fetchedGames.add(gameName);
+                }
+              }
+              vod.games = fetchedGames.toSet().toList();
+            }
+          }
+        } catch (_) {
+          // Fail silently
+        }
+      }));
+
       setState(() {
         _vodPaginationCursor = nextCursor;
-        final newVods = videosList.map((item) => TwitchVideo.fromJson(item)).toList();
         if (loadMore) {
           _channelVods.addAll(newVods);
         } else {
@@ -2389,6 +2362,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                 setState(() {
                                   _selectedChannel = channel;
                                   _channelVods.clear();
+                                  _selectedGameFilter = null;
                                   _vodsError = null;
                                 });
                                 if (_settings.twitchOauthToken.trim().isNotEmpty) {
@@ -2603,6 +2577,53 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                             },
                                           ),
                                         ),
+                                        const SizedBox(height: 12),
+                                        StatefulBuilder(
+                                          builder: (context, setMenuState) {
+                                            final uniqueGames = _channelVods.expand((vod) => vod.games).toSet().toList()..sort();
+                                            return Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Text('Filter by Game:', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+                                                const SizedBox(height: 6),
+                                                Container(
+                                                  height: 36,
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFF1E2433),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: DropdownButtonHideUnderline(
+                                                    child: DropdownButton<String?>(
+                                                      value: _selectedGameFilter,
+                                                      hint: const Text('All Games', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                                                      dropdownColor: const Color(0xFF161B26),
+                                                      isExpanded: true,
+                                                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white38),
+                                                      style: const TextStyle(fontSize: 12, color: Colors.white),
+                                                      items: [
+                                                        const DropdownMenuItem<String?>(
+                                                          value: null,
+                                                          child: Text('All Games', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                                                        ),
+                                                        ...uniqueGames.map((game) => DropdownMenuItem<String?>(
+                                                          value: game,
+                                                          child: Text(game, style: const TextStyle(fontSize: 12, color: Colors.white)),
+                                                        )),
+                                                      ],
+                                                      onChanged: (val) {
+                                                        setState(() {
+                                                          _selectedGameFilter = val;
+                                                        });
+                                                        setMenuState(() {});
+                                                      },
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
                                         const SizedBox(height: 16),
                                         
                                         // Card Size Slider
@@ -2733,6 +2754,78 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                       setState(() {});
                                     },
                                   ),
+                                ),
+                                const SizedBox(width: 6),
+                                PopupMenuButton<String?>(
+                                  icon: Icon(
+                                    _selectedGameFilter == null ? Icons.filter_alt_outlined : Icons.filter_alt,
+                                    color: _selectedGameFilter == null ? Colors.white70 : theme.primaryColor,
+                                    size: 16,
+                                  ),
+                                  tooltip: 'Filter VODs by Game',
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: const BorderSide(color: Color(0xFF1E2433)),
+                                  ),
+                                  color: const Color(0xFF161B26),
+                                  onSelected: (game) {
+                                    setState(() {
+                                      _selectedGameFilter = game;
+                                    });
+                                  },
+                                  itemBuilder: (context) {
+                                    final uniqueGames = _channelVods.expand((vod) => vod.games).toSet().toList()..sort();
+                                    return [
+                                      PopupMenuItem<String?>(
+                                        value: null,
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.all_inclusive,
+                                              size: 14,
+                                              color: _selectedGameFilter == null ? theme.primaryColor : Colors.white70,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'All Games',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: _selectedGameFilter == null ? FontWeight.bold : FontWeight.normal,
+                                                color: _selectedGameFilter == null ? theme.primaryColor : Colors.white,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      ...uniqueGames.map((game) {
+                                        final isSelected = _selectedGameFilter == game;
+                                        return PopupMenuItem<String?>(
+                                          value: game,
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.sports_esports,
+                                                size: 14,
+                                                color: isSelected ? theme.primaryColor : Colors.white70,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  game,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                                    color: isSelected ? theme.primaryColor : Colors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    ];
+                                  },
                                 ),
                                 const SizedBox(width: 14),
                                 // Card Size Slider
@@ -2878,16 +2971,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
     
     final searchQuery = _vodSearchController.text.trim().toLowerCase();
-    final filteredVods = searchQuery.isEmpty
-        ? _channelVods
-        : _channelVods.where((vod) => vod.title.toLowerCase().contains(searchQuery)).toList();
+    final filteredVods = _channelVods.where((vod) {
+      final matchesSearch = searchQuery.isEmpty ||
+          vod.title.toLowerCase().contains(searchQuery) ||
+          vod.games.any((game) => game.toLowerCase().contains(searchQuery));
+      final matchesGameFilter = _selectedGameFilter == null ||
+          vod.games.contains(_selectedGameFilter);
+      return matchesSearch && matchesGameFilter;
+    }).toList();
 
     if (filteredVods.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Center(
           child: Text(
-            searchQuery.isEmpty ? 'No past broadcasts found.' : 'No VODs match "$searchQuery".',
+            _selectedGameFilter != null
+                ? 'No past broadcasts match game filter "$_selectedGameFilter".'
+                : (searchQuery.isEmpty ? 'No past broadcasts found.' : 'No VODs match "$searchQuery".'),
             style: const TextStyle(color: Colors.white38, fontSize: 13),
           ),
         ),
@@ -3031,6 +3131,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                       setState(() {
                         _selectedChannel = ch;
                         _channelVods.clear();
+                        _selectedGameFilter = null;
                         _isLoadingVods = true;
                         _vodsError = null;
                       });
