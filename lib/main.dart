@@ -1424,11 +1424,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 _settings.defaultQuality = settingsJson['default_quality'] ?? 'best';
                 _settings.twitchLowLatency = settingsJson['twitch_low_latency'] ?? true;
                 _settings.twitchOauthToken = settingsJson['twitch_oauth_token'] ?? '';
+                _settings.twitchWebOauthToken = settingsJson['twitch_web_oauth_token'] ?? '';
                 _settings.playerType = settingsJson['player_type'] ?? 'default';
                 _settings.customPlayerPath = settingsJson['custom_player_path'] ?? '';
                 _settings.customPlayerArgs = settingsJson['custom_player_args'] ?? '';
                 _settings.twitchClientId = settingsJson['twitch_client_id'] ?? 'kimne78kx3ncx6brgo4mv6wki5h1ko';
                 _settings.localServerPort = settingsJson['local_server_port'] ?? 65432;
+                _settings.watchedThreshold = settingsJson['watched_threshold'] ?? 96;
               });
             }
           }
