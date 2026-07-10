@@ -337,10 +337,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           onTap: widget.isMultiSelectMode
               ? () => widget.onSelected?.call(!widget.isSelected)
               : widget.onPlay,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              AnimatedContainer(
+          child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeOutCubic,
                 transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
@@ -412,9 +409,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                   ),
 
                             // Video Thumbnail Progress Bar
-                            if (widget.vod.watchProgress != null && 
-                                widget.vod.watchProgress! > 0.0 && 
-                                widget.vod.watchProgress! < (widget.watchedThreshold / 100.0))
+                            if (widget.vod.watchProgress != null && widget.vod.watchProgress! > 0.0)
                               Positioned(
                                 bottom: 0,
                                 left: 0,
@@ -425,9 +420,13 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                   child: Align(
                                     alignment: Alignment.centerLeft,
                                     child: FractionallySizedBox(
-                                      widthFactor: widget.vod.watchProgress!.clamp(0.0, 1.0),
+                                      widthFactor: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
+                                          ? 1.0
+                                          : widget.vod.watchProgress!.clamp(0.0, 1.0),
                                       child: Container(
-                                        color: widget.theme.primaryColor,
+                                        color: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
+                                            ? Colors.white.withOpacity(0.35)
+                                            : widget.theme.primaryColor,
                                       ),
                                     ),
                                   ),
@@ -686,36 +685,9 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                   ],
                 ),
               ),
-              if (widget.vod.watchProgress != null && widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
-                Positioned(
-                  bottom: -3,
-                  right: -3,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFF0F1319), width: 1.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1.5),
-                        )
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(3),
-                    child: const Icon(
-                      Icons.check,
-                      color: Colors.white,
-                      size: 9,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-    }
+            ),
+          );
+        }
 
     if (widget.isPlaying && widget.pulseController != null) {
       return AnimatedBuilder(
