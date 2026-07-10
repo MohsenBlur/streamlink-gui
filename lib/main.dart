@@ -1785,7 +1785,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                         });
                       }
 
-                      if (mounted) {
+                      if (context.mounted) {
                         Navigator.pop(context);
                         _showSnackBar('Settings saved successfully!', isError: false);
                       }
@@ -2324,6 +2324,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
 
     if (filesToDelete.isNotEmpty) {
+      if (!mounted) return;
       final bool? deleteConfirm = await showDialog<bool>(
         context: context,
         builder: (context) {
@@ -5842,61 +5843,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Card widgets for stats dashboard
-  Widget _buildStatCard({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String value,
-    bool isLongText = false,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF161B26),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1E2433)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 20, color: iconColor),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: isLongText ? 12 : 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    height: 1.3,
-                  ),
-                  maxLines: isLongText ? 3 : 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   // Console output Widget at the bottom
   Widget _buildConsolePanel(ThemeData theme) {
