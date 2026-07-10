@@ -275,6 +275,7 @@ class TwitchVideoCard extends StatefulWidget {
   final bool isDownloaded;
   final VoidCallback onDownload;
   final VoidCallback onDeleteDownload;
+  final VoidCallback onCancel;
 
   const TwitchVideoCard({
     Key? key,
@@ -296,6 +297,7 @@ class TwitchVideoCard extends StatefulWidget {
     this.isDownloaded = false,
     required this.onDownload,
     required this.onDeleteDownload,
+    required this.onCancel,
   }) : super(key: key);
 
   @override
@@ -305,6 +307,46 @@ class TwitchVideoCard extends StatefulWidget {
 class _TwitchVideoCardState extends State<TwitchVideoCard> {
   bool _isHovered = false;
   List<String>? get _games => widget.vod.games;
+
+  Widget _buildCardButton({
+    required VoidCallback onTap,
+    required IconData icon,
+    required Color backgroundColor,
+    required String tooltip,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      preferBelow: false,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          hoverColor: Colors.white.withOpacity(0.2),
+          splashColor: Colors.white.withOpacity(0.3),
+          child: Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: backgroundColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(
+               icon,
+               size: 15,
+               color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   String _formatTwitchStyleDuration(String duration) {
     final hourReg = RegExp(r'(\d+)h');
@@ -740,7 +782,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                   ? Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        if (widget.downloadStatus != null)
+                                        if (widget.downloadStatus != null) ...[
                                           // Downloading / queued state
                                           Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
@@ -775,66 +817,38 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                 ),
                                               ],
                                             ),
-                                          )
-                                        else if (widget.isDownloaded) ...[
-                                          // Downloaded state: Play and Delete buttons
-                                          GestureDetector(
-                                            onTap: widget.onPlay,
-                                            child: MouseRegion(
-                                              cursor: SystemMouseCursors.click,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(5),
-                                                decoration: const BoxDecoration(
-                                                  shape: BoxShape.circle,
-                                                  color: Colors.green,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.play_arrow,
-                                                  size: 15,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
+                                          ),
+                                          if (_isHovered) ...[
+                                            const SizedBox(width: 6),
+                                            _buildCardButton(
+                                              onTap: widget.onCancel,
+                                              icon: Icons.close,
+                                              backgroundColor: Colors.redAccent,
+                                              tooltip: 'Cancel Download',
                                             ),
+                                          ],
+                                        ] else if (widget.isDownloaded) ...[
+                                          // Downloaded state: Play and Delete buttons
+                                          _buildCardButton(
+                                            onTap: widget.onPlay,
+                                            icon: Icons.play_arrow,
+                                            backgroundColor: Colors.green,
+                                            tooltip: 'Play Local VOD',
                                           ),
                                           const SizedBox(width: 6),
-                                          GestureDetector(
+                                          _buildCardButton(
                                             onTap: widget.onDeleteDownload,
-                                            child: MouseRegion(
-                                              cursor: SystemMouseCursors.click,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(5),
-                                                decoration: const BoxDecoration(
-                                                  shape: BoxShape.circle,
-                                                  color: Colors.redAccent,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.delete,
-                                                  size: 15,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
+                                            icon: Icons.delete,
+                                            backgroundColor: Colors.redAccent,
+                                            tooltip: 'Delete Download',
                                           ),
                                         ] else ...[
                                           // Not downloaded state: Download button on hover
-                                          GestureDetector(
+                                          _buildCardButton(
                                             onTap: widget.onDownload,
-                                            child: MouseRegion(
-                                              cursor: SystemMouseCursors.click,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(5),
-                                                decoration: BoxDecoration(
-                                                  shape: BoxShape.circle,
-                                                  color: Colors.black.withOpacity(0.8),
-                                                  border: Border.all(color: Colors.white30),
-                                                ),
-                                                child: const Icon(
-                                                  Icons.download,
-                                                  size: 15,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                            ),
+                                            icon: Icons.download,
+                                            backgroundColor: Colors.black.withOpacity(0.8),
+                                            tooltip: 'Download VOD',
                                           ),
                                         ]
                                       ],
@@ -2174,12 +2188,92 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     } catch (_) {}
   }
 
-  void _queueVodDownload(TwitchVideo vod, String channelName) {
-    if (_settings.vodDownloadFolder.trim().isEmpty) {
-      _showSnackBar('Please choose a VOD Download Folder in Settings first.', isError: true);
+  Future<void> _ensureDownloadFolderConfigured(VoidCallback onConfigured) async {
+    if (_settings.vodDownloadFolder.trim().isNotEmpty) {
+      onConfigured();
       return;
     }
-    final vodId = vod.id;
+
+    final bool? proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.folder_copy, color: Colors.orangeAccent),
+              SizedBox(width: 10),
+              Text('Configure Download Folder'),
+            ],
+          ),
+          backgroundColor: themeNotifier.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: const Text(
+            'A VOD download folder has not been configured yet.\n\nWould you like to select a folder now to proceed with your download?',
+            style: TextStyle(height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
+              onPressed: () async {
+                final result = await Process.run('powershell', [
+                  '-Command',
+                  'Add-Type -AssemblyName System.Windows.Forms; \$f = New-Object System.Windows.Forms.FolderBrowserDialog; if (\$f.ShowDialog() -eq \'OK\') { \$f.SelectedPath }'
+                ]);
+                if (result.exitCode == 0) {
+                  final path = result.stdout.toString().trim();
+                  if (path.isNotEmpty) {
+                    setState(() {
+                      _settings.vodDownloadFolder = path;
+                    });
+                    await _saveChannels();
+                    _checkDownloadedVods();
+                    if (context.mounted) {
+                      Navigator.pop(context, true);
+                    }
+                  }
+                }
+              },
+              child: const Text('Browse & Set Folder', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (proceed == true && _settings.vodDownloadFolder.trim().isNotEmpty) {
+      onConfigured();
+    } else {
+      _showSnackBar('Download cancelled: VOD Download Folder is required.', isError: true);
+    }
+  }
+
+  void _cancelVodDownload(String vodId) {
+    final proc = _activeDownloadProcesses[vodId];
+    if (proc != null) {
+      try {
+        proc.kill();
+      } catch (_) {}
+    }
+    
+    _downloadQueue.remove(vodId);
+    _queuedDownloadTasks.remove(vodId);
+    
+    setState(() {
+      _activeDownloadProcesses.remove(vodId);
+      _activeDownloadsProgress.remove(vodId);
+      _activeDownloadTasks.remove(vodId);
+    });
+    
+    _showSnackBar('Download cancelled.', isError: true);
+  }
+
+  void _queueVodDownload(TwitchVideo vod, String channelName) {
+    _ensureDownloadFolderConfigured(() {
+      final vodId = vod.id;
     if (_queuedDownloadTasks.containsKey(vodId) || _activeDownloadProcesses.containsKey(vodId)) {
       _showSnackBar('VOD is already downloading or queued: ${vod.title}', isError: false);
       return;
@@ -2192,6 +2286,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     });
     
     _processDownloadQueue();
+    });
   }
 
   Future<void> _processDownloadQueue() async {
@@ -2379,19 +2474,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     final selectedVods = _channelVods.where((v) => _selectedVodIds.contains(v.id)).toList();
     if (selectedVods.isEmpty) return;
     
-    if (selectedVods.length == 1) {
-      _queueVodDownload(selectedVods.first, _selectedChannel?.username ?? 'VOD');
-      setState(() {
-        _isMultiSelectMode = false;
-        _selectedVodIds.clear();
-      });
-    } else {
-      _showDownloadOrderDialog(selectedVods);
-      setState(() {
-        _isMultiSelectMode = false;
-        _selectedVodIds.clear();
-      });
-    }
+    _ensureDownloadFolderConfigured(() {
+      if (selectedVods.length == 1) {
+        _queueVodDownload(selectedVods.first, _selectedChannel?.username ?? 'VOD');
+        setState(() {
+          _isMultiSelectMode = false;
+          _selectedVodIds.clear();
+        });
+      } else {
+        _showDownloadOrderDialog(selectedVods);
+        setState(() {
+          _isMultiSelectMode = false;
+          _selectedVodIds.clear();
+        });
+      }
+    });
   }
 
   Future<void> _bulkDeleteSelectedVods() async {
@@ -5043,6 +5140,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           isDownloaded: _downloadedVodIds.contains(vod.id),
           onDownload: () => _queueVodDownload(vod, _selectedChannel?.username ?? 'VOD'),
           onDeleteDownload: () => _deleteDownloadedVod(vod.id, _selectedChannel?.username ?? 'VOD'),
+          onCancel: () => _cancelVodDownload(vod.id),
         );
       },
     );
