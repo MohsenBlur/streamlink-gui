@@ -941,7 +941,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   String? _vodsError;
   double _vodScale = 350.0;
   double _vodTitleFontSize = 14.0;
-  String? _playingVodId;
+
   final TextEditingController _vodSearchController = TextEditingController();
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
@@ -964,6 +964,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   bool _isQueueProcessing = false;
   Set<String> _downloadedVodIds = {};
   Timer? _downloadCheckTimer;
+
+  final Map<String, Process> _activePlayerProcesses = {};
+  final Map<String, int> _activePlayerPorts = {};
+  final Map<String, Timer> _activePlayerTimers = {};
+  final Set<String> _playingVodIds = {};
+  final Set<String> _runningChannels = {};
+
+  int _getNextAvailablePlayerPort() {
+    int port = 8089;
+    while (_activePlayerPorts.containsValue(port)) {
+      port++;
+    }
+    return port;
+  }
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
@@ -1895,7 +1909,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   // Streamlink Process State
-  Process? _activeStreamlinkProcess;
+
   final List<String> _streamlinkLogs = [];
   bool _isStreamlinkRunning = false;
   String? _runningChannel;
@@ -1918,14 +1932,31 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   void dispose() {
     _vodSearchController.dispose();
     _pulseController?.dispose();
-    _activeStreamlinkProcess?.kill();
+    for (final proc in _activePlayerProcesses.values) {
+      try {
+        if (Platform.isWindows) {
+          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+        } else {
+          proc.kill();
+        }
+      } catch (_) {}
+    }
+    _activePlayerProcesses.clear();
+    for (final timer in _activePlayerTimers.values) {
+      timer.cancel();
+    }
+    _activePlayerTimers.clear();
     _searchController.dispose();
     _consoleScrollController.dispose();
     _oauthServer?.close(force: true);
     _downloadCheckTimer?.cancel();
     for (final proc in _activeDownloadProcesses.values) {
       try {
-        proc.kill();
+        if (Platform.isWindows) {
+          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+        } else {
+          proc.kill();
+        }
       } catch (_) {}
     }
     super.dispose();
@@ -2392,19 +2423,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     final isFullyWatched = vod.watchProgress != null && vod.watchProgress! >= watchedThresholdPct;
     final finalSeek = isFullyWatched ? 0 : seekTime;
 
+    final port = _getNextAvailablePlayerPort();
+
     if (_settings.playerType == 'vlc') {
       exe = 'vlc';
       if (finalSeek > 0) {
         args.add('--start-time=$finalSeek');
       }
-      args.addAll(['--extraintf=http', '--http-port=8089', '--http-password=streamlink']);
+      args.addAll(['--extraintf=http', '--http-port=$port', '--http-password=streamlink']);
       args.add(path);
     } else if (_settings.playerType == 'mpv') {
       exe = 'mpv';
       if (finalSeek > 0) {
         args.add('--start=$finalSeek');
       }
-      args.add('--input-ipc-server=127.0.0.1:8089');
+      args.add('--input-ipc-server=127.0.0.1:$port');
       args.add(path);
     } else if (_settings.playerType == 'custom' && _settings.customPlayerPath.trim().isNotEmpty) {
       exe = _settings.customPlayerPath.trim();
@@ -2413,12 +2446,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         if (finalSeek > 0) {
           args.add('--start-time=$finalSeek');
         }
-        args.addAll(['--extraintf=http', '--http-port=8089', '--http-password=streamlink']);
+        args.addAll(['--extraintf=http', '--http-port=$port', '--http-password=streamlink']);
       } else if (lowerPath.contains('mpv')) {
         if (finalSeek > 0) {
           args.add('--start=$finalSeek');
         }
-        args.add('--input-ipc-server=127.0.0.1:8089');
+        args.add('--input-ipc-server=127.0.0.1:$port');
       }
       args.add(path);
     } else {
@@ -2427,23 +2460,35 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
 
     try {
-      if (_isStreamlinkRunning) {
-        _stopStreamlink();
-        await Future.delayed(const Duration(milliseconds: 500));
-      }
-
       setState(() {
-        _playingVodId = vod.id;
-        _runningChannel = 'Local VOD: ${vod.title}';
-        _isStreamlinkRunning = true;
+        _playingVodIds.add(vod.id);
+        _activePlayerPorts[vod.id] = port;
       });
 
-      await Process.start(
+      final proc = await Process.start(
         exe,
         args,
         runInShell: true,
       );
+
+      _activePlayerProcesses[vod.id] = proc;
+      _startVODProgressTracker(vod, port);
+
+      proc.exitCode.then((exitCode) {
+        if (mounted) {
+          setState(() {
+            _playingVodIds.remove(vod.id);
+            _activePlayerProcesses.remove(vod.id);
+            _activePlayerPorts.remove(vod.id);
+            _stopVODProgressTracker(vod.id);
+          });
+        }
+      });
     } catch (e) {
+      setState(() {
+        _playingVodIds.remove(vod.id);
+        _activePlayerPorts.remove(vod.id);
+      });
       _showSnackBar('Failed to play local VOD: $e', isError: true);
     }
   }
@@ -3141,10 +3186,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _startVODProgressTracker(TwitchVideo vod) {
-    _stopVODProgressTracker();
-    _lastSyncedPosition = -1; // Reset last synced position
-
+  void _startVODProgressTracker(TwitchVideo vod, int port) {
+    int lastSynced = -1;
     String webToken = _settings.twitchWebOauthToken.trim();
     if (webToken.startsWith('oauth:')) {
       webToken = webToken.substring(6);
@@ -3154,7 +3197,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       return;
     }
 
-    _vodProgressTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    final timer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       final isVlc = _settings.playerType == 'vlc' || 
           (_settings.playerType == 'custom' && _settings.customPlayerPath.toLowerCase().contains('vlc'));
       final isMpv = _settings.playerType == 'mpv' || 
@@ -3164,7 +3207,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         try {
           final auth = 'Basic ' + base64Encode(utf8.encode(':streamlink'));
           final response = await http.get(
-            Uri.parse('http://localhost:8089/requests/status.json'),
+            Uri.parse('http://localhost:$port/requests/status.json'),
             headers: {
               'Authorization': auth,
             },
@@ -3175,13 +3218,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             final state = data['state'] as String?;
             final time = data['time'] as int?;
             if (state == 'playing' && time != null && time > 0) {
-              _syncVODProgressToTwitch(vod.id, time, webToken);
+              if ((time - lastSynced).abs() >= 3) {
+                lastSynced = time;
+                _syncVODProgressToTwitch(vod.id, time, webToken);
+              }
             }
           }
         } catch (_) {}
       } else if (isMpv) {
         try {
-          final socket = await Socket.connect('127.0.0.1', 8089, timeout: const Duration(seconds: 2));
+          final socket = await Socket.connect('127.0.0.1', port, timeout: const Duration(seconds: 2));
           String responseBuffer = '';
           socket.listen((data) {
             responseBuffer += utf8.decode(data);
@@ -3208,26 +3254,28 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               } catch (_) {}
             }
             if (timePos != null && !isPaused) {
-              _syncVODProgressToTwitch(vod.id, timePos.round(), webToken);
+              final rounded = timePos.round();
+              if ((rounded - lastSynced).abs() >= 3) {
+                lastSynced = rounded;
+                _syncVODProgressToTwitch(vod.id, rounded, webToken);
+              }
             }
           }
         } catch (_) {}
       }
     });
+
+    _activePlayerTimers[vod.id] = timer;
   }
 
-  void _stopVODProgressTracker() {
-    _vodProgressTimer?.cancel();
-    _vodProgressTimer = null;
+  void _stopVODProgressTracker(String videoID) {
+    final t = _activePlayerTimers.remove(videoID);
+    t?.cancel();
   }
 
   Future<void> _syncVODProgressToTwitch(String videoID, int position, String webToken) async {
-    // Only sync if position changed by more than 2 seconds to avoid unnecessary updates
-    if ((position - _lastSyncedPosition).abs() < 3) return;
-    _lastSyncedPosition = position;
-
     try {
-      print('[VOD Progress Sync] Sending position update: ${position}s');
+      print('[VOD Progress Sync] Sending position update for VOD $videoID: ${position}s');
       final body = json.encode({
         'query': '''
           mutation(\$videoID: ID!, \$position: Int!) {
@@ -3258,7 +3306,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
       if (response.statusCode == 401) {
         print('[VOD Progress Sync] Browser OAuth Token has expired (401). Stopping tracking.');
-        _stopVODProgressTracker();
+        final t = _activePlayerTimers.remove(videoID);
+        t?.cancel();
         if (mounted && !_isWebTokenExpired) {
           setState(() {
             _isWebTokenExpired = true;
@@ -3267,7 +3316,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         return;
       }
 
-      // Update local card progress dynamically and save to disk
       final vodIndex = _channelVods.indexWhere((v) => v.id == videoID);
       setState(() {
         _localVodsProgress[videoID] = position;
@@ -3386,12 +3434,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _launchStreamlinkForVod(TwitchVideo vod) async {
-    if (_isStreamlinkRunning) {
-      _showSnackBar('Stopping active stream before starting a new one...', isError: false);
-      _stopStreamlink();
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
-
     String titleString = '${_selectedChannel?.username ?? "VOD"} - ${vod.title}';
     final args = <String>[];
     args.addAll(['--title', titleString]);
@@ -3401,27 +3443,26 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         ? _settings.twitchClientId.trim()
         : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
-    // Streamlink's Twitch plugin requests playback tokens via Twitch's private GraphQL API (gql.twitch.tv),
-    // which only accepts authentication generated by Twitch's first-party web Client ID.
-    // If a custom developer Client ID is used, we must NOT pass the token to Streamlink, or it will throw an Unauthorized error.
     if (token.isNotEmpty && clientId == 'kimne78kx3ncx6brgo4mv6wki5h1ko') {
       args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
     }
 
+    final port = _getNextAvailablePlayerPort();
+
     final extraArgsList = <String>[];
     if (_settings.playerType == 'vlc') {
       args.addAll(['--player', 'vlc']);
-      extraArgsList.addAll(['--extraintf=http', '--http-port=8089', '--http-password=streamlink']);
+      extraArgsList.addAll(['--extraintf=http', '--http-port=$port', '--http-password=streamlink']);
     } else if (_settings.playerType == 'mpv') {
       args.addAll(['--player', 'mpv']);
-      extraArgsList.add('--input-ipc-server=127.0.0.1:8089');
+      extraArgsList.add('--input-ipc-server=127.0.0.1:$port');
     } else if (_settings.playerType == 'custom' && _settings.customPlayerPath.trim().isNotEmpty) {
       args.addAll(['--player', _settings.customPlayerPath.trim()]);
       final lowerPath = _settings.customPlayerPath.toLowerCase();
       if (lowerPath.contains('vlc')) {
-        extraArgsList.addAll(['--extraintf=http', '--http-port=8089', '--http-password=streamlink']);
+        extraArgsList.addAll(['--extraintf=http', '--http-port=$port', '--http-password=streamlink']);
       } else if (lowerPath.contains('mpv')) {
-        extraArgsList.add('--input-ipc-server=127.0.0.1:8089');
+        extraArgsList.add('--input-ipc-server=127.0.0.1:$port');
       }
     }
 
@@ -3454,9 +3495,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _streamlinkLogs.clear();
       _streamlinkLogs.add('[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${_settings.defaultQuality}...');
       _streamlinkLogs.add('[System] Arguments: ${args.join(" ")}');
-      _isStreamlinkRunning = true;
-      _playingVodId = vod.id;
-      _runningChannel = 'VOD: ${vod.title}';
+      _playingVodIds.add(vod.id);
+      _activePlayerPorts[vod.id] = port;
     });
 
     try {
@@ -3466,8 +3506,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         runInShell: true,
       );
 
-      _activeStreamlinkProcess = proc;
-      _startVODProgressTracker(vod);
+      _activePlayerProcesses[vod.id] = proc;
+      _startVODProgressTracker(vod, port);
 
       proc.stdout.transform(utf8.decoder).listen((data) {
         if (!mounted) return;
@@ -3494,18 +3534,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       proc.exitCode.then((exitCode) {
         if (!mounted) return;
         setState(() {
-          _isStreamlinkRunning = false;
-          _playingVodId = null;
-          _runningChannel = null;
-          _streamlinkLogs.add('[System] Streamlink process exited with code $exitCode');
+          _playingVodIds.remove(vod.id);
+          _activePlayerProcesses.remove(vod.id);
+          _activePlayerPorts.remove(vod.id);
+          _streamlinkLogs.add('[System] Streamlink process for VOD ${vod.id} exited with code $exitCode');
         });
-        _stopVODProgressTracker();
+        _stopVODProgressTracker(vod.id);
       });
     } catch (e) {
       setState(() {
-        _isStreamlinkRunning = false;
-        _playingVodId = null;
-        _runningChannel = null;
+        _playingVodIds.remove(vod.id);
+        _activePlayerPorts.remove(vod.id);
         _streamlinkLogs.add('[System Error] Failed to start Streamlink: $e');
       });
       _showSnackBar('Failed to start Streamlink: $e', isError: true);
@@ -3749,12 +3788,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   // Streamlink Launching Logic
   Future<void> _launchStreamlink(String channelName) async {
-    if (_isStreamlinkRunning) {
-      _showSnackBar('Stopping active stream before starting a new one...', isError: false);
-      _stopStreamlink();
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
-
     final channel = _channels.firstWhere(
       (c) => c.username == channelName.toLowerCase().trim(),
       orElse: () => TwitchChannel(username: channelName),
@@ -3777,9 +3810,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         ? _settings.twitchClientId.trim()
         : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
-    // Streamlink's Twitch plugin requests playback tokens via Twitch's private GraphQL API (gql.twitch.tv),
-    // which only accepts authentication generated by Twitch's first-party web Client ID.
-    // If a custom developer Client ID is used, we must NOT pass the token to Streamlink, or it will throw an Unauthorized error.
     if (token.isNotEmpty && clientId == 'kimne78kx3ncx6brgo4mv6wki5h1ko') {
       args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
     }
@@ -3809,19 +3839,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _streamlinkLogs.add('[System] Arguments: ${args.join(" ")}');
       _isStreamlinkRunning = true;
       _runningChannel = channelName;
+      _runningChannels.add(channelName);
     });
 
     try {
-      // Run streamlink in a shell
       final proc = await Process.start(
         'streamlink',
         args,
         runInShell: true,
       );
 
-      _activeStreamlinkProcess = proc;
+      _activePlayerProcesses['stream_$channelName'] = proc;
 
-      // Handle standard output stream
       proc.stdout.transform(utf8.decoder).listen((data) {
         if (!mounted) return;
         setState(() {
@@ -3834,7 +3863,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _scrollToConsoleBottom();
       });
 
-      // Handle standard error stream
       proc.stderr.transform(utf8.decoder).listen((data) {
         if (!mounted) return;
         setState(() {
@@ -3847,41 +3875,50 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _scrollToConsoleBottom();
       });
 
-      // Handle exit code
       proc.exitCode.then((exitCode) {
         if (!mounted) return;
-        if (_runningChannel == channelName) {
-          setState(() {
-            _streamlinkLogs.add('[System] Streamlink process terminated with exit code $exitCode');
-            _isStreamlinkRunning = false;
-            _activeStreamlinkProcess = null;
-          });
-          _scrollToConsoleBottom();
-        }
+        setState(() {
+          _runningChannels.remove(channelName);
+          _activePlayerProcesses.remove('stream_$channelName');
+          _isStreamlinkRunning = _activePlayerProcesses.isNotEmpty;
+          _streamlinkLogs.add('[System] Streamlink process for channel $channelName terminated with exit code $exitCode');
+        });
+        _scrollToConsoleBottom();
       });
     } catch (e) {
       setState(() {
+        _runningChannels.remove(channelName);
+        _activePlayerProcesses.remove('stream_$channelName');
+        _isStreamlinkRunning = _activePlayerProcesses.isNotEmpty;
         _streamlinkLogs.add('[System Error] Failed to run streamlink: $e');
         _streamlinkLogs.add('[System Error] Ensure Streamlink is installed and available in your environment.');
-        _isStreamlinkRunning = false;
-        _activeStreamlinkProcess = null;
       });
       _scrollToConsoleBottom();
     }
   }
 
-  // Terminate active Streamlink process
   void _stopStreamlink() {
-    if (_activeStreamlinkProcess != null) {
-      _activeStreamlinkProcess!.kill();
-      _activeStreamlinkProcess = null;
-      setState(() {
-        _streamlinkLogs.add('[System] Streamlink manually stopped by user.');
-        _isStreamlinkRunning = false;
-      });
-      _scrollToConsoleBottom();
-      _stopVODProgressTracker();
+    for (final proc in _activePlayerProcesses.values) {
+      try {
+        if (Platform.isWindows) {
+          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+        } else {
+          proc.kill();
+        }
+      } catch (_) {}
     }
+    _activePlayerProcesses.clear();
+    for (final timer in _activePlayerTimers.values) {
+      timer.cancel();
+    }
+    _activePlayerTimers.clear();
+    setState(() {
+      _playingVodIds.clear();
+      _runningChannels.clear();
+      _streamlinkLogs.add('[System] All stream and player processes manually stopped by user.');
+      _isStreamlinkRunning = false;
+    });
+    _scrollToConsoleBottom();
   }
 
   void _scrollToConsoleBottom() {
@@ -5177,7 +5214,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           },
           formatNumber: _formatNumberString,
           fontSize: _vodTitleFontSize,
-          isPlaying: _playingVodId == vod.id,
+          isPlaying: _playingVodIds.contains(vod.id),
           pulseController: _pulseController,
           showGamesOnThumbnails: _showGamesOnThumbnails,
           watchedThreshold: _settings.watchedThreshold,
