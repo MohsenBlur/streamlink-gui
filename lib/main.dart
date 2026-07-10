@@ -4,6 +4,48 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+class AppThemeNotifier extends ChangeNotifier {
+  Color primaryColor = const Color(0xFF9146FF);
+  Color backgroundColor = const Color(0xFF0C0F17);
+  Color surfaceColor = const Color(0xFF161B26);
+  Color activeProgressColor = const Color(0xFF9146FF);
+  Color watchedProgressColor = const Color(0x804CAF50); // transparent green
+
+  void updateTheme({
+    Color? primary,
+    Color? background,
+    Color? surface,
+    Color? activeProgress,
+    Color? watchedProgress,
+  }) {
+    if (primary != null) primaryColor = primary;
+    if (background != null) backgroundColor = background;
+    if (surface != null) surfaceColor = surface;
+    if (activeProgress != null) activeProgressColor = activeProgress;
+    if (watchedProgress != null) watchedProgressColor = watchedProgress;
+    notifyListeners();
+  }
+}
+
+final AppThemeNotifier themeNotifier = AppThemeNotifier();
+
+Color parseHexColor(String hex, Color defaultColor) {
+  try {
+    String clean = hex.replaceAll('#', '').trim();
+    if (clean.length == 6) {
+      clean = 'FF' + clean;
+    }
+    if (clean.length == 8) {
+      return Color(int.parse(clean, radix: 16));
+    }
+  } catch (_) {}
+  return defaultColor;
+}
+
+String colorToHex(Color color) {
+  return '#' + color.value.toRadixString(16).padLeft(8, '0').toUpperCase();
+}
+
 void main() {
   runApp(const TwitchStreamlinkApp());
 }
@@ -13,49 +55,54 @@ class TwitchStreamlinkApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Twitch Streamlink GUI',
-      debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        fontFamily: 'Segoe UI',
-        scaffoldBackgroundColor: const Color(0xFF0C0F17),
-        primaryColor: const Color(0xFF9146FF), // Twitch Purple
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF9146FF),
-          secondary: Color(0xFF00F2FE), // Cyan Accent
-          surface: Color(0xFF161B26),
-          background: const Color(0xFF0C0F17),
-          error: Color(0xFFFF4D4D),
-        ),
-        cardTheme: const CardThemeData(
-          color: Color(0xFF161B26),
-          elevation: 4,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
+    return ListenableBuilder(
+      listenable: themeNotifier,
+      builder: (context, _) {
+        return MaterialApp(
+          title: 'Twitch Streamlink GUI',
+          debugShowCheckedModeBanner: false,
+          themeMode: ThemeMode.dark,
+          darkTheme: ThemeData(
+            brightness: Brightness.dark,
+            fontFamily: 'Segoe UI',
+            scaffoldBackgroundColor: themeNotifier.backgroundColor,
+            primaryColor: themeNotifier.primaryColor,
+            colorScheme: ColorScheme.dark(
+              primary: themeNotifier.primaryColor,
+              secondary: const Color(0xFF00F2FE), // Cyan Accent
+              surface: themeNotifier.surfaceColor,
+              background: themeNotifier.backgroundColor,
+              error: const Color(0xFFFF4D4D),
+            ),
+            cardTheme: CardThemeData(
+              color: themeNotifier.surfaceColor,
+              elevation: 4,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+              ),
+            ),
+            textTheme: const TextTheme(
+              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+              bodyLarge: TextStyle(color: Color(0xFFE2E8F0)),
+              bodyMedium: TextStyle(color: Color(0xFF94A3B8)),
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: const Color(0xFF1F2937),
+              border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(8)),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: const BorderRadius.all(Radius.circular(8)),
+                borderSide: BorderSide(color: themeNotifier.primaryColor, width: 1.5),
+              ),
+              hintStyle: const TextStyle(color: Colors.white38),
+            ),
           ),
-        ),
-        textTheme: const TextTheme(
-          titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-          bodyLarge: TextStyle(color: Color(0xFFE2E8F0)),
-          bodyMedium: TextStyle(color: Color(0xFF94A3B8)),
-        ),
-        inputDecorationTheme: const InputDecorationTheme(
-          filled: true,
-          fillColor: Color(0xFF1F2937),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(8)),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(8)),
-            borderSide: BorderSide(color: Color(0xFF9146FF), width: 1.5),
-          ),
-          hintStyle: TextStyle(color: Colors.white38),
-        ),
-      ),
-      home: const MainScreen(),
+          home: const MainScreen(),
+        );
+      },
     );
   }
 }
@@ -72,6 +119,15 @@ class AppSettings {
   int localServerPort = 65432;
   int watchedThreshold = 96;
   bool sidebarCollapsed = false;
+  String primaryColorHex = '#9146FF';
+  String backgroundColorHex = '#0C0F17';
+  String surfaceColorHex = '#161B26';
+  String activeProgressColorHex = '#9146FF';
+  String watchedProgressColorHex = '#804CAF50';
+  String vodDownloadFolder = Platform.environment['USERPROFILE'] != null
+      ? '${Platform.environment['USERPROFILE']}\\Downloads\\TwitchVODs'
+      : '';
+  int maxDownloadsToKeep = 0; // 0 = unlimited
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -85,7 +141,18 @@ class AppSettings {
     this.localServerPort = 65432,
     this.watchedThreshold = 96,
     this.sidebarCollapsed = false,
-  });
+    this.primaryColorHex = '#9146FF',
+    this.backgroundColorHex = '#0C0F17',
+    this.surfaceColorHex = '#161B26',
+    this.activeProgressColorHex = '#9146FF',
+    this.watchedProgressColorHex = '#804CAF50',
+    this.vodDownloadFolder = '',
+    this.maxDownloadsToKeep = 0,
+  }) {
+    if (vodDownloadFolder.isEmpty && Platform.environment['USERPROFILE'] != null) {
+      vodDownloadFolder = '${Platform.environment['USERPROFILE']}\\Downloads\\TwitchVODs';
+    }
+  }
 
   Map<String, dynamic> toJson() => {
         'default_quality': defaultQuality,
@@ -99,6 +166,13 @@ class AppSettings {
         'local_server_port': localServerPort,
         'watched_threshold': watchedThreshold,
         'sidebar_collapsed': sidebarCollapsed,
+        'primary_color_hex': primaryColorHex,
+        'background_color_hex': backgroundColorHex,
+        'surface_color_hex': surfaceColorHex,
+        'active_progress_color_hex': activeProgressColorHex,
+        'watched_progress_color_hex': watchedProgressColorHex,
+        'vod_download_folder': vodDownloadFolder,
+        'max_downloads_to_keep': maxDownloadsToKeep,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -113,6 +187,13 @@ class AppSettings {
         localServerPort: json['local_server_port'] ?? 65432,
         watchedThreshold: json['watched_threshold'] ?? 96,
         sidebarCollapsed: json['sidebar_collapsed'] ?? false,
+        primaryColorHex: json['primary_color_hex'] ?? '#9146FF',
+        backgroundColorHex: json['background_color_hex'] ?? '#0C0F17',
+        surfaceColorHex: json['surface_color_hex'] ?? '#161B26',
+        activeProgressColorHex: json['active_progress_color_hex'] ?? '#9146FF',
+        watchedProgressColorHex: json['watched_progress_color_hex'] ?? '#804CAF50',
+        vodDownloadFolder: json['vod_download_folder'] ?? '',
+        maxDownloadsToKeep: json['max_downloads_to_keep'] ?? 0,
       );
 }
 
@@ -189,6 +270,11 @@ class TwitchVideoCard extends StatefulWidget {
   final bool isMultiSelectMode;
   final bool isSelected;
   final ValueChanged<bool?>? onSelected;
+  final String? downloadStatus;
+  final double? downloadProgress;
+  final bool isDownloaded;
+  final VoidCallback onDownload;
+  final VoidCallback onDeleteDownload;
 
   const TwitchVideoCard({
     Key? key,
@@ -205,6 +291,11 @@ class TwitchVideoCard extends StatefulWidget {
     this.isMultiSelectMode = false,
     this.isSelected = false,
     this.onSelected,
+    this.downloadStatus,
+    this.downloadProgress,
+    this.isDownloaded = false,
+    required this.onDownload,
+    required this.onDeleteDownload,
   }) : super(key: key);
 
   @override
@@ -425,8 +516,8 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                           : widget.vod.watchProgress!.clamp(0.0, 1.0),
                                       child: Container(
                                         color: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
-                                            ? Colors.white.withOpacity(0.35)
-                                            : widget.theme.primaryColor,
+                                            ? themeNotifier.watchedProgressColor
+                                            : themeNotifier.activeProgressColor,
                                       ),
                                     ),
                                   ),
@@ -641,21 +732,124 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                               ),
                             ),
 
-                            // Bottom right time-ago badge
+                            // Bottom right badge OR download controls
                             Positioned(
                               bottom: 8,
                               right: 8,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.75),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  _timeAgo(widget.vod.publishedAt),
-                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                                ),
-                              ),
+                              child: (!widget.isMultiSelectMode && (_isHovered || widget.downloadStatus != null || widget.isDownloaded))
+                                  ? Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (widget.downloadStatus != null)
+                                          // Downloading / queued state
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withOpacity(0.9),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 1.0),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (widget.downloadProgress != null) ...[
+                                                  SizedBox(
+                                                    width: 12,
+                                                    height: 12,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      value: widget.downloadProgress,
+                                                      valueColor: const AlwaysStoppedAnimation(Colors.greenAccent),
+                                                      backgroundColor: Colors.white10,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                ],
+                                                Text(
+                                                  widget.downloadStatus!,
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.greenAccent,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        else if (widget.isDownloaded) ...[
+                                          // Downloaded state: Play and Delete buttons
+                                          GestureDetector(
+                                            onTap: widget.onPlay,
+                                            child: MouseRegion(
+                                              cursor: SystemMouseCursors.click,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(5),
+                                                decoration: const BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: Colors.green,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.play_arrow,
+                                                  size: 15,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          GestureDetector(
+                                            onTap: widget.onDeleteDownload,
+                                            child: MouseRegion(
+                                              cursor: SystemMouseCursors.click,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(5),
+                                                decoration: const BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: Colors.redAccent,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.delete,
+                                                  size: 15,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ] else ...[
+                                          // Not downloaded state: Download button on hover
+                                          GestureDetector(
+                                            onTap: widget.onDownload,
+                                            child: MouseRegion(
+                                              cursor: SystemMouseCursors.click,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(5),
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  color: Colors.black.withOpacity(0.8),
+                                                  border: Border.all(color: Colors.white30),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.download,
+                                                  size: 15,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ]
+                                      ],
+                                    )
+                                  : Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.75),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        _timeAgo(widget.vod.publishedAt),
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                      ),
+                                    ),
                             ),
                           ],
                         ),
@@ -700,6 +894,13 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
   }
 }
 
+class VodDownloadTask {
+  final TwitchVideo vod;
+  final String channelName;
+  
+  VodDownloadTask({required this.vod, required this.channelName});
+}
+
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -741,6 +942,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   bool _isBulkUpdatingVods = false;
   Map<String, int> _localVodsProgress = {};
 
+  final Map<String, double> _activeDownloadsProgress = {};
+  final Map<String, Process> _activeDownloadProcesses = {};
+  final Map<String, String> _activeDownloadTasks = {};
+  final List<String> _downloadQueue = [];
+  final Map<String, VodDownloadTask> _queuedDownloadTasks = {};
+  bool _isQueueProcessing = false;
+  Set<String> _downloadedVodIds = {};
+  Timer? _downloadCheckTimer;
+
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
     bool tempLowLatency = _settings.twitchLowLatency;
@@ -752,458 +962,810 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     final playerArgsController = TextEditingController(text: _settings.customPlayerArgs);
     final clientIdController = TextEditingController(text: _settings.twitchClientId);
     final portController = TextEditingController(text: _settings.localServerPort.toString());
+    final downloadFolderController = TextEditingController(text: _settings.vodDownloadFolder);
+    final maxDownloadsController = TextEditingController(text: _settings.maxDownloadsToKeep == 0 ? '' : _settings.maxDownloadsToKeep.toString());
     bool obscureToken = true;
     bool obscureWebToken = true;
     bool isTestingToken = false;
     String? tokenTestResult;
     bool isTokenValid = false;
 
+    // Capture original theme colors to support Cancel/Rollback
+    final origPrimary = parseHexColor(_settings.primaryColorHex, const Color(0xFF9146FF));
+    final origBackground = parseHexColor(_settings.backgroundColorHex, const Color(0xFF0C0F17));
+    final origSurface = parseHexColor(_settings.surfaceColorHex, const Color(0xFF161B26));
+    final origActiveProgress = parseHexColor(_settings.activeProgressColorHex, const Color(0xFF9146FF));
+    final origWatchedProgress = parseHexColor(_settings.watchedProgressColorHex, const Color(0x804CAF50));
+
+    Color tempPrimary = origPrimary;
+    Color tempBackground = origBackground;
+    Color tempSurface = origSurface;
+    Color tempActiveProgress = origActiveProgress;
+    Color tempWatchedProgress = origWatchedProgress;
+
+    String activeColorKey = 'primary';
+    final hexController = TextEditingController(text: colorToHex(tempPrimary));
+
     showDialog(
       context: context,
+      barrierDismissible: false, // Force user to click save/cancel to ensure proper color rollback
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final theme = Theme.of(context);
-            return AlertDialog(
-              title: Row(
-                children: [
-                  Icon(Icons.settings, color: theme.primaryColor),
-                  const SizedBox(width: 10),
-                  const Text('Streamlink Settings'),
-                ],
-              ),
-              backgroundColor: const Color(0xFF161B26),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              content: SizedBox(
-                width: 500,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Default Video Quality',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: tempQuality,
-                        decoration: const InputDecoration(
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 'best', child: Text('Best Available')),
-                          DropdownMenuItem(value: '1080p60', child: Text('1080p 60fps')),
-                          DropdownMenuItem(value: '1080p', child: Text('1080p')),
-                          DropdownMenuItem(value: '720p60', child: Text('720p 60fps')),
-                          DropdownMenuItem(value: '720p', child: Text('720p')),
-                          DropdownMenuItem(value: '480p', child: Text('480p')),
-                          DropdownMenuItem(value: 'worst', child: Text('Worst Available')),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) {
-                            setDialogState(() => tempQuality = val);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 18),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Twitch Low Latency', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        subtitle: const Text('Reduces live stream delay, but may increase buffering on slow networks.', style: TextStyle(fontSize: 11)),
-                        value: tempLowLatency,
-                        activeColor: theme.primaryColor,
-                        onChanged: (val) {
-                          setDialogState(() => tempLowLatency = val);
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      const Divider(color: Colors.white12),
-                      const SizedBox(height: 12),
-                      const Text('Video Player Selection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: tempPlayerType,
-                        decoration: const InputDecoration(
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 'default', child: Text('System / Streamlink Default')),
-                          DropdownMenuItem(value: 'vlc', child: Text('Force VLC Player')),
-                          DropdownMenuItem(value: 'mpv', child: Text('Force MPV Player')),
-                          DropdownMenuItem(value: 'custom', child: Text('Use Custom Executable Path')),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) {
-                            setDialogState(() => tempPlayerType = val);
-                          }
-                        },
-                      ),
-                      if (tempPlayerType == 'custom') ...[
-                        const SizedBox(height: 14),
-                        const Text('Custom Player Executable Path', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: playerPathController,
-                          style: const TextStyle(fontSize: 13),
-                          decoration: const InputDecoration(
-                            hintText: 'e.g. C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
-                          ),
-                        ),
+            Color getActiveColor() {
+              switch (activeColorKey) {
+                case 'primary': return tempPrimary;
+                case 'background': return tempBackground;
+                case 'surface': return tempSurface;
+                case 'activeProgress': return tempActiveProgress;
+                case 'watchedProgress': return tempWatchedProgress;
+                default: return tempPrimary;
+              }
+            }
+
+            void updateActiveColor(Color c) {
+              setDialogState(() {
+                switch (activeColorKey) {
+                  case 'primary': tempPrimary = c; break;
+                  case 'background': tempBackground = c; break;
+                  case 'surface': tempSurface = c; break;
+                  case 'activeProgress': tempActiveProgress = c; break;
+                  case 'watchedProgress': tempWatchedProgress = c; break;
+                }
+                final activeColor = getActiveColor();
+                final hexStr = colorToHex(activeColor);
+                if (hexController.text.toUpperCase() != hexStr.toUpperCase()) {
+                  hexController.text = hexStr;
+                }
+              });
+              themeNotifier.updateTheme(
+                primary: tempPrimary,
+                background: tempBackground,
+                surface: tempSurface,
+                activeProgress: tempActiveProgress,
+                watchedProgress: tempWatchedProgress,
+              );
+            }
+
+            Widget buildColorSlider({
+              required String label,
+              required double value,
+              required Color sliderColor,
+              required ValueChanged<double> onChanged,
+            }) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
+                        Text(value.round().toString(), style: const TextStyle(fontSize: 11, fontFamily: 'Consolas', color: Colors.white70)),
                       ],
-                      const SizedBox(height: 14),
-                      Text('Watched VOD Completion Threshold: $tempWatchedThreshold%', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      const SizedBox(height: 4),
-                      Row(
+                    ),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 2,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                        activeTrackColor: sliderColor,
+                        inactiveTrackColor: Colors.white10,
+                        thumbColor: sliderColor,
+                      ),
+                      child: Slider(
+                        value: value,
+                        min: 0,
+                        max: 255,
+                        onChanged: onChanged,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final presets = [
+              const Color(0xFF9146FF), // Twitch Purple
+              const Color(0xFF00F2FE), // Cyan Accent
+              const Color(0xFF4CAF50), // Green
+              const Color(0xFFF44336), // Red
+              const Color(0xFFFF9800), // Orange
+              const Color(0xFFFFEB3B), // Yellow
+              const Color(0xFFE91E63), // Pink
+              const Color(0xFF2196F3), // Blue
+              const Color(0xFF0C0F17), // Dark Background
+              const Color(0xFF161B26), // Dark Card
+            ];
+
+            final activeColor = getActiveColor();
+
+            return DefaultTabController(
+              length: 3,
+              child: AlertDialog(
+                titlePadding: EdgeInsets.zero,
+                title: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+                      child: Row(
                         children: [
-                          const Text('50%', style: TextStyle(fontSize: 11, color: Colors.white30)),
-                          Expanded(
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 2,
-                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                activeTrackColor: theme.primaryColor,
-                                inactiveTrackColor: Colors.white10,
-                                thumbColor: theme.primaryColor,
+                          Icon(Icons.settings, color: themeNotifier.primaryColor),
+                          const SizedBox(width: 10),
+                          const Text('Streamlink Settings'),
+                        ],
+                      ),
+                    ),
+                    TabBar(
+                      labelColor: themeNotifier.primaryColor,
+                      unselectedLabelColor: Colors.white60,
+                      indicatorColor: themeNotifier.primaryColor,
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      tabs: const [
+                        Tab(text: 'General'),
+                        Tab(text: 'Theme & Colors'),
+                        Tab(text: 'Downloads'),
+                      ],
+                    ),
+                  ],
+                ),
+                backgroundColor: themeNotifier.surfaceColor,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                content: SizedBox(
+                  width: 500,
+                  height: 520,
+                  child: TabBarView(
+                    children: [
+                      // TAB 1: GENERAL SETTINGS
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Default Video Quality',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<String>(
+                              value: tempQuality,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12),
                               ),
-                              child: Slider(
-                                value: tempWatchedThreshold.toDouble(),
-                                min: 50.0,
-                                max: 100.0,
-                                divisions: 50,
-                                onChanged: (val) {
-                                  setDialogState(() {
-                                    tempWatchedThreshold = val.round();
-                                  });
-                                },
+                              items: const [
+                                DropdownMenuItem(value: 'best', child: Text('Best Available')),
+                                DropdownMenuItem(value: '1080p60', child: Text('1080p 60fps')),
+                                DropdownMenuItem(value: '1080p', child: Text('1080p')),
+                                DropdownMenuItem(value: '720p60', child: Text('720p 60fps')),
+                                DropdownMenuItem(value: '720p', child: Text('720p')),
+                                DropdownMenuItem(value: '480p', child: Text('480p')),
+                                DropdownMenuItem(value: 'worst', child: Text('Worst Available')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setDialogState(() => tempQuality = val);
+                                }
+                              },
+                            ),
+                            const SizedBox(height: 18),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Twitch Low Latency', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              subtitle: const Text('Reduces live stream delay, but may increase buffering on slow networks.', style: TextStyle(fontSize: 11)),
+                              value: tempLowLatency,
+                              activeColor: themeNotifier.primaryColor,
+                              onChanged: (val) {
+                                setDialogState(() => tempLowLatency = val);
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            const Divider(color: Colors.white12),
+                            const SizedBox(height: 12),
+                            const Text('Video Player Selection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<String>(
+                              value: tempPlayerType,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'default', child: Text('System / Streamlink Default')),
+                                DropdownMenuItem(value: 'vlc', child: Text('Force VLC Player')),
+                                DropdownMenuItem(value: 'mpv', child: Text('Force MPV Player')),
+                                DropdownMenuItem(value: 'custom', child: Text('Use Custom Executable Path')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setDialogState(() => tempPlayerType = val);
+                                }
+                              },
+                            ),
+                            if (tempPlayerType == 'custom') ...[
+                              const SizedBox(height: 14),
+                              const Text('Custom Player Executable Path', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              const SizedBox(height: 6),
+                              TextField(
+                                controller: playerPathController,
+                                style: const TextStyle(fontSize: 13),
+                                decoration: const InputDecoration(
+                                  hintText: 'e.g. C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 14),
+                            Text('Watched VOD Completion Threshold: $tempWatchedThreshold%', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Text('50%', style: TextStyle(fontSize: 11, color: Colors.white30)),
+                                Expanded(
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                      activeTrackColor: themeNotifier.primaryColor,
+                                      inactiveTrackColor: Colors.white10,
+                                      thumbColor: themeNotifier.primaryColor,
+                                    ),
+                                    child: Slider(
+                                      value: tempWatchedThreshold.toDouble(),
+                                      min: 50.0,
+                                      max: 100.0,
+                                      divisions: 50,
+                                      onChanged: (val) {
+                                        setDialogState(() {
+                                          tempWatchedThreshold = val.round();
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const Text('100%', style: TextStyle(fontSize: 11, color: Colors.white30)),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            const Text('Custom Player Arguments (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: playerArgsController,
+                              style: const TextStyle(fontSize: 13),
+                              decoration: const InputDecoration(
+                                hintText: 'e.g. --ontop --no-border (for mpv)',
                               ),
                             ),
-                          ),
-                          const Text('100%', style: TextStyle(fontSize: 11, color: Colors.white30)),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      const Text('Custom Player Arguments (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: playerArgsController,
-                        style: const TextStyle(fontSize: 13),
-                        decoration: const InputDecoration(
-                          hintText: 'e.g. --ontop --no-border (for mpv)',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Divider(color: Colors.white12),
-                      const SizedBox(height: 12),
-                      const Text('Twitch API Authentication', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
-                      const SizedBox(height: 10),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0C0F17),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.white10),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
+                            const SizedBox(height: 12),
+                            const Divider(color: Colors.white12),
+                            const SizedBox(height: 12),
+                            const Text('Twitch API Authentication', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: themeNotifier.backgroundColor,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.white10),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            _settings.twitchOauthToken.trim().isNotEmpty ? Icons.check_circle : Icons.error_outline,
+                                            color: _settings.twitchOauthToken.trim().isNotEmpty ? Colors.green : Colors.orange,
+                                            size: 16,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            _settings.twitchOauthToken.trim().isNotEmpty
+                                                ? (_authenticatedUserLogin != null ? 'Connected: $_authenticatedUserLogin' : 'Connected')
+                                                : 'Not connected',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: _settings.twitchOauthToken.trim().isNotEmpty ? Colors.green : Colors.orange,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: themeNotifier.primaryColor,
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                          minimumSize: Size.zero,
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        ),
+                                        onPressed: () {
+                                          _startOAuthServer();
+                                          Navigator.pop(context);
+                                        },
+                                        icon: const Icon(Icons.login, size: 12, color: Colors.white),
+                                        label: const Text('Connect Account', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                      ),
+                                    ],
+                                  ),
+                                  if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Connecting allows you to automatically load your followed channels, view channel VOD lists, stream subscriber-only feeds, and remove ads.',
+                                      style: TextStyle(fontSize: 10, color: Colors.white38, height: 1.4),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Twitch Client ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                      const SizedBox(height: 4),
+                                      TextField(
+                                        controller: clientIdController,
+                                        style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
+                                        decoration: const InputDecoration(
+                                          hintText: 'Twitch Client ID',
+                                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  flex: 2,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Local Port', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                      const SizedBox(height: 4),
+                                      TextField(
+                                        controller: portController,
+                                        style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
+                                        keyboardType: TextInputType.number,
+                                        decoration: const InputDecoration(
+                                          hintText: '65432',
+                                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      _settings.twitchOauthToken.trim().isNotEmpty ? Icons.check_circle : Icons.error_outline,
-                                      color: _settings.twitchOauthToken.trim().isNotEmpty ? Colors.green : Colors.orange,
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      _settings.twitchOauthToken.trim().isNotEmpty
-                                          ? (_authenticatedUserLogin != null ? 'Connected: $_authenticatedUserLogin' : 'Connected')
-                                          : 'Not connected',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: _settings.twitchOauthToken.trim().isNotEmpty ? Colors.green : Colors.orange,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: theme.primaryColor,
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                  onPressed: () {
-                                    // Start local server and open browser
-                                    _startOAuthServer();
-                                    Navigator.pop(context);
-                                  },
-                                  icon: const Icon(Icons.login, size: 12, color: Colors.white),
-                                  label: const Text('Connect Account', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                const Text('Twitch OAuth Token (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                TextButton(
+                                  style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                  onPressed: () => _openExternalLink('https://twitchapps.com/tmi/'),
+                                  child: const Text('Get Token Manually', style: TextStyle(fontSize: 11)),
                                 ),
                               ],
                             ),
-                            if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Connecting allows you to automatically load your followed channels, view channel VOD lists, stream subscriber-only feeds, and remove ads.',
-                                style: TextStyle(fontSize: 10, color: Colors.white38, height: 1.4),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Twitch Client ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                const SizedBox(height: 4),
-                                TextField(
-                                  controller: clientIdController,
-                                  style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
-                                  decoration: const InputDecoration(
-                                    hintText: 'Twitch Client ID',
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 2,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Local Port', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                const SizedBox(height: 4),
-                                TextField(
-                                  controller: portController,
-                                  style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
-                                  keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                    hintText: '65432',
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Twitch OAuth Token (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                          TextButton(
-                            style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                            onPressed: () => _openExternalLink('https://twitchapps.com/tmi/'),
-                            child: const Text('Get Token Manually', style: TextStyle(fontSize: 11)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: tokenController,
-                        obscureText: obscureToken,
-                        style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
-                        decoration: InputDecoration(
-                          hintText: 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          suffixIcon: IconButton(
-                            icon: Icon(obscureToken ? Icons.visibility : Icons.visibility_off, size: 16),
-                            onPressed: () => setDialogState(() => obscureToken = !obscureToken),
-                            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-                            padding: EdgeInsets.zero,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Twitch Browser Token (Optional, for VOD Sync)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                          IconButton(
-                            icon: const Icon(Icons.help_outline, size: 16),
-                            color: theme.primaryColor,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            onPressed: () => _showBrowserTokenHelp(context),
-                            tooltip: 'How to get Browser Token',
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: webTokenController,
-                              obscureText: obscureWebToken,
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: tokenController,
+                              obscureText: obscureToken,
                               style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
                               decoration: InputDecoration(
-                                hintText: 'e.g. 5vnv4iix6wz8y31ok3p7xlccuyb72s',
+                                hintText: 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                 suffixIcon: IconButton(
-                                  icon: Icon(obscureWebToken ? Icons.visibility : Icons.visibility_off, size: 16),
-                                  onPressed: () => setDialogState(() => obscureWebToken = !obscureWebToken),
+                                  icon: Icon(obscureToken ? Icons.visibility : Icons.visibility_off, size: 16),
+                                  onPressed: () => setDialogState(() => obscureToken = !obscureToken),
                                   constraints: const BoxConstraints.tightFor(width: 32, height: 32),
                                   padding: EdgeInsets.zero,
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            height: 36,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isTestingToken ? const Color(0xFF1E2433) : theme.primaryColor,
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            const SizedBox(height: 14),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Twitch Browser Token (Optional, for VOD Sync)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                IconButton(
+                                  icon: const Icon(Icons.help_outline, size: 16),
+                                  color: themeNotifier.primaryColor,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: () => _showBrowserTokenHelp(context),
+                                  tooltip: 'How to get Browser Token',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: webTokenController,
+                                    obscureText: obscureWebToken,
+                                    style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
+                                    decoration: InputDecoration(
+                                      hintText: 'e.g. 5vnv4iix6wz8y31ok3p7xlccuyb72s',
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(obscureWebToken ? Icons.visibility : Icons.visibility_off, size: 16),
+                                        onPressed: () => setDialogState(() => obscureWebToken = !obscureWebToken),
+                                        constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                                        padding: EdgeInsets.zero,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  height: 36,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: isTestingToken ? const Color(0xFF1E2433) : themeNotifier.primaryColor,
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                    ),
+                                    onPressed: isTestingToken
+                                        ? null
+                                        : () async {
+                                            final rawInput = webTokenController.text.trim();
+                                            if (rawInput.isEmpty) {
+                                              setDialogState(() {
+                                                tokenTestResult = 'Please enter a token first.';
+                                                isTokenValid = false;
+                                              });
+                                              return;
+                                            }
+                                            setDialogState(() {
+                                              isTestingToken = true;
+                                              tokenTestResult = null;
+                                            });
+
+                                            String testToken = rawInput;
+                                            if (testToken.startsWith('oauth:')) {
+                                              testToken = testToken.substring(6);
+                                            }
+
+                                            try {
+                                              final valUrl = Uri.parse('https://id.twitch.tv/oauth2/validate');
+                                              final valRes = await http.get(valUrl, headers: {
+                                                'Authorization': 'OAuth $testToken',
+                                              }).timeout(const Duration(seconds: 5));
+
+                                              if (valRes.statusCode == 200) {
+                                                final decoded = json.decode(valRes.body);
+                                                final login = decoded['login'] as String?;
+                                                setDialogState(() {
+                                                  isTestingToken = false;
+                                                  isTokenValid = true;
+                                                  tokenTestResult = 'Success! Connected as: $login';
+                                                });
+                                              } else {
+                                                setDialogState(() {
+                                                  isTestingToken = false;
+                                                  isTokenValid = false;
+                                                  tokenTestResult = 'Invalid token (Status ${valRes.statusCode})';
+                                                });
+                                              }
+                                            } catch (e) {
+                                              setDialogState(() {
+                                                isTestingToken = false;
+                                                isTokenValid = false;
+                                                tokenTestResult = 'Connection error: $e';
+                                              });
+                                            }
+                                          },
+                                    child: isTestingToken
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white60),
+                                          )
+                                        : const Text('Test', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (tokenTestResult != null) ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(
+                                    isTokenValid ? Icons.check_circle : Icons.error,
+                                    size: 14,
+                                    color: isTokenValid ? Colors.green : Colors.redAccent,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      tokenTestResult!,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: isTokenValid ? Colors.green : Colors.redAccent,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              onPressed: isTestingToken
-                                  ? null
-                                  : () async {
-                                      final rawInput = webTokenController.text.trim();
-                                      if (rawInput.isEmpty) {
-                                        setDialogState(() {
-                                          tokenTestResult = 'Please enter a token first.';
-                                          isTokenValid = false;
-                                        });
-                                        return;
-                                      }
-                                      setDialogState(() {
-                                        isTestingToken = true;
-                                        tokenTestResult = null;
-                                      });
-                                      
-                                      String testToken = rawInput;
-                                      if (testToken.startsWith('oauth:')) {
-                                        testToken = testToken.substring(6);
-                                      }
-                                      
-                                      try {
-                                        final valUrl = Uri.parse('https://id.twitch.tv/oauth2/validate');
-                                        final valRes = await http.get(valUrl, headers: {
-                                          'Authorization': 'OAuth $testToken',
-                                        }).timeout(const Duration(seconds: 5));
-                                        
-                                        if (valRes.statusCode == 200) {
-                                          final decoded = json.decode(valRes.body);
-                                          final login = decoded['login'] as String?;
-                                          setDialogState(() {
-                                            isTestingToken = false;
-                                            isTokenValid = true;
-                                            tokenTestResult = 'Success! Connected as: $login';
-                                          });
-                                        } else {
-                                          setDialogState(() {
-                                            isTestingToken = false;
-                                            isTokenValid = false;
-                                            tokenTestResult = 'Invalid token (Status ${valRes.statusCode})';
-                                          });
-                                        }
-                                      } catch (e) {
-                                        setDialogState(() {
-                                          isTestingToken = false;
-                                          isTokenValid = false;
-                                          tokenTestResult = 'Connection error: $e';
-                                        });
+                            ],
+                          ],
+                        ),
+                      ),
+
+                      // TAB 2: THEME & COLOR SETTINGS
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Choose Custom Color to Edit',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<String>(
+                              value: activeColorKey,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'primary', child: Text('Primary Color (Highlights & Active Buttons)')),
+                                DropdownMenuItem(value: 'background', child: Text('Scaffold Background Color')),
+                                DropdownMenuItem(value: 'surface', child: Text('Card / Sidebar / Dialog Background')),
+                                DropdownMenuItem(value: 'activeProgress', child: Text('In-Progress VOD Color')),
+                                DropdownMenuItem(value: 'watchedProgress', child: Text('Fully Watched VOD Color')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setDialogState(() {
+                                    activeColorKey = val;
+                                    hexController.text = colorToHex(getActiveColor());
+                                  });
+                                }
+                              },
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: activeColor,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.white24, width: 1.5),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.3),
+                                        blurRadius: 4,
+                                      )
+                                    ]
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: TextField(
+                                    controller: hexController,
+                                    style: const TextStyle(fontSize: 13, fontFamily: 'Consolas'),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Hex Color Value',
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    ),
+                                    onChanged: (val) {
+                                      final newCol = parseHexColor(val, getActiveColor());
+                                      if (newCol != getActiveColor()) {
+                                        updateActiveColor(newCol);
                                       }
                                     },
-                              child: isTestingToken
-                                  ? const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white60),
-                                    )
-                                  : const Text('Test', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (tokenTestResult != null) ...[
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Icon(
-                              isTokenValid ? Icons.check_circle : Icons.error,
-                              size: 14,
-                              color: isTokenValid ? Colors.green : Colors.redAccent,
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                tokenTestResult!,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: isTokenValid ? Colors.green : Colors.redAccent,
+                                  ),
                                 ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            buildColorSlider(
+                              label: 'Red Channel',
+                              value: activeColor.red.toDouble(),
+                              sliderColor: Colors.redAccent,
+                              onChanged: (val) {
+                                updateActiveColor(Color.fromARGB(activeColor.alpha, val.round(), activeColor.green, activeColor.blue));
+                              },
+                            ),
+                            buildColorSlider(
+                              label: 'Green Channel',
+                              value: activeColor.green.toDouble(),
+                              sliderColor: Colors.greenAccent,
+                              onChanged: (val) {
+                                updateActiveColor(Color.fromARGB(activeColor.alpha, activeColor.red, val.round(), activeColor.blue));
+                              },
+                            ),
+                            buildColorSlider(
+                              label: 'Blue Channel',
+                              value: activeColor.blue.toDouble(),
+                              sliderColor: Colors.blueAccent,
+                              onChanged: (val) {
+                                updateActiveColor(Color.fromARGB(activeColor.alpha, activeColor.red, activeColor.green, val.round()));
+                              },
+                            ),
+                            buildColorSlider(
+                              label: 'Opacity (Alpha Channel)',
+                              value: activeColor.alpha.toDouble(),
+                              sliderColor: Colors.white70,
+                              onChanged: (val) {
+                                updateActiveColor(Color.fromARGB(val.round(), activeColor.red, activeColor.green, activeColor.blue));
+                              },
+                            ),
+                            const SizedBox(height: 18),
+                            const Text(
+                              'Quick Presets Swatches',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white70),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: presets.map((preset) {
+                                final isSelected = activeColor.value == preset.value;
+                                return GestureDetector(
+                                  onTap: () {
+                                    updateActiveColor(preset);
+                                  },
+                                  child: Container(
+                                    width: 30,
+                                    height: 30,
+                                    decoration: BoxDecoration(
+                                      color: preset,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isSelected ? Colors.white : Colors.white24,
+                                        width: isSelected ? 2.5 : 1.0,
+                                      ),
+                                      boxShadow: [
+                                        if (isSelected)
+                                          BoxShadow(
+                                            color: preset.withOpacity(0.5),
+                                            blurRadius: 6,
+                                          )
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('VOD Download Directory', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: downloadFolderController,
+                                    style: const TextStyle(fontSize: 13),
+                                    decoration: const InputDecoration(
+                                      hintText: 'e.g. C:\\Downloads\\TwitchVODs',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: themeNotifier.primaryColor,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                                  ),
+                                  onPressed: () async {
+                                    final result = await Process.run('powershell', [
+                                      '-Command',
+                                      'Add-Type -AssemblyName System.Windows.Forms; \$f = New-Object System.Windows.Forms.FolderBrowserDialog; if (\$f.ShowDialog() -eq \'OK\') { \$f.SelectedPath }'
+                                    ]);
+                                    if (result.exitCode == 0) {
+                                      final path = result.stdout.toString().trim();
+                                      if (path.isNotEmpty) {
+                                        setDialogState(() {
+                                          downloadFolderController.text = path;
+                                        });
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.folder_open, color: Colors.white, size: 16),
+                                  label: const Text('Browse', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            const Text('Maximum downloads to keep (Threshold)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            const Text('Delete oldest downloads automatically when limit is reached. Leave empty or set to 0 for unlimited.', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: maxDownloadsController,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(fontSize: 13),
+                              decoration: const InputDecoration(
+                                hintText: 'e.g. 5, 10, or leave empty',
                               ),
                             ),
                           ],
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
-                  onPressed: () async {
-                    setState(() {
-                      _settings.defaultQuality = tempQuality;
-                      _settings.twitchLowLatency = tempLowLatency;
-                      _settings.playerType = tempPlayerType;
-                      _settings.watchedThreshold = tempWatchedThreshold;
-                      _settings.twitchOauthToken = tokenController.text.trim();
-                      _settings.twitchWebOauthToken = webTokenController.text.trim();
-                      _settings.customPlayerPath = playerPathController.text.trim();
-                      _settings.customPlayerArgs = playerArgsController.text.trim();
-                      _settings.twitchClientId = clientIdController.text.trim();
-                      _settings.localServerPort = int.tryParse(portController.text.trim()) ?? 65432;
-                      _isWebTokenExpired = false;
-                    });
-                    await _saveChannels();
-                    
-                    // Re-trigger load followed channels if token is present
-                    if (_settings.twitchOauthToken.trim().isNotEmpty) {
-                      _loadFollowedChannels();
-                    } else {
-                      setState(() {
-                        _followedChannels.clear();
-                        _authenticatedUserLogin = null;
-                        _authenticatedUserAvatar = null;
-                        _sidebarTab = 0;
-                      });
-                    }
-
-                    if (mounted) {
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      themeNotifier.updateTheme(
+                        primary: origPrimary,
+                        background: origBackground,
+                        surface: origSurface,
+                        activeProgress: origActiveProgress,
+                        watchedProgress: origWatchedProgress,
+                      );
                       Navigator.pop(context);
-                      _showSnackBar('Settings saved successfully!', isError: false);
-                    }
-                  },
-                  child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              ],
+                    },
+                    child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
+                    onPressed: () async {
+                      setState(() {
+                        _settings.defaultQuality = tempQuality;
+                        _settings.twitchLowLatency = tempLowLatency;
+                        _settings.playerType = tempPlayerType;
+                        _settings.watchedThreshold = tempWatchedThreshold;
+                        _settings.twitchOauthToken = tokenController.text.trim();
+                        _settings.twitchWebOauthToken = webTokenController.text.trim();
+                        _settings.customPlayerPath = playerPathController.text.trim();
+                        _settings.customPlayerArgs = playerArgsController.text.trim();
+                        _settings.twitchClientId = clientIdController.text.trim();
+                        _settings.localServerPort = int.tryParse(portController.text.trim()) ?? 65432;
+                        _settings.vodDownloadFolder = downloadFolderController.text.trim();
+                        _settings.maxDownloadsToKeep = int.tryParse(maxDownloadsController.text.trim()) ?? 0;
+                        _isWebTokenExpired = false;
+
+                        _settings.primaryColorHex = colorToHex(tempPrimary);
+                        _settings.backgroundColorHex = colorToHex(tempBackground);
+                        _settings.surfaceColorHex = colorToHex(tempSurface);
+                        _settings.activeProgressColorHex = colorToHex(tempActiveProgress);
+                        _settings.watchedProgressColorHex = colorToHex(tempWatchedProgress);
+                      });
+                      await _saveChannels();
+
+                      if (_settings.twitchOauthToken.trim().isNotEmpty) {
+                        _loadFollowedChannels();
+                      } else {
+                        setState(() {
+                          _followedChannels.clear();
+                          _authenticatedUserLogin = null;
+                          _authenticatedUserAvatar = null;
+                          _sidebarTab = 0;
+                        });
+                      }
+
+                      if (mounted) {
+                        Navigator.pop(context);
+                        _showSnackBar('Settings saved successfully!', isError: false);
+                      }
+                    },
+                    child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
             );
           },
         );
@@ -1333,6 +1895,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 1000),
     )..repeat(reverse: true);
     _loadChannels();
+    _downloadCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _checkDownloadedVods();
+    });
   }
 
   @override
@@ -1343,6 +1908,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _searchController.dispose();
     _consoleScrollController.dispose();
     _oauthServer?.close(force: true);
+    _downloadCheckTimer?.cancel();
+    for (final proc in _activeDownloadProcesses.values) {
+      try {
+        proc.kill();
+      } catch (_) {}
+    }
     super.dispose();
   }
 
@@ -1421,6 +1992,465 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
+  File? _getDownloadedVodFile(String vodId, String channelName) {
+    if (_settings.vodDownloadFolder.trim().isEmpty) return null;
+    final dir = Directory(
+      '${_settings.vodDownloadFolder.trim()}/$channelName'
+    );
+    if (!dir.existsSync()) return null;
+    try {
+      final files = dir.listSync();
+      for (final file in files) {
+        if (file is File) {
+          final name = file.path;
+          if (RegExp(' - $vodId\\.[a-zA-Z0-9]+\$').hasMatch(name)) {
+            return file;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  void _checkDownloadedVods() {
+    if (_settings.vodDownloadFolder.trim().isEmpty) {
+      if (mounted) {
+        setState(() {
+          _downloadedVodIds.clear();
+        });
+      }
+      return;
+    }
+    
+    final newDownloaded = <String>{};
+    for (final vod in _channelVods) {
+      final file = _getDownloadedVodFile(vod.id, _selectedChannel?.username ?? '');
+      if (file != null) {
+        newDownloaded.add(vod.id);
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        _downloadedVodIds = newDownloaded;
+      });
+    }
+  }
+
+  Future<void> _startVodDownload(TwitchVideo vod, String channelName) async {
+    if (_settings.vodDownloadFolder.trim().isEmpty) {
+      _showSnackBar('Please configure a VOD Download Folder in Settings first.', isError: true);
+      return;
+    }
+    
+    final outputDir = Directory('${_settings.vodDownloadFolder.trim()}/$channelName');
+    if (!outputDir.existsSync()) {
+      try {
+        outputDir.createSync(recursive: true);
+      } catch (e) {
+        _showSnackBar('Failed to create download folder: $e', isError: true);
+        return;
+      }
+    }
+
+    final vodId = vod.id;
+    setState(() {
+      _activeDownloadsProgress[vodId] = 0.0;
+      _activeDownloadTasks[vodId] = 'Starting...';
+    });
+
+    final outputTemplate = '${outputDir.path}/%(title)s - %(id)s.%(ext)s';
+    final url = 'https://twitch.tv/videos/$vodId';
+    
+    try {
+      final proc = await Process.start(
+        'yt-dlp',
+        ['-o', outputTemplate, url],
+        runInShell: true,
+      );
+      
+      _activeDownloadProcesses[vodId] = proc;
+      
+      proc.stdout.transform(utf8.decoder).listen((line) {
+        final pctMatch = RegExp(r'(\d+\.\d+)%').firstMatch(line);
+        final speedMatch = RegExp(r'at\s+(\S+)').firstMatch(line);
+        
+        double? pct;
+        String? speed;
+        if (pctMatch != null) {
+          pct = double.tryParse(pctMatch.group(1)!);
+        }
+        if (speedMatch != null) {
+          speed = speedMatch.group(1);
+        }
+        
+        if (pct != null && mounted) {
+          setState(() {
+            _activeDownloadsProgress[vodId] = pct! / 100.0;
+            if (speed != null) {
+              _activeDownloadTasks[vodId] = 'Downloading: ${pct.toStringAsFixed(1)}% ($speed)';
+            } else {
+              _activeDownloadTasks[vodId] = 'Downloading: ${pct.toStringAsFixed(1)}%';
+            }
+          });
+        }
+      });
+      
+      proc.stderr.transform(utf8.decoder).listen((line) {});
+
+      final exitCode = await proc.exitCode;
+      
+      if (mounted) {
+        setState(() {
+          _activeDownloadProcesses.remove(vodId);
+          _activeDownloadsProgress.remove(vodId);
+          _activeDownloadTasks.remove(vodId);
+        });
+      }
+      
+      if (exitCode == 0) {
+        _checkDownloadedVods();
+        _showSnackBar('Download completed: ${vod.title}', isError: false);
+        _cleanupOldestDownloads();
+      } else {
+        _showSnackBar('Download failed for: ${vod.title} (Exit code $exitCode)', isError: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _activeDownloadProcesses.remove(vodId);
+          _activeDownloadsProgress.remove(vodId);
+          _activeDownloadTasks.remove(vodId);
+        });
+      }
+      _showSnackBar('Failed to run yt-dlp: $e. Ensure it is installed and in your PATH.', isError: true);
+    }
+  }
+
+  void _cleanupOldestDownloads() {
+    if (_settings.maxDownloadsToKeep <= 0) return;
+    if (_settings.vodDownloadFolder.trim().isEmpty) return;
+
+    final mainDir = Directory(_settings.vodDownloadFolder.trim());
+    if (!mainDir.existsSync()) return;
+
+    try {
+      final allFiles = <File>[];
+      final entities = mainDir.listSync(recursive: true);
+      for (final entity in entities) {
+        if (entity is File) {
+          final name = entity.path;
+          if (RegExp(r' - \d+\.[a-zA-Z0-9]+$').hasMatch(name)) {
+            allFiles.add(entity);
+          }
+        }
+      }
+
+      if (allFiles.length > _settings.maxDownloadsToKeep) {
+        allFiles.sort((a, b) {
+          try {
+            return a.lastModifiedSync().compareTo(b.lastModifiedSync());
+          } catch (_) {
+            return 0;
+          }
+        });
+
+        int deletedCount = 0;
+        while (allFiles.length > _settings.maxDownloadsToKeep) {
+          final oldestFile = allFiles.removeAt(0);
+          try {
+            if (oldestFile.existsSync()) {
+              oldestFile.deleteSync();
+              deletedCount++;
+            }
+          } catch (_) {}
+        }
+
+        if (deletedCount > 0) {
+          _checkDownloadedVods();
+          _showSnackBar('Cleaned up $deletedCount oldest local VOD(s) to stay within keep limit.', isError: false);
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _queueVodDownload(TwitchVideo vod, String channelName) {
+    if (_settings.vodDownloadFolder.trim().isEmpty) {
+      _showSnackBar('Please choose a VOD Download Folder in Settings first.', isError: true);
+      return;
+    }
+    final vodId = vod.id;
+    if (_queuedDownloadTasks.containsKey(vodId) || _activeDownloadProcesses.containsKey(vodId)) {
+      _showSnackBar('VOD is already downloading or queued: ${vod.title}', isError: false);
+      return;
+    }
+    
+    _queuedDownloadTasks[vodId] = VodDownloadTask(vod: vod, channelName: channelName);
+    _downloadQueue.add(vodId);
+    setState(() {
+      _activeDownloadTasks[vodId] = 'Queued';
+    });
+    
+    _processDownloadQueue();
+  }
+
+  Future<void> _processDownloadQueue() async {
+    if (_isQueueProcessing) return;
+    _isQueueProcessing = true;
+    
+    while (_downloadQueue.isNotEmpty) {
+      final vodId = _downloadQueue.first;
+      final task = _queuedDownloadTasks[vodId];
+      if (task != null) {
+        await _startVodDownload(task.vod, task.channelName);
+      }
+      if (mounted) {
+        setState(() {
+          _downloadQueue.remove(vodId);
+          _queuedDownloadTasks.remove(vodId);
+        });
+      }
+    }
+    
+    _isQueueProcessing = false;
+  }
+
+  Future<void> _deleteDownloadedVod(String vodId, String channelName) async {
+    final file = _getDownloadedVodFile(vodId, channelName);
+    if (file != null && file.existsSync()) {
+      try {
+        file.deleteSync();
+        _checkDownloadedVods();
+        _showSnackBar('Deleted download for VOD ID: $vodId', isError: false);
+      } catch (e) {
+        _showSnackBar('Failed to delete VOD file: $e', isError: true);
+      }
+    } else {
+      _showSnackBar('Downloaded file not found.', isError: true);
+    }
+  }
+
+  Future<void> _playDownloadedVod(File file, TwitchVideo vod) async {
+    final path = file.path;
+    final args = <String>[];
+    String exe = '';
+    
+    final seekTime = (vod.watchPosition != null && vod.watchPosition! > 10) ? vod.watchPosition! : 0;
+    final watchedThresholdPct = _settings.watchedThreshold / 100.0;
+    final isFullyWatched = vod.watchProgress != null && vod.watchProgress! >= watchedThresholdPct;
+    final finalSeek = isFullyWatched ? 0 : seekTime;
+
+    if (_settings.playerType == 'vlc') {
+      exe = 'vlc';
+      if (finalSeek > 0) {
+        args.add('--start-time=$finalSeek');
+      }
+      args.addAll(['--extraintf=http', '--http-port=8089', '--http-password=streamlink']);
+      args.add(path);
+    } else if (_settings.playerType == 'mpv') {
+      exe = 'mpv';
+      if (finalSeek > 0) {
+        args.add('--start=$finalSeek');
+      }
+      args.add('--input-ipc-server=127.0.0.1:8089');
+      args.add(path);
+    } else if (_settings.playerType == 'custom' && _settings.customPlayerPath.trim().isNotEmpty) {
+      exe = _settings.customPlayerPath.trim();
+      final lowerPath = exe.toLowerCase();
+      if (lowerPath.contains('vlc')) {
+        if (finalSeek > 0) {
+          args.add('--start-time=$finalSeek');
+        }
+        args.addAll(['--extraintf=http', '--http-port=8089', '--http-password=streamlink']);
+      } else if (lowerPath.contains('mpv')) {
+        if (finalSeek > 0) {
+          args.add('--start=$finalSeek');
+        }
+        args.add('--input-ipc-server=127.0.0.1:8089');
+      }
+      args.add(path);
+    } else {
+      exe = 'cmd';
+      args.addAll(['/c', 'start', '""', path]);
+    }
+
+    try {
+      if (_isStreamlinkRunning) {
+        _stopStreamlink();
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
+      setState(() {
+        _playingVodId = vod.id;
+        _runningChannel = 'Local VOD: ${vod.title}';
+        _isStreamlinkRunning = true;
+      });
+
+      await Process.start(
+        exe,
+        args,
+        runInShell: true,
+      );
+    } catch (e) {
+      _showSnackBar('Failed to play local VOD: $e', isError: true);
+    }
+  }
+
+  Future<void> _showDownloadOrderDialog(List<TwitchVideo> selectedVods) async {
+    String? chosenOrder = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.download_for_offline, color: Colors.greenAccent),
+              SizedBox(width: 10),
+              Text('Download Queue Order'),
+            ],
+          ),
+          backgroundColor: themeNotifier.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('You have selected ${selectedVods.length} VODs to download.'),
+              const SizedBox(height: 12),
+              const Text('Please select how the download order should be processed:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const SizedBox(height: 10),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.arrow_downward, color: Colors.white70),
+                title: const Text('Newest First', style: TextStyle(fontSize: 13)),
+                subtitle: const Text('Downloads the latest broadcasts sequentially', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                onTap: () => Navigator.pop(context, 'newest'),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.arrow_upward, color: Colors.white70),
+                title: const Text('Oldest First', style: TextStyle(fontSize: 13)),
+                subtitle: const Text('Downloads the oldest broadcasts sequentially', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                onTap: () => Navigator.pop(context, 'oldest'),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.bolt, color: Colors.white70),
+                title: const Text('Simultaneous Downloads', style: TextStyle(fontSize: 13)),
+                subtitle: const Text('Starts all downloads in parallel (may consume high CPU/bandwidth)', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                onTap: () => Navigator.pop(context, 'parallel'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (chosenOrder == null) return;
+
+    final channelName = _selectedChannel?.username ?? 'VOD';
+
+    if (chosenOrder == 'parallel') {
+      _showSnackBar('Starting ${selectedVods.length} parallel downloads...', isError: false);
+      for (final vod in selectedVods) {
+        _queueVodDownload(vod, channelName);
+      }
+    } else {
+      final sortedVods = List<TwitchVideo>.from(selectedVods);
+      if (chosenOrder == 'newest') {
+        sortedVods.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+      } else {
+        sortedVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
+      }
+      _showSnackBar('Queueing ${selectedVods.length} sequential downloads...', isError: false);
+      for (final vod in sortedVods) {
+        _queueVodDownload(vod, channelName);
+      }
+    }
+  }
+
+  void _bulkDownloadSelectedVods() {
+    if (_selectedVodIds.isEmpty) return;
+    final selectedVods = _channelVods.where((v) => _selectedVodIds.contains(v.id)).toList();
+    if (selectedVods.isEmpty) return;
+    
+    if (selectedVods.length == 1) {
+      _queueVodDownload(selectedVods.first, _selectedChannel?.username ?? 'VOD');
+      setState(() {
+        _isMultiSelectMode = false;
+        _selectedVodIds.clear();
+      });
+    } else {
+      _showDownloadOrderDialog(selectedVods);
+      setState(() {
+        _isMultiSelectMode = false;
+        _selectedVodIds.clear();
+      });
+    }
+  }
+
+  Future<void> _bulkDeleteSelectedVods() async {
+    final toDelete = <TwitchVideo>[];
+    final channelName = _selectedChannel?.username ?? '';
+    for (final id in _selectedVodIds) {
+      final vod = _channelVods.firstWhere((v) => v.id == id);
+      if (_getDownloadedVodFile(id, channelName) != null) {
+        toDelete.add(vod);
+      }
+    }
+    
+    if (toDelete.isEmpty) {
+      _showSnackBar('No fully downloaded VODs found among selection.', isError: true);
+      return;
+    }
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete VOD Downloads'),
+          content: Text('Are you sure you want to delete the downloaded files for ${toDelete.length} VODs?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    
+    if (confirm != true) return;
+    
+    int count = 0;
+    for (final vod in toDelete) {
+      final file = _getDownloadedVodFile(vod.id, channelName);
+      if (file != null && file.existsSync()) {
+        try {
+          file.deleteSync();
+          count++;
+        } catch (_) {}
+      }
+    }
+    
+    _checkDownloadedVods();
+    setState(() {
+      _selectedVodIds.clear();
+      _isMultiSelectMode = false;
+    });
+    _showSnackBar('Deleted $count downloaded VOD files.', isError: false);
+  }
+
   // Load channels from local configuration file
   Future<void> _loadChannels() async {
     setState(() => _isGlobalLoading = true);
@@ -1454,6 +2484,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 _settings.watchedThreshold = settingsJson['watched_threshold'] ?? 96;
                 _settings.sidebarCollapsed = settingsJson['sidebar_collapsed'] ?? false;
                 _sidebarCollapsed = _settings.sidebarCollapsed;
+                _settings.primaryColorHex = settingsJson['primary_color_hex'] ?? '#9146FF';
+                _settings.backgroundColorHex = settingsJson['background_color_hex'] ?? '#0C0F17';
+                _settings.surfaceColorHex = settingsJson['surface_color_hex'] ?? '#161B26';
+                _settings.activeProgressColorHex = settingsJson['active_progress_color_hex'] ?? '#9146FF';
+                _settings.watchedProgressColorHex = settingsJson['watched_progress_color_hex'] ?? '#804CAF50';
+                _settings.vodDownloadFolder = settingsJson['vod_download_folder'] ?? '';
+                _settings.maxDownloadsToKeep = settingsJson['max_downloads_to_keep'] ?? 0;
+                
+                if (_settings.vodDownloadFolder.isEmpty && Platform.environment['USERPROFILE'] != null) {
+                  _settings.vodDownloadFolder = '${Platform.environment['USERPROFILE']}\\Downloads\\TwitchVODs';
+                }
+                
+                themeNotifier.updateTheme(
+                  primary: parseHexColor(_settings.primaryColorHex, const Color(0xFF9146FF)),
+                  background: parseHexColor(_settings.backgroundColorHex, const Color(0xFF0C0F17)),
+                  surface: parseHexColor(_settings.surfaceColorHex, const Color(0xFF161B26)),
+                  activeProgress: parseHexColor(_settings.activeProgressColorHex, const Color(0xFF9146FF)),
+                  watchedProgress: parseHexColor(_settings.watchedProgressColorHex, const Color(0x804CAF50)),
+                );
               });
             }
             final localProgressJson = decoded['local_vods_progress'];
@@ -1895,6 +2944,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           _channelVods = newVods;
         }
       });
+      _checkDownloadedVods();
     } catch (e) {
       setState(() {
         _vodsError = e.toString().replaceFirst('Exception: ', '');
@@ -3290,6 +4340,28 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                                 onPressed: () => _bulkUpdateSelectedVods(false),
                               ),
                               const SizedBox(width: 8),
+                              TextButton.icon(
+                                icon: const Icon(Icons.download, size: 16),
+                                label: const Text('Download', style: TextStyle(fontSize: 11)),
+                                style: TextButton.styleFrom(
+                                  backgroundColor: Colors.green.withOpacity(0.2),
+                                  foregroundColor: Colors.greenAccent,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                ),
+                                onPressed: _selectedVodIds.isEmpty ? null : _bulkDownloadSelectedVods,
+                              ),
+                              const SizedBox(width: 8),
+                              TextButton.icon(
+                                icon: const Icon(Icons.delete_outline, size: 16),
+                                label: const Text('Delete Download', style: TextStyle(fontSize: 11)),
+                                style: TextButton.styleFrom(
+                                  backgroundColor: Colors.red.withOpacity(0.2),
+                                  foregroundColor: Colors.redAccent,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                ),
+                                onPressed: _selectedVodIds.isEmpty ? null : _bulkDeleteSelectedVods,
+                              ),
+                              const SizedBox(width: 8),
                               IconButton(
                                 icon: const Icon(Icons.select_all, size: 18, color: Colors.white70),
                                 tooltip: 'Select All Visible',
@@ -3941,7 +5013,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           vod: vod,
           scale: _vodScale,
           theme: theme,
-          onPlay: () => _launchStreamlinkForVod(vod),
+          onPlay: () {
+            final file = _getDownloadedVodFile(vod.id, _selectedChannel?.username ?? '');
+            if (file != null && file.existsSync()) {
+              _playDownloadedVod(file, vod);
+            } else {
+              _launchStreamlinkForVod(vod);
+            }
+          },
           formatNumber: _formatNumberString,
           fontSize: _vodTitleFontSize,
           isPlaying: _playingVodId == vod.id,
@@ -3959,6 +5038,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               }
             });
           },
+          downloadStatus: _activeDownloadTasks[vod.id],
+          downloadProgress: _activeDownloadsProgress[vod.id],
+          isDownloaded: _downloadedVodIds.contains(vod.id),
+          onDownload: () => _queueVodDownload(vod, _selectedChannel?.username ?? 'VOD'),
+          onDeleteDownload: () => _deleteDownloadedVod(vod.id, _selectedChannel?.username ?? 'VOD'),
         );
       },
     );
