@@ -2251,11 +2251,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _cancelVodDownload(String vodId) {
+  Future<void> _cancelVodDownload(String vodId, String channelName) async {
     final proc = _activeDownloadProcesses[vodId];
     if (proc != null) {
       try {
-        proc.kill();
+        if (Platform.isWindows) {
+          await Process.run('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+        } else {
+          proc.kill();
+        }
       } catch (_) {}
     }
     
@@ -2269,6 +2273,59 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     });
     
     _showSnackBar('Download cancelled.', isError: true);
+
+    final filesToDelete = <File>[];
+    if (_settings.vodDownloadFolder.trim().isNotEmpty) {
+      final dir = Directory('${_settings.vodDownloadFolder.trim()}/$channelName');
+      if (dir.existsSync()) {
+        try {
+          final files = dir.listSync();
+          for (final file in files) {
+            if (file is File) {
+              final name = file.path;
+              if (name.contains(' - $vodId')) {
+                filesToDelete.add(file);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (filesToDelete.isNotEmpty) {
+      final bool? deleteConfirm = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Delete Incomplete Files?'),
+            content: Text('The download was cancelled. Do you want to delete the ${filesToDelete.length} incomplete temporary files from your disk?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Keep Files'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Delete Files'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (deleteConfirm == true) {
+        for (final file in filesToDelete) {
+          try {
+            if (file.existsSync()) {
+              file.deleteSync();
+            }
+          } catch (_) {}
+        }
+        _checkDownloadedVods();
+        _showSnackBar('Deleted incomplete download files.', isError: false);
+      }
+    }
   }
 
   void _queueVodDownload(TwitchVideo vod, String channelName) {
@@ -5140,7 +5197,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           isDownloaded: _downloadedVodIds.contains(vod.id),
           onDownload: () => _queueVodDownload(vod, _selectedChannel?.username ?? 'VOD'),
           onDeleteDownload: () => _deleteDownloadedVod(vod.id, _selectedChannel?.username ?? 'VOD'),
-          onCancel: () => _cancelVodDownload(vod.id),
+          onCancel: () => _cancelVodDownload(vod.id, _selectedChannel?.username ?? 'VOD'),
         );
       },
     );
