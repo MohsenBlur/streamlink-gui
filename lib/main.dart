@@ -765,6 +765,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   bool _isMultiSelectMode = false;
   final Set<String> _selectedVodIds = {};
   bool _isBulkUpdatingVods = false;
+  Map<String, int> _localVodsProgress = {};
 
   void _showSettingsDialog() {
     String tempQuality = _settings.defaultQuality;
@@ -1481,6 +1482,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 _sidebarCollapsed = _settings.sidebarCollapsed;
               });
             }
+            final localProgressJson = decoded['local_vods_progress'];
+            if (localProgressJson is Map) {
+              _localVodsProgress = localProgressJson.map((k, v) => MapEntry(k.toString(), v as int));
+            }
           }
         }
       }
@@ -1520,6 +1525,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       final config = {
         'channels': usernames,
         'settings': _settings.toJson(),
+        'local_vods_progress': _localVodsProgress,
       };
       final content = json.encode(config);
       await file.writeAsString(content);
@@ -1894,6 +1900,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             print('[VOD Progress Fetch Error] Failed to load progress for video ${vod.id}: $e');
           }
         }
+
+        if (_localVodsProgress.containsKey(vod.id)) {
+          final localPos = _localVodsProgress[vod.id]!;
+          vod.watchPosition = localPos;
+          final totalSeconds = _parseDurationToSeconds(vod.duration);
+          if (totalSeconds > 0) {
+            vod.watchProgress = localPos / totalSeconds;
+          } else {
+            vod.watchProgress = 0.0;
+          }
+        }
       }));
 
       setState(() {
@@ -2072,18 +2089,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         return;
       }
 
-      // Update local card progress dynamically
+      // Update local card progress dynamically and save to disk
       final vodIndex = _channelVods.indexWhere((v) => v.id == videoID);
-      if (vodIndex != -1) {
-        setState(() {
+      setState(() {
+        _localVodsProgress[videoID] = position;
+        if (vodIndex != -1) {
           final currentVod = _channelVods[vodIndex];
           currentVod.watchPosition = position;
           final totalSeconds = _parseDurationToSeconds(currentVod.duration);
           if (totalSeconds > 0) {
             currentVod.watchProgress = position / totalSeconds;
           }
-        });
-      }
+        }
+      });
+      _saveChannels();
     } catch (e) {
       print('[VOD Progress Sync Error] Failed to sync progress: $e');
     }
@@ -2148,7 +2167,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     });
 
     int successCount = 0;
-    int failCount = 0;
 
     for (var videoId in _selectedVodIds) {
       final vodIndex = _channelVods.indexWhere((v) => v.id == videoId);
@@ -2160,16 +2178,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         targetPosition = _parseDurationToSeconds(vod.duration);
       }
 
+      // Update local state and cache immediately
+      setState(() {
+        _localVodsProgress[videoId] = targetPosition;
+        vod.watchPosition = targetPosition;
+        vod.watchProgress = markAsWatched ? 1.0 : 0.0;
+      });
+      successCount++;
+
+      // Attempt background GQL sync (fails silently as Twitch private API blocks ad-hoc mutations)
       try {
-        await _syncSingleVODProgressDirect(videoId, targetPosition, webToken);
-        setState(() {
-          vod.watchPosition = targetPosition;
-          vod.watchProgress = markAsWatched ? 1.0 : 0.0;
-        });
-        successCount++;
-      } catch (e) {
-        failCount++;
-      }
+        _syncSingleVODProgressDirect(videoId, targetPosition, webToken).catchError((_) {});
+      } catch (_) {}
     }
 
     setState(() {
@@ -2178,10 +2198,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _selectedVodIds.clear();
     });
 
-    if (failCount == 0) {
-      _showSnackBar('Successfully updated progress for $successCount VODs.', isError: false);
-    } else {
-      _showSnackBar('Updated $successCount VODs, failed for $failCount VODs. Please check settings or network.', isError: true);
+    if (successCount > 0) {
+      await _saveChannels();
+      _showSnackBar(
+        'Successfully updated $successCount VODs locally! Note: Twitch blocks third-party watch history syncing on their website.',
+        isError: false,
+      );
     }
   }
 
