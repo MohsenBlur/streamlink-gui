@@ -2263,6 +2263,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       args.addAll(['--player-args', combinedPlayerArgs]);
     }
 
+    final watchedThresholdPct = _settings.watchedThreshold / 100.0;
+    final isFullyWatched = vod.watchProgress != null && vod.watchProgress! >= watchedThresholdPct;
+    if (vod.watchPosition != null && vod.watchPosition! > 10 && !isFullyWatched) {
+      args.addAll(['--hls-start-offset', '${vod.watchPosition}s']);
+    }
+
     args.add('twitch.tv/videos/${vod.id}');
     args.add(_settings.defaultQuality);
 
