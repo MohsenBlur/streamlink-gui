@@ -337,379 +337,381 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           onTap: widget.isMultiSelectMode
               ? () => widget.onSelected?.call(!widget.isSelected)
               : widget.onPlay,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
-            decoration: BoxDecoration(
-              color: const Color(0xFF161B26),
-              borderRadius: BorderRadius.circular(12),
-              border: widget.isMultiSelectMode
-                  ? Border.all(
-                      color: widget.isSelected
-                          ? widget.theme.primaryColor
-                          : (_isHovered ? widget.theme.primaryColor.withOpacity(0.5) : const Color(0xFF1E2433)),
-                      width: widget.isSelected ? 2.0 : 1.0,
-                    )
-                  : widget.isPlaying
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161B26),
+                  borderRadius: BorderRadius.circular(12),
+                  border: widget.isMultiSelectMode
                       ? Border.all(
-                          color: widget.theme.primaryColor.withOpacity(0.4 + 0.6 * widget.pulseController!.value),
-                          width: 2.5,
+                          color: widget.isSelected
+                              ? widget.theme.primaryColor
+                              : (_isHovered ? widget.theme.primaryColor.withOpacity(0.5) : const Color(0xFF1E2433)),
+                          width: widget.isSelected ? 2.0 : 1.0,
                         )
-                      : Border.all(
-                          color: _isHovered ? widget.theme.primaryColor.withOpacity(0.8) : const Color(0xFF1E2433),
-                          width: _isHovered ? 1.5 : 1.0,
+                      : widget.isPlaying
+                          ? Border.all(
+                              color: widget.theme.primaryColor.withOpacity(0.4 + 0.6 * widget.pulseController!.value),
+                              width: 2.5,
+                            )
+                          : Border.all(
+                              color: _isHovered ? widget.theme.primaryColor.withOpacity(0.8) : const Color(0xFF1E2433),
+                              width: _isHovered ? 1.5 : 1.0,
+                            ),
+                  boxShadow: widget.isPlaying
+                      ? [
+                          BoxShadow(
+                            color: widget.theme.primaryColor.withOpacity(0.35 * widget.pulseController!.value),
+                            blurRadius: 12 + 8 * widget.pulseController!.value,
+                            spreadRadius: 1 + 2 * widget.pulseController!.value,
+                          )
+                        ]
+                      : [
+                          BoxShadow(
+                            color: _isHovered 
+                                ? widget.theme.primaryColor.withOpacity(0.15) 
+                                : Colors.black.withOpacity(0.2),
+                            blurRadius: _isHovered ? 16 : 8,
+                            spreadRadius: _isHovered ? 2 : 0,
+                            offset: Offset(0, _isHovered ? 6 : 2),
+                          )
+                        ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 16:9 Thumbnail Header with overlays
+                    AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(11),
+                          topRight: Radius.circular(11),
                         ),
-              boxShadow: widget.isPlaying
-                  ? [
-                      BoxShadow(
-                        color: widget.theme.primaryColor.withOpacity(0.35 * widget.pulseController!.value),
-                        blurRadius: 12 + 8 * widget.pulseController!.value,
-                        spreadRadius: 1 + 2 * widget.pulseController!.value,
-                      )
-                    ]
-                  : [
-                      BoxShadow(
-                        color: _isHovered 
-                            ? widget.theme.primaryColor.withOpacity(0.15) 
-                            : Colors.black.withOpacity(0.2),
-                        blurRadius: _isHovered ? 16 : 8,
-                        spreadRadius: _isHovered ? 2 : 0,
-                        offset: Offset(0, _isHovered ? 6 : 2),
-                      )
-                    ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 16:9 Thumbnail Header with overlays
-                AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(11),
-                      topRight: Radius.circular(11),
-                    ),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // Video Thumbnail
-                        thumbnailUrl != null
-                            ? Image.network(
-                                thumbnailUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => Container(
-                                  color: const Color(0xFF1F2937),
-                                  child: const Icon(Icons.movie, color: Colors.white30, size: 32),
-                                ),
-                              )
-                            : Container(
-                                color: const Color(0xFF1F2937),
-                                child: const Icon(Icons.movie, color: Colors.white30, size: 32),
-                              ),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            // Video Thumbnail
+                            thumbnailUrl != null
+                                ? Image.network(
+                                    thumbnailUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => Container(
+                                      color: const Color(0xFF1F2937),
+                                      child: const Icon(Icons.movie, color: Colors.white30, size: 32),
+                                    ),
+                                  )
+                                : Container(
+                                    color: const Color(0xFF1F2937),
+                                    child: const Icon(Icons.movie, color: Colors.white30, size: 32),
+                                  ),
 
-                        // Video Thumbnail Progress Bar
-                        if (widget.vod.watchProgress != null && 
-                            widget.vod.watchProgress! > 0.0 && 
-                            widget.vod.watchProgress! < (widget.watchedThreshold / 100.0))
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              height: 4,
-                              color: Colors.black45,
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: FractionallySizedBox(
-                                  widthFactor: widget.vod.watchProgress!.clamp(0.0, 1.0),
-                                  child: Container(
-                                    color: widget.theme.primaryColor,
+                            // Video Thumbnail Progress Bar
+                            if (widget.vod.watchProgress != null && 
+                                widget.vod.watchProgress! > 0.0 && 
+                                widget.vod.watchProgress! < (widget.watchedThreshold / 100.0))
+                              Positioned(
+                                bottom: 0,
+                                left: 0,
+                                right: 0,
+                                child: Container(
+                                  height: 4,
+                                  color: Colors.black45,
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: FractionallySizedBox(
+                                      widthFactor: widget.vod.watchProgress!.clamp(0.0, 1.0),
+                                      child: Container(
+                                        color: widget.theme.primaryColor,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
 
-                        // Top left duration badge
-                        Positioned(
-                          top: 8,
-                          left: 8,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
+                            // Top left duration badge
+                            Positioned(
+                              top: 8,
+                              left: 8,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.75),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      _formatTwitchStyleDuration(widget.vod.duration),
+                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                  ),
+
+                                ],
+                              ),
+                            ),
+
+                            // Top right Overlays (Videogame Badge & NOW PLAYING badge) or Checkbox in multi-select mode
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: widget.isMultiSelectMode
+                                  ? Container(
+                                      decoration: BoxDecoration(
+                                        color: widget.isSelected ? widget.theme.primaryColor : Colors.black54,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 1.5),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.3),
+                                            blurRadius: 4,
+                                          ),
+                                        ],
+                                      ),
+                                      width: 24,
+                                      height: 24,
+                                      child: widget.isSelected
+                                          ? const Icon(Icons.check, size: 16, color: Colors.white)
+                                          : null,
+                                    )
+                                  : Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        if (_games != null && _games!.isNotEmpty) ...[
+                                          if (widget.showGamesOnThumbnails)
+                                            Container(
+                                              constraints: BoxConstraints(maxWidth: widget.scale * 0.5),
+                                              child: Wrap(
+                                                spacing: 4,
+                                                runSpacing: 4,
+                                                alignment: WrapAlignment.end,
+                                                children: _games!.map((game) {
+                                                  return Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.black.withOpacity(0.75),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        const Icon(Icons.sports_esports, size: 9, color: Colors.white70),
+                                                        const SizedBox(width: 4),
+                                                        Text(
+                                                          game,
+                                                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                }).toList(),
+                                              ),
+                                            )
+                                          else
+                                            Tooltip(
+                                              message: _games!.join('\n'),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF161B26),
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border.all(color: const Color(0xFF1E2433)),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withOpacity(0.3),
+                                                    blurRadius: 6,
+                                                  ),
+                                                ],
+                                              ),
+                                              textStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                              preferBelow: true,
+                                              child: _buildGameBadge(widget.theme),
+                                            ),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        if (widget.isPlaying && widget.pulseController != null)
+                                          AnimatedBuilder(
+                                            animation: widget.pulseController!,
+                                            builder: (context, child) {
+                                              return Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                                decoration: BoxDecoration(
+                                                  color: widget.theme.primaryColor.withOpacity(0.85 + 0.15 * widget.pulseController!.value),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: widget.theme.primaryColor.withOpacity(0.5 * widget.pulseController!.value),
+                                                      blurRadius: 4,
+                                                    )
+                                                  ]
+                                                ),
+                                                child: const Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(Icons.play_arrow, size: 10, color: Colors.white),
+                                                    SizedBox(width: 4),
+                                                    Text(
+                                                      'NOW PLAYING',
+                                                      style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                      ],
+                                    ),
+                            ),
+
+                            // High-Contrast Hover Play Icon Overlay (reveals play button and all games if showGamesOnThumbnails is off)
+                            if (!widget.isMultiSelectMode)
+                              Positioned.fill(
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 150),
+                                  opacity: _isHovered ? 1.0 : 0.0,
+                                  child: Container(
+                                    color: Colors.black.withOpacity(0.4),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: Colors.black.withOpacity(0.6),
+                                            border: Border.all(color: Colors.white.withOpacity(0.8), width: 2.0),
+                                          ),
+                                          child: const Icon(
+                                            Icons.play_arrow,
+                                            size: 28,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        if (!widget.showGamesOnThumbnails && _games != null && _games!.isNotEmpty) ...[
+                                          const SizedBox(height: 12),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withOpacity(0.85),
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border.all(color: Colors.white24, width: 0.5),
+                                              ),
+                                              child: Text(
+                                                _games!.join('  •  '),
+                                                textAlign: TextAlign.center,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.white,
+                                                  letterSpacing: 0.2,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                            // Bottom left views count badge
+                            Positioned(
+                              bottom: 8,
+                              left: 8,
+                              child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                 decoration: BoxDecoration(
                                   color: Colors.black.withOpacity(0.75),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
-                                  _formatTwitchStyleDuration(widget.vod.duration),
+                                  '${widget.formatNumber(widget.vod.viewCount)} views',
                                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                                 ),
                               ),
-                              if (widget.vod.watchProgress != null && widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0)) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.withOpacity(0.85),
-                                    borderRadius: BorderRadius.circular(4),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.3),
-                                        blurRadius: 4,
-                                      ),
-                                    ],
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.check_circle, size: 10, color: Colors.white),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        'WATCHED',
-                                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
+                            ),
 
-                        // Top right Overlays (Videogame Badge & NOW PLAYING badge)
-                        // Top right Overlays (Videogame Badge & NOW PLAYING badge) or Checkbox in multi-select mode
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: widget.isMultiSelectMode
-                              ? Container(
-                                  decoration: BoxDecoration(
-                                    color: widget.isSelected ? widget.theme.primaryColor : Colors.black54,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 1.5),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.3),
-                                        blurRadius: 4,
-                                      ),
-                                    ],
-                                  ),
-                                  width: 24,
-                                  height: 24,
-                                  child: widget.isSelected
-                                      ? const Icon(Icons.check, size: 16, color: Colors.white)
-                                      : null,
-                                )
-                              : Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (_games != null && _games!.isNotEmpty) ...[
-                                      if (widget.showGamesOnThumbnails)
-                                        Container(
-                                          constraints: BoxConstraints(maxWidth: widget.scale * 0.5),
-                                          child: Wrap(
-                                            spacing: 4,
-                                            runSpacing: 4,
-                                            alignment: WrapAlignment.end,
-                                            children: _games!.map((game) {
-                                              return Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.black.withOpacity(0.75),
-                                                  borderRadius: BorderRadius.circular(4),
-                                                ),
-                                                child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    const Icon(Icons.sports_esports, size: 9, color: Colors.white70),
-                                                    const SizedBox(width: 4),
-                                                    Text(
-                                                      game,
-                                                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
-                                                    ),
-                                                  ],
-                                                ),
-                                              );
-                                            }).toList(),
-                                          ),
-                                        )
-                                      else
-                                        Tooltip(
-                                          message: _games!.join('\n'),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF161B26),
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: const Color(0xFF1E2433)),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withOpacity(0.3),
-                                                blurRadius: 6,
-                                              ),
-                                            ],
-                                          ),
-                                          textStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                          preferBelow: true,
-                                          child: _buildGameBadge(widget.theme),
-                                        ),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    if (widget.isPlaying && widget.pulseController != null)
-                                      AnimatedBuilder(
-                                        animation: widget.pulseController!,
-                                        builder: (context, child) {
-                                          return Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                            decoration: BoxDecoration(
-                                              color: widget.theme.primaryColor.withOpacity(0.85 + 0.15 * widget.pulseController!.value),
-                                              borderRadius: BorderRadius.circular(4),
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: widget.theme.primaryColor.withOpacity(0.5 * widget.pulseController!.value),
-                                                  blurRadius: 4,
-                                                )
-                                              ]
-                                            ),
-                                            child: const Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.play_arrow, size: 10, color: Colors.white),
-                                                SizedBox(width: 4),
-                                                Text(
-                                                  'NOW PLAYING',
-                                                  style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                  ],
-                                ),
-                        ),
-
-                        // High-Contrast Hover Play Icon Overlay (reveals play button and all games if showGamesOnThumbnails is off)
-                        // High-Contrast Hover Play Icon Overlay (reveals play button and all games if showGamesOnThumbnails is off)
-                        if (!widget.isMultiSelectMode)
-                          Positioned.fill(
-                            child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 150),
-                              opacity: _isHovered ? 1.0 : 0.0,
+                            // Bottom right time-ago badge
+                            Positioned(
+                              bottom: 8,
+                              right: 8,
                               child: Container(
-                                color: Colors.black.withOpacity(0.4),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: Colors.black.withOpacity(0.6),
-                                        border: Border.all(color: Colors.white.withOpacity(0.8), width: 2.0),
-                                      ),
-                                      child: const Icon(
-                                        Icons.play_arrow,
-                                        size: 28,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                    if (!widget.showGamesOnThumbnails && _games != null && _games!.isNotEmpty) ...[
-                                      const SizedBox(height: 12),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black.withOpacity(0.85),
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: Colors.white24, width: 0.5),
-                                          ),
-                                          child: Text(
-                                            _games!.join('  •  '),
-                                            textAlign: TextAlign.center,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 9.5,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
-                                              letterSpacing: 0.2,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.75),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  _timeAgo(widget.vod.publishedAt),
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                                 ),
                               ),
                             ),
-                          ),
-
-                        // Bottom left views count badge
-                        Positioned(
-                          bottom: 8,
-                          left: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.75),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '${widget.formatNumber(widget.vod.viewCount)} views',
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                            ),
-                          ),
-                        ),
-
-                        // Bottom right time-ago badge
-                        Positioned(
-                          bottom: 8,
-                          right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.75),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              _timeAgo(widget.vod.publishedAt),
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                
-                // Title text area beneath thumbnail
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        widget.vod.title,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: widget.fontSize * (1.0 + (widget.scale - 200.0) / 400.0 * 0.8), 
-                          fontWeight: FontWeight.bold, 
-                          color: Colors.white, 
-                          height: 1.25
+                          ],
                         ),
                       ),
                     ),
+                    
+                    // Title text area beneath thumbnail
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            widget.vod.title,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: widget.fontSize * (1.0 + (widget.scale - 200.0) / 400.0 * 0.8), 
+                              fontWeight: FontWeight.bold, 
+                              color: Colors.white, 
+                              height: 1.25
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (widget.vod.watchProgress != null && widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
+                Positioned(
+                  bottom: -3,
+                  right: -3,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFF0F1319), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1.5),
+                        )
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(3),
+                    child: const Icon(
+                      Icons.check,
+                      color: Colors.white,
+                      size: 9,
+                    ),
                   ),
                 ),
-              ],
-            ),
+            ],
           ),
         ),
       );
