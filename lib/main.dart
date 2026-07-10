@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:window_manager/window_manager.dart';
+import 'package:system_tray/system_tray.dart';
 
 class AppThemeNotifier extends ChangeNotifier {
   Color primaryColor = const Color(0xFF9146FF);
@@ -46,7 +48,23 @@ String colorToHex(Color color) {
   return '#' + color.value.toRadixString(16).padLeft(8, '0').toUpperCase();
 }
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await windowManager.ensureInitialized();
+
+  WindowOptions windowOptions = const WindowOptions(
+    size: Size(1280, 720),
+    center: true,
+    backgroundColor: Colors.transparent,
+    skipTaskbar: false,
+    titleBarStyle: TitleBarStyle.normal,
+  );
+  windowManager.waitUntilReadyToShow(windowOptions, () async {
+    await windowManager.show();
+    await windowManager.focus();
+    await windowManager.setPreventClose(true);
+  });
+
   runApp(const TwitchStreamlinkApp());
 }
 
@@ -128,6 +146,7 @@ class AppSettings {
       ? '${Platform.environment['USERPROFILE']}\\Downloads\\TwitchVODs'
       : '';
   int maxDownloadsToKeep = 0; // 0 = unlimited
+  List<dynamic> unfinishedDownloads = const [];
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -148,6 +167,7 @@ class AppSettings {
     this.watchedProgressColorHex = '#804CAF50',
     this.vodDownloadFolder = '',
     this.maxDownloadsToKeep = 0,
+    this.unfinishedDownloads = const [],
   }) {
     if (vodDownloadFolder.isEmpty && Platform.environment['USERPROFILE'] != null) {
       vodDownloadFolder = '${Platform.environment['USERPROFILE']}\\Downloads\\TwitchVODs';
@@ -173,6 +193,7 @@ class AppSettings {
         'watched_progress_color_hex': watchedProgressColorHex,
         'vod_download_folder': vodDownloadFolder,
         'max_downloads_to_keep': maxDownloadsToKeep,
+        'unfinished_downloads': unfinishedDownloads,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -194,6 +215,7 @@ class AppSettings {
         watchedProgressColorHex: json['watched_progress_color_hex'] ?? '#804CAF50',
         vodDownloadFolder: json['vod_download_folder'] ?? '',
         maxDownloadsToKeep: json['max_downloads_to_keep'] ?? 0,
+        unfinishedDownloads: json['unfinished_downloads'] ?? const [],
       );
 }
 
@@ -241,6 +263,18 @@ class TwitchVideo {
     this.watchProgress,
   });
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'duration': duration,
+        'thumbnail_url': thumbnailUrl,
+        'view_count': int.tryParse(viewCount) ?? 0,
+        'published_at': publishedAt.toIso8601String(),
+        'games': games,
+        'watch_position': watchPosition,
+        'watch_progress': watchProgress,
+      };
+
   factory TwitchVideo.fromJson(Map<String, dynamic> json) {
     final rawDuration = json['duration'] as String? ?? '0s';
     final rawViewCount = json['view_count'] as int? ?? 0;
@@ -252,6 +286,9 @@ class TwitchVideo {
       thumbnailUrl: json['thumbnail_url'] as String? ?? '',
       viewCount: rawViewCount.toString(),
       publishedAt: DateTime.parse(json['published_at'] as String),
+      games: List<String>.from(json['games'] ?? const []),
+      watchPosition: json['watch_position'] as int?,
+      watchProgress: (json['watch_progress'] as num?)?.toDouble(),
     );
   }
 }
@@ -922,14 +959,14 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
+class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, WindowListener {
   final List<TwitchChannel> _channels = [];
   TwitchChannel? _selectedChannel;
   bool _isGlobalLoading = false;
   final TextEditingController _searchController = TextEditingController();
   bool _isAdding = false;
   final AppSettings _settings = AppSettings();
-
+  final SystemTray _systemTray = SystemTray();
   HttpServer? _oauthServer;
   List<TwitchChannel> _followedChannels = [];
   bool _isLoadingFollowed = false;
@@ -1941,6 +1978,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
+    _initSystemTray();
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -1953,6 +1992,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    windowManager.removeListener(this);
     _vodSearchController.dispose();
     _pulseController?.dispose();
     for (final proc in _activePlayerProcesses.values) {
@@ -1986,6 +2026,132 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       } catch (_) {}
     }
     super.dispose();
+  }
+
+  Future<void> _initSystemTray() async {
+    final menu = Menu();
+    await menu.buildFrom([
+      MenuItemLabel(label: 'Show App', onClicked: (menuItem) => windowManager.show()),
+      MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => windowManager.hide()),
+      MenuSeparator(),
+      MenuItemLabel(label: 'Exit', onClicked: (menuItem) => _handleAppExitRequest()),
+    ]);
+
+    await _systemTray.initSystemTray(
+      title: "Twitch Streamlink GUI",
+      iconPath: 'assets/app_icon.ico',
+      toolTip: "Twitch Streamlink GUI",
+    );
+    await _systemTray.setContextMenu(menu);
+
+    _systemTray.registerSystemTrayEventHandler((eventName) {
+      if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
+        windowManager.show();
+        windowManager.focus();
+      }
+    });
+  }
+
+  Future<void> _handleAppExitRequest() async {
+    await windowManager.show();
+    await windowManager.focus();
+
+    final hasUnfinished = _activeDownloadProcesses.isNotEmpty || _downloadQueue.isNotEmpty;
+    if (hasUnfinished) {
+      if (!mounted) return;
+      final bool? confirmExit = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Exit Twitch Streamlink GUI?'),
+            content: const Text(
+              'There are VOD downloads currently in progress or queued. '
+              'If you exit, they will be paused and resumed the next time you start the app.\n\n'
+              'Do you want to exit now?'
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Exit & Save Queue'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (confirmExit != true) {
+        return;
+      }
+
+      final unfinishedList = <Map<String, dynamic>>[];
+      
+      for (final vodId in _activeDownloadProcesses.keys) {
+        final task = _queuedDownloadTasks[vodId];
+        if (task != null) {
+          unfinishedList.add({
+            'vod': task.vod.toJson(),
+            'channelName': task.channelName,
+          });
+        }
+      }
+      
+      for (final vodId in _downloadQueue) {
+        final task = _queuedDownloadTasks[vodId];
+        if (task != null) {
+          unfinishedList.add({
+            'vod': task.vod.toJson(),
+            'channelName': task.channelName,
+          });
+        }
+      }
+
+      setState(() {
+        _settings.unfinishedDownloads = unfinishedList;
+      });
+      _saveChannels();
+    }
+
+    for (final proc in _activePlayerProcesses.values) {
+      try {
+        if (Platform.isWindows) {
+          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+        } else {
+          proc.kill();
+        }
+      } catch (_) {}
+    }
+    _activePlayerProcesses.clear();
+
+    for (final proc in _activeDownloadProcesses.values) {
+      try {
+        if (Platform.isWindows) {
+          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+        } else {
+          proc.kill();
+        }
+      } catch (_) {}
+    }
+    _activeDownloadProcesses.clear();
+
+    await windowManager.destroy();
+  }
+
+  @override
+  void onWindowClose() async {
+    final isPreventClose = await windowManager.isPreventClose();
+    if (isPreventClose) {
+      await windowManager.hide();
+    }
+  }
+
+  @override
+  void onWindowMinimize() async {
+    await windowManager.hide();
   }
 
   File _getStorageFile() {
@@ -2691,6 +2857,44 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _showSnackBar('Deleted $count downloaded VOD files.', isError: false);
   }
 
+  void _resumeUnfinishedDownloads() {
+    if (_settings.unfinishedDownloads.isEmpty) return;
+    
+    final list = List<dynamic>.from(_settings.unfinishedDownloads);
+    
+    setState(() {
+      _settings.unfinishedDownloads = const [];
+    });
+    _saveChannels();
+    
+    int resumedCount = 0;
+    for (final item in list) {
+      try {
+        if (item is Map<String, dynamic>) {
+          final vod = TwitchVideo.fromJson(item['vod']);
+          final channelName = item['channelName'] as String;
+          
+          final vodId = vod.id;
+          if (!_queuedDownloadTasks.containsKey(vodId) && !_activeDownloadProcesses.containsKey(vodId)) {
+            final task = VodDownloadTask(vod: vod, channelName: channelName);
+            _queuedDownloadTasks[vodId] = task;
+            _downloadQueue.add(vodId);
+            _activeDownloadTasks[vodId] = 'Queued';
+            _activeDownloadsProgress[vodId] = 0.0;
+            resumedCount++;
+          }
+        }
+      } catch (e) {
+        print('[Resume Downloads] Failed to parse item: $e');
+      }
+    }
+    
+    if (resumedCount > 0) {
+      _showSnackBar('Resumed $resumedCount unfinished downloads.', isError: false);
+      _processDownloadQueue();
+    }
+  }
+
   // Load channels from local configuration file
   Future<void> _loadChannels() async {
     setState(() => _isGlobalLoading = true);
@@ -2731,6 +2935,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                 _settings.watchedProgressColorHex = settingsJson['watched_progress_color_hex'] ?? '#804CAF50';
                 _settings.vodDownloadFolder = settingsJson['vod_download_folder'] ?? '';
                 _settings.maxDownloadsToKeep = settingsJson['max_downloads_to_keep'] ?? 0;
+                _settings.unfinishedDownloads = settingsJson['unfinished_downloads'] ?? const [];
+                 
+                if (_settings.unfinishedDownloads.isNotEmpty) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _resumeUnfinishedDownloads();
+                  });
+                }
                 
                 if (_settings.vodDownloadFolder.isEmpty && Platform.environment['USERPROFILE'] != null) {
                   _settings.vodDownloadFolder = '${Platform.environment['USERPROFILE']}\\Downloads\\TwitchVODs';
