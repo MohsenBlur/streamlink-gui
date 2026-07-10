@@ -1910,10 +1910,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   // Streamlink Process State
 
-  final List<String> _streamlinkLogs = [];
-  bool _isStreamlinkRunning = false;
-  String? _runningChannel;
-  final ScrollController _consoleScrollController = ScrollController();
+  bool _consoleCollapsed = false;
+  final Map<String, List<String>> _playerLogs = {};
+  final Map<String, String> _playerTabTitles = {};
+  String? _selectedConsoleTabKey;
+  final Map<String, ScrollController> _playerScrollControllers = {};
+
+
+  void _addPlayerLogLine(String key, String line) {
+    if (!mounted) return;
+    setState(() {
+      final logs = _playerLogs.putIfAbsent(key, () => []);
+      logs.add(line);
+    });
+    
+    if (key == _selectedConsoleTabKey) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final controller = _playerScrollControllers[key];
+        if (controller != null && controller.hasClients) {
+          controller.animateTo(
+            controller.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 100),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -1947,7 +1970,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
     _activePlayerTimers.clear();
     _searchController.dispose();
-    _consoleScrollController.dispose();
+    for (final ctrl in _playerScrollControllers.values) {
+      ctrl.dispose();
+    }
+    _playerScrollControllers.clear();
     _oauthServer?.close(force: true);
     _downloadCheckTimer?.cancel();
     for (final proc in _activeDownloadProcesses.values) {
@@ -2461,10 +2487,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
 
     try {
+      final key = vod.id;
+      final title = 'Local: ${vod.title}';
       setState(() {
         _playingVodIds.add(vod.id);
         _activePlayerPorts[vod.id] = port;
+        _playerTabTitles[key] = title;
+        _playerLogs[key] = [];
+        _playerScrollControllers.putIfAbsent(key, () => ScrollController());
+        _selectedConsoleTabKey = key;
+        _consoleCollapsed = false;
       });
+
+      _addPlayerLogLine(key, '[System] Initializing local player for VOD ${vod.id}...');
+      _addPlayerLogLine(key, '[System] Seek time offset: ${finalSeek}s');
+      _addPlayerLogLine(key, '[System] Running local file command: $exe ${args.join(" ")}');
 
       final proc = await Process.start(
         exe,
@@ -2476,6 +2513,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _startVODProgressTracker(vod, port);
 
       proc.exitCode.then((exitCode) {
+        _addPlayerLogLine(key, '[System] Local player process exited with code $exitCode');
         if (mounted) {
           setState(() {
             _playingVodIds.remove(vod.id);
@@ -2486,6 +2524,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         }
       });
     } catch (e) {
+      final key = vod.id;
+      _addPlayerLogLine(key, '[System Error] Failed to launch local player: $e');
       setState(() {
         _playingVodIds.remove(vod.id);
         _activePlayerPorts.remove(vod.id);
@@ -3492,13 +3532,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     args.add('twitch.tv/videos/${vod.id}');
     args.add(_settings.defaultQuality);
 
+    final key = vod.id;
+    final title = 'VOD: ${vod.title}';
     setState(() {
-      _streamlinkLogs.clear();
-      _streamlinkLogs.add('[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${_settings.defaultQuality}...');
-      _streamlinkLogs.add('[System] Arguments: ${args.join(" ")}');
       _playingVodIds.add(vod.id);
       _activePlayerPorts[vod.id] = port;
+      _playerTabTitles[key] = title;
+      _playerLogs[key] = [];
+      _playerScrollControllers.putIfAbsent(key, () => ScrollController());
+      _selectedConsoleTabKey = key;
+      _consoleCollapsed = false;
     });
+
+    _addPlayerLogLine(key, '[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${_settings.defaultQuality}...');
+    _addPlayerLogLine(key, '[System] Arguments: ${args.join(" ")}');
 
     try {
       final proc = await Process.start(
@@ -3511,42 +3558,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _startVODProgressTracker(vod, port);
 
       proc.stdout.transform(utf8.decoder).listen((data) {
-        if (!mounted) return;
-        setState(() {
-          for (var line in data.split('\n')) {
-            if (line.trim().isNotEmpty) {
-              _streamlinkLogs.add('[Streamlink] ${line.trim()}');
-            }
+        for (var line in data.split('\n')) {
+          if (line.trim().isNotEmpty) {
+            _addPlayerLogLine(key, '[Streamlink] ${line.trim()}');
           }
-        });
+        }
       });
 
       proc.stderr.transform(utf8.decoder).listen((data) {
-        if (!mounted) return;
-        setState(() {
-          for (var line in data.split('\n')) {
-            if (line.trim().isNotEmpty) {
-              _streamlinkLogs.add('[Streamlink ERR] ${line.trim()}');
-            }
+        for (var line in data.split('\n')) {
+          if (line.trim().isNotEmpty) {
+            _addPlayerLogLine(key, '[Streamlink ERR] ${line.trim()}');
           }
-        });
+        }
       });
 
       proc.exitCode.then((exitCode) {
+        _addPlayerLogLine(key, '[System] Streamlink process for VOD ${vod.id} exited with code $exitCode');
         if (!mounted) return;
         setState(() {
           _playingVodIds.remove(vod.id);
           _activePlayerProcesses.remove(vod.id);
           _activePlayerPorts.remove(vod.id);
-          _streamlinkLogs.add('[System] Streamlink process for VOD ${vod.id} exited with code $exitCode');
         });
         _stopVODProgressTracker(vod.id);
       });
     } catch (e) {
+      _addPlayerLogLine(key, '[System Error] Failed to start Streamlink: $e');
       setState(() {
         _playingVodIds.remove(vod.id);
         _activePlayerPorts.remove(vod.id);
-        _streamlinkLogs.add('[System Error] Failed to start Streamlink: $e');
       });
       _showSnackBar('Failed to start Streamlink: $e', isError: true);
     }
@@ -3834,14 +3875,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     args.add('twitch.tv/$channelName');
     args.add(_settings.defaultQuality);
 
+    final key = 'stream_$channelName';
+    final title = '${channel.username} (Live)';
     setState(() {
-      _streamlinkLogs.clear();
-      _streamlinkLogs.add('[System] Initializing Streamlink for twitch.tv/$channelName ${_settings.defaultQuality}...');
-      _streamlinkLogs.add('[System] Arguments: ${args.join(" ")}');
-      _isStreamlinkRunning = true;
-      _runningChannel = channelName;
       _runningChannels.add(channelName);
+      _playerTabTitles[key] = title;
+      _playerLogs[key] = [];
+      _playerScrollControllers.putIfAbsent(key, () => ScrollController());
+      _selectedConsoleTabKey = key;
+      _consoleCollapsed = false;
     });
+
+    _addPlayerLogLine(key, '[System] Initializing Streamlink for twitch.tv/$channelName ${_settings.defaultQuality}...');
+    _addPlayerLogLine(key, '[System] Arguments: ${args.join(" ")}');
 
     try {
       final proc = await Process.start(
@@ -3850,89 +3896,43 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         runInShell: true,
       );
 
-      _activePlayerProcesses['stream_$channelName'] = proc;
+      _activePlayerProcesses[key] = proc;
 
       proc.stdout.transform(utf8.decoder).listen((data) {
-        if (!mounted) return;
-        setState(() {
-          for (var line in data.split('\n')) {
-            if (line.trim().isNotEmpty) {
-              _streamlinkLogs.add('[Streamlink] ${line.trim()}');
-            }
+        for (var line in data.split('\n')) {
+          if (line.trim().isNotEmpty) {
+            _addPlayerLogLine(key, '[Streamlink] ${line.trim()}');
           }
-        });
-        _scrollToConsoleBottom();
+        }
       });
 
       proc.stderr.transform(utf8.decoder).listen((data) {
-        if (!mounted) return;
-        setState(() {
-          for (var line in data.split('\n')) {
-            if (line.trim().isNotEmpty) {
-              _streamlinkLogs.add('[Streamlink Err] ${line.trim()}');
-            }
+        for (var line in data.split('\n')) {
+          if (line.trim().isNotEmpty) {
+            _addPlayerLogLine(key, '[Streamlink Err] ${line.trim()}');
           }
-        });
-        _scrollToConsoleBottom();
+        }
       });
 
       proc.exitCode.then((exitCode) {
+        _addPlayerLogLine(key, '[System] Streamlink process for channel $channelName terminated with exit code $exitCode');
         if (!mounted) return;
         setState(() {
           _runningChannels.remove(channelName);
-          _activePlayerProcesses.remove('stream_$channelName');
-          _isStreamlinkRunning = _activePlayerProcesses.isNotEmpty;
-          _streamlinkLogs.add('[System] Streamlink process for channel $channelName terminated with exit code $exitCode');
+          _activePlayerProcesses.remove(key);
         });
-        _scrollToConsoleBottom();
       });
     } catch (e) {
+      _addPlayerLogLine(key, '[System Error] Failed to run streamlink: $e');
+      _addPlayerLogLine(key, '[System Error] Ensure Streamlink is installed and available in your environment.');
       setState(() {
         _runningChannels.remove(channelName);
-        _activePlayerProcesses.remove('stream_$channelName');
-        _isStreamlinkRunning = _activePlayerProcesses.isNotEmpty;
-        _streamlinkLogs.add('[System Error] Failed to run streamlink: $e');
-        _streamlinkLogs.add('[System Error] Ensure Streamlink is installed and available in your environment.');
+        _activePlayerProcesses.remove(key);
       });
-      _scrollToConsoleBottom();
     }
   }
 
-  void _stopStreamlink() {
-    for (final proc in _activePlayerProcesses.values) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
-    }
-    _activePlayerProcesses.clear();
-    for (final timer in _activePlayerTimers.values) {
-      timer.cancel();
-    }
-    _activePlayerTimers.clear();
-    setState(() {
-      _playingVodIds.clear();
-      _runningChannels.clear();
-      _streamlinkLogs.add('[System] All stream and player processes manually stopped by user.');
-      _isStreamlinkRunning = false;
-    });
-    _scrollToConsoleBottom();
-  }
 
-  void _scrollToConsoleBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_consoleScrollController.hasClients) {
-        _consoleScrollController.animateTo(
-          _consoleScrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
 
   // Open link in default web browser using OS cmd start
   Future<void> _openExternalLink(String url) async {
@@ -5847,10 +5847,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   // Console output Widget at the bottom
   Widget _buildConsolePanel(ThemeData theme) {
-    if (_streamlinkLogs.isEmpty) return const SizedBox.shrink();
+    if (_playerLogs.isEmpty) return const SizedBox.shrink();
+
+    // Ensure we have a valid selection
+    if (_selectedConsoleTabKey == null || !_playerLogs.containsKey(_selectedConsoleTabKey)) {
+      _selectedConsoleTabKey = _playerLogs.keys.first;
+    }
+
+    final activeKey = _selectedConsoleTabKey!;
+    final activeLogs = _playerLogs[activeKey] ?? [];
+    final activeController = _playerScrollControllers.putIfAbsent(activeKey, () => ScrollController());
+    final isProcessRunning = _activePlayerProcesses.containsKey(activeKey);
 
     return Container(
-      height: 200,
+      height: _consoleCollapsed ? 38 : 220,
       decoration: const BoxDecoration(
         color: Color(0xFF07090E),
         border: Border(top: BorderSide(color: Color(0xFF1E2433), width: 1.5)),
@@ -5858,102 +5868,196 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Console Header
+          // Console Header / Tab Bar
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            height: 36,
             color: const Color(0xFF111420),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: _isStreamlinkRunning ? Colors.greenAccent : Colors.redAccent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Streamlink Terminal Console${_runningChannel != null ? ' - $_runningChannel' : ''}',
-                      style: const TextStyle(
-                        fontFamily: 'Consolas',
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ],
+                // Expand / Collapse Trigger
+                IconButton(
+                  icon: Icon(
+                    _consoleCollapsed ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: Colors.white70,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _consoleCollapsed = !_consoleCollapsed;
+                    });
+                  },
+                  tooltip: _consoleCollapsed ? 'Expand Console' : 'Collapse Console',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  splashRadius: 16,
                 ),
-                Row(
-                  children: [
-                    if (_isStreamlinkRunning)
-                      SizedBox(
-                        height: 26,
-                        child: TextButton.icon(
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.redAccent,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                const SizedBox(width: 8),
+                const Text(
+                  'Terminal Console',
+                  style: TextStyle(
+                    fontFamily: 'Consolas',
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white54,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                
+                // Tabs List
+                Expanded(
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: _playerLogs.keys.map((key) {
+                      final isSelected = key == activeKey;
+                      final isRunning = _activePlayerProcesses.containsKey(key);
+                      final title = _playerTabTitles[key] ?? key;
+                      
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedConsoleTabKey = key;
+                            _consoleCollapsed = false;
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFF1A1F31) : const Color(0xFF0D0F16),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: isSelected ? Colors.greenAccent.withOpacity(0.4) : const Color(0xFF1E2433),
+                              width: 1,
+                            ),
                           ),
-                          icon: const Icon(Icons.stop, size: 14),
-                          label: const Text('Kill Process', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                          onPressed: _stopStreamlink,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Status dot
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: isRunning ? Colors.greenAccent : Colors.redAccent,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              // Title
+                              Text(
+                                title.length > 25 ? '${title.substring(0, 22)}...' : title,
+                                style: TextStyle(
+                                  fontFamily: 'Consolas',
+                                  fontSize: 11,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  color: isSelected ? Colors.white : Colors.white60,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              // Close button
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _playerLogs.remove(key);
+                                    _playerTabTitles.remove(key);
+                                    _playerScrollControllers.remove(key)?.dispose();
+                                    
+                                    // If we deleted the active tab, pick another one
+                                    if (_selectedConsoleTabKey == key) {
+                                      _selectedConsoleTabKey = _playerLogs.keys.isNotEmpty 
+                                          ? _playerLogs.keys.first 
+                                          : null;
+                                    }
+                                  });
+                                },
+                                child: const Icon(Icons.close, size: 10, color: Colors.white38),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 14, color: Colors.white30),
-                      onPressed: () {
-                        setState(() {
-                          _streamlinkLogs.clear();
-                        });
-                      },
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      splashRadius: 16,
-                      tooltip: 'Clear Console',
-                    ),
-                  ],
+                      );
+                    }).toList(),
+                  ),
                 ),
+                
+                // Actions (Kill / Clear)
+                if (isProcessRunning) ...[
+                  SizedBox(
+                    height: 26,
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.redAccent,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      icon: const Icon(Icons.stop, size: 14),
+                      label: const Text('Kill Process', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: () {
+                        final proc = _activePlayerProcesses[activeKey];
+                        if (proc != null) {
+                          try {
+                            if (Platform.isWindows) {
+                              Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+                            } else {
+                              proc.kill();
+                            }
+                          } catch (_) {}
+                        }
+                      },
+                    ),
+                  ),
+                ],
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 14, color: Colors.white30),
+                  onPressed: () {
+                    setState(() {
+                      _playerLogs[activeKey]?.clear();
+                    });
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  splashRadius: 16,
+                  tooltip: 'Clear Console logs',
+                ),
+                const SizedBox(width: 12),
               ],
             ),
           ),
           
           // Console Log Lines
-          Expanded(
-            child: SelectionArea(
-              child: ListView.builder(
-                controller: _consoleScrollController,
-                padding: const EdgeInsets.all(12),
-                itemCount: _streamlinkLogs.length,
-                itemBuilder: (context, index) {
-                  final log = _streamlinkLogs[index];
-                  Color logColor = Colors.white70;
-                  if (log.startsWith('[System Error]') || log.startsWith('[Streamlink Err]')) {
-                    logColor = Colors.redAccent;
-                  } else if (log.startsWith('[System]')) {
-                    logColor = theme.colorScheme.secondary;
-                  } else if (log.contains('[cli][info]')) {
-                    logColor = Colors.greenAccent;
-                  }
+          if (!_consoleCollapsed)
+            Expanded(
+              child: SelectionArea(
+                child: ListView.builder(
+                  controller: activeController,
+                  padding: const EdgeInsets.all(12),
+                  itemCount: activeLogs.length,
+                  itemBuilder: (context, index) {
+                    final log = activeLogs[index];
+                    Color logColor = Colors.white70;
+                    if (log.startsWith('[System Error]') || log.startsWith('[Streamlink Err]') || log.startsWith('[Streamlink ERR]')) {
+                      logColor = Colors.redAccent;
+                    } else if (log.startsWith('[System]')) {
+                      logColor = theme.colorScheme.secondary;
+                    } else if (log.contains('[cli][info]')) {
+                      logColor = Colors.greenAccent;
+                    }
 
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      log,
-                      style: TextStyle(
-                        fontFamily: 'Consolas',
-                        fontSize: 11,
-                        color: logColor,
-                        height: 1.3,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        log,
+                        style: TextStyle(
+                          fontFamily: 'Consolas',
+                          fontSize: 11,
+                          color: logColor,
+                          height: 1.3,
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
