@@ -153,6 +153,7 @@ class AppSettings {
       : '';
   int maxDownloadsToKeep = 0; // 0 = unlimited
   List<dynamic> unfinishedDownloads = const [];
+  int activeSidebarTab = 0;
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -174,6 +175,7 @@ class AppSettings {
     this.vodDownloadFolder = '',
     this.maxDownloadsToKeep = 0,
     this.unfinishedDownloads = const [],
+    this.activeSidebarTab = 0,
   }) {
     if (vodDownloadFolder.isEmpty && Platform.environment['USERPROFILE'] != null) {
       vodDownloadFolder = '${Platform.environment['USERPROFILE']}\\Downloads\\TwitchVODs';
@@ -200,6 +202,7 @@ class AppSettings {
         'vod_download_folder': vodDownloadFolder,
         'max_downloads_to_keep': maxDownloadsToKeep,
         'unfinished_downloads': unfinishedDownloads,
+        'active_sidebar_tab': activeSidebarTab,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -222,6 +225,7 @@ class AppSettings {
         vodDownloadFolder: json['vod_download_folder'] ?? '',
         maxDownloadsToKeep: json['max_downloads_to_keep'] ?? 0,
         unfinishedDownloads: json['unfinished_downloads'] ?? const [],
+        activeSidebarTab: json['active_sidebar_tab'] ?? 0,
       );
 }
 
@@ -2950,6 +2954,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 _settings.vodDownloadFolder = settingsJson['vod_download_folder'] ?? '';
                 _settings.maxDownloadsToKeep = settingsJson['max_downloads_to_keep'] ?? 0;
                 _settings.unfinishedDownloads = settingsJson['unfinished_downloads'] ?? const [];
+                _settings.activeSidebarTab = settingsJson['active_sidebar_tab'] ?? 0;
+                _sidebarTab = _settings.activeSidebarTab;
                  
                 if (_settings.unfinishedDownloads.isNotEmpty) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -4433,7 +4439,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         children: [
                           Expanded(
                             child: InkWell(
-                              onTap: () => setState(() => _sidebarTab = 0),
+                              onTap: () {
+                                setState(() {
+                                  _sidebarTab = 0;
+                                  _settings.activeSidebarTab = 0;
+                                });
+                                _saveChannels();
+                              },
                               borderRadius: BorderRadius.circular(6),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -4453,7 +4465,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           Expanded(
                             child: InkWell(
                               onTap: () {
-                                setState(() => _sidebarTab = 1);
+                                setState(() {
+                                  _sidebarTab = 1;
+                                  _settings.activeSidebarTab = 1;
+                                });
+                                _saveChannels();
                                 if (_followedChannels.isEmpty && !_isLoadingFollowed) {
                                   _loadFollowedChannels();
                                 }
@@ -4489,7 +4505,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           ),
                           Expanded(
                             child: InkWell(
-                              onTap: () => setState(() => _sidebarTab = 2),
+                              onTap: () {
+                                setState(() {
+                                  _sidebarTab = 2;
+                                  _settings.activeSidebarTab = 2;
+                                });
+                                _saveChannels();
+                              },
                               borderRadius: BorderRadius.circular(6),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -4622,7 +4644,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
                           return StatefulBuilder(
                             builder: (context, setRowState) {
-                              return MouseRegion(
+                              final itemWidget = MouseRegion(
                                 onEnter: (_) => setRowState(() => isRowHovered = true),
                                 onExit: (_) => setRowState(() => isRowHovered = false),
                                 child: Container(
@@ -4755,6 +4777,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   ),
                                 ),
                               );
+
+                              return channel.isLive
+                                  ? HoverOverlayMenu(
+                                      trigger: itemWidget,
+                                      menu: _buildLivePreviewPopup(channel),
+                                    )
+                                  : itemWidget;
                             },
                           );
                         },
@@ -5627,6 +5656,116 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
   }
 
+  Widget _buildLivePreviewPopup(TwitchChannel channel) {
+    final cleanName = channel.username.toLowerCase().trim();
+    final cacheBuster = DateTime.now().millisecondsSinceEpoch ~/ 10000;
+    final thumbUrl = 'https://static-cdn.jtvnw.net/previews-ttv/live_user_$cleanName-320x180.jpg?t=$cacheBuster';
+    
+    return Container(
+      width: 260,
+      decoration: BoxDecoration(
+        color: const Color(0xFF161B26),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF1E2433)),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 15,
+            spreadRadius: 2,
+          )
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Image.network(
+                thumbUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: const Color(0xFF1F2937),
+                    child: const Center(
+                      child: Icon(Icons.live_tv, color: Colors.white24, size: 36),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.redAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        channel.username,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (channel.viewerCount != null && channel.viewerCount != '0') ...[
+                      const Icon(Icons.remove_red_eye, color: Colors.white54, size: 12),
+                      const SizedBox(width: 4),
+                      Text(
+                        channel.viewerCount!,
+                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  channel.streamTitle ?? 'Streaming Live!',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    height: 1.3,
+                  ),
+                ),
+                if (channel.game != null && channel.game != 'Offline') ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    channel.game!,
+                    style: const TextStyle(
+                      color: Color(0xFF9146FF),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCollapsedSidebar(ThemeData theme) {
     final activeList = (() {
       if (_sidebarTab == 0) return _channels;
@@ -5695,13 +5834,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      onTap: () {
+                       onTap: () {
                         setState(() {
                           _sidebarTab = (_sidebarTab + 1) % 3;
+                          _settings.activeSidebarTab = _sidebarTab;
                           if (_sidebarTab == 1 && _followedChannels.isEmpty && !_isLoadingFollowed) {
                             _loadFollowedChannels();
                           }
                         });
+                        _saveChannels();
                       },
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
@@ -5777,7 +5918,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               final ch = activeList[index];
               final isSelected = _selectedChannel?.username == ch.username;
               
-              return Padding(
+              final itemWidget = Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Tooltip(
                   message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
@@ -5837,6 +5978,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   ),
                 ),
               );
+
+              return ch.isLive
+                  ? HoverOverlayMenu(
+                      trigger: itemWidget,
+                      menu: _buildLivePreviewPopup(ch),
+                    )
+                  : itemWidget;
             },
           ),
         ),
@@ -5885,353 +6033,369 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   // Dashboard Header widget
   Widget _buildHeaderCard(ThemeData theme, TwitchChannel channel) {
     final isSmall = MediaQuery.of(context).size.width < 1180;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF161B26),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF1E2433)),
-        boxShadow: [
-          BoxShadow(
-            color: (channel.isLive ? Colors.green : Colors.grey).withOpacity(0.03),
-            blurRadius: 20,
-            spreadRadius: 2,
-          )
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Row 1: Profile Avatar & Info
-          Row(
+    
+    final cardWidget = GestureDetector(
+      onTap: channel.isLive
+          ? () => _launchStreamlink(channel.username)
+          : null,
+      child: MouseRegion(
+        cursor: channel.isLive ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF161B26),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF1E2433)),
+            boxShadow: [
+              BoxShadow(
+                color: (channel.isLive ? Colors.green : Colors.grey).withOpacity(0.03),
+                blurRadius: 20,
+                spreadRadius: 2,
+              )
+            ],
+          ),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Avatar Left Block (width: 90)
-              SizedBox(
-                width: 90,
-                child: Center(
-                  child: AnimatedBuilder(
-                    animation: _pulseController!,
-                    builder: (context, child) {
-                      final pulseVal = _pulseController!.value;
-                      return Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: channel.isLive
-                                ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
-                                : Colors.white24,
-                            width: 2.5,
-                          ),
-                          boxShadow: channel.isLive
-                              ? [
-                                  BoxShadow(
-                                    color: Colors.redAccent.withOpacity(0.2 * pulseVal),
-                                    blurRadius: 8 + 8 * pulseVal,
-                                    spreadRadius: 1 + 2 * pulseVal,
-                                  )
-                                ]
-                              : null,
-                        ),
-                        child: CircleAvatar(
-                          radius: 36,
-                          backgroundColor: const Color(0xFF1F2937),
-                          backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
-                          child: channel.avatarUrl == null
-                              ? const Icon(Icons.person, size: 36, color: Colors.white70)
-                              : null,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 20),
-              
-              // Info Column & Actions (Blue Area)
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Username & Status (left), Action buttons (right - Blue Area)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              channel.username,
-                              style: theme.textTheme.titleLarge?.copyWith(fontSize: 22),
+              // Row 1: Profile Avatar & Info
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Avatar Left Block (width: 90)
+                  SizedBox(
+                    width: 90,
+                    child: Center(
+                      child: AnimatedBuilder(
+                        animation: _pulseController!,
+                        builder: (context, child) {
+                          final pulseVal = _pulseController!.value;
+                          return Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: channel.isLive
+                                    ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
+                                    : Colors.white24,
+                                width: 2.5,
+                              ),
+                              boxShadow: channel.isLive
+                                  ? [
+                                      BoxShadow(
+                                        color: Colors.redAccent.withOpacity(0.2 * pulseVal),
+                                        blurRadius: 8 + 8 * pulseVal,
+                                        spreadRadius: 1 + 2 * pulseVal,
+                                      )
+                                    ]
+                                  : null,
                             ),
-                            const SizedBox(width: 10),
-                            if (channel.isLive)
-                              AnimatedBuilder(
-                                animation: _pulseController!,
-                                builder: (context, child) {
-                                  return Container(
+                            child: CircleAvatar(
+                              radius: 36,
+                              backgroundColor: const Color(0xFF1F2937),
+                              backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
+                              child: channel.avatarUrl == null
+                                  ? const Icon(Icons.person, size: 36, color: Colors.white70)
+                                  : null,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 20),
+                  
+                  // Info Column & Actions (Blue Area)
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Username & Status (left), Action buttons (right - Blue Area)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  channel.username,
+                                  style: theme.textTheme.titleLarge?.copyWith(fontSize: 22),
+                                ),
+                                const SizedBox(width: 10),
+                                if (channel.isLive)
+                                  AnimatedBuilder(
+                                    animation: _pulseController!,
+                                    builder: (context, child) {
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withOpacity(0.15 + 0.1 * _pulseController!.value),
+                                          border: Border.all(
+                                            color: Colors.redAccent.withOpacity(0.4 + 0.6 * _pulseController!.value),
+                                            width: 1,
+                                          ),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Text(
+                                          'LIVE',
+                                          style: TextStyle(
+                                            color: Colors.redAccent,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  )
+                                else
+                                  Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                     decoration: BoxDecoration(
-                                      color: Colors.red.withOpacity(0.15 + 0.1 * _pulseController!.value),
+                                      color: Colors.grey.withOpacity(0.15),
                                       border: Border.all(
-                                        color: Colors.redAccent.withOpacity(0.4 + 0.6 * _pulseController!.value),
+                                        color: Colors.grey,
                                         width: 1,
                                       ),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: const Text(
-                                      'LIVE',
+                                      'OFFLINE',
                                       style: TextStyle(
-                                        color: Colors.redAccent,
+                                        color: Colors.grey,
                                         fontSize: 10,
                                         fontWeight: FontWeight.bold,
                                         letterSpacing: 0.5,
                                       ),
                                     ),
-                                  );
-                                },
-                              )
-                            else
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.withOpacity(0.15),
-                                  border: Border.all(
-                                    color: Colors.grey,
-                                    width: 1,
                                   ),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Text(
-                                  'OFFLINE',
-                                  style: TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        
-                        // Action buttons (Blue Area)
-                        isSmall
-                            ? HoverOverlayMenu(
-                                trigger: MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF1E2433),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: Colors.white10),
+                              ],
+                            ),
+                            
+                            // Action buttons (Blue Area)
+                            isSmall
+                                ? HoverOverlayMenu(
+                                    trigger: MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF1E2433),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: Colors.white10),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.more_vert, color: Colors.white70, size: 16),
+                                            SizedBox(width: 4),
+                                            Text('Actions', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+                                          ],
+                                        ),
+                                      ),
                                     ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.more_vert, color: Colors.white70, size: 16),
-                                        SizedBox(width: 4),
-                                        Text('Actions', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
-                                      ],
+                                    menu: Container(
+                                      width: 160,
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF161B26),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFF1E2433)),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.5),
+                                            blurRadius: 10,
+                                          )
+                                        ],
+                                      ),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          _buildOverlayActionItem(
+                                            icon: Icons.open_in_new,
+                                            label: 'Open Channel',
+                                            onPressed: () {
+                                              _openExternalLink('https://twitch.tv/${channel.username}');
+                                            },
+                                          ),
+                                          const SizedBox(height: 4),
+                                          _buildOverlayActionItem(
+                                            icon: Icons.chat_bubble_outline,
+                                            label: 'Open Chat',
+                                            onPressed: () {
+                                              _openExternalLink('https://twitch.tv/${channel.username}/chat');
+                                            },
+                                          ),
+                                          const SizedBox(height: 4),
+                                          _buildOverlayActionItem(
+                                            icon: Icons.refresh,
+                                            label: 'Refresh Stats',
+                                            onPressed: channel.isLoading ? null : () => _fetchChannelStats(channel),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ),
-                                menu: Container(
-                                  width: 160,
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF161B26),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: const Color(0xFF1E2433)),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.5),
-                                        blurRadius: 10,
-                                      )
-                                    ],
-                                  ),
-                                  child: Column(
+                                  )
+                                : Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      _buildOverlayActionItem(
+                                      _buildMiniActionBtn(
                                         icon: Icons.open_in_new,
-                                        label: 'Open Channel',
-                                        onPressed: () {
-                                          _openExternalLink('https://twitch.tv/${channel.username}');
-                                        },
+                                        tooltip: 'Open Twitch channel',
+                                        onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}'),
                                       ),
-                                      const SizedBox(height: 4),
-                                      _buildOverlayActionItem(
+                                      const SizedBox(width: 8),
+                                      _buildMiniActionBtn(
                                         icon: Icons.chat_bubble_outline,
-                                        label: 'Open Chat',
-                                        onPressed: () {
-                                          _openExternalLink('https://twitch.tv/${channel.username}/chat');
-                                        },
+                                        tooltip: 'Open Twitch chat popout',
+                                        onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}/chat'),
                                       ),
-                                      const SizedBox(height: 4),
-                                      _buildOverlayActionItem(
+                                      const SizedBox(width: 8),
+                                      _buildMiniActionBtn(
                                         icon: Icons.refresh,
-                                        label: 'Refresh Stats',
+                                        tooltip: 'Refresh statistics',
                                         onPressed: channel.isLoading ? null : () => _fetchChannelStats(channel),
                                       ),
                                     ],
                                   ),
-                                ),
-                              )
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _buildMiniActionBtn(
-                                    icon: Icons.open_in_new,
-                                    tooltip: 'Open Twitch channel',
-                                    onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}'),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _buildMiniActionBtn(
-                                    icon: Icons.chat_bubble_outline,
-                                    tooltip: 'Open Twitch chat popout',
-                                    onPressed: () => _openExternalLink('https://twitch.tv/${channel.username}/chat'),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _buildMiniActionBtn(
-                                    icon: Icons.refresh,
-                                    tooltip: 'Refresh statistics',
-                                    onPressed: channel.isLoading ? null : () => _fetchChannelStats(channel),
-                                  ),
-                                ],
-                              ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (channel.isLive && channel.streamTitle != null) ...[
-                      Text(
-                        channel.streamTitle!,
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 6),
-                    ],
-                    Text(
-                      channel.isLive
-                          ? 'Streaming: ${channel.game ?? "Unknown Game"}'
-                          : 'Channel is currently offline',
-                      style: TextStyle(
-                        fontSize: 13, 
-                        color: channel.isLive ? Colors.white70 : Colors.white38,
-                        fontWeight: channel.isLive ? FontWeight.w500 : FontWeight.normal
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 14),
-          
-          // Row 2: PLAY Button & Stats Chips (perfectly aligned horizontally!)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // PLAY Button Left Block (width: 90 - matches avatar column alignment)
-              SizedBox(
-                width: 90,
-                height: 32,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    elevation: 4,
-                  ),
-                  onPressed: () => _launchStreamlink(channel.username),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.play_arrow, size: 16),
-                      SizedBox(width: 4),
-                      Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 20),
-              
-              // Stats Chips Block (Red Area)
-              Expanded(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    if (channel.isLive) ...[
-                      _buildHeaderChip(
-                        icon: Icons.visibility,
-                        color: Colors.redAccent,
-                        label: '${channel.viewerCount ?? "0"} viewers',
-                      ),
-                      _buildHeaderChip(
-                        icon: Icons.schedule,
-                        color: Colors.orangeAccent,
-                        label: channel.uptime ?? 'Live',
-                      ),
-                    ],
-                    _buildHeaderChip(
-                      icon: Icons.people,
-                      color: theme.primaryColor,
-                      label: '${channel.followerCount ?? "N/A"} followers',
-                    ),
-                    _buildHeaderChip(
-                      icon: Icons.update,
-                      color: Colors.white38,
-                      label: channel.lastUpdated != null
-                          ? 'Updated: ${_timeAgo(channel.lastUpdated!)}'
-                          : 'Not updated',
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          
-          if (channel.errorMessage != null) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const SizedBox(width: 90),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Error: ${channel.errorMessage}',
-                            style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (channel.isLive && channel.streamTitle != null) ...[
+                          Text(
+                            channel.streamTitle!,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        Text(
+                          channel.isLive
+                              ? 'Streaming: ${channel.game ?? "Unknown Game"}'
+                              : 'Channel is currently offline',
+                          style: TextStyle(
+                            fontSize: 13, 
+                            color: channel.isLive ? Colors.white70 : Colors.white38,
+                            fontWeight: channel.isLive ? FontWeight.w500 : FontWeight.normal
                           ),
                         ),
                       ],
                     ),
                   ),
+                ],
+              ),
+              
+              const SizedBox(height: 14),
+              
+              // Row 2: PLAY Button & Stats Chips (perfectly aligned horizontally!)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // PLAY Button Left Block (width: 90 - matches avatar column alignment)
+                  SizedBox(
+                    width: 90,
+                    height: 32,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        elevation: 4,
+                      ),
+                      onPressed: () => _launchStreamlink(channel.username),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.play_arrow, size: 16),
+                          SizedBox(width: 4),
+                          Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 20),
+                  
+                  // Stats Chips Block (Red Area)
+                  Expanded(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (channel.isLive) ...[
+                          _buildHeaderChip(
+                            icon: Icons.visibility,
+                            color: Colors.redAccent,
+                            label: '${channel.viewerCount ?? "0"} viewers',
+                          ),
+                          _buildHeaderChip(
+                            icon: Icons.schedule,
+                            color: Colors.orangeAccent,
+                            label: channel.uptime ?? 'Live',
+                          ),
+                        ],
+                        _buildHeaderChip(
+                          icon: Icons.people,
+                          color: theme.primaryColor,
+                          label: '${channel.followerCount ?? "N/A"} followers',
+                        ),
+                        _buildHeaderChip(
+                          icon: Icons.update,
+                          color: Colors.white38,
+                          label: channel.lastUpdated != null
+                              ? 'Updated: ${_timeAgo(channel.lastUpdated!)}'
+                              : 'Not updated',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              
+              if (channel.errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const SizedBox(width: 90),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Error: ${channel.errorMessage}',
+                                style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            ),
-          ],
-        ],
+            ],
+          ),
+        ),
       ),
     );
+
+    return channel.isLive
+        ? HoverOverlayMenu(
+            trigger: cardWidget,
+            menu: _buildLivePreviewPopup(channel),
+          )
+        : cardWidget;
   }
 
   Widget _buildHeaderChip({required IconData icon, required Color color, required String label}) {
