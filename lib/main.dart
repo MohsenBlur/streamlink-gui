@@ -4470,6 +4470,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ),
                             ),
                           ),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _sidebarTab = 2),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _sidebarTab == 2 ? theme.primaryColor : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Center(
+                                  child: Text(
+                                    'Live',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -4491,7 +4510,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           ),
                           onPressed: _isGlobalLoading || _isLoadingFollowed
                               ? null
-                              : (_sidebarTab == 0 ? _refreshAllChannels : _loadFollowedChannels),
+                              : () async {
+                                  if (_sidebarTab == 0) {
+                                    await _refreshAllChannels();
+                                  } else if (_sidebarTab == 1) {
+                                    await _loadFollowedChannels();
+                                  } else {
+                                    await Future.wait([
+                                      _refreshAllChannels(),
+                                      _loadFollowedChannels(),
+                                    ]);
+                                  }
+                                },
                           icon: _isGlobalLoading || _isLoadingFollowed
                               ? const SizedBox(
                                   width: 12,
@@ -4499,7 +4529,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
                                 )
                               : const Icon(Icons.refresh, size: 14),
-                          label: Text(_sidebarTab == 0 ? 'Refresh Favorites' : 'Refresh Follows', style: const TextStyle(fontSize: 12)),
+                          label: Text(
+                            _sidebarTab == 0
+                                ? 'Refresh Favorites'
+                                : (_sidebarTab == 1 ? 'Refresh Follows' : 'Refresh Live'),
+                            style: const TextStyle(fontSize: 12),
+                          ),
                         ),
                       ),
                     ],
@@ -4511,8 +4546,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 Expanded(
                   child: Builder(
                     builder: (context) {
-                      final listToDisplay = _sidebarTab == 0 ? _channels : _followedChannels;
-                      final isLoading = _sidebarTab == 0 ? _isGlobalLoading : _isLoadingFollowed;
+                      final listToDisplay = (() {
+                        if (_sidebarTab == 0) return _channels;
+                        if (_sidebarTab == 1) return _followedChannels;
+                        
+                        final liveList = <TwitchChannel>[];
+                        final seenUsernames = <String>{};
+                        for (final c in _channels) {
+                          if (c.isLive) {
+                            final clean = c.username.toLowerCase().trim();
+                            if (!seenUsernames.contains(clean)) {
+                              seenUsernames.add(clean);
+                              liveList.add(c);
+                            }
+                          }
+                        }
+                        for (final c in _followedChannels) {
+                          if (c.isLive) {
+                            final clean = c.username.toLowerCase().trim();
+                            if (!seenUsernames.contains(clean)) {
+                              seenUsernames.add(clean);
+                              liveList.add(c);
+                            }
+                          }
+                        }
+                        liveList.sort((a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()));
+                        return liveList;
+                      })();
+                      final isLoading = _sidebarTab == 0
+                          ? _isGlobalLoading
+                          : (_sidebarTab == 1 ? _isLoadingFollowed : (_isGlobalLoading || _isLoadingFollowed));
 
                       if (isLoading && listToDisplay.isEmpty) {
                         return const Center(child: CircularProgressIndicator());
@@ -4523,7 +4586,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           child: Text(
                             _sidebarTab == 0
                                 ? 'No favorites saved.\nAdd one above.'
-                                : 'No followed channels found.\nMake sure your account is connected.',
+                                : (_sidebarTab == 1
+                                    ? 'No followed channels found.\nMake sure your account is connected.'
+                                    : 'No live channels found.'),
                             textAlign: TextAlign.center,
                           ),
                         );
@@ -5569,7 +5634,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         const Divider(color: Color(0xFF1E2433), height: 1.5, thickness: 1.5),
         const SizedBox(height: 16),
         
-        // Tab toggle button (Favorites vs Followed List)
+        // Tab toggle button (Favorites vs Followed vs Live)
         (() {
           bool isHovered = false;
           return StatefulBuilder(
@@ -5578,13 +5643,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 onEnter: (_) => setHoverState(() => isHovered = true),
                 onExit: (_) => setHoverState(() => isHovered = false),
                 child: Tooltip(
-                  message: _sidebarTab == 0 ? 'Favorites (Click to switch to Followed)' : 'Followed List (Click to switch to Favorites)',
+                  message: _sidebarTab == 0
+                      ? 'Favorites (Click to switch to Followed)'
+                      : (_sidebarTab == 1
+                          ? 'Followed List (Click to switch to Live)'
+                          : 'Live Channels (Click to switch to Favorites)'),
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
                       onTap: () {
                         setState(() {
-                          _sidebarTab = _sidebarTab == 0 ? 1 : 0;
+                          _sidebarTab = (_sidebarTab + 1) % 3;
                           if (_sidebarTab == 1 && _followedChannels.isEmpty && !_isLoadingFollowed) {
                             _loadFollowedChannels();
                           }
@@ -5595,14 +5664,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: theme.primaryColor.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: theme.primaryColor, width: 1.5),
+                           color: theme.primaryColor.withOpacity(0.15),
+                           borderRadius: BorderRadius.circular(8),
+                           border: Border.all(color: theme.primaryColor, width: 1.5),
                         ),
                         child: Icon(
                           isHovered
                               ? Icons.swap_horiz
-                              : (_sidebarTab == 0 ? Icons.star : Icons.people),
+                              : (_sidebarTab == 0
+                                  ? Icons.star
+                                  : (_sidebarTab == 1 ? Icons.people : Icons.live_tv)),
                           color: Colors.white,
                           size: 20,
                         ),
