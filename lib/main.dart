@@ -4027,16 +4027,40 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _showSnackBar('Channel "$cleanName" added successfully!', isError: false);
   }
 
-  // Remove a channel
-  Future<void> _removeChannel(TwitchChannel channel) async {
-    setState(() {
-      _channels.removeWhere((c) => c.username == channel.username);
-      if (_selectedChannel?.username == channel.username) {
-        _selectedChannel = null;
-      }
-    });
-    await _saveChannels();
-    _showSnackBar('Channel "${channel.username}" removed.', isError: false);
+
+
+  Future<void> _toggleFavorite(TwitchChannel channel) async {
+    final cleanName = channel.username.toLowerCase().trim();
+    final isFavorite = _channels.any((c) => c.username == cleanName);
+    
+    if (isFavorite) {
+      setState(() {
+        _channels.removeWhere((c) => c.username == cleanName);
+        if (_selectedChannel?.username == cleanName) {
+          _selectedChannel = null;
+        }
+      });
+      await _saveChannels();
+      _showSnackBar('Removed "${channel.username}" from Favorites.', isError: false);
+    } else {
+      final newFav = TwitchChannel(username: cleanName);
+      newFav.avatarUrl = channel.avatarUrl;
+      newFav.isLive = channel.isLive;
+      newFav.uptime = channel.uptime;
+      newFav.viewerCount = channel.viewerCount;
+      newFav.game = channel.game;
+      newFav.streamTitle = channel.streamTitle;
+      
+      setState(() {
+        _channels.add(newFav);
+      });
+      await _saveChannels();
+      _showSnackBar('Added "${channel.username}" to Favorites.', isError: false);
+      
+      _fetchChannelStats(newFav).then((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   // Streamlink Launching Logic
@@ -4301,7 +4325,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             controller: _searchController,
                             style: const TextStyle(fontSize: 13, color: Colors.white),
                             decoration: const InputDecoration(
-                              hintText: 'Enter twitch username...',
+                              hintText: 'Add favorite username...',
                               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 0),
                             ),
                             onSubmitted: (val) => _addChannel(val),
@@ -4357,7 +4381,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 ),
                                 child: const Center(
                                   child: Text(
-                                    'Custom List',
+                                    'Favorites',
                                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
                                   ),
                                 ),
@@ -4430,7 +4454,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
                                 )
                               : const Icon(Icons.refresh, size: 14),
-                          label: Text(_sidebarTab == 0 ? 'Refresh All' : 'Refresh Follows', style: const TextStyle(fontSize: 12)),
+                          label: Text(_sidebarTab == 0 ? 'Refresh Favorites' : 'Refresh Follows', style: const TextStyle(fontSize: 12)),
                         ),
                       ),
                     ],
@@ -4453,7 +4477,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         return Center(
                           child: Text(
                             _sidebarTab == 0
-                                ? 'No channels saved.\nAdd one above.'
+                                ? 'No favorites saved.\nAdd one above.'
                                 : 'No followed channels found.\nMake sure your account is connected.',
                             textAlign: TextAlign.center,
                           ),
@@ -4465,122 +4489,146 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         itemBuilder: (context, index) {
                           final channel = listToDisplay[index];
                           final isSelected = _selectedChannel?.username == channel.username;
-                          return Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
-                              color: isSelected
-                                  ? theme.primaryColor.withOpacity(0.15)
-                                  : Colors.transparent,
-                              border: Border.all(
-                                color: isSelected
-                                    ? theme.primaryColor.withOpacity(0.4)
-                                    : Colors.transparent,
-                                width: 1,
-                              ),
-                            ),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.only(left: 12, right: 4),
-                              leading: Stack(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: const Color(0xFF1F2937),
-                                    backgroundImage: channel.avatarUrl != null
-                                        ? NetworkImage(channel.avatarUrl!)
-                                        : null,
-                                    child: channel.avatarUrl == null
-                                        ? const Icon(Icons.person, size: 18, color: Colors.white70)
-                                        : null,
-                                  ),
-                                  Positioned(
-                                    bottom: 0,
-                                    right: 0,
-                                    child: Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: BoxDecoration(
-                                        color: channel.isLive ? Colors.green : Colors.grey,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(color: const Color(0xFF111420), width: 1.5),
-                                      ),
+                          final cleanUsername = channel.username.toLowerCase().trim();
+                          final isFavorite = _channels.any((c) => c.username == cleanUsername);
+                          bool isRowHovered = false;
+
+                          return StatefulBuilder(
+                            builder: (context, setRowState) {
+                              return MouseRegion(
+                                onEnter: (_) => setRowState(() => isRowHovered = true),
+                                onExit: (_) => setRowState(() => isRowHovered = false),
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    color: isSelected
+                                        ? theme.primaryColor.withOpacity(0.15)
+                                        : Colors.transparent,
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? theme.primaryColor.withOpacity(0.4)
+                                          : Colors.transparent,
+                                      width: 1,
                                     ),
                                   ),
-                                ],
-                              ),
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      channel.username,
-                                      style: theme.textTheme.bodyLarge?.copyWith(
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                        fontSize: 14,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  if (channel.isLive)
-                                    AnimatedBuilder(
-                                      animation: _pulseController!,
-                                      builder: (context, child) {
-                                        return Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: Colors.red.withOpacity(0.7 + 0.3 * _pulseController!.value),
-                                            borderRadius: BorderRadius.circular(4),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.red.withOpacity(0.4 * _pulseController!.value),
-                                                blurRadius: 4,
-                                              )
-                                            ]
-                                          ),
-                                          child: const Text(
-                                            'LIVE',
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.only(left: 12, right: 4),
+                                    leading: Stack(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 18,
+                                          backgroundColor: const Color(0xFF1F2937),
+                                          backgroundImage: channel.avatarUrl != null
+                                              ? NetworkImage(channel.avatarUrl!)
+                                              : null,
+                                          child: channel.avatarUrl == null
+                                              ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                              : null,
+                                        ),
+                                        Positioned(
+                                          bottom: 0,
+                                          right: 0,
+                                          child: Container(
+                                            width: 10,
+                                            height: 10,
+                                            decoration: BoxDecoration(
+                                              color: channel.isLive ? Colors.green : Colors.grey,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: const Color(0xFF111420), width: 1.5),
                                             ),
                                           ),
-                                        );
-                                      },
+                                        ),
+                                      ],
                                     ),
-                                ],
-                              ),
-                              subtitle: channel.isLoading
-                                  ? const Padding(
-                                      padding: EdgeInsets.only(top: 4),
-                                      child: LinearProgressIndicator(minHeight: 1.5),
-                                    )
-                                  : Text(
-                                      channel.isLive
-                                          ? (channel.game ?? 'Playing...')
-                                          : 'Offline',
-                                      style: const TextStyle(fontSize: 11),
-                                      overflow: TextOverflow.ellipsis,
+                                    title: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            channel.username,
+                                            style: theme.textTheme.bodyLarge?.copyWith(
+                                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                              fontSize: 14,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (channel.isLive)
+                                          AnimatedBuilder(
+                                            animation: _pulseController!,
+                                            builder: (context, child) {
+                                              return Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.red.withOpacity(0.7 + 0.3 * _pulseController!.value),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: Colors.red.withOpacity(0.4 * _pulseController!.value),
+                                                      blurRadius: 4,
+                                                    )
+                                                  ],
+                                                ),
+                                                child: const Text(
+                                                  'LIVE',
+                                                  style: TextStyle(
+                                                    fontSize: 8,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                      ],
                                     ),
-                              trailing: _sidebarTab == 0
-                                  ? IconButton(
-                                      icon: const Icon(Icons.close, size: 16, color: Colors.white30),
-                                      onPressed: () => _removeChannel(channel),
-                                      hoverColor: Colors.red.withOpacity(0.2),
-                                      splashRadius: 18,
-                                    )
-                                  : null,
-                              onTap: () {
-                                setState(() {
-                                  _selectedChannel = channel;
-                                  _channelVods.clear();
-                                  _selectedGamesFilter.clear();
-                                  _vodsError = null;
-                                });
-                                if (_settings.twitchOauthToken.trim().isNotEmpty) {
-                                  _fetchVodsForChannel(channel);
-                                }
-                              },
-                            ),
+                                    subtitle: channel.isLoading
+                                        ? const Padding(
+                                            padding: EdgeInsets.only(top: 4),
+                                            child: LinearProgressIndicator(minHeight: 1.5),
+                                          )
+                                        : Text(
+                                            channel.isLive
+                                                ? (channel.game ?? 'Playing...')
+                                                : 'Offline',
+                                            style: const TextStyle(fontSize: 11),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                    trailing: _sidebarTab == 0
+                                        ? IconButton(
+                                            icon: const Icon(Icons.star, color: Colors.amber, size: 18),
+                                            onPressed: () => _toggleFavorite(channel),
+                                            tooltip: 'Remove from Favorites',
+                                            splashRadius: 18,
+                                          )
+                                        : (isFavorite
+                                            ? IconButton(
+                                                icon: const Icon(Icons.star, color: Colors.amber, size: 18),
+                                                onPressed: () => _toggleFavorite(channel),
+                                                tooltip: 'Remove from Favorites',
+                                                splashRadius: 18,
+                                              )
+                                            : (isRowHovered
+                                                ? HoverStarIcon(
+                                                    isFavorite: false,
+                                                    onTap: () => _toggleFavorite(channel),
+                                                  )
+                                                : null)),
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedChannel = channel;
+                                        _channelVods.clear();
+                                        _selectedGamesFilter.clear();
+                                        _vodsError = null;
+                                      });
+                                      if (_settings.twitchOauthToken.trim().isNotEmpty) {
+                                        _fetchVodsForChannel(channel);
+                                      }
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
                           );
                         },
                       );
@@ -5476,7 +5524,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         const Divider(color: Color(0xFF1E2433), height: 1.5, thickness: 1.5),
         const SizedBox(height: 16),
         
-        // Tab toggle button (Custom List vs Followed List)
+        // Tab toggle button (Favorites vs Followed List)
         (() {
           bool isHovered = false;
           return StatefulBuilder(
@@ -5485,7 +5533,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 onEnter: (_) => setHoverState(() => isHovered = true),
                 onExit: (_) => setHoverState(() => isHovered = false),
                 child: Tooltip(
-                  message: _sidebarTab == 0 ? 'Custom List (Click to switch to Followed)' : 'Followed List (Click to switch to Custom)',
+                  message: _sidebarTab == 0 ? 'Favorites (Click to switch to Followed)' : 'Followed List (Click to switch to Favorites)',
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
@@ -5526,7 +5574,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         
         // Global refresh action (icon button in collapsed mode)
         Tooltip(
-          message: _sidebarTab == 0 ? 'Refresh Custom List' : 'Refresh Followed List',
+          message: _sidebarTab == 0 ? 'Refresh Favorites' : 'Refresh Followed List',
           child: IconButton(
             icon: _isGlobalLoading || _isLoadingFollowed
                 ? const SizedBox(
@@ -6359,6 +6407,43 @@ class _HoverOverlayMenuState extends State<HoverOverlayMenu> {
           _hideMenu();
         },
         child: widget.trigger,
+      ),
+    );
+  }
+}
+
+class HoverStarIcon extends StatefulWidget {
+  final bool isFavorite;
+  final VoidCallback onTap;
+  
+  const HoverStarIcon({
+    Key? key,
+    required this.isFavorite,
+    required this.onTap,
+  }) : super(key: key);
+
+  @override
+  State<HoverStarIcon> createState() => _HoverStarIconState();
+}
+
+class _HoverStarIconState extends State<HoverStarIcon> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final useGold = widget.isFavorite || _isHovered;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: IconButton(
+        icon: Icon(
+          useGold ? Icons.star : Icons.star_border,
+          color: useGold ? Colors.amber : Colors.white30,
+          size: 18,
+        ),
+        onPressed: widget.onTap,
+        tooltip: widget.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+        splashRadius: 18,
       ),
     );
   }
