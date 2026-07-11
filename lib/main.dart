@@ -3994,12 +3994,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  // Refresh all channels
+  // Refresh all channels (Favorites and Followed Live Status)
   Future<void> _refreshAllChannels({bool isInitialLoad = false}) async {
+    // 1. Refresh favorites list
     final futures = _channels.map((c) => _fetchChannelStats(c));
     await Future.wait(futures);
 
-    // Check live status transitions and trigger notifications
+    // Check favorites transitions and trigger notifications for favorites ONLY
     for (final channel in _channels) {
       final cleanName = channel.username.toLowerCase().trim();
       if (channel.isLive) {
@@ -4036,6 +4037,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         setState(() {
           _selectedChannel = _channels[index];
         });
+      }
+    }
+
+    // 2. Refresh followed channels stats in background (if authenticated)
+    if (_settings.twitchOauthToken.trim().isNotEmpty && _followedChannels.isNotEmpty) {
+      final followedFutures = _followedChannels.map((c) => _fetchChannelStats(c));
+      await Future.wait(followedFutures);
+
+      // If a channel is selected, update it in state
+      if (_selectedChannel != null) {
+        final index = _followedChannels.indexWhere((c) => c.username == _selectedChannel!.username);
+        if (index != -1) {
+          setState(() {
+            _selectedChannel = _followedChannels[index];
+          });
+        }
       }
     }
   }
