@@ -1143,6 +1143,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               }
             },
             onChannelDoubleTapped: (username) {
+              if (_playerService.runningChannels.contains(username)) return;
               _playerService.launchStreamlinkForLive(
                 username,
                 _selectedChannel?.isLive ?? false,
@@ -1255,6 +1256,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 DashboardHeader(
                   channel: channel,
                   pulseController: _pulseController!,
+                  isPlaying: _playerService.runningChannels.contains(channel.username),
                   onPlay: () {
                     _playerService.launchStreamlinkForLive(
                       channel.username,

@@ -8,6 +8,7 @@ class DashboardHeader extends StatefulWidget {
   final VoidCallback onPlay;
   final VoidCallback onRefresh;
   final void Function(String) openExternalLink;
+  final bool isPlaying;
 
   const DashboardHeader({
     Key? key,
@@ -16,6 +17,7 @@ class DashboardHeader extends StatefulWidget {
     required this.onPlay,
     required this.onRefresh,
     required this.openExternalLink,
+    required this.isPlaying,
   }) : super(key: key);
 
   @override
@@ -475,20 +477,30 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     height: 32,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: theme.primaryColor,
+                        backgroundColor: widget.isPlaying ? const Color(0xFF1E2433) : theme.primaryColor,
                         foregroundColor: Colors.white,
                         padding: EdgeInsets.zero,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                        elevation: 4,
+                        elevation: widget.isPlaying ? 0 : 4,
                       ),
-                      onPressed: widget.onPlay,
-                      child: const Row(
+                      onPressed: widget.isPlaying ? null : widget.onPlay,
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.play_arrow, size: 16),
-                          SizedBox(width: 4),
-                          Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                        ],
+                        children: widget.isPlaying
+                            ? const [
+                                SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
+                                ),
+                                SizedBox(width: 6),
+                                Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white54)),
+                              ]
+                            : const [
+                                Icon(Icons.play_arrow, size: 16),
+                                SizedBox(width: 4),
+                                Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                              ],
                       ),
                     ),
                   ),

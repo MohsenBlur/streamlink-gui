@@ -216,7 +216,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
         child: GestureDetector(
           onTap: widget.isMultiSelectMode
               ? () => widget.onSelected?.call(!widget.isSelected)
-              : widget.onPlay,
+              : (widget.isPlaying ? null : widget.onPlay),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
@@ -446,7 +446,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                           Positioned.fill(
                             child: AnimatedOpacity(
                               duration: const Duration(milliseconds: 150),
-                              opacity: _isHovered ? 1.0 : 0.0,
+                              opacity: (_isHovered && !widget.isPlaying) ? 1.0 : 0.0,
                               child: Container(
                                 color: Colors.black.withOpacity(0.4),
                                 child: Column(
