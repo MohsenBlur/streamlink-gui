@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:window_manager/window_manager.dart';
 import 'package:system_tray/system_tray.dart';
+import 'package:local_notifier/local_notifier.dart';
 
 class AppThemeNotifier extends ChangeNotifier {
   Color primaryColor = const Color(0xFF9146FF);
@@ -50,6 +51,33 @@ String colorToHex(Color color) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await localNotifier.setup(
+    appName: 'Twitch Streamlink GUI',
+    shortcutPolicy: ShortcutPolicy.requireCreate,
+  );
+
+  ServerSocket? lockSocket;
+  try {
+    lockSocket = await ServerSocket.bind('127.0.0.1', 65431);
+    lockSocket.listen((client) {
+      client.listen((data) async {
+        final msg = utf8.decode(data).trim();
+        if (msg == 'show') {
+          await windowManager.show();
+          await windowManager.focus();
+        }
+      });
+    });
+  } catch (_) {
+    try {
+      final client = await Socket.connect('127.0.0.1', 65431);
+      client.write('show');
+      await client.flush();
+      await client.close();
+    } catch (_) {}
+    exit(0);
+  }
+
   await windowManager.ensureInitialized();
 
   WindowOptions windowOptions = const WindowOptions(
@@ -967,6 +995,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _isAdding = false;
   final AppSettings _settings = AppSettings();
   final SystemTray _systemTray = SystemTray();
+  final Set<String> _previouslyLiveFavoriteUsernames = {};
+  Timer? _favoritesLiveCheckTimer;
   HttpServer? _oauthServer;
   List<TwitchChannel> _followedChannels = [];
   bool _isLoadingFollowed = false;
@@ -1988,6 +2018,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _downloadCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _checkDownloadedVods();
     });
+    _favoritesLiveCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _refreshAllChannels();
+    });
   }
 
   @override
@@ -2016,6 +2049,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _playerScrollControllers.clear();
     _oauthServer?.close(force: true);
     _downloadCheckTimer?.cancel();
+    _favoritesLiveCheckTimer?.cancel();
     for (final proc in _activeDownloadProcesses.values) {
       try {
         if (Platform.isWindows) {
@@ -2980,7 +3014,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
 
       // Fetch stats for all loaded channels
-      await _refreshAllChannels();
+      await _refreshAllChannels(isInitialLoad: true);
       if (_settings.twitchOauthToken.trim().isNotEmpty) {
         _loadFollowedChannels();
       }
@@ -3981,9 +4015,40 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   // Refresh all channels
-  Future<void> _refreshAllChannels() async {
+  Future<void> _refreshAllChannels({bool isInitialLoad = false}) async {
     final futures = _channels.map((c) => _fetchChannelStats(c));
     await Future.wait(futures);
+
+    // Check live status transitions and trigger notifications
+    for (final channel in _channels) {
+      final cleanName = channel.username.toLowerCase().trim();
+      if (channel.isLive) {
+        if (!_previouslyLiveFavoriteUsernames.contains(cleanName)) {
+          _previouslyLiveFavoriteUsernames.add(cleanName);
+          if (!isInitialLoad) {
+            try {
+              final gameText = channel.game ?? 'Twitch';
+              final titleText = channel.streamTitle ?? 'Streaming Live!';
+              final notification = LocalNotification(
+                title: '${channel.username} is now LIVE!',
+                body: 'Playing $gameText\n$titleText',
+                silent: false,
+              );
+              notification.onClick = () async {
+                await windowManager.show();
+                await windowManager.focus();
+              };
+              await notification.show();
+            } catch (e) {
+              print('[Favorites Notification] Error displaying desktop toast: $e');
+            }
+          }
+        }
+      } else {
+        _previouslyLiveFavoriteUsernames.remove(cleanName);
+      }
+    }
+
     // If a channel is selected, update it in state
     if (_selectedChannel != null) {
       final index = _channels.indexWhere((c) => c.username == _selectedChannel!.username);
