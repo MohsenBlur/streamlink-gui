@@ -20,6 +20,7 @@ import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'utils/color_utils.dart';
+import 'utils/process_monitor.dart';
 
 class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
   Color primaryColor = const Color(0xFF9146FF);
@@ -191,6 +192,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   void initState() {
     super.initState();
+    startProcessMonitor();
     windowManager.addListener(this);
     _initSystemTray();
     
