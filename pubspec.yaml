@@ -36,6 +36,7 @@ dependencies:
   window_manager: ^0.5.2
   system_tray: ^2.0.3
   local_notifier: ^0.1.6
+  file_picker: ^8.0.0
 
 dev_dependencies:
   flutter_test:
