@@ -5628,7 +5628,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Widget _buildCollapsedSidebar(ThemeData theme) {
-    final activeList = _sidebarTab == 0 ? _channels : _followedChannels;
+    final activeList = (() {
+      if (_sidebarTab == 0) return _channels;
+      if (_sidebarTab == 1) return _followedChannels;
+      
+      final liveList = <TwitchChannel>[];
+      final seenUsernames = <String>{};
+      for (final c in _channels) {
+        if (c.isLive) {
+          final clean = c.username.toLowerCase().trim();
+          if (!seenUsernames.contains(clean)) {
+            seenUsernames.add(clean);
+            liveList.add(c);
+          }
+        }
+      }
+      for (final c in _followedChannels) {
+        if (c.isLive) {
+          final clean = c.username.toLowerCase().trim();
+          if (!seenUsernames.contains(clean)) {
+            seenUsernames.add(clean);
+            liveList.add(c);
+          }
+        }
+      }
+      liveList.sort((a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()));
+      return liveList;
+    })();
     
     return Column(
       children: [
@@ -5661,10 +5687,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 onExit: (_) => setHoverState(() => isHovered = false),
                 child: Tooltip(
                   message: _sidebarTab == 0
-                      ? 'Favorites (Click to switch to Followed)'
+                      ? "Favorites\nSwitch to Followed"
                       : (_sidebarTab == 1
-                          ? 'Followed List (Click to switch to Live)'
-                          : 'Live Channels (Click to switch to Favorites)'),
+                          ? "Followed List\nSwitch to Live"
+                          : "Live Channels\nSwitch to Favorites"),
+                  waitDuration: Duration.zero,
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
@@ -5707,7 +5734,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         
         // Global refresh action (icon button in collapsed mode)
         Tooltip(
-          message: _sidebarTab == 0 ? 'Refresh Favorites' : 'Refresh Followed List',
+          message: _sidebarTab == 0
+              ? 'Refresh Favorites'
+              : (_sidebarTab == 1 ? 'Refresh Followed List' : 'Refresh Live'),
           child: IconButton(
             icon: _isGlobalLoading || _isLoadingFollowed
                 ? const SizedBox(
@@ -5718,7 +5747,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 : const Icon(Icons.refresh, color: Colors.white70, size: 18),
             onPressed: _isGlobalLoading || _isLoadingFollowed
                 ? null
-                : (_sidebarTab == 0 ? _refreshAllChannels : _loadFollowedChannels),
+                : () async {
+                    if (_sidebarTab == 0) {
+                      await _refreshAllChannels();
+                    } else if (_sidebarTab == 1) {
+                      await _loadFollowedChannels();
+                    } else {
+                      await Future.wait([
+                        _refreshAllChannels(),
+                        _loadFollowedChannels(),
+                      ]);
+                    }
+                  },
             hoverColor: theme.primaryColor.withOpacity(0.2),
             splashRadius: 20,
           ),
