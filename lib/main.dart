@@ -2060,6 +2060,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
         windowManager.show();
         windowManager.focus();
+      } else if (eventName == kSystemTrayEventRightClick) {
+        _systemTray.popUpContextMenu();
       }
     });
   }
