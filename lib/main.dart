@@ -6684,30 +6684,32 @@ class HoverOverlayMenu extends StatefulWidget {
 
 class _HoverOverlayMenuState extends State<HoverOverlayMenu> {
   OverlayEntry? _entry;
-  final LayerLink _layerLink = LayerLink();
-  bool _isHovered = false;
+  Offset _mousePos = Offset.zero;
 
   void _showMenu() {
     if (_entry != null) return;
     
     _entry = OverlayEntry(
-      builder: (context) => Positioned(
-        left: 0,
-        top: 0,
-        child: CompositedTransformFollower(
-          link: _layerLink,
-          showWhenUnlinked: false,
-          targetAnchor: Alignment.bottomRight,
-          followerAnchor: Alignment.topRight,
-          offset: const Offset(0, 8),
-          child: MouseRegion(
-            onEnter: (_) {
-              setState(() => _isHovered = true);
-            },
-            onExit: (_) {
-              setState(() => _isHovered = false);
-              _hideMenu();
-            },
+      builder: (context) {
+        final size = MediaQuery.of(context).size;
+        double left = _mousePos.dx + 16;
+        double top = _mousePos.dy + 16;
+        
+        // Menu width is 260, height is approx 220
+        if (left + 260 > size.width) {
+          left = _mousePos.dx - 260 - 16;
+        }
+        if (top + 220 > size.height) {
+          top = _mousePos.dy - 220 - 16;
+        }
+        if (left < 0) left = 0;
+        if (top < 0) top = 0;
+        
+        return Positioned(
+          left: left,
+          top: top,
+          child: IgnorePointer(
+            ignoring: true,
             child: Theme(
               data: Theme.of(context),
               child: Material(
@@ -6716,20 +6718,20 @@ class _HoverOverlayMenuState extends State<HoverOverlayMenu> {
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
     Overlay.of(context).insert(_entry!);
   }
 
+  void _updatePosition(Offset pos) {
+    _mousePos = pos;
+    _entry?.markNeedsBuild();
+  }
+
   void _hideMenu() {
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (!mounted) return;
-      if (!_isHovered) {
-        _entry?.remove();
-        _entry = null;
-      }
-    });
+    _entry?.remove();
+    _entry = null;
   }
 
   @override
@@ -6740,19 +6742,18 @@ class _HoverOverlayMenuState extends State<HoverOverlayMenu> {
 
   @override
   Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _layerLink,
-      child: MouseRegion(
-        onEnter: (_) {
-          setState(() => _isHovered = true);
-          _showMenu();
-        },
-        onExit: (_) {
-          setState(() => _isHovered = false);
-          _hideMenu();
-        },
-        child: widget.trigger,
-      ),
+    return MouseRegion(
+      onEnter: (event) {
+        _mousePos = event.position;
+        _showMenu();
+      },
+      onHover: (event) {
+        _updatePosition(event.position);
+      },
+      onExit: (_) {
+        _hideMenu();
+      },
+      child: widget.trigger,
     );
   }
 }
