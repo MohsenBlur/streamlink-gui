@@ -56,28 +56,6 @@ void main() async {
     shortcutPolicy: ShortcutPolicy.requireCreate,
   );
 
-  ServerSocket? lockSocket;
-  try {
-    lockSocket = await ServerSocket.bind('127.0.0.1', 65431);
-    lockSocket.listen((client) {
-      client.listen((data) async {
-        final msg = utf8.decode(data).trim();
-        if (msg == 'show') {
-          await windowManager.show();
-          await windowManager.focus();
-        }
-      });
-    });
-  } catch (_) {
-    try {
-      final client = await Socket.connect('127.0.0.1', 65431);
-      client.write('show');
-      await client.flush();
-      await client.close();
-    } catch (_) {}
-    exit(0);
-  }
-
   await windowManager.ensureInitialized();
 
   WindowOptions windowOptions = const WindowOptions(
