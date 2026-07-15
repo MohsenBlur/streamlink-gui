@@ -2105,18 +2105,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _deleteDownloadedVod(String vodId, String channelName) async {
-    File? file;
-    final registeredPath = _downloadedVodsRegistry[vodId];
-    if (registeredPath != null) {
-      file = File(registeredPath);
-    }
-    file ??= _playerService.getDownloadedVodFile(vodId, channelName, _settings.vodDownloadFolder);
-    
-    try {
-      if (file != null && file.existsSync()) {
-        file.deleteSync();
+    final downloadFolder = _settings.vodDownloadFolder.trim();
+    if (downloadFolder.isNotEmpty) {
+      final dir = Directory('$downloadFolder/$channelName');
+      if (dir.existsSync()) {
+        try {
+          final files = dir.listSync();
+          for (final file in files) {
+            if (file is File && file.path.contains(' - $vodId')) {
+              file.deleteSync();
+            }
+          }
+        } catch (_) {}
       }
-    } catch (_) {}
+    }
     
     _downloadedVodsRegistry.remove(vodId);
     await _saveChannels();
@@ -2267,16 +2269,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     int count = 0;
     for (final vod in toDelete) {
       try {
-        File? file;
-        final registeredPath = _downloadedVodsRegistry[vod.id];
-        if (registeredPath != null) {
-          file = File(registeredPath);
-        }
-        file ??= _playerService.getDownloadedVodFile(vod.id, channelName, _settings.vodDownloadFolder);
-        
-        if (file != null && file.existsSync()) {
-          file.deleteSync();
-          count++;
+        final downloadFolder = _settings.vodDownloadFolder.trim();
+        if (downloadFolder.isNotEmpty) {
+          final dir = Directory('$downloadFolder/$channelName');
+          if (dir.existsSync()) {
+            final files = dir.listSync();
+            for (final file in files) {
+              if (file is File && file.path.contains(' - ${vod.id}')) {
+                file.deleteSync();
+              }
+            }
+            count++;
+          }
         }
         _downloadedVodsRegistry.remove(vod.id);
       } catch (_) {}

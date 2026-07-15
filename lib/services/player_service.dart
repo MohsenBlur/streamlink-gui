@@ -60,7 +60,9 @@ class PlayerService {
       for (final file in files) {
         if (file is File) {
           final name = file.path;
-          if (RegExp(' - $vodId\\.[a-zA-Z0-9]+\$').hasMatch(name)) {
+          if (RegExp(' - $vodId\\.[a-zA-Z0-9]+\$').hasMatch(name) &&
+              !name.endsWith('.part') &&
+              !name.endsWith('.ytdl')) {
             return file;
           }
         }
