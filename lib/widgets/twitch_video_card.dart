@@ -516,89 +516,113 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                         Positioned(
                           bottom: 8,
                           right: 8,
-                          child: (!widget.isMultiSelectMode && (_isHovered || widget.downloadStatus != null || widget.isDownloaded))
-                              ? Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (widget.downloadStatus != null) ...[
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.9),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 1.0),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (widget.downloadProgress != null) ...[
-                                              SizedBox(
-                                                width: 12,
-                                                height: 12,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  value: widget.downloadProgress,
-                                                  valueColor: const AlwaysStoppedAnimation(Colors.greenAccent),
-                                                  backgroundColor: Colors.white10,
+                          child: widget.isMultiSelectMode
+                              ? const SizedBox.shrink()
+                              : (widget.downloadStatus != null
+                                  ? Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(0.9),
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 1.0),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (widget.downloadProgress != null) ...[
+                                                SizedBox(
+                                                  width: 12,
+                                                  height: 12,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                    value: widget.downloadProgress,
+                                                    valueColor: const AlwaysStoppedAnimation(Colors.greenAccent),
+                                                    backgroundColor: Colors.white10,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                              ],
+                                              Text(
+                                                widget.downloadStatus!,
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.greenAccent,
                                                 ),
                                               ),
-                                              const SizedBox(width: 8),
                                             ],
-                                            Text(
-                                              widget.downloadStatus!,
-                                              style: const TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.greenAccent,
-                                              ),
-                                            ),
-                                          ],
+                                          ),
                                         ),
-                                      ),
-                                      if (_isHovered) ...[
-                                        const SizedBox(width: 6),
-                                        _buildCardButton(
-                                          onTap: widget.onCancel,
-                                          icon: Icons.close,
-                                          backgroundColor: Colors.redAccent,
-                                          tooltip: 'Cancel Download',
-                                        ),
+                                        if (_isHovered) ...[
+                                          const SizedBox(width: 6),
+                                          _buildCardButton(
+                                            onTap: widget.onCancel,
+                                            icon: Icons.close,
+                                            backgroundColor: Colors.redAccent,
+                                            tooltip: 'Cancel Download',
+                                          ),
+                                        ],
                                       ],
-                                    ] else if (widget.isDownloaded) ...[
-                                      _buildCardButton(
-                                        onTap: widget.onPlay,
-                                        icon: Icons.play_arrow,
-                                        backgroundColor: Colors.green,
-                                        tooltip: 'Play Local VOD',
-                                      ),
-                                      const SizedBox(width: 6),
-                                      _buildCardButton(
-                                        onTap: widget.onDeleteDownload,
-                                        icon: Icons.delete,
-                                        backgroundColor: Colors.redAccent,
-                                        tooltip: 'Delete Download',
-                                      ),
-                                    ] else ...[
-                                      _buildCardButton(
-                                        onTap: widget.onDownload,
-                                        icon: Icons.download,
-                                        backgroundColor: Colors.black.withOpacity(0.8),
-                                        tooltip: 'Download VOD',
-                                      ),
-                                    ]
-                                  ],
-                                )
-                              : Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.75),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    _timeAgo(widget.vod.publishedAt),
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                                  ),
-                                ),
+                                    )
+                                  : (widget.isDownloaded
+                                      ? (_isHovered
+                                          ? Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                _buildCardButton(
+                                                  onTap: widget.onPlay,
+                                                  icon: Icons.play_arrow,
+                                                  backgroundColor: Colors.green,
+                                                  tooltip: 'Play Local VOD',
+                                                ),
+                                                const SizedBox(width: 6),
+                                                _buildCardButton(
+                                                  onTap: widget.onDeleteDownload,
+                                                  icon: Icons.delete,
+                                                  backgroundColor: Colors.redAccent,
+                                                  tooltip: 'Delete Download',
+                                                ),
+                                              ],
+                                            )
+                                          : Container(
+                                              padding: const EdgeInsets.all(5),
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                color: Colors.green.withOpacity(0.9),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withOpacity(0.3),
+                                                    blurRadius: 4,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: const Icon(
+                                                Icons.check,
+                                                size: 14,
+                                                color: Colors.white,
+                                              ),
+                                            ))
+                                      : (_isHovered
+                                          ? _buildCardButton(
+                                              onTap: widget.onDownload,
+                                              icon: Icons.download,
+                                              backgroundColor: Colors.black.withOpacity(0.8),
+                                              tooltip: 'Download VOD',
+                                            )
+                                          : Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withOpacity(0.75),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                _timeAgo(widget.vod.publishedAt),
+                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                              ),
+                                            )))),
                         ),
                       ],
                     ),
