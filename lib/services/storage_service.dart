@@ -99,6 +99,7 @@ class StorageService {
     List<TwitchChannel> channels,
     AppSettings settings,
     Map<String, int> localProgress,
+    Map<String, String> downloadedVods,
   ) async {
     final file = _getStorageFile();
     final usernames = channels.map((c) => c.username).toList();
@@ -106,6 +107,7 @@ class StorageService {
       'channels': usernames,
       'settings': settings.toJson(),
       'local_vods_progress': localProgress,
+      'downloaded_vods': downloadedVods,
     };
     final content = json.encode(config);
     final tempFile = File('${file.path}.tmp');

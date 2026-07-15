@@ -185,6 +185,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _isBulkUpdatingVods = false;
   Map<String, int> _localVodsProgress = {};
   Set<String> _downloadedVodIds = {};
+  Map<String, String> _downloadedVodsRegistry = {};
 
   bool _consoleCollapsed = false;
   String? _selectedConsoleTabKey;
@@ -248,9 +249,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     };
 
-    _playerService.onDownloadCompleted = (vodId, title) {
+    _playerService.onDownloadCompleted = (vodId, title, filePath) {
       if (mounted) {
+        setState(() {
+          if (filePath.isNotEmpty) {
+            _downloadedVodsRegistry[vodId] = filePath;
+          }
+        });
         _checkDownloadedVods();
+        _saveChannels();
         _showSnackBar('Download completed: $title', isError: false);
       }
     };
@@ -404,15 +411,39 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
     
     final newDownloaded = <String>{};
+    bool registryChanged = false;
+
+    // 1. Validate all files in the registry
+    _downloadedVodsRegistry.forEach((vodId, filePath) {
+      if (File(filePath).existsSync()) {
+        newDownloaded.add(vodId);
+      } else {
+        registryChanged = true;
+      }
+    });
+
+    if (registryChanged) {
+      _downloadedVodsRegistry.removeWhere((vodId, filePath) => !File(filePath).existsSync());
+    }
+    
+    // 2. Scan the current channel's VODs and pick up newly found downloads
     for (final vod in _channelVods) {
+      if (newDownloaded.contains(vod.id)) continue;
+      
       final file = _playerService.getDownloadedVodFile(
         vod.id,
         _selectedChannel?.username ?? '',
         _settings.vodDownloadFolder
       );
-      if (file != null) {
+      if (file != null && file.existsSync()) {
         newDownloaded.add(vod.id);
+        _downloadedVodsRegistry[vod.id] = file.path;
+        registryChanged = true;
       }
+    }
+
+    if (registryChanged) {
+      _saveChannels();
     }
     
     if (mounted) {
@@ -544,6 +575,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         if (localProgressJson is Map) {
           _localVodsProgress = localProgressJson.map((k, v) => MapEntry(k.toString(), v as int));
         }
+        final downloadedVodsJson = config['downloaded_vods'];
+        if (downloadedVodsJson is Map) {
+          _downloadedVodsRegistry = downloadedVodsJson.map((k, v) => MapEntry(k.toString(), v.toString()));
+        }
       }
 
       _channels.clear();
@@ -572,7 +607,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _saveChannels() async {
-    await _storageService.saveConfig(_channels, _settings, _localVodsProgress);
+    await _storageService.saveConfig(_channels, _settings, _localVodsProgress, _downloadedVodsRegistry);
   }
 
   Future<void> _startOAuthServer() async {
@@ -1706,11 +1741,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     },
                     onDeselectAll: () => setState(() => _selectedVodIds.clear()),
                     onPlay: (vod) {
-                      final file = _playerService.getDownloadedVodFile(
-                        vod.id,
-                        _selectedChannel?.username ?? '',
-                        _settings.vodDownloadFolder
-                      );
+                      File? file;
+                      final registeredPath = _downloadedVodsRegistry[vod.id];
+                      if (registeredPath != null) {
+                        file = File(registeredPath);
+                        if (!file.existsSync()) {
+                          file = null;
+                        }
+                      }
+                      
+                      if (file == null) {
+                        file = _playerService.getDownloadedVodFile(
+                          vod.id,
+                          _selectedChannel?.username ?? '',
+                          _settings.vodDownloadFolder
+                        );
+                      }
+                      
                       if (file != null && file.existsSync()) {
                         _playerService.playDownloadedVod(file, vod, _settings);
                       } else {
@@ -2058,7 +2105,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _deleteDownloadedVod(String vodId, String channelName) async {
-    await _playerService.getDownloadedVodFile(vodId, channelName, _settings.vodDownloadFolder)?.delete();
+    File? file;
+    final registeredPath = _downloadedVodsRegistry[vodId];
+    if (registeredPath != null) {
+      file = File(registeredPath);
+    }
+    file ??= _playerService.getDownloadedVodFile(vodId, channelName, _settings.vodDownloadFolder);
+    
+    try {
+      if (file != null && file.existsSync()) {
+        file.deleteSync();
+      }
+    } catch (_) {}
+    
+    _downloadedVodsRegistry.remove(vodId);
+    await _saveChannels();
     _checkDownloadedVods();
     _showSnackBar('Deleted download for VOD ID: $vodId', isError: false);
   }
@@ -2206,13 +2267,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     int count = 0;
     for (final vod in toDelete) {
       try {
-        final file = _playerService.getDownloadedVodFile(vod.id, channelName, _settings.vodDownloadFolder);
+        File? file;
+        final registeredPath = _downloadedVodsRegistry[vod.id];
+        if (registeredPath != null) {
+          file = File(registeredPath);
+        }
+        file ??= _playerService.getDownloadedVodFile(vod.id, channelName, _settings.vodDownloadFolder);
+        
         if (file != null && file.existsSync()) {
           file.deleteSync();
           count++;
         }
+        _downloadedVodsRegistry.remove(vod.id);
       } catch (_) {}
     }
+    await _saveChannels();
     
     _checkDownloadedVods();
     setState(() {

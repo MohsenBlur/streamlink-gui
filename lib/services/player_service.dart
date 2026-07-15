@@ -31,7 +31,7 @@ class PlayerService {
   // Event Callbacks
   void Function(String vodId, double progress, String status)? onDownloadProgress;
   void Function(String vodId)? onDownloadCancelled;
-  void Function(String vodId, String title)? onDownloadCompleted;
+  void Function(String vodId, String title, String filePath)? onDownloadCompleted;
   void Function(String vodId, String title, int exitCode)? onDownloadFailed;
   
   void Function(String key, String title)? onPlayerStarted;
@@ -131,7 +131,9 @@ class PlayerService {
       _cleanupDownloadState(vodId);
 
       if (exitCode == 0) {
-        onDownloadCompleted?.call(vodId, vod.title);
+        final downloadedFile = getDownloadedVodFile(vodId, channelName, settings.vodDownloadFolder);
+        final filePath = downloadedFile?.path ?? '';
+        onDownloadCompleted?.call(vodId, vod.title, filePath);
         _cleanupOldestDownloads(settings);
       } else {
         onDownloadFailed?.call(vodId, vod.title, exitCode);
