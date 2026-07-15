@@ -59,10 +59,12 @@ class PlayerService {
       final files = dir.listSync();
       for (final file in files) {
         if (file is File) {
-          final name = file.path;
+          final name = file.path.toLowerCase();
           if (RegExp(' - $vodId\\.[a-zA-Z0-9]+\$').hasMatch(name) &&
               !name.endsWith('.part') &&
-              !name.endsWith('.ytdl')) {
+              !name.endsWith('.ytdl') &&
+              !name.endsWith('.tmp') &&
+              !name.endsWith('.temp')) {
             return file;
           }
         }

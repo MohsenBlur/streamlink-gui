@@ -415,6 +415,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     // 1. Validate all files in the registry
     _downloadedVodsRegistry.forEach((vodId, filePath) {
+      if (_playerService.activeDownloadTasks.containsKey(vodId) ||
+          _playerService.activeDownloadProcesses.containsKey(vodId) ||
+          _playerService.downloadQueue.contains(vodId)) {
+        return;
+      }
+
       if (File(filePath).existsSync()) {
         newDownloaded.add(vodId);
       } else {
@@ -429,6 +435,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // 2. Scan the current channel's VODs and pick up newly found downloads
     for (final vod in _channelVods) {
       if (newDownloaded.contains(vod.id)) continue;
+      
+      if (_playerService.activeDownloadTasks.containsKey(vod.id) ||
+          _playerService.activeDownloadProcesses.containsKey(vod.id) ||
+          _playerService.downloadQueue.contains(vod.id)) {
+        continue;
+      }
       
       final file = _playerService.getDownloadedVodFile(
         vod.id,
