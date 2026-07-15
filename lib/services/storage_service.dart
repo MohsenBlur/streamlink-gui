@@ -4,14 +4,14 @@ import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 
 class StorageService {
-  File _getStorageFile() {
+  File getStorageFile(String filename) {
     try {
       final exePath = Platform.resolvedExecutable;
       if (exePath.contains('flutter_tester') || exePath.contains('flutter_tools') || exePath.contains('dart')) {
-        return File('channels_config.json');
+        return File(filename);
       }
       final exeDir = Directory(exePath).parent.path;
-      final exeFile = File('$exeDir/channels_config.json');
+      final exeFile = File('$exeDir/$filename');
 
       // Helper to check if a directory is writable by attempting to create and delete a temporary file
       bool isDirWritable(String path) {
@@ -51,7 +51,7 @@ class StorageService {
 
       if (appDataDir != null) {
         final configDir = Directory('$appDataDir/TwitchStreamlinkGUI');
-        final appDataFile = File('${configDir.path}/channels_config.json');
+        final appDataFile = File('${configDir.path}/$filename');
 
         // Migrate existing config file from exeDir if it exists but the AppData config doesn't
         if (!appDataFile.existsSync() && exeFile.existsSync()) {
@@ -75,8 +75,12 @@ class StorageService {
 
       return exeFile;
     } catch (_) {
-      return File('channels_config.json');
+      return File(filename);
     }
+  }
+
+  File _getStorageFile() {
+    return getStorageFile('channels_config.json');
   }
 
   Future<Map<String, dynamic>?> loadConfig() async {

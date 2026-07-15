@@ -202,7 +202,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       duration: const Duration(milliseconds: 1000),
     )..repeat(reverse: true);
 
-    // Initialize player service listener hooks
+    // Initialize player service archive path and listener hooks
+    _playerService.downloadArchiveFilePath = _storageService.getStorageFile('yt_dlp_archive.txt').path;
     _playerService.onPlayerLog = (key, line) {
       _logNotifier.appendLog(key, line);
     };
@@ -425,6 +426,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         newDownloaded.add(vodId);
       } else {
         registryChanged = true;
+        _playerService.removeVodFromArchive(vodId);
       }
     });
 
@@ -2132,6 +2134,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     }
     
+    _playerService.removeVodFromArchive(vodId);
     _downloadedVodsRegistry.remove(vodId);
     await _saveChannels();
     _checkDownloadedVods();
@@ -2294,6 +2297,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             count++;
           }
         }
+        _playerService.removeVodFromArchive(vod.id);
         _downloadedVodsRegistry.remove(vod.id);
       } catch (_) {}
     }

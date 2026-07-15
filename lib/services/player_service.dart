@@ -8,6 +8,8 @@ import 'twitch_api_service.dart';
 
 class PlayerService {
   final TwitchApiService _apiService = TwitchApiService();
+  
+  String? downloadArchiveFilePath;
 
   // Active Downloads
   final Map<String, double> activeDownloadsProgress = {};
@@ -73,6 +75,29 @@ class PlayerService {
     return null;
   }
 
+  void removeVodFromArchive(String vodId) {
+    if (downloadArchiveFilePath == null) return;
+    final file = File(downloadArchiveFilePath!);
+    if (!file.existsSync()) return;
+    
+    try {
+      final lines = file.readAsLinesSync();
+      final newLines = <String>[];
+      bool changed = false;
+      for (final line in lines) {
+        final parts = line.split(RegExp(r'\s+'));
+        if (parts.length >= 2 && parts.last.trim() == vodId) {
+          changed = true;
+          continue;
+        }
+        newLines.add(line);
+      }
+      if (changed) {
+        file.writeAsStringSync(newLines.join('\n') + (newLines.isNotEmpty ? '\n' : ''), flush: true);
+      }
+    } catch (_) {}
+  }
+
   Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings) async {
     final downloadFolder = settings.vodDownloadFolder.trim();
     if (downloadFolder.isEmpty) {
@@ -92,10 +117,16 @@ class PlayerService {
     final outputTemplate = '${outputDir.path}/%(title)s - %(id)s.%(ext)s';
     final url = 'https://twitch.tv/videos/$vodId';
 
+    final args = <String>[];
+    if (downloadArchiveFilePath != null && downloadArchiveFilePath!.trim().isNotEmpty) {
+      args.addAll(['--download-archive', downloadArchiveFilePath!.trim()]);
+    }
+    args.addAll(['-o', outputTemplate, url]);
+
     try {
       final proc = await Process.start(
         'yt-dlp',
-        ['-o', outputTemplate, url],
+        args,
         runInShell: false,
       );
 
@@ -201,6 +232,7 @@ class PlayerService {
     queuedDownloadTasks.remove(vodId);
     _cleanupDownloadState(vodId);
     onDownloadCancelled?.call(vodId);
+    removeVodFromArchive(vodId);
 
     // Delete temporary incomplete files
     if (downloadFolder.trim().isNotEmpty) {
