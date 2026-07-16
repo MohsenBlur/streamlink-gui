@@ -182,8 +182,28 @@ class PlayerService {
       });
 
       proc.stderr.transform(utf8.decoder).listen((line) {
-        log(key, '[Error] ${line.trim()}');
-        if (line.contains('Initialization fragment found after media fragments')) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty) return;
+
+        final isFfmpegInfo = trimmed.contains('frame=') ||
+            trimmed.contains('fps=') ||
+            trimmed.contains('size=') ||
+            trimmed.contains('time=') ||
+            trimmed.contains('bitrate=') ||
+            trimmed.contains('speed=') ||
+            trimmed.contains('Opening \'') ||
+            trimmed.contains('[https @') ||
+            trimmed.contains('[mov,') ||
+            trimmed.contains('Found duplicated MOOV Atom') ||
+            trimmed.contains('[in#0/hls');
+
+        if (isFfmpegInfo) {
+          log(key, trimmed);
+        } else {
+          log(key, '[Error] $trimmed');
+        }
+
+        if (trimmed.contains('Initialization fragment found after media fragments')) {
           needsFfmpegFallback = true;
         }
       });
