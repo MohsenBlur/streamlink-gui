@@ -62,7 +62,7 @@ class PlayerService {
       for (final file in files) {
         if (file is File) {
           final name = file.path.toLowerCase();
-          if (RegExp(' - $vodId\\.[a-zA-Z0-9]+\$').hasMatch(name) &&
+          if (RegExp(' - v?$vodId\\.[a-zA-Z0-9]+\$').hasMatch(name) &&
               !name.endsWith('.part') &&
               !name.endsWith('.ytdl') &&
               !name.endsWith('.tmp') &&
