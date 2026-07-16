@@ -2136,7 +2136,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         try {
           final files = dir.listSync();
           for (final file in files) {
-            if (file is File && file.path.contains(' - $vodId')) {
+            if (file is File && (file.path.contains(' - $vodId') || file.path.contains(' - v$vodId'))) {
               file.deleteSync();
             }
           }
