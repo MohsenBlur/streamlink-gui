@@ -477,13 +477,15 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     height: 32,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: widget.isPlaying ? const Color(0xFF1E2433) : theme.primaryColor,
-                        foregroundColor: Colors.white,
+                        backgroundColor: widget.isPlaying
+                            ? const Color(0xFF1E2433)
+                            : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
+                        foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
                         padding: EdgeInsets.zero,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                        elevation: widget.isPlaying ? 0 : 4,
+                        elevation: (widget.channel.isLive && !widget.isPlaying) ? 4 : 0,
                       ),
-                      onPressed: widget.isPlaying ? null : widget.onPlay,
+                      onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: widget.isPlaying
@@ -496,11 +498,17 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                                 SizedBox(width: 6),
                                 Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white54)),
                               ]
-                            : const [
-                                Icon(Icons.play_arrow, size: 16),
-                                SizedBox(width: 4),
-                                Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                              ],
+                            : (!widget.channel.isLive
+                                ? const [
+                                    Icon(Icons.videocam_off, size: 14, color: Colors.white30),
+                                    SizedBox(width: 4),
+                                    Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white30)),
+                                  ]
+                                : const [
+                                    Icon(Icons.play_arrow, size: 16),
+                                    SizedBox(width: 4),
+                                    Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                  ]),
                       ),
                     ),
                   ),
