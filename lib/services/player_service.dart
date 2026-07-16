@@ -123,6 +123,14 @@ class PlayerService {
     }
     args.addAll(['-o', outputTemplate, url]);
 
+    final key = 'dl-$vodId';
+    final title = 'Download: ${vod.title}';
+    playerTabTitles[key] = title;
+    onPlayerStarted?.call(key, title);
+
+    log(key, '[System] Initializing VOD Download for: ${vod.title}');
+    log(key, '[System] Arguments: yt-dlp ${args.join(" ")}');
+
     try {
       final proc = await Process.start(
         'yt-dlp',
@@ -133,6 +141,8 @@ class PlayerService {
       activeDownloadProcesses[vodId] = proc;
 
       proc.stdout.transform(utf8.decoder).listen((line) {
+        log(key, line.trim());
+
         // Robust regex matching both integer & decimal percentage output
         final pctMatch = RegExp(r'(\d+(?:\.\d+)?)%').firstMatch(line);
         final speedMatch = RegExp(r'at\s+(\S+)').firstMatch(line);
@@ -160,20 +170,25 @@ class PlayerService {
         }
       });
 
-      proc.stderr.transform(utf8.decoder).listen((_) {});
+      proc.stderr.transform(utf8.decoder).listen((line) {
+        log(key, '[Error] ${line.trim()}');
+      });
 
       final exitCode = await proc.exitCode;
       _cleanupDownloadState(vodId);
 
       if (exitCode == 0) {
+        log(key, '[System] Download finished successfully.');
         final downloadedFile = getDownloadedVodFile(vodId, channelName, settings.vodDownloadFolder);
         final filePath = downloadedFile?.path ?? '';
         onDownloadCompleted?.call(vodId, vod.title, filePath);
         _cleanupOldestDownloads(settings);
       } else {
+        log(key, '[System Error] Download failed with exit code $exitCode');
         onDownloadFailed?.call(vodId, vod.title, exitCode);
       }
     } catch (e) {
+      log(key, '[System Error] Download failed to start: $e');
       _cleanupDownloadState(vodId);
       onDownloadFailed?.call(vodId, vod.title, -1);
     }
@@ -337,7 +352,7 @@ class PlayerService {
       }
       args.add(path);
     } else if (settings.playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
-      exe = settings.customPlayerPath.trim();
+      exe = settings.customPlayerPath.trim().replaceAll('"', '');
       final lowerPath = exe.toLowerCase();
       if (lowerPath.contains('vlc')) {
         if (finalSeek > 0) {
@@ -803,6 +818,21 @@ class PlayerService {
   }
 
   void killProcess(String key) {
+    if (key.startsWith('dl-')) {
+      final vodId = key.substring(3);
+      final proc = activeDownloadProcesses[vodId];
+      if (proc != null) {
+        try {
+          if (Platform.isWindows) {
+            Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+          } else {
+            proc.kill();
+          }
+        } catch (_) {}
+      }
+      return;
+    }
+
     final proc = activePlayerProcesses[key];
     if (proc != null) {
       try {
