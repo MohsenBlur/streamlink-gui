@@ -98,7 +98,7 @@ class PlayerService {
     } catch (_) {}
   }
 
-  Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings) async {
+  Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool isRetryWithFfmpeg = false}) async {
     final downloadFolder = settings.vodDownloadFolder.trim();
     if (downloadFolder.isEmpty) {
       throw Exception('Download folder is empty');
@@ -121,8 +121,10 @@ class PlayerService {
     if (downloadArchiveFilePath != null && downloadArchiveFilePath!.trim().isNotEmpty) {
       args.addAll(['--download-archive', downloadArchiveFilePath!.trim()]);
     }
+    if (isRetryWithFfmpeg) {
+      args.addAll(['--downloader', 'ffmpeg']);
+    }
     args.addAll([
-      '--downloader', 'ffmpeg',
       '-o', outputTemplate,
       url
     ]);
@@ -135,6 +137,8 @@ class PlayerService {
     log(key, '[System] Initializing VOD Download for: ${vod.title}');
     log(key, '[System] Arguments: yt-dlp ${args.join(" ")}');
 
+    bool needsFfmpegFallback = false;
+
     try {
       final proc = await Process.start(
         'yt-dlp',
@@ -146,6 +150,9 @@ class PlayerService {
 
       proc.stdout.transform(utf8.decoder).listen((line) {
         log(key, line.trim());
+        if (line.contains('Initialization fragment found after media fragments')) {
+          needsFfmpegFallback = true;
+        }
 
         // Robust regex matching both integer & decimal percentage output
         final pctMatch = RegExp(r'(\d+(?:\.\d+)?)%').firstMatch(line);
@@ -176,6 +183,9 @@ class PlayerService {
 
       proc.stderr.transform(utf8.decoder).listen((line) {
         log(key, '[Error] ${line.trim()}');
+        if (line.contains('Initialization fragment found after media fragments')) {
+          needsFfmpegFallback = true;
+        }
       });
 
       final exitCode = await proc.exitCode;
@@ -188,8 +198,14 @@ class PlayerService {
         onDownloadCompleted?.call(vodId, vod.title, filePath);
         _cleanupOldestDownloads(settings);
       } else {
-        log(key, '[System Error] Download failed with exit code $exitCode');
-        onDownloadFailed?.call(vodId, vod.title, exitCode);
+        if (!isRetryWithFfmpeg && needsFfmpegFallback) {
+          log(key, '[System Warning] HLS fragment error detected. Automatically retrying download using ffmpeg downloader...');
+          await Future.delayed(const Duration(seconds: 1));
+          await startVodDownload(vod, channelName, settings, isRetryWithFfmpeg: true);
+        } else {
+          log(key, '[System Error] Download failed with exit code $exitCode');
+          onDownloadFailed?.call(vodId, vod.title, exitCode);
+        }
       }
     } catch (e) {
       log(key, '[System Error] Download failed to start: $e');
