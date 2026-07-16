@@ -802,6 +802,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
       });
       _checkDownloadedVods();
+      await _saveChannels();
     } catch (e) {
       setState(() {
         _vodsError = e.toString().replaceFirst('Exception: ', '');
@@ -1755,6 +1756,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     },
                     onDeselectAll: () => setState(() => _selectedVodIds.clear()),
                     onPlay: (vod) {
+                      final localPos = _localVodsProgress[vod.id];
+                      if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
+                        vod.watchPosition = localPos;
+                        final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
+                        if (totalSeconds > 0) {
+                          vod.watchProgress = localPos / totalSeconds;
+                        }
+                      }
+
                       File? file;
                       final registeredPath = _downloadedVodsRegistry[vod.id];
                       if (registeredPath != null) {

@@ -652,12 +652,8 @@ class PlayerService {
     if (webToken.startsWith('oauth:')) {
       webToken = webToken.substring(6);
     }
-    if (webToken.isEmpty) {
-      log(vod.id, '[System] No Browser OAuth Token configured. Skipping sync.');
-      return;
-    }
 
-    final timer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    final timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
       final isVlc = settings.playerType == 'vlc' || 
           (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('vlc'));
       final isMpv = settings.playerType == 'mpv' || 
@@ -678,7 +674,7 @@ class PlayerService {
             final state = data['state'] as String?;
             final time = data['time'] as int?;
             if (state == 'playing' && time != null && time > 0) {
-              if ((time - lastSynced).abs() >= 3) {
+              if ((time - lastSynced).abs() >= 1) {
                 lastSynced = time;
                 _syncProgress(vod, time, webToken);
               }
@@ -727,7 +723,7 @@ class PlayerService {
             }
             if (timePos != null && !isPaused) {
               final rounded = timePos.round();
-              if ((rounded - lastSynced).abs() >= 3) {
+              if ((rounded - lastSynced).abs() >= 1) {
                 lastSynced = rounded;
                 _syncProgress(vod, rounded, webToken);
               }
@@ -745,12 +741,17 @@ class PlayerService {
   }
 
   Future<void> _syncProgress(TwitchVideo vod, int position, String webToken) async {
-    try {
-      await _apiService.syncSingleVODProgressDirect(vod.id, position, webToken);
-      final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
-      final progress = totalSeconds > 0 ? position / totalSeconds : 0.0;
-      onWatchProgressUpdated?.call(vod.id, position, progress);
-    } catch (_) {}
+    // 1. Always update local progress immediately
+    final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
+    final progress = totalSeconds > 0 ? position / totalSeconds : 0.0;
+    onWatchProgressUpdated?.call(vod.id, position, progress);
+
+    // 2. Sync to Twitch in the background if token exists
+    if (webToken.isNotEmpty) {
+      try {
+        await _apiService.syncSingleVODProgressDirect(vod.id, position, webToken);
+      } catch (_) {}
+    }
   }
 
   // Windows Named Pipe to TCP loopback bridge script execution

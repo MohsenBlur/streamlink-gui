@@ -464,8 +464,8 @@ class TwitchApiService {
         } catch (_) {}
       }
 
-      if (localVodsProgress.containsKey(vod.id)) {
-        final localPos = localVodsProgress[vod.id]!;
+      final localPos = localVodsProgress[vod.id];
+      if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
         vod.watchPosition = localPos;
         final totalSeconds = parseDurationToSeconds(vod.duration);
         if (totalSeconds > 0) {
@@ -473,6 +473,10 @@ class TwitchApiService {
         } else {
           vod.watchProgress = 0.0;
         }
+      }
+
+      if (vod.watchPosition != null && vod.watchPosition! > 0) {
+        localVodsProgress[vod.id] = vod.watchPosition!;
       }
     }));
 
