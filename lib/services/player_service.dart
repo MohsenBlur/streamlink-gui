@@ -98,6 +98,29 @@ class PlayerService {
     } catch (_) {}
   }
 
+  void deleteTemporaryDownloadFiles(String vodId, String channelName, String downloadFolder) {
+    final folder = downloadFolder.trim();
+    if (folder.isEmpty) return;
+    final dir = Directory('$folder/$channelName');
+    if (!dir.existsSync()) return;
+
+    try {
+      final files = dir.listSync();
+      for (final file in files) {
+        if (file is File) {
+          final pathLower = file.path.toLowerCase();
+          if (pathLower.contains(vodId.toLowerCase())) {
+            if (pathLower.endsWith('.ytdl') || pathLower.endsWith('.part')) {
+              try {
+                file.deleteSync();
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool isRetryWithFfmpeg = false}) async {
     final downloadFolder = settings.vodDownloadFolder.trim();
     if (downloadFolder.isEmpty) {
@@ -213,6 +236,7 @@ class PlayerService {
 
       if (exitCode == 0) {
         log(key, '[System] Download finished successfully.');
+        deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
         final downloadedFile = getDownloadedVodFile(vodId, channelName, settings.vodDownloadFolder);
         final filePath = downloadedFile?.path ?? '';
         onDownloadCompleted?.call(vodId, vod.title, filePath);
@@ -220,6 +244,7 @@ class PlayerService {
       } else {
         if (!isRetryWithFfmpeg && needsFfmpegFallback) {
           log(key, '[System Warning] HLS fragment error detected. Automatically retrying download using ffmpeg downloader...');
+          deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
           await Future.delayed(const Duration(seconds: 1));
           await startVodDownload(vod, channelName, settings, isRetryWithFfmpeg: true);
         } else {
