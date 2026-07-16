@@ -121,7 +121,11 @@ class PlayerService {
     if (downloadArchiveFilePath != null && downloadArchiveFilePath!.trim().isNotEmpty) {
       args.addAll(['--download-archive', downloadArchiveFilePath!.trim()]);
     }
-    args.addAll(['-o', outputTemplate, url]);
+    args.addAll([
+      '--downloader', 'ffmpeg',
+      '-o', outputTemplate,
+      url
+    ]);
 
     final key = 'dl-$vodId';
     final title = 'Download: ${vod.title}';
