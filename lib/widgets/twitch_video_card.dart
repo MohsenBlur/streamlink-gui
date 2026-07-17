@@ -286,13 +286,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                 child: const Icon(Icons.movie, color: Colors.white30, size: 32),
                               ),
 
-                        if (widget.vod.watchProgress != null && widget.vod.watchProgress! > 0.0)
+                         if (widget.vod.watchProgress != null && widget.vod.watchProgress! > 0.0)
                           Positioned(
                             bottom: 0,
                             left: 0,
                             right: 0,
-                            child: Container(
-                              height: 4,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              height: _isHovered ? 6.0 : 4.0,
                               color: Colors.black45,
                               child: Align(
                                 alignment: Alignment.centerLeft,
@@ -300,10 +301,32 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                   widthFactor: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
                                       ? 1.0
                                       : widget.vod.watchProgress!.clamp(0.0, 1.0),
-                                  child: Container(
-                                    color: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
-                                        ? widget.watchedProgressColor
-                                        : widget.activeProgressColor,
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 150),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
+                                            ? [
+                                                widget.watchedProgressColor.withOpacity(0.8),
+                                                widget.watchedProgressColor,
+                                              ]
+                                            : [
+                                                widget.activeProgressColor,
+                                                widget.activeProgressColor.withOpacity(0.8),
+                                              ],
+                                        begin: Alignment.centerLeft,
+                                        end: Alignment.centerRight,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
+                                              ? widget.watchedProgressColor.withOpacity(0.6)
+                                              : widget.activeProgressColor.withOpacity(0.6),
+                                          blurRadius: _isHovered ? 8.0 : 2.0,
+                                          spreadRadius: _isHovered ? 1.0 : 0.0,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),

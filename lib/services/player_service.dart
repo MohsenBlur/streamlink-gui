@@ -17,6 +17,8 @@ class PlayerService {
   final Map<String, String> activeDownloadTasks = {};
   final List<String> downloadQueue = [];
   final Map<String, TwitchVideo> queuedDownloadTasks = {};
+  final Map<String, String> downloadChannelNames = {};
+  final Map<String, String> downloadTitles = {};
   bool isQueueProcessing = false;
 
   // Active Players
@@ -133,6 +135,8 @@ class PlayerService {
     }
 
     final vodId = vod.id;
+    downloadChannelNames[vodId] = channelName;
+    downloadTitles[vodId] = vod.title;
     activeDownloadsProgress[vodId] = 0.0;
     activeDownloadTasks[vodId] = 'Starting...';
     onDownloadProgress?.call(vodId, 0.0, 'Starting...');
@@ -263,6 +267,8 @@ class PlayerService {
     activeDownloadProcesses.remove(vodId);
     activeDownloadsProgress.remove(vodId);
     activeDownloadTasks.remove(vodId);
+    downloadChannelNames.remove(vodId);
+    downloadTitles.remove(vodId);
   }
 
   void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings) {
@@ -271,6 +277,8 @@ class PlayerService {
       return;
     }
 
+    downloadChannelNames[vodId] = channelName;
+    downloadTitles[vodId] = vod.title;
     queuedDownloadTasks[vodId] = vod;
     downloadQueue.add(vodId);
     activeDownloadTasks[vodId] = 'Queued';
@@ -286,8 +294,9 @@ class PlayerService {
     while (downloadQueue.isNotEmpty) {
       final vodId = downloadQueue.first;
       final vod = queuedDownloadTasks[vodId];
+      final chName = downloadChannelNames[vodId] ?? channelName;
       if (vod != null) {
-        await startVodDownload(vod, channelName, settings);
+        await startVodDownload(vod, chName, settings);
       }
       downloadQueue.remove(vodId);
       queuedDownloadTasks.remove(vodId);

@@ -31,6 +31,7 @@ class SettingsDialog {
     required VoidCallback onConnectAccount,
     required void Function(AppSettings) onSave,
     required void Function(String) openExternalLink,
+    required VoidCallback onClearWatchHistory,
   }) {
     String tempQuality = settings.defaultQuality;
     bool tempLowLatency = settings.twitchLowLatency;
@@ -109,6 +110,82 @@ class SettingsDialog {
               );
             }
 
+            Widget buildPresetCard({
+              required String name,
+              required Color primary,
+              required Color bg,
+              required Color surface,
+              required Color activeProg,
+              required Color watchedProg,
+            }) {
+              final isSelected = tempPrimary.value == primary.value &&
+                  tempBackground.value == bg.value &&
+                  tempSurface.value == surface.value;
+              return GestureDetector(
+                onTap: () {
+                  setDialogState(() {
+                    tempPrimary = primary;
+                    tempBackground = bg;
+                    tempSurface = surface;
+                    tempActiveProgress = activeProg;
+                    tempWatchedProgress = watchedProg;
+                    hexController.text = colorToHex(getActiveColor());
+                  });
+                  themeNotifier.updateTheme(
+                    primary: tempPrimary,
+                    background: tempBackground,
+                    surface: tempSurface,
+                    activeProgress: tempActiveProgress,
+                    watchedProgress: tempWatchedProgress,
+                  );
+                },
+                child: Container(
+                  width: 110,
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isSelected ? primary : Colors.white10,
+                      width: isSelected ? 2 : 1,
+                    ),
+                    boxShadow: [
+                      if (isSelected)
+                        BoxShadow(
+                          color: primary.withOpacity(0.3),
+                          blurRadius: 6,
+                        ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        name,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected ? Colors.white : Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Container(width: 12, height: 12, decoration: BoxDecoration(color: primary, shape: BoxShape.circle)),
+                          const SizedBox(width: 4),
+                          Container(width: 12, height: 12, decoration: BoxDecoration(color: bg, shape: BoxShape.circle)),
+                          const SizedBox(width: 4),
+                          Container(width: 12, height: 12, decoration: BoxDecoration(color: surface, shape: BoxShape.circle)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
             Widget buildColorSlider({
               required String label,
               required double value,
@@ -163,7 +240,7 @@ class SettingsDialog {
             final activeColor = getActiveColor();
 
             return DefaultTabController(
-              length: 3,
+              length: 5,
               child: AlertDialog(
                 titlePadding: EdgeInsets.zero,
                 title: Column(
@@ -184,10 +261,13 @@ class SettingsDialog {
                       unselectedLabelColor: Colors.white60,
                       indicatorColor: themeNotifier.primaryColor,
                       indicatorSize: TabBarIndicatorSize.tab,
-                      labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      isScrollable: true,
+                      labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                       tabs: const [
                         Tab(text: 'General'),
-                        Tab(text: 'Theme & Colors'),
+                        Tab(text: 'Player'),
+                        Tab(text: 'Twitch Auth'),
+                        Tab(text: 'Styling'),
                         Tab(text: 'Downloads'),
                       ],
                     ),
@@ -196,7 +276,7 @@ class SettingsDialog {
                 backgroundColor: themeNotifier.surfaceColor,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 content: SizedBox(
-                  width: 500,
+                  width: 520,
                   height: 520,
                   child: TabBarView(
                     children: [
@@ -218,67 +298,53 @@ class SettingsDialog {
                               ),
                               items: const [
                                 DropdownMenuItem(value: 'best', child: Text('Best Available')),
-                                DropdownMenuItem(value: '1080p60', child: Text('1080p 60fps')),
+                                DropdownMenuItem(value: '1080p60', child: Text('1080p60 (Source)')),
                                 DropdownMenuItem(value: '1080p', child: Text('1080p')),
-                                DropdownMenuItem(value: '720p60', child: Text('720p 60fps')),
+                                DropdownMenuItem(value: '720p60', child: Text('720p60')),
                                 DropdownMenuItem(value: '720p', child: Text('720p')),
                                 DropdownMenuItem(value: '480p', child: Text('480p')),
+                                DropdownMenuItem(value: '360p', child: Text('360p')),
                                 DropdownMenuItem(value: 'worst', child: Text('Worst Available')),
                               ],
                               onChanged: (val) {
                                 if (val != null) {
-                                  setDialogState(() => tempQuality = val);
+                                  setDialogState(() {
+                                    tempQuality = val;
+                                  });
                                 }
                               },
                             ),
                             const SizedBox(height: 18),
-                            SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Twitch Low Latency', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                              subtitle: const Text('Reduces live stream delay, but may increase buffering on slow networks.', style: TextStyle(fontSize: 11)),
-                              value: tempLowLatency,
-                              activeColor: themeNotifier.primaryColor,
-                              onChanged: (val) {
-                                setDialogState(() => tempLowLatency = val);
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                            const Divider(color: Colors.white12),
-                            const SizedBox(height: 12),
-                            const Text('Video Player Selection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<String>(
-                              value: tempPlayerType,
-                              decoration: const InputDecoration(
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                              ),
-                              items: const [
-                                DropdownMenuItem(value: 'default', child: Text('System / Streamlink Default')),
-                                DropdownMenuItem(value: 'vlc', child: Text('Force VLC Player')),
-                                DropdownMenuItem(value: 'mpv', child: Text('Force MPV Player')),
-                                DropdownMenuItem(value: 'custom', child: Text('Use Custom Executable Path')),
-                              ],
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setDialogState(() => tempPlayerType = val);
-                                }
-                              },
-                            ),
-                            if (tempPlayerType == 'custom') ...[
-                              const SizedBox(height: 14),
-                              const Text('Custom Player Executable Path', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                              const SizedBox(height: 6),
-                              TextField(
-                                controller: playerPathController,
-                                style: const TextStyle(fontSize: 13),
-                                decoration: const InputDecoration(
-                                  hintText: 'e.g. C:\\Program Files\\VideoLAN\\VLC\\vlc.exe',
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Low Latency Streams', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Reduces delay on Twitch streams',
+                                      style: TextStyle(fontSize: 11, color: Colors.white38),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
-                            const SizedBox(height: 14),
-                            Text('Watched VOD Completion Threshold: $tempWatchedThreshold%', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                Switch(
+                                  value: tempLowLatency,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) {
+                                    setDialogState(() {
+                                      tempLowLatency = val;
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            const Text('VOD Watched Threshold', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                             const SizedBox(height: 4),
+                            Text('Mark VOD as fully watched at $tempWatchedThreshold% completion.', style: const TextStyle(fontSize: 11, color: Colors.white38)),
+                            const SizedBox(height: 8),
                             Row(
                               children: [
                                 const Text('50%', style: TextStyle(fontSize: 11, color: Colors.white38)),
@@ -293,9 +359,8 @@ class SettingsDialog {
                                     ),
                                     child: Slider(
                                       value: tempWatchedThreshold.toDouble(),
-                                      min: 50.0,
-                                      max: 100.0,
-                                      divisions: 50,
+                                      min: 50,
+                                      max: 100,
                                       onChanged: (val) {
                                         setDialogState(() {
                                           tempWatchedThreshold = val.round();
@@ -307,6 +372,113 @@ class SettingsDialog {
                                 const Text('100%', style: TextStyle(fontSize: 11, color: Colors.white38)),
                               ],
                             ),
+                            const SizedBox(height: 24),
+                            const Divider(color: Colors.white12),
+                            const SizedBox(height: 12),
+                            const Text('Watch History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.redAccent,
+                                side: const BorderSide(color: Colors.redAccent, width: 1),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Clear Watch History?'),
+                                    content: const Text('Are you sure you want to clear your local watch progress history for all VODs? This action cannot be undone.'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                                        onPressed: () {
+                                          Navigator.pop(context);
+                                          onClearWatchHistory();
+                                        },
+                                        child: const Text('Clear History'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.delete_forever, size: 18),
+                              label: const Text('Clear Local Watch History', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // TAB 2: PLAYER SETTINGS
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Player Type', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<String>(
+                              value: tempPlayerType,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'default', child: Text('Default System Player')),
+                                DropdownMenuItem(value: 'vlc', child: Text('VLC Media Player')),
+                                DropdownMenuItem(value: 'mpv', child: Text('MPV Player')),
+                                DropdownMenuItem(value: 'custom', child: Text('Custom Executable Path')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setDialogState(() {
+                                    tempPlayerType = val;
+                                  });
+                                }
+                              },
+                            ),
+                            if (tempPlayerType == 'custom') ...[
+                              const SizedBox(height: 18),
+                              const Text('Custom Player Executable Path', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: playerPathController,
+                                      style: const TextStyle(fontSize: 12),
+                                      decoration: const InputDecoration(
+                                        hintText: 'e.g. C:\\Program Files\\MPV\\mpv.exe',
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: themeNotifier.primaryColor,
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                                    ),
+                                    onPressed: () async {
+                                      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+                                        type: FileType.custom,
+                                        allowedExtensions: ['exe', 'app', 'sh', 'bat', 'cmd'],
+                                      );
+                                      if (result != null && result.files.single.path != null) {
+                                        setDialogState(() {
+                                          playerPathController.text = result.files.single.path!;
+                                        });
+                                      }
+                                    },
+                                    icon: const Icon(Icons.file_open, color: Colors.white, size: 16),
+                                    label: const Text('Browse', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                  ),
+                                ],
+                              ),
+                            ],
                             const SizedBox(height: 18),
                             const Text('Custom Player Arguments (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                             const SizedBox(height: 6),
@@ -314,12 +486,19 @@ class SettingsDialog {
                               controller: playerArgsController,
                               style: const TextStyle(fontSize: 13),
                               decoration: const InputDecoration(
-                                  hintText: 'e.g. --ontop --no-border (for mpv)',
+                                hintText: 'e.g. --ontop --no-border (for mpv)',
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            const Divider(color: Colors.white12),
-                            const SizedBox(height: 12),
+                          ],
+                        ),
+                      ),
+
+                      // TAB 3: TWITCH AUTH
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             const Text('Twitch API Authentication', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
                             const SizedBox(height: 10),
                             Container(
@@ -382,47 +561,15 @@ class SettingsDialog {
                               ),
                             ),
                             const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Expanded(
-                                  flex: 3,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text('Twitch Client ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                      const SizedBox(height: 4),
-                                      TextField(
-                                        controller: clientIdController,
-                                        style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
-                                        decoration: const InputDecoration(
-                                          hintText: 'Twitch Client ID',
-                                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  flex: 2,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text('Local Port', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                      const SizedBox(height: 4),
-                                      TextField(
-                                        controller: portController,
-                                        style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
-                                        keyboardType: TextInputType.number,
-                                        decoration: const InputDecoration(
-                                          hintText: '65432',
-                                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                            const Text('Twitch Client ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            const SizedBox(height: 4),
+                            TextField(
+                              controller: clientIdController,
+                              style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
+                              decoration: const InputDecoration(
+                                hintText: 'Twitch Client ID',
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              ),
                             ),
                             const SizedBox(height: 14),
                             Row(
@@ -584,12 +731,54 @@ class SettingsDialog {
                         ),
                       ),
 
-                      // TAB 2: THEME & COLOR SETTINGS
+                      // TAB 4: STYLING & COLORS
                       SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            const Text('Preset Theme Swatches', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 8),
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  buildPresetCard(
+                                    name: 'Twitch Purple',
+                                    primary: const Color(0xFF9146FF),
+                                    bg: const Color(0xFF0C0F17),
+                                    surface: const Color(0xFF161B26),
+                                    activeProg: const Color(0xFF9146FF),
+                                    watchedProg: const Color(0x804CAF50),
+                                  ),
+                                  buildPresetCard(
+                                    name: 'Cyberpunk Neon',
+                                    primary: const Color(0xFFFF007F),
+                                    bg: const Color(0xFF0A0015),
+                                    surface: const Color(0xFF15002C),
+                                    activeProg: const Color(0xFF00F2FE),
+                                    watchedProg: const Color(0x804CAF50),
+                                  ),
+                                  buildPresetCard(
+                                    name: 'Emerald Forest',
+                                    primary: const Color(0xFF2ECC71),
+                                    bg: const Color(0xFF0D1B15),
+                                    surface: const Color(0xFF1A2F26),
+                                    activeProg: const Color(0xFF2ECC71),
+                                    watchedProg: const Color(0x804CAF50),
+                                  ),
+                                  buildPresetCard(
+                                    name: 'Midnight Slate',
+                                    primary: const Color(0xFF3498DB),
+                                    bg: const Color(0xFF1A252F),
+                                    surface: const Color(0xFF2C3E50),
+                                    activeProg: const Color(0xFF3498DB),
+                                    watchedProg: const Color(0x804CAF50),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 18),
                             const Text(
                               'Choose Custom Color to Edit',
                               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
@@ -687,11 +876,6 @@ class SettingsDialog {
                               },
                             ),
                             const SizedBox(height: 18),
-                            const Text(
-                              'Quick Presets Swatches',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white70),
-                            ),
-                            const SizedBox(height: 8),
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
@@ -727,7 +911,7 @@ class SettingsDialog {
                         ),
                       ),
                       
-                      // TAB 3: DOWNLOAD SETTINGS
+                      // TAB 5: DOWNLOAD SETTINGS
                       SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                         child: Column(

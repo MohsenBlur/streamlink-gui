@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
@@ -188,10 +189,16 @@ class _SidebarPanelState extends State<SidebarPanel> {
                           child: TextField(
                             controller: widget.searchController,
                             style: const TextStyle(fontSize: 13, color: Colors.white),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_]')),
+                            ],
                             decoration: const InputDecoration(
-                              hintText: 'Add favorite username...',
+                              hintText: 'Search or add username...',
                               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 0),
                             ),
+                            onChanged: (val) {
+                              setState(() {});
+                            },
                             onSubmitted: (val) => widget.onAddChannel(val),
                           ),
                         ),
@@ -284,12 +291,15 @@ class _SidebarPanelState extends State<SidebarPanel> {
                       final isLoading = widget.sidebarTab == 0
                           ? widget.isGlobalLoading
                           : (widget.sidebarTab == 1 ? widget.isLoadingFollowed : (widget.isGlobalLoading || widget.isLoadingFollowed));
+                      final query = widget.searchController.text.toLowerCase().trim();
+                      final hasExactMatch = listToDisplay.any((c) => c.username.toLowerCase().trim() == query);
+                      final showAddPrompt = query.isNotEmpty && !hasExactMatch && widget.sidebarTab == 0;
 
                       if (isLoading && listToDisplay.isEmpty) {
                         return const Center(child: CircularProgressIndicator());
                       }
 
-                      if (listToDisplay.isEmpty) {
+                      if (listToDisplay.isEmpty && !showAddPrompt) {
                         return Center(
                           child: Text(
                             widget.sidebarTab == 0
@@ -302,10 +312,47 @@ class _SidebarPanelState extends State<SidebarPanel> {
                         );
                       }
 
+                      final itemCount = listToDisplay.length + (showAddPrompt ? 1 : 0);
+
                       return ListView.builder(
-                        itemCount: listToDisplay.length,
+                        itemCount: itemCount,
                         itemBuilder: (context, index) {
-                          final channel = listToDisplay[index];
+                          if (showAddPrompt && index == 0) {
+                            return Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: theme.primaryColor.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: theme.primaryColor.withOpacity(0.25),
+                                  width: 1,
+                                ),
+                              ),
+                              child: ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                                leading: Icon(Icons.add_circle_outline, color: theme.primaryColor, size: 20),
+                                title: Text(
+                                  "Add '$query' to Favorites",
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: theme.primaryColor,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                trailing: widget.isAdding
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Icon(Icons.chevron_right, color: Colors.white54, size: 18),
+                                onTap: widget.isAdding ? null : () => widget.onAddChannel(query),
+                              ),
+                            );
+                          }
+
+                          final channel = listToDisplay[showAddPrompt ? index - 1 : index];
                           final isSelected = widget.selectedChannel?.username == channel.username;
                           final cleanUsername = channel.username.toLowerCase().trim();
                           final isFavorite = widget.channels.any((c) => c.username == cleanUsername);

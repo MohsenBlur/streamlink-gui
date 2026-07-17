@@ -122,6 +122,19 @@ class TwitchStreamlinkApp extends StatelessWidget {
               ),
               hintStyle: const TextStyle(color: Colors.white38),
             ),
+            scrollbarTheme: ScrollbarThemeData(
+              thumbColor: MaterialStateProperty.resolveWith((states) {
+                if (states.contains(MaterialState.hovered)) {
+                  return themeNotifier.primaryColor.withOpacity(0.5);
+                }
+                return themeNotifier.primaryColor.withOpacity(0.2);
+              }),
+              trackColor: MaterialStateProperty.all(Colors.transparent),
+              thickness: MaterialStateProperty.all(6.0),
+              radius: const Radius.circular(8.0),
+              thumbVisibility: MaterialStateProperty.all(false),
+              interactive: true,
+            ),
           ),
           home: const MainScreen(),
         );
@@ -187,8 +200,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
 
-  bool _consoleCollapsed = false;
-  String? _selectedConsoleTabKey;
+  bool _consoleCollapsed = true;
+  String? _selectedConsoleTabKey = '__downloads_manager__';
 
   @override
   void initState() {
@@ -1046,6 +1059,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
   }
 
+  Future<void> _clearWatchProgress() async {
+    setState(() {
+      _localVodsProgress.clear();
+      for (final vod in _channelVods) {
+        vod.watchProgress = 0.0;
+      }
+    });
+    await _saveChannels();
+    _showSnackBar('Local watch progress history cleared!', isError: false);
+  }
+
   void _showSettingsDialog() {
     SettingsDialog.show(
       context,
@@ -1054,6 +1078,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       authenticatedUserLogin: _authenticatedUserLogin,
       onConnectAccount: _startOAuthServer,
       openExternalLink: _openExternalLink,
+      onClearWatchHistory: _clearWatchProgress,
       onSave: (updatedSettings) async {
         setState(() {
           _settings = updatedSettings;
@@ -1279,41 +1304,363 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Widget _buildWelcomeScreen(ThemeData theme) {
-    return Center(
+    final liveFavorites = _channels.where((c) => c.isLive).toList();
+    final activeDownloads = _playerService.activeDownloadTasks;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(28.0),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(28),
-            decoration: BoxDecoration(
-              color: const Color(0xFF161B26),
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF1E2433), width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: theme.primaryColor.withOpacity(0.1),
-                  blurRadius: 40,
-                  spreadRadius: 10,
-                )
-              ],
-            ),
-            child: Icon(Icons.live_tv, size: 72, color: theme.primaryColor),
+          // Title Header
+          Row(
+            children: [
+              Icon(Icons.dashboard_outlined, size: 28, color: theme.primaryColor),
+              const SizedBox(width: 10),
+              const Text(
+                'Dashboard Hub',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Welcome back! Select a channel or choose a quick action below.',
+            style: TextStyle(fontSize: 13, color: Colors.white54),
           ),
           const SizedBox(height: 24),
-          Text(
-            'Twitch Channel Dashboard',
-            style: theme.textTheme.titleLarge?.copyWith(fontSize: 24, letterSpacing: 0.5),
-          ),
-          const SizedBox(height: 10),
-          const SizedBox(
-            width: 320,
-            child: Text(
-              'Select a Twitch channel from the sidebar or search/add a new one to view real-time stats and launch streams.',
-              textAlign: TextAlign.center,
-              style: TextStyle(height: 1.5, fontSize: 13),
+
+          // Active Downloads card (Conditional)
+          if (activeDownloads.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    theme.primaryColor.withOpacity(0.15),
+                    const Color(0xFF161B26),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.primaryColor.withOpacity(0.3), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.primaryColor.withOpacity(0.05),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.downloading, color: theme.primaryColor, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Active Downloads Running',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedConsoleTabKey = '__downloads_manager__';
+                            _consoleCollapsed = false;
+                          });
+                        },
+                        icon: const Icon(Icons.open_in_new, size: 14),
+                        label: const Text('Open Downloads Manager', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ...activeDownloads.keys.take(2).map((vodId) {
+                    final progress = _playerService.activeDownloadsProgress[vodId] ?? 0.0;
+                    final taskText = activeDownloads[vodId] ?? 'Downloading...';
+                    final title = _playerService.downloadTitles[vodId] ?? 'VOD $vodId';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                LinearProgressIndicator(
+                                  value: progress,
+                                  backgroundColor: Colors.white10,
+                                  valueColor: AlwaysStoppedAnimation<Color>(theme.primaryColor),
+                                  minHeight: 3,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Text(
+                            taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
+                            style: const TextStyle(fontSize: 11, color: Colors.white54, fontFamily: 'Consolas'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ],
+              ),
             ),
+            const SizedBox(height: 24),
+          ],
+
+          // Live Channels Section
+          const Text(
+            'Live Favorite Channels',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+          ),
+          const SizedBox(height: 12),
+          if (liveFavorites.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161B26),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.portable_wifi_off, size: 36, color: Colors.white30),
+                  SizedBox(height: 10),
+                  Text(
+                    'No favorite channels are currently live.',
+                    style: TextStyle(fontSize: 13, color: Colors.white30),
+                  ),
+                ],
+              ),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 220,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                mainAxisExtent: 130,
+              ),
+              itemCount: liveFavorites.length,
+              itemBuilder: (context, index) {
+                final channel = liveFavorites[index];
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedChannel = channel;
+                      _fetchVodsForChannel(channel);
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF161B26),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: theme.primaryColor.withOpacity(0.2)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 6,
+                          offset: const Offset(0, 3),
+                        )
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 18,
+                              backgroundImage: channel.avatarUrl != null && channel.avatarUrl!.isNotEmpty
+                                  ? NetworkImage(channel.avatarUrl!)
+                                  : null,
+                              backgroundColor: Colors.transparent,
+                              child: channel.avatarUrl == null || channel.avatarUrl!.isEmpty
+                                  ? const Icon(Icons.person, size: 18)
+                                  : null,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                channel.username,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: Text(
+                            channel.streamTitle ?? 'No Stream Title',
+                            style: const TextStyle(fontSize: 11, color: Colors.white54),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              channel.game ?? 'Unknown Game',
+                              style: TextStyle(fontSize: 10, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Row(
+                              children: [
+                                const Icon(Icons.remove_red_eye, size: 10, color: Colors.redAccent),
+                                const SizedBox(width: 4),
+                                Text(
+                                  channel.viewerCount != null ? '${channel.viewerCount}' : '0',
+                                  style: const TextStyle(fontSize: 10, color: Colors.white54, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          const SizedBox(height: 32),
+
+          // Quick Action Cards
+          const Text(
+            'Quick Action Control Room',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+          ),
+          const SizedBox(height: 12),
+          GridView(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 220,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              mainAxisExtent: 90,
+            ),
+            children: [
+              _buildQuickActionCard(
+                context: context,
+                theme: theme,
+                icon: Icons.settings,
+                title: 'Open Settings',
+                subtitle: 'Configure Players & Themes',
+                onTap: _showSettingsDialog,
+              ),
+              _buildQuickActionCard(
+                context: context,
+                theme: theme,
+                icon: Icons.account_circle,
+                title: 'Twitch Account',
+                subtitle: _authenticatedUserLogin != null ? 'Logged in as $_authenticatedUserLogin' : 'Connect Account',
+                onTap: () {
+                  if (_authenticatedUserLogin == null) {
+                    _startOAuthServer();
+                  } else {
+                    _showSettingsDialog();
+                  }
+                },
+              ),
+              _buildQuickActionCard(
+                context: context,
+                theme: theme,
+                icon: Icons.terminal,
+                title: 'Toggle Console Logs',
+                subtitle: 'View live process output',
+                onTap: () {
+                  setState(() {
+                    _consoleCollapsed = !_consoleCollapsed;
+                  });
+                },
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActionCard({
+    required BuildContext context,
+    required ThemeData theme,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF161B26),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: theme.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 20, color: theme.primaryColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 10, color: Colors.white38),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1877,6 +2224,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           runningChannels: _playerService.runningChannels,
           selectedConsoleTabKey: _selectedConsoleTabKey,
           consoleCollapsed: _consoleCollapsed,
+          activeDownloadsProgress: _playerService.activeDownloadsProgress,
+          activeDownloadTasks: _playerService.activeDownloadTasks,
+          downloadQueue: _playerService.downloadQueue,
+          queuedDownloadTasks: _playerService.queuedDownloadTasks,
+          downloadTitles: _playerService.downloadTitles,
+          onCancelDownload: (vodId) {
+            final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
+            _cancelVodDownload(vodId, channel);
+          },
           onTabSelected: (key) {
             setState(() {
               _selectedConsoleTabKey = key;
@@ -1898,7 +2254,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               if (_selectedConsoleTabKey == key) {
                 _selectedConsoleTabKey = _playerService.playerTabTitles.keys.isNotEmpty 
                     ? _playerService.playerTabTitles.keys.first 
-                    : null;
+                    : '__downloads_manager__';
               }
             });
           },
