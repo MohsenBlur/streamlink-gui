@@ -199,6 +199,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Map<String, int> _localVodsProgress = {};
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
+  final Map<String, TwitchVideo> _activePlayingVideos = {};
+  List<TwitchVideo> _recentWatchedVods = [];
 
   bool _consoleCollapsed = true;
   String? _selectedConsoleTabKey = '__downloads_manager__';
@@ -245,8 +247,26 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             _channelVods[idx].watchPosition = position;
             _channelVods[idx].watchProgress = progress;
           }
+          
+          final video = _activePlayingVideos[vodId];
+          if (video != null) {
+            video.watchPosition = position;
+            video.watchProgress = progress;
+            
+            _recentWatchedVods.removeWhere((v) => v.id == vodId);
+            _recentWatchedVods.insert(0, video);
+            
+            if (_recentWatchedVods.length > _settings.maxRecentlyWatched) {
+              _recentWatchedVods = _recentWatchedVods.take(_settings.maxRecentlyWatched).toList();
+            }
+          }
         });
         _saveChannels();
+        if (_activePlayingVideos.containsKey(vodId)) {
+          _storageService.saveRecentWatchedVods(
+            _recentWatchedVods.map((v) => v.toJson()).toList()
+          );
+        }
       }
     };
 
@@ -625,6 +645,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       await _refreshAllChannels(isInitialLoad: true);
       if (_settings.twitchOauthToken.trim().isNotEmpty) {
         _loadFollowedChannels();
+      }
+      final recents = await _storageService.loadRecentWatchedVods();
+      if (mounted) {
+        setState(() {
+          _recentWatchedVods = recents.map((json) => TwitchVideo.fromJson(json)).toList();
+        });
       }
     } catch (e) {
       _showSnackBar('Error loading saved channels: $e', isError: true);
@@ -1426,6 +1452,133 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: 24),
           ],
 
+          // Recently Watched VODs (Conditional)
+          if (_recentWatchedVods.isNotEmpty) ...[
+            const Text(
+              'Recently Watched Past Broadcasts',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 155,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _recentWatchedVods.length,
+                itemBuilder: (context, index) {
+                  final video = _recentWatchedVods[index];
+                  final w = 240;
+                  final h = 135;
+                  final thumbUrl = video.thumbnailUrl.isNotEmpty
+                      ? video.thumbnailUrl.replaceAll('%{width}', w.toString()).replaceAll('%{height}', h.toString())
+                      : null;
+                  
+                  return GestureDetector(
+                    onTap: () => _playVod(video, 'VOD'),
+                    child: Container(
+                      width: 200,
+                      margin: const EdgeInsets.only(right: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF161B26),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: thumbUrl != null
+                                        ? Image.network(
+                                            thumbUrl,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (context, error, stackTrace) => Container(
+                                              color: const Color(0xFF1F2937),
+                                              child: const Icon(Icons.movie, color: Colors.white24, size: 36),
+                                            ),
+                                          )
+                                        : Container(
+                                            color: const Color(0xFF1F2937),
+                                            child: const Icon(Icons.movie, color: Colors.white24, size: 36),
+                                          ),
+                                  ),
+                                  Positioned(
+                                    bottom: 4,
+                                    right: 6,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.75),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        video.duration,
+                                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                      ),
+                                    ),
+                                  ),
+                                  if (video.watchProgress != null && video.watchProgress! > 0.0)
+                                    Positioned(
+                                      bottom: 0,
+                                      left: 0,
+                                      right: 0,
+                                      child: Container(
+                                        height: 3,
+                                        color: Colors.black45,
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: FractionallySizedBox(
+                                            widthFactor: video.watchProgress!.clamp(0.0, 1.0),
+                                            child: Container(
+                                              color: theme.primaryColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    video.title,
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    video.publishedAt.toLocal().toString().substring(0, 10),
+                                    style: const TextStyle(fontSize: 9, color: Colors.white38),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+
           // Live Channels Section
           const Text(
             'Live Favorite Channels',
@@ -2129,39 +2282,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       });
                     },
                     onDeselectAll: () => setState(() => _selectedVodIds.clear()),
-                    onPlay: (vod) {
-                      final localPos = _localVodsProgress[vod.id];
-                      if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
-                        vod.watchPosition = localPos;
-                        final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
-                        if (totalSeconds > 0) {
-                          vod.watchProgress = localPos / totalSeconds;
-                        }
-                      }
-
-                      File? file;
-                      final registeredPath = _downloadedVodsRegistry[vod.id];
-                      if (registeredPath != null) {
-                        file = File(registeredPath);
-                        if (!file.existsSync()) {
-                          file = null;
-                        }
-                      }
-                      
-                      if (file == null) {
-                        file = _playerService.getDownloadedVodFile(
-                          vod.id,
-                          _selectedChannel?.username ?? '',
-                          _settings.vodDownloadFolder
-                        );
-                      }
-                      
-                      if (file != null && file.existsSync()) {
-                        _playerService.playDownloadedVod(file, vod, _settings);
-                      } else {
-                        _playerService.launchStreamlinkForVod(vod, _selectedChannel?.username ?? 'VOD', _settings);
-                      }
-                    },
+                    onPlay: (vod) => _playVod(vod, _selectedChannel?.username ?? 'VOD'),
                     onDownload: (vod) => _queueVodDownload(vod, _selectedChannel?.username ?? 'VOD'),
                     onDeleteDownload: (id) => _deleteDownloadedVod(id, _selectedChannel?.username ?? 'VOD'),
                     onCancelDownload: (id) => _cancelVodDownload(id, _selectedChannel?.username ?? 'VOD'),
@@ -2174,6 +2295,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         }
                       });
                     },
+                    onBulkDownload: _bulkDownloadSelectedVods,
+                    onBulkDelete: _bulkDeleteSelectedVods,
                   ),
                   
                   if (_vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty && _channelVods.isNotEmpty) ...[
@@ -2499,6 +2622,41 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
   }
 
+  void _playVod(TwitchVideo vod, String channelName) {
+    final localPos = _localVodsProgress[vod.id];
+    if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
+      vod.watchPosition = localPos;
+      final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
+      if (totalSeconds > 0) {
+        vod.watchProgress = localPos / totalSeconds;
+      }
+    }
+
+    _activePlayingVideos[vod.id] = vod;
+    File? file;
+    final registeredPath = _downloadedVodsRegistry[vod.id];
+    if (registeredPath != null) {
+      file = File(registeredPath);
+      if (!file.existsSync()) {
+        file = null;
+      }
+    }
+    
+    if (file == null) {
+      file = _playerService.getDownloadedVodFile(
+        vod.id,
+        channelName,
+        _settings.vodDownloadFolder
+      );
+    }
+    
+    if (file != null && file.existsSync()) {
+      _playerService.playDownloadedVod(file, vod, _settings);
+    } else {
+      _playerService.launchStreamlinkForVod(vod, channelName, _settings);
+    }
+  }
+
   void _queueVodDownload(TwitchVideo vod, String channelName) {
     _ensureDownloadFolderConfigured(() {
       _playerService.queueVodDownload(vod, channelName, _settings);
@@ -2655,17 +2813,54 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Delete VOD Downloads'),
-          content: Text('Are you sure you want to delete the downloaded files for ${toDelete.length} VODs?'),
+          title: Text('Delete ${toDelete.length} VOD Downloads?'),
+          backgroundColor: themeNotifier.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: SizedBox(
+            width: 400,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Are you sure you want to delete the downloaded files on disk for the following videos? This cannot be undone.',
+                  style: TextStyle(height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 180),
+                  decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: toDelete.length,
+                    itemBuilder: (context, index) {
+                      return ListTile(
+                        dense: true,
+                        title: Text(
+                          toDelete[index].title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete'),
+              child: const Text('Delete Files', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -2683,7 +2878,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           if (dir.existsSync()) {
             final files = dir.listSync();
             for (final file in files) {
-              if (file is File && file.path.contains(' - ${vod.id}')) {
+              if (file is File && (file.path.contains(' - ${vod.id}') || file.path.contains(' - v${vod.id}'))) {
                 file.deleteSync();
               }
             }

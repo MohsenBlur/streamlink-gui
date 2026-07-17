@@ -20,6 +20,7 @@ class AppSettings {
   String vodDownloadFolder = '';
   int maxDownloadsToKeep = 0; // 0 = unlimited
   List<dynamic> unfinishedDownloads = const [];
+  int maxRecentlyWatched = 8;
   int activeSidebarTab = 0;
 
   AppSettings({
@@ -42,6 +43,7 @@ class AppSettings {
     this.vodDownloadFolder = '',
     this.maxDownloadsToKeep = 0,
     this.unfinishedDownloads = const [],
+    this.maxRecentlyWatched = 8,
     this.activeSidebarTab = 0,
   }) {
     if (vodDownloadFolder.isEmpty) {
@@ -75,6 +77,7 @@ class AppSettings {
         'vod_download_folder': vodDownloadFolder,
         'max_downloads_to_keep': maxDownloadsToKeep,
         'unfinished_downloads': unfinishedDownloads,
+        'max_recently_watched': maxRecentlyWatched,
         'active_sidebar_tab': activeSidebarTab,
       };
 
@@ -98,6 +101,7 @@ class AppSettings {
         vodDownloadFolder: json['vod_download_folder'] ?? '',
         maxDownloadsToKeep: json['max_downloads_to_keep'] ?? 0,
         unfinishedDownloads: json['unfinished_downloads'] ?? const [],
+        maxRecentlyWatched: json['max_recently_watched'] ?? 8,
         activeSidebarTab: json['active_sidebar_tab'] ?? 0,
       );
 }

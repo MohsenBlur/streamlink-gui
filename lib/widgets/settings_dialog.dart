@@ -37,6 +37,7 @@ class SettingsDialog {
     bool tempLowLatency = settings.twitchLowLatency;
     String tempPlayerType = settings.playerType;
     int tempWatchedThreshold = settings.watchedThreshold;
+    int tempMaxRecentlyWatched = settings.maxRecentlyWatched;
     final tokenController = TextEditingController(text: settings.twitchOauthToken);
     final webTokenController = TextEditingController(text: settings.twitchWebOauthToken);
     final playerPathController = TextEditingController(text: settings.customPlayerPath);
@@ -370,6 +371,38 @@ class SettingsDialog {
                                   ),
                                 ),
                                 const Text('100%', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            const Text('Recently Watched VODs Limit', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('Limit dashboard watch history to $tempMaxRecentlyWatched VODs.', style: const TextStyle(fontSize: 11, color: Colors.white38)),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Text('1', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                                Expanded(
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                      activeTrackColor: themeNotifier.primaryColor,
+                                      inactiveTrackColor: Colors.white10,
+                                      thumbColor: themeNotifier.primaryColor,
+                                    ),
+                                    child: Slider(
+                                      value: tempMaxRecentlyWatched.toDouble(),
+                                      min: 1,
+                                      max: 20,
+                                      onChanged: (val) {
+                                        setDialogState(() {
+                                          tempMaxRecentlyWatched = val.round();
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const Text('20', style: TextStyle(fontSize: 11, color: Colors.white38)),
                               ],
                             ),
                             const SizedBox(height: 24),
@@ -1000,6 +1033,7 @@ class SettingsDialog {
                         vodDownloadFolder: downloadFolderController.text.trim(),
                         maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
                         unfinishedDownloads: settings.unfinishedDownloads,
+                        maxRecentlyWatched: tempMaxRecentlyWatched,
                         activeSidebarTab: settings.activeSidebarTab,
                         sidebarCollapsed: settings.sidebarCollapsed,
                       );

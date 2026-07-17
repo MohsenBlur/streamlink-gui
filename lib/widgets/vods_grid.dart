@@ -39,6 +39,8 @@ class VodsGrid extends StatefulWidget {
   final void Function(String) onDeleteDownload;
   final void Function(String) onCancelDownload;
   final void Function(String, bool) onVodSelectedChange;
+  final VoidCallback? onBulkDownload;
+  final VoidCallback? onBulkDelete;
 
   const VodsGrid({
     Key? key,
@@ -74,6 +76,8 @@ class VodsGrid extends StatefulWidget {
     required this.onDeleteDownload,
     required this.onCancelDownload,
     required this.onVodSelectedChange,
+    this.onBulkDownload,
+    this.onBulkDelete,
   }) : super(key: key);
 
   @override
@@ -132,8 +136,70 @@ class _VodsGridState extends State<VodsGrid> {
       return matchesSearch && matchesGameFilter;
     }).toList();
 
+    final allGames = <String>{};
+    for (final vod in widget.vods) {
+      if (vod.games.isNotEmpty) {
+        allGames.addAll(vod.games);
+      }
+    }
+    final sortedGames = allGames.toList()..sort();
+
+    Widget buildGameChips() {
+      if (sortedGames.isEmpty) return const SizedBox.shrink();
+      
+      return Container(
+        height: 38,
+        margin: const EdgeInsets.only(bottom: 16),
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          itemCount: sortedGames.length + 1,
+          itemBuilder: (context, index) {
+            final isAll = index == 0;
+            final game = isAll ? 'All Games' : sortedGames[index - 1];
+            final isSelected = isAll 
+                ? widget.selectedGamesFilter.isEmpty 
+                : widget.selectedGamesFilter.contains(game);
+                
+            return Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                selected: isSelected,
+                label: Text(
+                  game,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected ? Colors.white : Colors.white70,
+                  ),
+                ),
+                backgroundColor: const Color(0xFF161B26),
+                selectedColor: widget.theme.primaryColor,
+                checkmarkColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(
+                    color: isSelected ? Colors.transparent : Colors.white10,
+                  ),
+                ),
+                onSelected: (selected) {
+                  if (isAll) {
+                    widget.onClearGameFilter();
+                  } else {
+                    widget.onGameFilterSelected(game);
+                  }
+                },
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    final childAspectRatio = 1.0 + ((widget.vodScale - 200) / 400.0) * 0.25;
+
+    Widget contentWidget;
     if (filteredVods.isEmpty) {
-      return Padding(
+      contentWidget = Padding(
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Center(
           child: Text(
@@ -144,46 +210,132 @@ class _VodsGridState extends State<VodsGrid> {
           ),
         ),
       );
+    } else {
+      contentWidget = GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: filteredVods.length,
+        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: widget.vodScale,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: childAspectRatio,
+        ),
+        itemBuilder: (context, index) {
+          final vod = filteredVods[index];
+          return TwitchVideoCard(
+            vod: vod,
+            scale: widget.vodScale,
+            theme: widget.theme,
+            onPlay: () => widget.onPlay(vod),
+            formatNumber: _formatNumberString,
+            fontSize: widget.vodTitleFontSize,
+            isPlaying: widget.isPlaying(vod.id),
+            pulseController: widget.pulseController,
+            showGamesOnThumbnails: widget.showGamesOnThumbnails,
+            watchedThreshold: widget.watchedThreshold,
+            activeProgressColor: widget.activeProgressColor,
+            watchedProgressColor: widget.watchedProgressColor,
+            isMultiSelectMode: widget.isMultiSelectMode,
+            isSelected: widget.selectedVodIds.contains(vod.id),
+            onSelected: (isSelected) => widget.onVodSelectedChange(vod.id, isSelected ?? false),
+            downloadStatus: widget.getDownloadStatus(vod.id),
+            downloadProgress: widget.getDownloadProgress(vod.id),
+            isDownloaded: widget.isDownloaded(vod.id),
+            onDownload: () => widget.onDownload(vod),
+            onDeleteDownload: () => widget.onDeleteDownload(vod.id),
+            onCancel: () => widget.onCancelDownload(vod.id),
+          );
+        },
+      );
     }
 
-    final childAspectRatio = 1.0 + ((widget.vodScale - 200) / 400.0) * 0.25;
+    final mainColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        buildGameChips(),
+        contentWidget,
+      ],
+    );
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: filteredVods.length,
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: widget.vodScale,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-        childAspectRatio: childAspectRatio,
-      ),
-      itemBuilder: (context, index) {
-        final vod = filteredVods[index];
-        return TwitchVideoCard(
-          vod: vod,
-          scale: widget.vodScale,
-          theme: widget.theme,
-          onPlay: () => widget.onPlay(vod),
-          formatNumber: _formatNumberString,
-          fontSize: widget.vodTitleFontSize,
-          isPlaying: widget.isPlaying(vod.id),
-          pulseController: widget.pulseController,
-          showGamesOnThumbnails: widget.showGamesOnThumbnails,
-          watchedThreshold: widget.watchedThreshold,
-          activeProgressColor: widget.activeProgressColor,
-          watchedProgressColor: widget.watchedProgressColor,
-          isMultiSelectMode: widget.isMultiSelectMode,
-          isSelected: widget.selectedVodIds.contains(vod.id),
-          onSelected: (isSelected) => widget.onVodSelectedChange(vod.id, isSelected ?? false),
-          downloadStatus: widget.getDownloadStatus(vod.id),
-          downloadProgress: widget.getDownloadProgress(vod.id),
-          isDownloaded: widget.isDownloaded(vod.id),
-          onDownload: () => widget.onDownload(vod),
-          onDeleteDownload: () => widget.onDeleteDownload(vod.id),
-          onCancel: () => widget.onCancelDownload(vod.id),
-        );
-      },
+    return Stack(
+      alignment: Alignment.bottomCenter,
+      clipBehavior: Clip.none,
+      children: [
+        mainColumn,
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          bottom: widget.isMultiSelectMode ? 16 : -70,
+          left: 20,
+          right: 20,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: widget.isMultiSelectMode ? 1.0 : 0.0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161B26).withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: widget.theme.primaryColor.withOpacity(0.3), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.4),
+                      blurRadius: 16,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_box_outlined, color: widget.theme.primaryColor, size: 20),
+                    const SizedBox(width: 10),
+                    Text(
+                      '${widget.selectedVodIds.length} VODs Selected',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                    ),
+                    const SizedBox(width: 20),
+                    Container(width: 1, height: 18, color: Colors.white12),
+                    const SizedBox(width: 20),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: widget.theme.primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: widget.selectedVodIds.isEmpty ? null : widget.onBulkDownload,
+                      icon: const Icon(Icons.download, size: 16),
+                      label: const Text('Bulk Download', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent.withOpacity(0.15),
+                        foregroundColor: Colors.redAccent,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        side: BorderSide(color: Colors.redAccent.withOpacity(0.4)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: widget.selectedVodIds.isEmpty ? null : widget.onBulkDelete,
+                      icon: const Icon(Icons.delete, size: 16),
+                      label: const Text('Bulk Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton(
+                      style: TextButton.styleFrom(foregroundColor: Colors.white54),
+                      onPressed: widget.onDeselectAll,
+                      child: const Text('Deselect All', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

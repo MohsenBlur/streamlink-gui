@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
+import 'live_rainbow_border.dart';
 
 class SidebarPanel extends StatefulWidget {
   final List<TwitchChannel> channels;
@@ -73,28 +74,10 @@ class _SidebarPanelState extends State<SidebarPanel> {
     required Widget child,
   }) {
     if (_isNewlyLive(channel) && widget.pulseController != null) {
-      return AnimatedBuilder(
-        animation: widget.pulseController!,
-        builder: (context, _) {
-          final pulse = widget.pulseController!.value;
-          final colors = [
-            HSLColor.fromAHSL(1.0, (0 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
-            HSLColor.fromAHSL(1.0, (1 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
-            HSLColor.fromAHSL(1.0, (2 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
-            HSLColor.fromAHSL(1.0, (3 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
-            HSLColor.fromAHSL(1.0, (4 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
-            HSLColor.fromAHSL(1.0, (5 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
-            HSLColor.fromAHSL(1.0, (0 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
-          ];
-          return Container(
-            padding: const EdgeInsets.all(2.5),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: SweepGradient(colors: colors),
-            ),
-            child: child,
-          );
-        },
+      return LiveRainbowBorder(
+        borderRadius: 100,
+        strokeWidth: 2.5,
+        child: child,
       );
     }
 

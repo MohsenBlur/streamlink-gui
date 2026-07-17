@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
+import 'live_rainbow_border.dart';
 
 class DashboardHeader extends StatefulWidget {
   final TwitchChannel channel;
@@ -261,51 +262,44 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         builder: (context, child) {
                           final pulseVal = widget.pulseController.value;
                           final isNewlyLive = _isNewlyLive(widget.channel);
+                          final avatar = CircleAvatar(
+                            radius: 36,
+                            backgroundColor: const Color(0xFF1F2937),
+                            backgroundImage: widget.channel.avatarUrl != null ? NetworkImage(widget.channel.avatarUrl!) : null,
+                            child: widget.channel.avatarUrl == null
+                                ? const Icon(Icons.person, size: 36, color: Colors.white70)
+                                : null,
+                          );
+
+                          if (isNewlyLive) {
+                            return LiveRainbowBorder(
+                              borderRadius: 100,
+                              strokeWidth: 3,
+                              child: avatar,
+                            );
+                          }
+
                           return Container(
                             padding: const EdgeInsets.all(3),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              border: isNewlyLive
-                                  ? null
-                                  : Border.all(
-                                      color: widget.channel.isLive
-                                          ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
-                                          : Colors.white24,
-                                      width: 2.5,
-                                    ),
-                              gradient: isNewlyLive
-                                  ? SweepGradient(
-                                      colors: [
-                                        HSLColor.fromAHSL(1.0, (0 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
-                                        HSLColor.fromAHSL(1.0, (1 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
-                                        HSLColor.fromAHSL(1.0, (2 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
-                                        HSLColor.fromAHSL(1.0, (3 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
-                                        HSLColor.fromAHSL(1.0, (4 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
-                                        HSLColor.fromAHSL(1.0, (5 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
-                                        HSLColor.fromAHSL(1.0, (0 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
-                                      ],
-                                    )
-                                  : null,
+                              border: Border.all(
+                                color: widget.channel.isLive
+                                    ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
+                                    : Colors.white24,
+                                width: 2.5,
+                              ),
                               boxShadow: widget.channel.isLive
                                   ? [
                                       BoxShadow(
-                                        color: isNewlyLive
-                                            ? Colors.purpleAccent.withOpacity(0.3 * pulseVal)
-                                            : Colors.redAccent.withOpacity(0.2 * pulseVal),
+                                        color: Colors.redAccent.withOpacity(0.2 * pulseVal),
                                         blurRadius: 8 + 8 * pulseVal,
                                         spreadRadius: 1 + 2 * pulseVal,
                                       )
                                     ]
                                   : null,
                             ),
-                            child: CircleAvatar(
-                              radius: 36,
-                              backgroundColor: const Color(0xFF1F2937),
-                              backgroundImage: widget.channel.avatarUrl != null ? NetworkImage(widget.channel.avatarUrl!) : null,
-                              child: widget.channel.avatarUrl == null
-                                  ? const Icon(Icons.person, size: 36, color: Colors.white70)
-                                  : null,
-                            ),
+                            child: avatar,
                           );
                         },
                       ),

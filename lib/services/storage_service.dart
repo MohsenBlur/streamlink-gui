@@ -131,4 +131,40 @@ class StorageService {
       } catch (_) {}
     }
   }
+
+  Future<List<Map<String, dynamic>>> loadRecentWatchedVods() async {
+    try {
+      final file = getStorageFile('recent_watched_vods.json');
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        if (content.trim().isNotEmpty) {
+          final decoded = json.decode(content);
+          if (decoded is List) {
+            return decoded.map((item) => Map<String, dynamic>.from(item)).toList();
+          }
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<void> saveRecentWatchedVods(List<Map<String, dynamic>> list) async {
+    final file = getStorageFile('recent_watched_vods.json');
+    final content = json.encode(list);
+    final tempFile = File('${file.path}.tmp');
+    try {
+      if (!tempFile.parent.existsSync()) {
+        tempFile.parent.createSync(recursive: true);
+      }
+      await tempFile.writeAsString(content, flush: true);
+      if (await file.exists()) {
+        await file.delete();
+      }
+      await tempFile.rename(file.path);
+    } catch (_) {
+      try {
+        await file.writeAsString(content, flush: true);
+      } catch (_) {}
+    }
+  }
 }
