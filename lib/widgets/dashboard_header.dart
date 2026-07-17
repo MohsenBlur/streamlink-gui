@@ -228,7 +228,322 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isSmall = MediaQuery.of(context).size.width < 1180;
-    
+    final useVerticalHeader = MediaQuery.of(context).size.width < 600;
+
+    final avatarContainer = AnimatedBuilder(
+      animation: widget.pulseController,
+      builder: (context, child) {
+        final pulseVal = widget.pulseController.value;
+        final isNewlyLive = _isNewlyLive(widget.channel);
+        final avatar = CircleAvatar(
+          radius: 36,
+          backgroundColor: const Color(0xFF1F2937),
+          backgroundImage: widget.channel.avatarUrl != null ? NetworkImage(widget.channel.avatarUrl!) : null,
+          child: widget.channel.avatarUrl == null
+              ? const Icon(Icons.person, size: 36, color: Colors.white70)
+              : null,
+        );
+
+        if (isNewlyLive) {
+          return LiveRainbowBorder(
+            borderRadius: 100,
+            strokeWidth: 3,
+            child: avatar,
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: widget.channel.isLive
+                  ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
+                  : Colors.white24,
+              width: 2.5,
+            ),
+            boxShadow: widget.channel.isLive
+                ? [
+                    BoxShadow(
+                      color: Colors.redAccent.withOpacity(0.2 * pulseVal),
+                      blurRadius: 8 + 8 * pulseVal,
+                      spreadRadius: 1 + 2 * pulseVal,
+                    )
+                  ]
+                : null,
+          ),
+          child: avatar,
+        );
+      },
+    );
+
+    final profileDetails = Column(
+      crossAxisAlignment: useVerticalHeader ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: useVerticalHeader ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.channel.username,
+                  style: theme.textTheme.titleLarge?.copyWith(fontSize: useVerticalHeader ? 18 : 22),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(width: 10),
+                if (widget.channel.isLive)
+                  AnimatedBuilder(
+                    animation: widget.pulseController,
+                    builder: (context, child) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.15 + 0.1 * widget.pulseController.value),
+                          border: Border.all(
+                            color: Colors.redAccent.withOpacity(0.4 + 0.6 * widget.pulseController.value),
+                            width: 1,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'LIVE',
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      );
+                    },
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.15),
+                      border: Border.all(
+                        color: Colors.grey,
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'OFFLINE',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            if (!useVerticalHeader)
+              isSmall
+                  ? HoverOverlayMenu(
+                      trigger: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E2433),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.more_vert, color: Colors.white70, size: 16),
+                              SizedBox(width: 4),
+                              Text('Actions', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      menu: Container(
+                        width: 160,
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF161B26),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFF1E2433)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.5),
+                              blurRadius: 10,
+                            )
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildOverlayActionItem(
+                              icon: Icons.open_in_new,
+                              label: 'Open Channel',
+                              onPressed: () {
+                                widget.openExternalLink('https://twitch.tv/${widget.channel.username}');
+                              },
+                            ),
+                            const SizedBox(height: 4),
+                            _buildOverlayActionItem(
+                              icon: Icons.chat_bubble_outline,
+                              label: 'Open Chat',
+                              onPressed: () {
+                                widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat');
+                              },
+                            ),
+                            const SizedBox(height: 4),
+                            _buildOverlayActionItem(
+                              icon: Icons.refresh,
+                              label: 'Refresh Stats',
+                              onPressed: widget.channel.isLoading ? null : widget.onRefresh,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildMiniActionBtn(
+                          icon: Icons.open_in_new,
+                          tooltip: 'Open Twitch channel',
+                          onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}'),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildMiniActionBtn(
+                          icon: Icons.chat_bubble_outline,
+                          tooltip: 'Open Twitch chat popout',
+                          onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat'),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildMiniActionBtn(
+                          icon: Icons.refresh,
+                          tooltip: 'Refresh statistics',
+                          onPressed: widget.channel.isLoading ? null : widget.onRefresh,
+                        ),
+                      ],
+                    ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
+          Text(
+            widget.channel.streamTitle!,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
+            maxLines: 2,
+            textAlign: useVerticalHeader ? TextAlign.center : TextAlign.start,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+        ],
+        Text(
+          widget.channel.isLive
+              ? 'Streaming: ${widget.channel.game ?? "Unknown Game"}'
+              : 'Channel is currently offline',
+          textAlign: useVerticalHeader ? TextAlign.center : TextAlign.start,
+          style: TextStyle(
+            fontSize: 13,
+            color: widget.channel.isLive ? Colors.white70 : Colors.white38,
+            fontWeight: widget.channel.isLive ? FontWeight.w500 : FontWeight.normal,
+          ),
+        ),
+        if (useVerticalHeader) ...[
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildMiniActionBtn(
+                icon: Icons.open_in_new,
+                tooltip: 'Open Twitch channel',
+                onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}'),
+              ),
+              const SizedBox(width: 12),
+              _buildMiniActionBtn(
+                icon: Icons.chat_bubble_outline,
+                tooltip: 'Open Twitch chat popout',
+                onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat'),
+              ),
+              const SizedBox(width: 12),
+              _buildMiniActionBtn(
+                icon: Icons.refresh,
+                tooltip: 'Refresh statistics',
+                onPressed: widget.channel.isLoading ? null : widget.onRefresh,
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+
+    final playButton = ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: widget.isPlaying
+            ? const Color(0xFF1E2433)
+            : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
+        foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
+        padding: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        elevation: (widget.channel.isLive && !widget.isPlaying) ? 4 : 0,
+      ),
+      onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: widget.isPlaying
+            ? const [
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
+                ),
+                SizedBox(width: 6),
+                Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white54)),
+              ]
+            : (!widget.channel.isLive
+                ? const [
+                    Icon(Icons.videocam_off, size: 14, color: Colors.white30),
+                    SizedBox(width: 4),
+                    Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white30)),
+                  ]
+                : const [
+                    Icon(Icons.play_arrow, size: 16),
+                    SizedBox(width: 4),
+                    Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  ]),
+      ),
+    );
+
+    final statsChips = [
+      if (widget.channel.isLive) ...[
+        _buildHeaderChip(
+          icon: Icons.visibility,
+          color: Colors.redAccent,
+          label: '${widget.channel.viewerCount ?? "0"} viewers',
+        ),
+        _buildHeaderChip(
+          icon: Icons.schedule,
+          color: Colors.orangeAccent,
+          label: widget.channel.uptime ?? 'Live',
+        ),
+      ],
+      _buildHeaderChip(
+        icon: Icons.people,
+        color: theme.primaryColor,
+        label: '${widget.channel.followerCount ?? "N/A"} followers',
+      ),
+      _buildHeaderChip(
+        icon: Icons.update,
+        color: Colors.white38,
+        label: widget.channel.lastUpdated != null
+            ? 'Updated: ${_timeAgo(widget.channel.lastUpdated!)}'
+            : 'Not updated',
+      ),
+    ];
+
     final cardWidget = GestureDetector(
       onTap: (widget.channel.isLive && !widget.isPlaying) ? widget.onPlay : null,
       child: MouseRegion(
@@ -250,330 +565,71 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Row 1: Profile Avatar & Info
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 90,
-                    child: Center(
-                      child: AnimatedBuilder(
-                        animation: widget.pulseController,
-                        builder: (context, child) {
-                          final pulseVal = widget.pulseController.value;
-                          final isNewlyLive = _isNewlyLive(widget.channel);
-                          final avatar = CircleAvatar(
-                            radius: 36,
-                            backgroundColor: const Color(0xFF1F2937),
-                            backgroundImage: widget.channel.avatarUrl != null ? NetworkImage(widget.channel.avatarUrl!) : null,
-                            child: widget.channel.avatarUrl == null
-                                ? const Icon(Icons.person, size: 36, color: Colors.white70)
-                                : null,
-                          );
-
-                          if (isNewlyLive) {
-                            return LiveRainbowBorder(
-                              borderRadius: 100,
-                              strokeWidth: 3,
-                              child: avatar,
-                            );
-                          }
-
-                          return Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: widget.channel.isLive
-                                    ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
-                                    : Colors.white24,
-                                width: 2.5,
-                              ),
-                              boxShadow: widget.channel.isLive
-                                  ? [
-                                      BoxShadow(
-                                        color: Colors.redAccent.withOpacity(0.2 * pulseVal),
-                                        blurRadius: 8 + 8 * pulseVal,
-                                        spreadRadius: 1 + 2 * pulseVal,
-                                      )
-                                    ]
-                                  : null,
-                            ),
-                            child: avatar,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  
-                  Expanded(
-                    child: Column(
+              useVerticalHeader
+                  ? Column(
+                      children: [
+                        Center(child: avatarContainer),
+                        const SizedBox(height: 16),
+                        profileDetails,
+                      ],
+                    )
+                  : Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  widget.channel.username,
-                                  style: theme.textTheme.titleLarge?.copyWith(fontSize: 22),
-                                ),
-                                const SizedBox(width: 10),
-                                if (widget.channel.isLive)
-                                  AnimatedBuilder(
-                                    animation: widget.pulseController,
-                                    builder: (context, child) {
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.withOpacity(0.15 + 0.1 * widget.pulseController.value),
-                                          border: Border.all(
-                                            color: Colors.redAccent.withOpacity(0.4 + 0.6 * widget.pulseController.value),
-                                            width: 1,
-                                          ),
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: const Text(
-                                          'LIVE',
-                                          style: TextStyle(
-                                            color: Colors.redAccent,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 0.5,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  )
-                                else
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey.withOpacity(0.15),
-                                      border: Border.all(
-                                        color: Colors.grey,
-                                        width: 1,
-                                      ),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Text(
-                                      'OFFLINE',
-                                      style: TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            
-                            isSmall
-                                ? HoverOverlayMenu(
-                                    trigger: MouseRegion(
-                                      cursor: SystemMouseCursors.click,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF1E2433),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(color: Colors.white10),
-                                        ),
-                                        child: const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.more_vert, color: Colors.white70, size: 16),
-                                            SizedBox(width: 4),
-                                            Text('Actions', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    menu: Container(
-                                      width: 160,
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF161B26),
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: const Color(0xFF1E2433)),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withOpacity(0.5),
-                                            blurRadius: 10,
-                                          )
-                                        ],
-                                      ),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          _buildOverlayActionItem(
-                                            icon: Icons.open_in_new,
-                                            label: 'Open Channel',
-                                            onPressed: () {
-                                              widget.openExternalLink('https://twitch.tv/${widget.channel.username}');
-                                            },
-                                          ),
-                                          const SizedBox(height: 4),
-                                          _buildOverlayActionItem(
-                                            icon: Icons.chat_bubble_outline,
-                                            label: 'Open Chat',
-                                            onPressed: () {
-                                              widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat');
-                                            },
-                                          ),
-                                          const SizedBox(height: 4),
-                                          _buildOverlayActionItem(
-                                            icon: Icons.refresh,
-                                            label: 'Refresh Stats',
-                                            onPressed: widget.channel.isLoading ? null : widget.onRefresh,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  )
-                                : Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      _buildMiniActionBtn(
-                                        icon: Icons.open_in_new,
-                                        tooltip: 'Open Twitch channel',
-                                        onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}'),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      _buildMiniActionBtn(
-                                        icon: Icons.chat_bubble_outline,
-                                        tooltip: 'Open Twitch chat popout',
-                                        onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat'),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      _buildMiniActionBtn(
-                                        icon: Icons.refresh,
-                                        tooltip: 'Refresh statistics',
-                                        onPressed: widget.channel.isLoading ? null : widget.onRefresh,
-                                      ),
-                                    ],
-                                  ),
-                          ],
+                        SizedBox(
+                          width: 90,
+                          child: Center(child: avatarContainer),
                         ),
-                        const SizedBox(height: 8),
-                        if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
-                          Text(
-                            widget.channel.streamTitle!,
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 6),
-                        ],
-                        Text(
-                          widget.channel.isLive
-                              ? 'Streaming: ${widget.channel.game ?? "Unknown Game"}'
-                              : 'Channel is currently offline',
-                          style: TextStyle(
-                            fontSize: 13, 
-                            color: widget.channel.isLive ? Colors.white70 : Colors.white38,
-                            fontWeight: widget.channel.isLive ? FontWeight.w500 : FontWeight.normal
-                          ),
-                        ),
+                        const SizedBox(width: 20),
+                        Expanded(child: profileDetails),
                       ],
                     ),
-                  ),
-                ],
-              ),
-              
               const SizedBox(height: 14),
-              
-              // Row 2: PLAY Button & Stats Chips
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 90,
-                    height: 32,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: widget.isPlaying
-                            ? const Color(0xFF1E2433)
-                            : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
-                        foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
-                        padding: EdgeInsets.zero,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                        elevation: (widget.channel.isLive && !widget.isPlaying) ? 4 : 0,
-                      ),
-                      onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: widget.isPlaying
-                            ? const [
-                                SizedBox(
-                                  width: 12,
-                                  height: 12,
-                                  child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
-                                ),
-                                SizedBox(width: 6),
-                                Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white54)),
-                              ]
-                            : (!widget.channel.isLive
-                                ? const [
-                                    Icon(Icons.videocam_off, size: 14, color: Colors.white30),
-                                    SizedBox(width: 4),
-                                    Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white30)),
-                                  ]
-                                : const [
-                                    Icon(Icons.play_arrow, size: 16),
-                                    SizedBox(width: 4),
-                                    Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                  ]),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  
-                  Expanded(
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+              useVerticalHeader
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        if (widget.channel.isLive) ...[
-                          _buildHeaderChip(
-                            icon: Icons.visibility,
-                            color: Colors.redAccent,
-                            label: '${widget.channel.viewerCount ?? "0"} viewers',
-                          ),
-                          _buildHeaderChip(
-                            icon: Icons.schedule,
-                            color: Colors.orangeAccent,
-                            label: widget.channel.uptime ?? 'Live',
-                          ),
-                        ],
-                        _buildHeaderChip(
-                          icon: Icons.people,
-                          color: theme.primaryColor,
-                          label: '${widget.channel.followerCount ?? "N/A"} followers',
+                        SizedBox(
+                          width: double.infinity,
+                          height: 38,
+                          child: playButton,
                         ),
-                        _buildHeaderChip(
-                          icon: Icons.update,
-                          color: Colors.white38,
-                          label: widget.channel.lastUpdated != null
-                              ? 'Updated: ${_timeAgo(widget.channel.lastUpdated!)}'
-                              : 'Not updated',
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          alignment: WrapAlignment.center,
+                          children: statsChips,
+                        ),
+                      ],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 90,
+                          height: 32,
+                          child: playButton,
+                        ),
+                        const SizedBox(width: 20),
+                        Expanded(
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: statsChips,
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                ],
-              ),
-              
               if (widget.channel.errorMessage != null) ...[
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    const SizedBox(width: 90),
-                    const SizedBox(width: 20),
+                    if (!useVerticalHeader) ...[
+                      const SizedBox(width: 90),
+                      const SizedBox(width: 20),
+                    ],
                     Expanded(
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -588,9 +644,8 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Error: ${widget.channel.errorMessage}',
-                                style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
-                                overflow: TextOverflow.ellipsis,
+                                widget.channel.errorMessage!,
+                                style: const TextStyle(color: Colors.redAccent, fontSize: 11),
                               ),
                             ),
                           ],

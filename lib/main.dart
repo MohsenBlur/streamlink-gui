@@ -68,6 +68,7 @@ void main() async {
     await windowManager.show();
     await windowManager.focus();
     await windowManager.setPreventClose(true);
+    await windowManager.setMinimumSize(const Size(380, 500));
   });
 
   runApp(const TwitchStreamlinkApp());
@@ -1240,6 +1241,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final mediaQuery = MediaQuery.of(context);
+    final isVertical = mediaQuery.size.height > mediaQuery.size.width;
+    final isNarrow = mediaQuery.size.width < 700;
+    final effectiveSidebarCollapsed = (isNarrow || isVertical) ? true : _sidebarCollapsed;
     
     return Scaffold(
       body: Row(
@@ -1250,7 +1255,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             followedChannels: _followedChannels,
             selectedChannel: _selectedChannel,
             settings: _settings,
-            sidebarCollapsed: _sidebarCollapsed,
+            sidebarCollapsed: effectiveSidebarCollapsed,
             sidebarTab: _sidebarTab,
             isAdding: _isAdding,
             isGlobalLoading: _isGlobalLoading,

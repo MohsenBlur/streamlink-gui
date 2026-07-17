@@ -197,16 +197,20 @@ class _VodsGridState extends State<VodsGrid> {
                 child: Listener(
                   onPointerSignal: (pointerSignal) {
                     if (pointerSignal is PointerScrollEvent) {
-                      final delta = pointerSignal.scrollDelta.dy != 0.0
-                          ? pointerSignal.scrollDelta.dy
-                          : pointerSignal.scrollDelta.dx;
-                      if (delta != 0.0 && _gameScrollController.hasClients) {
-                        final newOffset = (_gameScrollController.offset + delta).clamp(
-                          0.0,
-                          _gameScrollController.position.maxScrollExtent,
-                        );
-                        _gameScrollController.jumpTo(newOffset);
-                      }
+                      GestureBinding.instance.pointerSignalResolver.register(pointerSignal, (event) {
+                        if (event is PointerScrollEvent && _gameScrollController.hasClients) {
+                          final delta = event.scrollDelta.dy != 0.0
+                              ? event.scrollDelta.dy
+                              : event.scrollDelta.dx;
+                          if (delta != 0.0) {
+                            final newOffset = (_gameScrollController.offset + delta).clamp(
+                              0.0,
+                              _gameScrollController.position.maxScrollExtent,
+                            );
+                            _gameScrollController.jumpTo(newOffset);
+                          }
+                        }
+                      });
                     }
                   },
                   child: ListView.builder(
