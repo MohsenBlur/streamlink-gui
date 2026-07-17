@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import 'twitch_video_card.dart';
 import 'hover_overlay_menu.dart';
+import 'package:flutter/gestures.dart';
 
 class VodsGrid extends StatefulWidget {
   final List<TwitchVideo> vods;
@@ -85,6 +86,41 @@ class VodsGrid extends StatefulWidget {
 }
 
 class _VodsGridState extends State<VodsGrid> {
+  late ScrollController _gameScrollController;
+  bool _showLeftIndicator = false;
+  bool _showRightIndicator = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _gameScrollController = ScrollController();
+    _gameScrollController.addListener(_updateScrollIndicators);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updateScrollIndicators();
+    });
+  }
+
+  @override
+  void dispose() {
+    _gameScrollController.removeListener(_updateScrollIndicators);
+    _gameScrollController.dispose();
+    super.dispose();
+  }
+
+  void _updateScrollIndicators() {
+    if (!_gameScrollController.hasClients) return;
+    final isScrollable = _gameScrollController.position.maxScrollExtent > 0.0;
+    final showLeft = isScrollable && _gameScrollController.offset > 2.0;
+    final showRight = isScrollable && _gameScrollController.offset < (_gameScrollController.position.maxScrollExtent - 2.0);
+
+    if (showLeft != _showLeftIndicator || showRight != _showRightIndicator) {
+      setState(() {
+        _showLeftIndicator = showLeft;
+        _showRightIndicator = showRight;
+      });
+    }
+  }
+
   String _formatNumberString(String value) {
     try {
       final numValue = int.tryParse(value);
@@ -150,47 +186,121 @@ class _VodsGridState extends State<VodsGrid> {
       return Container(
         height: 38,
         margin: const EdgeInsets.only(bottom: 16),
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          itemCount: sortedGames.length + 1,
-          itemBuilder: (context, index) {
-            final isAll = index == 0;
-            final game = isAll ? 'All Games' : sortedGames[index - 1];
-            final isSelected = isAll 
-                ? widget.selectedGamesFilter.isEmpty 
-                : widget.selectedGamesFilter.contains(game);
-                
-            return Container(
-              margin: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                selected: isSelected,
-                label: Text(
-                  game,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? Colors.white : Colors.white70,
-                  ),
-                ),
-                backgroundColor: const Color(0xFF161B26),
-                selectedColor: widget.theme.primaryColor,
-                checkmarkColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  side: BorderSide(
-                    color: isSelected ? Colors.transparent : Colors.white10,
-                  ),
-                ),
-                onSelected: (selected) {
-                  if (isAll) {
-                    widget.onClearGameFilter();
-                  } else {
-                    widget.onGameFilterSelected(game);
-                  }
-                },
-              ),
-            );
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            _updateScrollIndicators();
+            return false;
           },
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Listener(
+                  onPointerSignal: (pointerSignal) {
+                    if (pointerSignal is PointerScrollEvent) {
+                      final delta = pointerSignal.scrollDelta.dy != 0.0
+                          ? pointerSignal.scrollDelta.dy
+                          : pointerSignal.scrollDelta.dx;
+                      if (delta != 0.0 && _gameScrollController.hasClients) {
+                        final newOffset = (_gameScrollController.offset + delta).clamp(
+                          0.0,
+                          _gameScrollController.position.maxScrollExtent,
+                        );
+                        _gameScrollController.jumpTo(newOffset);
+                      }
+                    }
+                  },
+                  child: ListView.builder(
+                    controller: _gameScrollController,
+                    scrollDirection: Axis.horizontal,
+                    itemCount: sortedGames.length + 1,
+                    itemBuilder: (context, index) {
+                      final isAll = index == 0;
+                      final game = isAll ? 'All Games' : sortedGames[index - 1];
+                      final isSelected = isAll 
+                          ? widget.selectedGamesFilter.isEmpty 
+                          : widget.selectedGamesFilter.contains(game);
+                          
+                      return Container(
+                        margin: EdgeInsets.only(
+                          left: isAll ? 0 : 4,
+                          right: (index == sortedGames.length) ? 0 : 4,
+                        ),
+                        child: FilterChip(
+                          selected: isSelected,
+                          label: Text(
+                            game,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              color: isSelected ? Colors.white : Colors.white70,
+                            ),
+                          ),
+                          backgroundColor: const Color(0xFF161B26),
+                          selectedColor: widget.theme.primaryColor,
+                          checkmarkColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            side: BorderSide(
+                              color: isSelected ? Colors.transparent : Colors.white10,
+                            ),
+                          ),
+                          onSelected: (selected) {
+                            if (isAll) {
+                              widget.onClearGameFilter();
+                            } else {
+                              widget.onGameFilterSelected(game);
+                            }
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              if (_showLeftIndicator)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 32,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF0C0F17),
+                            const Color(0xFF0C0F17).withOpacity(0.0),
+                          ],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (_showRightIndicator)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 32,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF0C0F17).withOpacity(0.0),
+                            const Color(0xFF0C0F17),
+                          ],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       );
     }

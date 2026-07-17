@@ -1964,217 +1964,150 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           ],
                         ],
                       ),
-                      isSmall
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                HoverOverlayMenu(
-                                  trigger: MouseRegion(
-                                    cursor: SystemMouseCursors.click,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF1E2433),
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: Colors.white10),
-                                      ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.tune, color: Colors.white70, size: 16),
-                                          SizedBox(width: 4),
-                                          Text('VOD Settings', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  menu: _buildVodsSettingMenu(theme),
-                                ),
-                              ],
-                            )
-                          : Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Tooltip(
-                                  message: 'Show all played games on thumbnails at a glance',
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF161B26),
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(color: const Color(0xFF1E2433)),
-                                  ),
-                                  textStyle: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.sports_esports, size: 14, color: Colors.white38),
-                                      const SizedBox(width: 4),
-                                      const Text('Show All Games', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
-                                      Transform.scale(
-                                        scale: 0.7,
-                                        child: Switch(
-                                          value: _showGamesOnThumbnails,
-                                          activeColor: theme.primaryColor,
-                                          onChanged: (val) {
-                                            setState(() {
-                                              _showGamesOnThumbnails = val;
-                                            });
-                                          },
+                      if (!_isMultiSelectMode)
+                        isSmall
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  HoverOverlayMenu(
+                                    trigger: MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF1E2433),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: Colors.white10),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                PopupMenuButton<String>(
-                                  icon: Icon(
-                                    _selectedGamesFilter.isEmpty ? Icons.filter_alt_outlined : Icons.filter_alt,
-                                    color: _selectedGamesFilter.isEmpty ? Colors.white70 : theme.primaryColor,
-                                    size: 16,
-                                  ),
-                                  tooltip: 'Filter VODs by Games',
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    side: const BorderSide(color: Color(0xFF1E2433)),
-                                  ),
-                                  color: const Color(0xFF161B26),
-                                  onSelected: (game) {
-                                    setState(() {
-                                      if (game == '__all__') {
-                                        _selectedGamesFilter.clear();
-                                      } else {
-                                        if (_selectedGamesFilter.contains(game)) {
-                                          _selectedGamesFilter.remove(game);
-                                        } else {
-                                          _selectedGamesFilter.add(game);
-                                        }
-                                      }
-                                    });
-                                  },
-                                  itemBuilder: (context) {
-                                    final uniqueGames = _channelVods.expand((vod) => vod.games).toSet().toList()..sort();
-                                    return [
-                                      PopupMenuItem<String>(
-                                        value: '__all__',
-                                        child: Row(
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Icon(
-                                              Icons.all_inclusive,
-                                              size: 14,
-                                              color: _selectedGamesFilter.isEmpty ? theme.primaryColor : Colors.white70,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              'All Games',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: _selectedGamesFilter.isEmpty ? FontWeight.bold : FontWeight.normal,
-                                                color: _selectedGamesFilter.isEmpty ? theme.primaryColor : Colors.white,
-                                              ),
-                                            ),
+                                            Icon(Icons.tune, color: Colors.white70, size: 16),
+                                            SizedBox(width: 4),
+                                            Text('VOD Settings', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
                                           ],
                                         ),
                                       ),
-                                      ...uniqueGames.map((game) {
-                                        final isSelected = _selectedGamesFilter.contains(game);
-                                        return CheckedPopupMenuItem<String>(
-                                          value: game,
-                                          checked: isSelected,
-                                          child: Text(
-                                            game,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                              color: isSelected ? theme.primaryColor : Colors.white,
-                                            ),
+                                    ),
+                                    menu: _buildVodsSettingMenu(theme),
+                                  ),
+                                ],
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Tooltip(
+                                    message: 'Show all played games on thumbnails at a glance',
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF161B26),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: const Color(0xFF1E2433)),
+                                    ),
+                                    textStyle: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.sports_esports, size: 14, color: Colors.white38),
+                                        const SizedBox(width: 4),
+                                        const Text('Show All Games', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+                                        Transform.scale(
+                                          scale: 0.7,
+                                          child: Switch(
+                                            value: _showGamesOnThumbnails,
+                                            activeColor: theme.primaryColor,
+                                            onChanged: (val) {
+                                              setState(() {
+                                                _showGamesOnThumbnails = val;
+                                              });
+                                            },
                                           ),
-                                        );
-                                      }),
-                                    ];
-                                  },
-                                ),
-                                const SizedBox(width: 10),
-                                SizedBox(
-                                  width: 130,
-                                  height: 28,
-                                  child: TextField(
-                                    controller: _vodSearchController,
-                                    style: const TextStyle(fontSize: 11, color: Colors.white),
-                                    decoration: InputDecoration(
-                                      hintText: 'Filter VODs...',
-                                      hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
-                                      prefixIcon: const Icon(Icons.search, size: 12, color: Colors.white38),
-                                      contentPadding: EdgeInsets.zero,
-                                      filled: true,
-                                      fillColor: const Color(0xFF1E2433),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(6),
-                                        borderSide: BorderSide.none,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  SizedBox(
+                                    width: 130,
+                                    height: 28,
+                                    child: TextField(
+                                      controller: _vodSearchController,
+                                      style: const TextStyle(fontSize: 11, color: Colors.white),
+                                      decoration: InputDecoration(
+                                        hintText: 'Filter VODs...',
+                                        hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
+                                        prefixIcon: const Icon(Icons.search, size: 12, color: Colors.white38),
+                                        contentPadding: EdgeInsets.zero,
+                                        filled: true,
+                                        fillColor: const Color(0xFF1E2433),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(6),
+                                          borderSide: BorderSide.none,
+                                        ),
+                                      ),
+                                      onChanged: (val) {
+                                        setState(() {});
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  const Icon(Icons.photo_size_select_large, size: 14, color: Colors.white38),
+                                  const SizedBox(width: 6),
+                                  const Text('Card Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                                  SizedBox(
+                                    width: 110,
+                                    child: SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        trackHeight: 2,
+                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                        activeTrackColor: theme.primaryColor,
+                                        inactiveTrackColor: Colors.white10,
+                                        thumbColor: theme.primaryColor,
+                                        overlayColor: theme.primaryColor.withOpacity(0.12),
+                                      ),
+                                      child: Slider(
+                                        value: _vodScale,
+                                        min: 200.0,
+                                        max: 600.0,
+                                        onChanged: (val) {
+                                          setState(() {
+                                            _vodScale = val;
+                                          });
+                                        },
                                       ),
                                     ),
-                                    onChanged: (val) {
-                                      setState(() {});
-                                    },
                                   ),
-                                ),
-                                const SizedBox(width: 14),
-                                const Icon(Icons.photo_size_select_large, size: 14, color: Colors.white38),
-                                const SizedBox(width: 6),
-                                const Text('Card Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
-                                SizedBox(
-                                  width: 110,
-                                  child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 2,
-                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                      activeTrackColor: theme.primaryColor,
-                                      inactiveTrackColor: Colors.white10,
-                                      thumbColor: theme.primaryColor,
-                                      overlayColor: theme.primaryColor.withOpacity(0.12),
-                                    ),
-                                    child: Slider(
-                                      value: _vodScale,
-                                      min: 200.0,
-                                      max: 600.0,
-                                      onChanged: (val) {
-                                        setState(() {
-                                          _vodScale = val;
-                                        });
-                                      },
+                                  const SizedBox(width: 14),
+                                  const Icon(Icons.format_size, size: 14, color: Colors.white38),
+                                  const SizedBox(width: 6),
+                                  const Text('Font: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                                  SizedBox(
+                                    width: 90,
+                                    child: SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        trackHeight: 2,
+                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                                        activeTrackColor: theme.primaryColor,
+                                        inactiveTrackColor: Colors.white10,
+                                        thumbColor: theme.primaryColor,
+                                        overlayColor: theme.primaryColor.withOpacity(0.12),
+                                      ),
+                                      child: Slider(
+                                        value: _vodTitleFontSize,
+                                        min: 11.0,
+                                        max: 20.0,
+                                        onChanged: (val) {
+                                          setState(() {
+                                            _vodTitleFontSize = val;
+                                          });
+                                        },
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 14),
-                                const Icon(Icons.format_size, size: 14, color: Colors.white38),
-                                const SizedBox(width: 6),
-                                const Text('Font: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
-                                SizedBox(
-                                  width: 90,
-                                  child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 2,
-                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                      activeTrackColor: theme.primaryColor,
-                                      inactiveTrackColor: Colors.white10,
-                                      thumbColor: theme.primaryColor,
-                                      overlayColor: theme.primaryColor.withOpacity(0.12),
-                                    ),
-                                    child: Slider(
-                                      value: _vodTitleFontSize,
-                                      min: 11.0,
-                                      max: 20.0,
-                                      onChanged: (val) {
-                                        setState(() {
-                                          _vodTitleFontSize = val;
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                                ],
+                              ),
                       if (_isLoadingVods) ...[
                         const SizedBox(width: 12),
                         const SizedBox(
