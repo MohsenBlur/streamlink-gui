@@ -11,6 +11,7 @@ class TwitchChannel {
   bool isLoading = false;
   String? errorMessage;
   DateTime? lastUpdated;
+  DateTime? wentLiveTime;
 
   TwitchChannel({required this.username});
 

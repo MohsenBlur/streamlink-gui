@@ -815,12 +815,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _refreshAllChannels({bool isInitialLoad = false}) async {
+    final prevLiveMap = { for (var c in _channels) c.username: c.isLive };
+    final prevFollowedLiveMap = { for (var c in _followedChannels) c.username: c.isLive };
+
     final futures = _channels.map((c) => _apiService.fetchChannelStats(c, _settings));
     await Future.wait(futures);
 
     for (final channel in _channels) {
       final cleanName = channel.username.toLowerCase().trim();
+      final wasLive = prevLiveMap[channel.username] ?? false;
       if (channel.isLive) {
+        if (!wasLive && !isInitialLoad) {
+          channel.wentLiveTime = DateTime.now();
+        }
         if (!_previouslyLiveFavoriteUsernames.contains(cleanName)) {
           _previouslyLiveFavoriteUsernames.add(cleanName);
           if (!isInitialLoad) {
@@ -835,6 +842,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               notification.onClick = () async {
                 await windowManager.show();
                 await windowManager.focus();
+                
+                setState(() {
+                  _selectedChannel = channel;
+                });
+                _fetchVodsForChannel(channel);
+
+                _playerService.launchStreamlinkForLive(
+                  channel.username,
+                  channel.isLive,
+                  channel.streamTitle,
+                  channel.game,
+                  _settings,
+                );
               };
               await notification.show();
             } catch (e) {
@@ -859,6 +879,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     if (_settings.twitchOauthToken.trim().isNotEmpty && _followedChannels.isNotEmpty) {
       final followedFutures = _followedChannels.map((c) => _apiService.fetchChannelStats(c, _settings));
       await Future.wait(followedFutures);
+
+      for (final channel in _followedChannels) {
+        final wasLive = prevFollowedLiveMap[channel.username] ?? false;
+        if (channel.isLive && !wasLive && !isInitialLoad) {
+          channel.wentLiveTime = DateTime.now();
+        }
+      }
 
       if (_selectedChannel != null) {
         final index = _followedChannels.indexWhere((c) => c.username == _selectedChannel!.username);

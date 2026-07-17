@@ -59,6 +59,59 @@ class SidebarPanel extends StatefulWidget {
 }
 
 class _SidebarPanelState extends State<SidebarPanel> {
+  bool _isNewlyLive(TwitchChannel channel) {
+    if (channel.wentLiveTime == null) return false;
+    final diff = DateTime.now().difference(channel.wentLiveTime!);
+    return diff.inSeconds < 60;
+  }
+
+  Widget _buildAvatarBorder({
+    required TwitchChannel channel,
+    required bool isSelected,
+    required ThemeData theme,
+    required Widget child,
+  }) {
+    if (_isNewlyLive(channel) && widget.pulseController != null) {
+      return AnimatedBuilder(
+        animation: widget.pulseController!,
+        builder: (context, _) {
+          final pulse = widget.pulseController!.value;
+          final colors = [
+            HSLColor.fromAHSL(1.0, (0 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
+            HSLColor.fromAHSL(1.0, (1 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
+            HSLColor.fromAHSL(1.0, (2 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
+            HSLColor.fromAHSL(1.0, (3 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
+            HSLColor.fromAHSL(1.0, (4 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
+            HSLColor.fromAHSL(1.0, (5 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
+            HSLColor.fromAHSL(1.0, (0 * 360 / 6 + pulse * 360) % 360, 0.9, 0.5).toColor(),
+          ];
+          return Container(
+            padding: const EdgeInsets.all(2.5),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: SweepGradient(colors: colors),
+            ),
+            child: child,
+          );
+        },
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(2.5),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: isSelected
+              ? theme.primaryColor
+              : (channel.isLive ? Colors.redAccent.withOpacity(0.4) : Colors.transparent),
+          width: 2.0,
+        ),
+      ),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -281,13 +334,18 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                       contentPadding: const EdgeInsets.only(left: 12, right: 4),
                                       leading: Stack(
                                         children: [
-                                          CircleAvatar(
-                                            radius: 18,
-                                            backgroundColor: const Color(0xFF1F2937),
-                                            backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
-                                            child: channel.avatarUrl == null
-                                                ? const Icon(Icons.person, size: 18, color: Colors.white70)
-                                                : null,
+                                          _buildAvatarBorder(
+                                            channel: channel,
+                                            isSelected: isSelected,
+                                            theme: theme,
+                                            child: CircleAvatar(
+                                              radius: 18,
+                                              backgroundColor: const Color(0xFF1F2937),
+                                              backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
+                                              child: channel.avatarUrl == null
+                                                  ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                                  : null,
+                                            ),
                                           ),
                                           Positioned(
                                             bottom: 0,
@@ -522,17 +580,10 @@ class _SidebarPanelState extends State<SidebarPanel> {
                   child: GestureDetector(
                     onTap: () => widget.onChannelSelected(ch),
                     onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch.username) : null,
-                    child: Container(
-                      padding: const EdgeInsets.all(2.5),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isSelected
-                              ? theme.primaryColor
-                              : (ch.isLive ? Colors.redAccent.withOpacity(0.4) : Colors.transparent),
-                          width: 2.0,
-                        ),
-                      ),
+                    child: _buildAvatarBorder(
+                      channel: ch,
+                      isSelected: isSelected,
+                      theme: theme,
                       child: Stack(
                         alignment: Alignment.bottomRight,
                         children: [

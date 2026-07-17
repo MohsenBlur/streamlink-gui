@@ -25,6 +25,12 @@ class DashboardHeader extends StatefulWidget {
 }
 
 class _DashboardHeaderState extends State<DashboardHeader> {
+  bool _isNewlyLive(TwitchChannel channel) {
+    if (channel.wentLiveTime == null) return false;
+    final diff = DateTime.now().difference(channel.wentLiveTime!);
+    return diff.inSeconds < 60;
+  }
+
   String _timeAgo(DateTime dateTime) {
     final now = DateTime.now();
     final difference = now.difference(dateTime);
@@ -254,20 +260,38 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         animation: widget.pulseController,
                         builder: (context, child) {
                           final pulseVal = widget.pulseController.value;
+                          final isNewlyLive = _isNewlyLive(widget.channel);
                           return Container(
                             padding: const EdgeInsets.all(3),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              border: Border.all(
-                                color: widget.channel.isLive
-                                    ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
-                                    : Colors.white24,
-                                width: 2.5,
-                              ),
+                              border: isNewlyLive
+                                  ? null
+                                  : Border.all(
+                                      color: widget.channel.isLive
+                                          ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
+                                          : Colors.white24,
+                                      width: 2.5,
+                                    ),
+                              gradient: isNewlyLive
+                                  ? SweepGradient(
+                                      colors: [
+                                        HSLColor.fromAHSL(1.0, (0 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
+                                        HSLColor.fromAHSL(1.0, (1 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
+                                        HSLColor.fromAHSL(1.0, (2 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
+                                        HSLColor.fromAHSL(1.0, (3 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
+                                        HSLColor.fromAHSL(1.0, (4 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
+                                        HSLColor.fromAHSL(1.0, (5 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
+                                        HSLColor.fromAHSL(1.0, (0 * 360 / 6 + pulseVal * 360) % 360, 0.9, 0.5).toColor(),
+                                      ],
+                                    )
+                                  : null,
                               boxShadow: widget.channel.isLive
                                   ? [
                                       BoxShadow(
-                                        color: Colors.redAccent.withOpacity(0.2 * pulseVal),
+                                        color: isNewlyLive
+                                            ? Colors.purpleAccent.withOpacity(0.3 * pulseVal)
+                                            : Colors.redAccent.withOpacity(0.2 * pulseVal),
                                         blurRadius: 8 + 8 * pulseVal,
                                         spreadRadius: 1 + 2 * pulseVal,
                                       )
