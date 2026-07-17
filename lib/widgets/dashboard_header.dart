@@ -229,9 +229,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     final isSmall = MediaQuery.of(context).size.width < 1180;
     
     final cardWidget = GestureDetector(
-      onTap: widget.channel.isLive ? widget.onPlay : null,
+      onTap: (widget.channel.isLive && !widget.isPlaying) ? widget.onPlay : null,
       child: MouseRegion(
-        cursor: widget.channel.isLive ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        cursor: (widget.channel.isLive && !widget.isPlaying) ? SystemMouseCursors.click : SystemMouseCursors.basic,
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(

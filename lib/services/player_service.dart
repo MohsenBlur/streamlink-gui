@@ -642,6 +642,9 @@ class PlayerService {
   }
 
   Future<void> launchStreamlinkForLive(String channelName, bool isLive, String? streamTitle, String? game, AppSettings settings) async {
+    if (runningChannels.contains(channelName)) {
+      return;
+    }
     String titleString = channelName;
     if (isLive) {
       final titleText = streamTitle ?? 'Live Stream';
