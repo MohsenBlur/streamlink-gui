@@ -1246,91 +1246,100 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final isNarrow = mediaQuery.size.width < 700;
     final effectiveSidebarCollapsed = (isNarrow || isVertical) ? true : _sidebarCollapsed;
     
-    return Scaffold(
-      body: Row(
-        children: [
-          // Sidebar Panel Widget
-          SidebarPanel(
-            channels: _channels,
-            followedChannels: _followedChannels,
-            selectedChannel: _selectedChannel,
-            settings: _settings,
-            sidebarCollapsed: effectiveSidebarCollapsed,
-            sidebarTab: _sidebarTab,
-            isAdding: _isAdding,
-            isGlobalLoading: _isGlobalLoading,
-            isLoadingFollowed: _isLoadingFollowed,
-            authenticatedUserLogin: _authenticatedUserLogin,
-            authenticatedUserAvatar: _authenticatedUserAvatar,
-            pulseController: _pulseController!,
-            searchController: _searchController,
-            onChannelSelected: (channel) {
-              setState(() {
-                _selectedChannel = channel;
-                _channelVods.clear();
-                _selectedGamesFilter.clear();
-                _vodsError = null;
-              });
-              if (_settings.twitchOauthToken.trim().isNotEmpty) {
-                _fetchVodsForChannel(channel);
-              }
-            },
-            onChannelDoubleTapped: (username) {
-              if (_playerService.runningChannels.contains(username)) return;
-              _playerService.launchStreamlinkForLive(
-                username,
-                _selectedChannel?.isLive ?? false,
-                _selectedChannel?.streamTitle,
-                _selectedChannel?.game,
-                _settings
-              );
-            },
-            onAddChannel: _addChannel,
-            onToggleFavorite: _toggleFavorite,
-            onToggleCollapse: (collapsed) {
-              setState(() {
-                _sidebarCollapsed = collapsed;
-                _settings.sidebarCollapsed = collapsed;
-              });
-              _saveChannels();
-            },
-            onTabChanged: (tabIdx) {
-              setState(() {
-                _sidebarTab = tabIdx;
-                _settings.activeSidebarTab = tabIdx;
-              });
-              _saveChannels();
-              if (tabIdx == 1 && _followedChannels.isEmpty && !_isLoadingFollowed) {
-                _loadFollowedChannels();
-              }
-            },
-            onRefresh: () async {
-              if (_sidebarTab == 0) {
-                await _refreshAllChannels();
-              } else if (_sidebarTab == 1) {
-                await _loadFollowedChannels();
-              } else {
-                await Future.wait([
-                  _refreshAllChannels(),
-                  _loadFollowedChannels(),
-                ]);
-              }
-            },
-            onShowSettings: _showSettingsDialog,
-            buildLivePreviewPopup: _buildLivePreviewPopup,
-          ),
-          
-          // Main Content Area
-          Expanded(
-            child: Container(
-              color: const Color(0xFF0C0F17),
-              child: _selectedChannel == null
-                  ? _buildWelcomeScreen(theme)
-                  : _buildDashboard(theme, _selectedChannel!),
-            ),
-          ),
-        ],
+    final sidebar = SidebarPanel(
+      channels: _channels,
+      followedChannels: _followedChannels,
+      selectedChannel: _selectedChannel,
+      settings: _settings,
+      sidebarCollapsed: effectiveSidebarCollapsed,
+      isHorizontal: isVertical,
+      sidebarTab: _sidebarTab,
+      isAdding: _isAdding,
+      isGlobalLoading: _isGlobalLoading,
+      isLoadingFollowed: _isLoadingFollowed,
+      authenticatedUserLogin: _authenticatedUserLogin,
+      authenticatedUserAvatar: _authenticatedUserAvatar,
+      pulseController: _pulseController!,
+      searchController: _searchController,
+      onChannelSelected: (channel) {
+        setState(() {
+          _selectedChannel = channel;
+          _channelVods.clear();
+          _selectedGamesFilter.clear();
+          _vodsError = null;
+        });
+        if (_settings.twitchOauthToken.trim().isNotEmpty) {
+          _fetchVodsForChannel(channel);
+        }
+      },
+      onChannelDoubleTapped: (username) {
+        if (_playerService.runningChannels.contains(username)) return;
+        _playerService.launchStreamlinkForLive(
+          username,
+          _selectedChannel?.isLive ?? false,
+          _selectedChannel?.streamTitle,
+          _selectedChannel?.game,
+          _settings
+        );
+      },
+      onAddChannel: _addChannel,
+      onToggleFavorite: _toggleFavorite,
+      onToggleCollapse: (collapsed) {
+        setState(() {
+          _sidebarCollapsed = collapsed;
+          _settings.sidebarCollapsed = collapsed;
+        });
+        _saveChannels();
+      },
+      onTabChanged: (tabIdx) {
+        setState(() {
+          _sidebarTab = tabIdx;
+          _settings.activeSidebarTab = tabIdx;
+        });
+        _saveChannels();
+        if (tabIdx == 1 && _followedChannels.isEmpty && !_isLoadingFollowed) {
+          _loadFollowedChannels();
+        }
+      },
+      onRefresh: () async {
+        if (_sidebarTab == 0) {
+          await _refreshAllChannels();
+        } else if (_sidebarTab == 1) {
+          await _loadFollowedChannels();
+        } else {
+          await Future.wait([
+            _refreshAllChannels(),
+            _loadFollowedChannels(),
+          ]);
+        }
+      },
+      onShowSettings: _showSettingsDialog,
+      buildLivePreviewPopup: _buildLivePreviewPopup,
+    );
+
+    final contentArea = Expanded(
+      child: Container(
+        color: const Color(0xFF0C0F17),
+        child: _selectedChannel == null
+            ? _buildWelcomeScreen(theme)
+            : _buildDashboard(theme, _selectedChannel!),
       ),
+    );
+
+    return Scaffold(
+      body: isVertical
+          ? Column(
+              children: [
+                sidebar,
+                contentArea,
+              ],
+            )
+          : Row(
+              children: [
+                sidebar,
+                contentArea,
+              ],
+            ),
     );
   }
 

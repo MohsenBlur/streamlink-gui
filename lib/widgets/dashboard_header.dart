@@ -595,11 +595,38 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                           child: playButton,
                         ),
                         const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
-                          alignment: WrapAlignment.center,
-                          children: statsChips,
+                        HoverOverlayMenu(
+                          trigger: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: _buildHeaderChip(
+                              icon: Icons.analytics,
+                              color: theme.primaryColor,
+                              label: 'Channel Stats',
+                            ),
+                          ),
+                          menu: Container(
+                            width: 200,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF161B26),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFF1E2433)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.5),
+                                  blurRadius: 10,
+                                )
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: statsChips.map((chip) => Padding(
+                                padding: const EdgeInsets.only(bottom: 6.0),
+                                child: chip,
+                              )).toList(),
+                            ),
+                          ),
                         ),
                       ],
                     )

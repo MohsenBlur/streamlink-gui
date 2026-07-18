@@ -4,6 +4,7 @@ import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
+import 'package:flutter/gestures.dart';
 
 class SidebarPanel extends StatefulWidget {
   final List<TwitchChannel> channels;
@@ -11,6 +12,7 @@ class SidebarPanel extends StatefulWidget {
   final TwitchChannel? selectedChannel;
   final AppSettings settings;
   final bool sidebarCollapsed;
+  final bool isHorizontal;
   final int sidebarTab;
   final bool isAdding;
   final bool isGlobalLoading;
@@ -37,6 +39,7 @@ class SidebarPanel extends StatefulWidget {
     required this.selectedChannel,
     required this.settings,
     required this.sidebarCollapsed,
+    required this.isHorizontal,
     required this.sidebarTab,
     required this.isAdding,
     required this.isGlobalLoading,
@@ -61,6 +64,20 @@ class SidebarPanel extends StatefulWidget {
 }
 
 class _SidebarPanelState extends State<SidebarPanel> {
+  late ScrollController _horizontalScrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _horizontalScrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _horizontalScrollController.dispose();
+    super.dispose();
+  }
+
   bool _isNewlyLive(TwitchChannel channel) {
     if (channel.wentLiveTime == null) return false;
     final diff = DateTime.now().difference(channel.wentLiveTime!);
@@ -99,6 +116,11 @@ class _SidebarPanelState extends State<SidebarPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    
+    if (widget.isHorizontal) {
+      return _buildHorizontalTopBar(theme);
+    }
+    
     final sidebarWidth = widget.sidebarCollapsed ? 70.0 : 280.0;
 
     return Container(
@@ -742,5 +764,186 @@ class _SidebarPanelState extends State<SidebarPanel> {
     }
     liveList.sort((a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()));
     return liveList;
+  }
+
+  Widget _buildHorizontalTopBar(ThemeData theme) {
+    final activeList = _getListToDisplay();
+
+    return Container(
+      height: 60,
+      width: double.infinity,
+      color: const Color(0xFF111420),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Tooltip(
+            message: 'Expand sidebar',
+            child: IconButton(
+              icon: const Icon(Icons.keyboard_double_arrow_down, color: Colors.white70, size: 22),
+              onPressed: () => widget.onToggleCollapse(false),
+              hoverColor: theme.primaryColor.withOpacity(0.2),
+              splashRadius: 20,
+            ),
+          ),
+          const SizedBox(width: 8),
+          (() {
+            bool isHovered = false;
+            return StatefulBuilder(
+              builder: (context, setHoverState) {
+                return MouseRegion(
+                  onEnter: (_) => setHoverState(() => isHovered = true),
+                  onExit: (_) => setHoverState(() => isHovered = false),
+                  child: Tooltip(
+                    message: widget.sidebarTab == 0
+                        ? "Favorites\nSwitch to Followed"
+                        : (widget.sidebarTab == 1 ? "Followed List\nSwitch to Live" : "Live Channels\nSwitch to Favorites"),
+                    waitDuration: Duration.zero,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          widget.onTabChanged((widget.sidebarTab + 1) % 3);
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: theme.primaryColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: theme.primaryColor, width: 1.5),
+                          ),
+                          child: Icon(
+                            isHovered
+                                ? Icons.swap_horiz
+                                : (widget.sidebarTab == 0
+                                    ? Icons.star
+                                    : (widget.sidebarTab == 1 ? Icons.people : Icons.live_tv)),
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          })(),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: widget.sidebarTab == 0
+                ? 'Refresh Favorites'
+                : (widget.sidebarTab == 1 ? 'Refresh Followed List' : 'Refresh Live'),
+            child: IconButton(
+              icon: widget.isGlobalLoading || widget.isLoadingFollowed
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.refresh, color: Colors.white70, size: 18),
+              onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
+              hoverColor: theme.primaryColor.withOpacity(0.2),
+              splashRadius: 20,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(width: 1, height: 24, color: const Color(0xFF1E2433)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Listener(
+              onPointerSignal: (pointerSignal) {
+                if (pointerSignal is PointerScrollEvent) {
+                  GestureBinding.instance.pointerSignalResolver.register(pointerSignal, (event) {
+                    if (event is PointerScrollEvent && _horizontalScrollController.hasClients) {
+                      final delta = event.scrollDelta.dy != 0.0
+                          ? event.scrollDelta.dy
+                          : event.scrollDelta.dx;
+                      if (delta != 0.0) {
+                        final newOffset = (_horizontalScrollController.offset + delta).clamp(
+                          0.0,
+                          _horizontalScrollController.position.maxScrollExtent,
+                        );
+                        _horizontalScrollController.jumpTo(newOffset);
+                      }
+                    }
+                  });
+                }
+              },
+              child: ListView.builder(
+                controller: _horizontalScrollController,
+                scrollDirection: Axis.horizontal,
+                itemCount: activeList.length,
+                itemBuilder: (context, index) {
+                  final ch = activeList[index];
+                  final isSelected = widget.selectedChannel?.username == ch.username;
+                  
+                  final itemWidget = Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    child: Tooltip(
+                      message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
+                      child: GestureDetector(
+                        onTap: () => widget.onChannelSelected(ch),
+                        onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch.username) : null,
+                        child: _buildAvatarBorder(
+                          channel: ch,
+                          isSelected: isSelected,
+                          theme: theme,
+                          child: Stack(
+                            alignment: Alignment.bottomRight,
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: const Color(0xFF1F2937),
+                                backgroundImage: ch.avatarUrl != null ? NetworkImage(ch.avatarUrl!) : null,
+                                child: ch.avatarUrl == null
+                                    ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                    : null,
+                              ),
+                              if (ch.isLive)
+                                Positioned(
+                                  bottom: 0,
+                                  right: 0,
+                                  child: Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: const Color(0xFF111420), width: 1),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+
+                  return ch.isLive
+                      ? HoverOverlayMenu(
+                          trigger: itemWidget,
+                          menu: widget.buildLivePreviewPopup(ch),
+                        )
+                      : itemWidget;
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(width: 1, height: 24, color: const Color(0xFF1E2433)),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.white70, size: 20),
+            tooltip: 'Settings',
+            onPressed: widget.onShowSettings,
+            hoverColor: theme.primaryColor.withOpacity(0.2),
+            splashRadius: 20,
+          ),
+        ],
+      ),
+    );
   }
 }
