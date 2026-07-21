@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.17';
+  static const String currentVersion = '1.0.18';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -243,7 +243,8 @@ if %errorLevel% NEQ 0 (
 )
 
 title Twitch Streamlink GUI - Application Self-Updater
-powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "$ps1Path" -AppPid $currentPid -AppDir "$appDir" -SourceDir "${sourceDir.path}" -BackupDir "$backupDir" -ExePath "${exeFile.path}"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ps1Path" -AppPid $currentPid -AppDir "$appDir" -SourceDir "${sourceDir.path}" -BackupDir "$backupDir" -ExePath "${exeFile.path}"
+exit /b 0
 ''';
 
     final batFile = File(batPath);
