@@ -19,6 +19,7 @@ import 'widgets/dashboard_header.dart';
 import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
+import 'widgets/interactive_popover.dart';
 import 'utils/color_utils.dart';
 import 'utils/process_monitor.dart';
 
@@ -1834,12 +1835,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Widget _buildDashboard(ThemeData theme, TwitchChannel channel) {
     final isSmall = MediaQuery.of(context).size.width < 1180;
+    final isCompact = MediaQuery.of(context).size.width < 700 || MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
     return Column(
       children: [
         // Main Dashboard Body
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(isCompact ? 12 : 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1865,7 +1867,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 
                 // VOD section (if OAuth token present)
                 if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
-                  const SizedBox(height: 32),
+                  SizedBox(height: isCompact ? 12 : 32),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1983,8 +1985,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             ? Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  HoverOverlayMenu(
-                                    trigger: MouseRegion(
+                                  InteractivePopover(
+                                    popover: _buildVodsSettingMenu(theme),
+                                    child: MouseRegion(
                                       cursor: SystemMouseCursors.click,
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -2003,7 +2006,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                         ),
                                       ),
                                     ),
-                                    menu: _buildVodsSettingMenu(theme),
                                   ),
                                 ],
                               )
