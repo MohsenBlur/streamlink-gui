@@ -5,7 +5,7 @@ class AppSettings {
   bool twitchLowLatency = true;
   String twitchOauthToken = '';
   String twitchWebOauthToken = '';
-  String playerType = 'default';
+  String playerType = 'default'; // 'default', 'vlc', 'mpv', 'mpc-hc', 'custom'
   String customPlayerPath = '';
   String customPlayerArgs = '';
   String twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
@@ -22,6 +22,14 @@ class AppSettings {
   List<dynamic> unfinishedDownloads = const [];
   int maxRecentlyWatched = 8;
   int activeSidebarTab = 0;
+
+  // Window bounds & UI state persistence
+  double windowWidth = 1280.0;
+  double windowHeight = 720.0;
+  double? windowX;
+  double? windowY;
+  bool isWindowMaximized = false;
+  bool showGamesOnThumbnails = true;
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -45,6 +53,12 @@ class AppSettings {
     this.unfinishedDownloads = const [],
     this.maxRecentlyWatched = 8,
     this.activeSidebarTab = 0,
+    this.windowWidth = 1280.0,
+    this.windowHeight = 720.0,
+    this.windowX,
+    this.windowY,
+    this.isWindowMaximized = false,
+    this.showGamesOnThumbnails = true,
   }) {
     if (vodDownloadFolder.isEmpty) {
       if (Platform.environment['USERPROFILE'] != null) {
@@ -79,6 +93,12 @@ class AppSettings {
         'unfinished_downloads': unfinishedDownloads,
         'max_recently_watched': maxRecentlyWatched,
         'active_sidebar_tab': activeSidebarTab,
+        'window_width': windowWidth,
+        'window_height': windowHeight,
+        'window_x': windowX,
+        'window_y': windowY,
+        'is_window_maximized': isWindowMaximized,
+        'show_games_on_thumbnails': showGamesOnThumbnails,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -103,5 +123,11 @@ class AppSettings {
         unfinishedDownloads: json['unfinished_downloads'] ?? const [],
         maxRecentlyWatched: json['max_recently_watched'] ?? 8,
         activeSidebarTab: json['active_sidebar_tab'] ?? 0,
+        windowWidth: (json['window_width'] as num?)?.toDouble() ?? 1280.0,
+        windowHeight: (json['window_height'] as num?)?.toDouble() ?? 720.0,
+        windowX: (json['window_x'] as num?)?.toDouble(),
+        windowY: (json['window_y'] as num?)?.toDouble(),
+        isWindowMaximized: json['is_window_maximized'] ?? false,
+        showGamesOnThumbnails: json['show_games_on_thumbnails'] ?? true,
       );
 }

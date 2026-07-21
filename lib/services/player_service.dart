@@ -90,6 +90,57 @@ class PlayerService {
     return port;
   }
 
+  String? findVlcPath() {
+    final candidates = [
+      _getExecutablePath('vlc'),
+      r'C:\Program Files\VideoLAN\VLC\vlc.exe',
+      r'C:\Program Files (x86)\VideoLAN\VLC\vlc.exe',
+    ];
+    for (final p in candidates) {
+      if (p != 'vlc' && File(p).existsSync()) return p;
+    }
+    return null;
+  }
+
+  String? findMpvPath() {
+    final candidates = [
+      _getExecutablePath('mpv'),
+      r'C:\Program Files\mpv\mpv.exe',
+      r'C:\Program Files (x86)\mpv\mpv.exe',
+    ];
+    for (final p in candidates) {
+      if (p != 'mpv' && File(p).existsSync()) return p;
+    }
+    return null;
+  }
+
+  String? findMpcHcPath() {
+    final candidates = [
+      _getExecutablePath('mpc-hc64'),
+      _getExecutablePath('mpc-hc'),
+      r'C:\Program Files\MPC-HC\mpc-hc64.exe',
+      r'C:\Program Files\MPC-HC\mpc-hc.exe',
+      r'C:\Program Files (x86)\MPC-HC\mpc-hc.exe',
+      r'C:\Program Files (x86)\K-Lite Codec Pack\MPC-HC64\mpc-hc64.exe',
+      r'C:\Program Files (x86)\K-Lite Codec Pack\MPC-HC\mpc-hc.exe',
+    ];
+    for (final p in candidates) {
+      if (p != 'mpc-hc64' && p != 'mpc-hc' && File(p).existsSync()) return p;
+    }
+    return null;
+  }
+
+  Map<String, bool> detectInstalledPlayers(AppSettings settings) {
+    return {
+      'vlc': findVlcPath() != null,
+      'mpv': findMpvPath() != null,
+      'mpc-hc': findMpcHcPath() != null,
+      'default': true,
+      'custom': settings.customPlayerPath.trim().isNotEmpty &&
+          File(settings.customPlayerPath.trim().replaceAll('"', '')).existsSync(),
+    };
+  }
+
   void log(String key, String line) {
     onPlayerLog?.call(key, line);
   }
@@ -442,8 +493,19 @@ class PlayerService {
     final key = vod.id;
     final title = 'Local: ${vod.title}';
 
-    if (settings.playerType == 'vlc') {
-      exe = 'vlc';
+    String effectivePlayerType = settings.playerType;
+    if (effectivePlayerType == 'default') {
+      if (findVlcPath() != null) {
+        effectivePlayerType = 'vlc';
+      } else if (findMpvPath() != null) {
+        effectivePlayerType = 'mpv';
+      } else if (findMpcHcPath() != null) {
+        effectivePlayerType = 'mpc-hc';
+      }
+    }
+
+    if (effectivePlayerType == 'vlc') {
+      exe = findVlcPath() ?? 'vlc';
       if (finalSeek > 0) {
         args.add('--start-time=$finalSeek');
       }
@@ -451,11 +513,11 @@ class PlayerService {
         '--extraintf=http',
         '--http-port=$port',
         '--http-password=streamlink',
-        '--http-host=127.0.0.1' // Bind securely to loopback
+        '--http-host=127.0.0.1'
       ]);
       args.add(path);
-    } else if (settings.playerType == 'mpv') {
-      exe = 'mpv';
+    } else if (effectivePlayerType == 'mpv') {
+      exe = findMpvPath() ?? 'mpv';
       if (finalSeek > 0) {
         args.add('--start=$finalSeek');
       }
@@ -465,7 +527,14 @@ class PlayerService {
         args.add('--input-ipc-server=/tmp/mpv-socket-$key');
       }
       args.add(path);
-    } else if (settings.playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
+    } else if (effectivePlayerType == 'mpc-hc') {
+      exe = findMpcHcPath() ?? 'mpc-hc64';
+      if (finalSeek > 0) {
+        args.addAll(['/start', '${finalSeek * 1000}']);
+      }
+      args.addAll(['/webport', '$port']);
+      args.add(path);
+    } else if (effectivePlayerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
       exe = settings.customPlayerPath.trim().replaceAll('"', '');
       final lowerPath = exe.toLowerCase();
       if (lowerPath.contains('vlc')) {
@@ -487,11 +556,16 @@ class PlayerService {
         } else {
           args.add('--input-ipc-server=/tmp/mpv-socket-$key');
         }
+      } else if (lowerPath.contains('mpc')) {
+        if (finalSeek > 0) {
+          args.addAll(['/start', '${finalSeek * 1000}']);
+        }
+        args.addAll(['/webport', '$port']);
       }
       args.add(path);
     } else {
       exe = 'cmd';
-      args.addAll(['/c', 'start', '""', path]);
+      args.addAll(['/c', 'start', '/WAIT', '""', path]);
     }
 
     try {
@@ -562,7 +636,7 @@ class PlayerService {
     final title = 'VOD: ${vod.title}';
 
     if (settings.playerType == 'vlc') {
-      args.addAll(['--player', 'vlc']);
+      args.addAll(['--player', findVlcPath() ?? 'vlc']);
       extraArgsList.addAll([
         '--extraintf=http',
         '--http-port=$port',
@@ -570,12 +644,15 @@ class PlayerService {
         '--http-host=127.0.0.1'
       ]);
     } else if (settings.playerType == 'mpv') {
-      args.addAll(['--player', 'mpv']);
+      args.addAll(['--player', findMpvPath() ?? 'mpv']);
       if (Platform.isWindows) {
         extraArgsList.add('--input-ipc-server=\\\\.\\pipe\\mpv-socket-$key');
       } else {
         extraArgsList.add('--input-ipc-server=/tmp/mpv-socket-$key');
       }
+    } else if (settings.playerType == 'mpc-hc') {
+      args.addAll(['--player', findMpcHcPath() ?? 'mpc-hc64']);
+      extraArgsList.addAll(['/webport', '$port']);
     } else if (settings.playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
       args.addAll(['--player', settings.customPlayerPath.trim()]);
       final lowerPath = settings.customPlayerPath.toLowerCase();
@@ -592,6 +669,8 @@ class PlayerService {
         } else {
           extraArgsList.add('--input-ipc-server=/tmp/mpv-socket-$key');
         }
+      } else if (lowerPath.contains('mpc')) {
+        extraArgsList.addAll(['/webport', '$port']);
       }
     }
 
@@ -715,9 +794,11 @@ class PlayerService {
     }
 
     if (settings.playerType == 'vlc') {
-      args.addAll(['--player', 'vlc']);
+      args.addAll(['--player', findVlcPath() ?? 'vlc']);
     } else if (settings.playerType == 'mpv') {
-      args.addAll(['--player', 'mpv']);
+      args.addAll(['--player', findMpvPath() ?? 'mpv']);
+    } else if (settings.playerType == 'mpc-hc') {
+      args.addAll(['--player', findMpcHcPath() ?? 'mpc-hc64']);
     } else if (settings.playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
       args.addAll(['--player', settings.customPlayerPath.trim()]);
     }
@@ -789,9 +870,14 @@ class PlayerService {
 
     final timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
       final isVlc = settings.playerType == 'vlc' || 
-          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('vlc'));
+          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('vlc')) ||
+          (settings.playerType == 'default' && findVlcPath() != null);
       final isMpv = settings.playerType == 'mpv' || 
-          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('mpv'));
+          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('mpv')) ||
+          (settings.playerType == 'default' && findVlcPath() == null && findMpvPath() != null);
+      final isMpc = settings.playerType == 'mpc-hc' || 
+          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('mpc')) ||
+          (settings.playerType == 'default' && findVlcPath() == null && findMpvPath() == null && findMpcHcPath() != null);
 
       if (isVlc) {
         try {
@@ -860,6 +946,29 @@ class PlayerService {
               if ((rounded - lastSynced).abs() >= 1) {
                 lastSynced = rounded;
                 _syncProgress(vod, rounded, webToken);
+              }
+            }
+          }
+        } catch (_) {}
+      } else if (isMpc) {
+        try {
+          final response = await http.get(
+            Uri.parse('http://127.0.0.1:$port/variables.html'),
+          ).timeout(const Duration(seconds: 2));
+
+          if (response.statusCode == 200) {
+            final html = response.body;
+            final posMatch = RegExp(r'id="position">(\d+)<').firstMatch(html);
+            final stateMatch = RegExp(r'id="statestring">([^<]+)<').firstMatch(html);
+
+            final state = stateMatch?.group(1);
+            final posMs = posMatch != null ? int.tryParse(posMatch.group(1)!) : null;
+
+            if (state != null && state.toLowerCase().contains('play') && posMs != null && posMs > 0) {
+              final seconds = (posMs / 1000).round();
+              if ((seconds - lastSynced).abs() >= 1) {
+                lastSynced = seconds;
+                _syncProgress(vod, seconds, webToken);
               }
             }
           }

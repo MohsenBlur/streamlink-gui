@@ -58,14 +58,29 @@ void main() async {
 
   await windowManager.ensureInitialized();
 
-  WindowOptions windowOptions = const WindowOptions(
-    size: Size(1280, 720),
-    center: true,
+  final config = await StorageService().loadConfig();
+  AppSettings settings = AppSettings();
+  if (config != null && config['settings'] is Map<String, dynamic>) {
+    settings = AppSettings.fromJson(config['settings']);
+  }
+
+  final bool shouldCenter = settings.windowX == null || settings.windowY == null;
+
+  WindowOptions windowOptions = WindowOptions(
+    size: Size(settings.windowWidth, settings.windowHeight),
+    center: shouldCenter,
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.normal,
   );
+
   windowManager.waitUntilReadyToShow(windowOptions, () async {
+    if (!shouldCenter) {
+      await windowManager.setPosition(Offset(settings.windowX!, settings.windowY!));
+    }
+    if (settings.isWindowMaximized) {
+      await windowManager.maximize();
+    }
     await windowManager.show();
     await windowManager.focus();
     await windowManager.setPreventClose(true);
@@ -423,6 +438,41 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     await windowManager.destroy();
   }
 
+  Future<void> _saveWindowState() async {
+    try {
+      final isMaximized = await windowManager.isMaximized();
+      if (!isMaximized) {
+        final bounds = await windowManager.getBounds();
+        _settings.windowWidth = bounds.width;
+        _settings.windowHeight = bounds.height;
+        _settings.windowX = bounds.left;
+        _settings.windowY = bounds.top;
+      }
+      _settings.isWindowMaximized = isMaximized;
+      await _saveChannels();
+    } catch (_) {}
+  }
+
+  @override
+  void onWindowResized() {
+    _saveWindowState();
+  }
+
+  @override
+  void onWindowMoved() {
+    _saveWindowState();
+  }
+
+  @override
+  void onWindowMaximize() {
+    _saveWindowState();
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    _saveWindowState();
+  }
+
   @override
   void onWindowClose() async {
     final isPreventClose = await windowManager.isPreventClose();
@@ -604,6 +654,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             _settings = AppSettings.fromJson(settingsJson);
             _sidebarCollapsed = _settings.sidebarCollapsed;
             _sidebarTab = _settings.activeSidebarTab;
+            _showGamesOnThumbnails = _settings.showGamesOnThumbnails;
              
             if (_settings.unfinishedDownloads.isNotEmpty) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2035,7 +2086,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                             onChanged: (val) {
                                               setState(() {
                                                 _showGamesOnThumbnails = val;
+                                                _settings.showGamesOnThumbnails = val;
                                               });
+                                              _saveChannels();
                                             },
                                           ),
                                         ),
@@ -2378,7 +2431,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         onChanged: (val) {
                           setState(() {
                             _showGamesOnThumbnails = val;
+                            _settings.showGamesOnThumbnails = val;
                           });
+                          _saveChannels();
                           setMenuState(() {});
                         },
                       ),

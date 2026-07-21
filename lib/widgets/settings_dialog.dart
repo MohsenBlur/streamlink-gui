@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import '../models/app_settings.dart';
+import '../services/player_service.dart';
 import '../utils/color_utils.dart';
 
 // Abstract theme notifier interface to break dependencies
@@ -460,11 +461,92 @@ class SettingsDialog {
                               decoration: const InputDecoration(
                                 contentPadding: EdgeInsets.symmetric(horizontal: 12),
                               ),
-                              items: const [
-                                DropdownMenuItem(value: 'default', child: Text('Default System Player')),
-                                DropdownMenuItem(value: 'vlc', child: Text('VLC Media Player')),
-                                DropdownMenuItem(value: 'mpv', child: Text('MPV Player')),
-                                DropdownMenuItem(value: 'custom', child: Text('Custom Executable Path')),
+                              items: [
+                                DropdownMenuItem(
+                                  value: 'default',
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Default System Player'),
+                                      const SizedBox(width: 8),
+                                      Text('(Available)', style: TextStyle(fontSize: 10, color: Colors.greenAccent.shade200, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'vlc',
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('VLC Media Player'),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        PlayerService().detectInstalledPlayers(settings)['vlc'] == true ? '(Detected)' : '(Not Found)',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: PlayerService().detectInstalledPlayers(settings)['vlc'] == true ? Colors.greenAccent : Colors.redAccent.shade100,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'mpv',
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('MPV Player'),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        PlayerService().detectInstalledPlayers(settings)['mpv'] == true ? '(Detected)' : '(Not Found)',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: PlayerService().detectInstalledPlayers(settings)['mpv'] == true ? Colors.greenAccent : Colors.redAccent.shade100,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'mpc-hc',
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('MPC-HC Player'),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        PlayerService().detectInstalledPlayers(settings)['mpc-hc'] == true ? '(Detected)' : '(Not Found)',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: PlayerService().detectInstalledPlayers(settings)['mpc-hc'] == true ? Colors.greenAccent : Colors.redAccent.shade100,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'custom',
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Custom Executable Path'),
+                                      if (settings.customPlayerPath.trim().isNotEmpty) ...[
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          PlayerService().detectInstalledPlayers(settings)['custom'] == true ? '(Valid Path)' : '(File Missing)',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: PlayerService().detectInstalledPlayers(settings)['custom'] == true ? Colors.greenAccent : Colors.redAccent.shade100,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
                               ],
                               onChanged: (val) {
                                 if (val != null) {
