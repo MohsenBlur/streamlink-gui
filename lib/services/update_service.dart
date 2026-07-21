@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.22';
+  static const String currentVersion = '1.0.23';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -226,7 +226,25 @@ Write-Host ""
 Write-Host "[4/4] Launching updated Twitch Streamlink GUI..." -ForegroundColor Green
 Start-Process "explorer.exe" -ArgumentList "`"\$ExePath`""
 Start-Sleep -Seconds 1
-exit 0
+
+# Force-close parent cmd, OpenConsole, and WindowsTerminal host processes to ensure no empty terminal windows remain
+try {
+    \$currentPid = \$PID
+    \$parentPid = (Get-CimInstance Win32_Process -Filter "ProcessId = \$currentPid").ParentProcessId
+    while (\$parentPid) {
+        \$proc = Get-Process -Id \$parentPid -ErrorAction SilentlyContinue
+        if (\$null -eq \$proc) { break }
+        \$procName = \$proc.ProcessName
+        \$nextParentPid = (Get-CimInstance Win32_Process -Filter "ProcessId = \$parentPid").ParentProcessId
+        if (\$procName -eq "cmd" -or \$procName -eq "powershell" -or \$procName -eq "OpenConsole" -or \$procName -eq "WindowsTerminal") {
+            Stop-Process -Id \$parentPid -Force -ErrorAction SilentlyContinue
+        }
+        if (\$procName -eq "WindowsTerminal" -or \$procName -eq "explorer") { break }
+        \$parentPid = \$nextParentPid
+    }
+} catch {}
+
+[System.Environment]::Exit(0)
 ''';
 
     final ps1File = File(ps1Path);
