@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.6';
+  static const String currentVersion = '1.0.7';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -126,7 +126,6 @@ class UpdateService {
     }
     extractDir.createSync(recursive: true);
 
-    bool hasExe = false;
     for (final file in archive) {
       final filename = file.name;
       if (file.isFile) {
@@ -134,75 +133,98 @@ class UpdateService {
         final outFile = File(path.join(extractDir.path, filename));
         outFile.parent.createSync(recursive: true);
         outFile.writeAsBytesSync(data);
-
-        if (path.basename(filename).toLowerCase() == 'streamlink_gui.exe') {
-          hasExe = true;
-        }
       } else {
         Directory(path.join(extractDir.path, filename)).createSync(recursive: true);
       }
     }
 
-    if (!hasExe) {
+    final exeMatches = extractDir
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => path.basename(f.path).toLowerCase() == 'streamlink_gui.exe')
+        .toList();
+
+    if (exeMatches.isEmpty) {
       throw Exception('Downloaded update archive does not contain streamlink_gui.exe!');
     }
 
-    return extractDir;
+    return exeMatches.first.parent;
   }
 
-  Future<void> applyUpdateAndRestart(Directory extractDir) async {
+  Future<void> applyUpdateAndRestart(Directory sourceDir) async {
     final exeFile = File(Platform.resolvedExecutable);
     final appDir = exeFile.parent.path;
     final currentPid = pid;
 
-    final tempDir = extractDir.parent.path;
+    final tempDir = sourceDir.parent.path;
     final backupDir = path.join(tempDir, 'backup');
-    final batPath = path.join(tempDir, 'updater.bat');
+    final ps1Path = path.join(tempDir, 'updater.ps1');
 
-    // Create space-quoted, fail-safe Windows batch updater script with atomic backup & rollback
-    final scriptContent = '''@echo off
-setlocal enabledelayedexpansion
-set "APP_PID=$currentPid"
-set "APP_DIR=$appDir"
-set "EXTRACT_DIR=${extractDir.path}"
-set "BACKUP_DIR=$backupDir"
-set "EXE_PATH=${exeFile.path}"
-
-:wait_loop
-taskkill /F /PID %APP_PID% >NUL 2>&1
-timeout /t 1 /nobreak >NUL
-tasklist /FI "PID eq %APP_PID%" 2>NUL | find /I "%APP_PID%" >NUL
-if %ERRORLEVEL%==0 goto wait_loop
-
-if exist "%BACKUP_DIR%" rmdir /S /Q "%BACKUP_DIR%"
-mkdir "%BACKUP_DIR%"
-xcopy /E /Y /Q "%APP_DIR%\\*" "%BACKUP_DIR%\\" >NUL
-
-xcopy /E /Y /Q "%EXTRACT_DIR%\\*" "%APP_DIR%\\" >NUL
-if %ERRORLEVEL% neq 0 (
-    xcopy /E /Y /Q "%BACKUP_DIR%\\*" "%APP_DIR%\\" >NUL
-    start "" "%EXE_PATH%"
-    exit /b 1
+    final scriptContent = '''
+param(
+    [int]\$AppPid,
+    [string]\$AppDir,
+    [string]\$SourceDir,
+    [string]\$BackupDir,
+    [string]\$ExePath
 )
 
-rmdir /S /Q "%BACKUP_DIR%" >NUL 2>&1
-rmdir /S /Q "%EXTRACT_DIR%" >NUL 2>&1
+# 1. Wait for parent process to fully terminate
+\$maxWait = 10
+while (\$maxWait -gt 0 -and (Get-Process -Id \$AppPid -ErrorAction SilentlyContinue)) {
+    Stop-Process -Id \$AppPid -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+    \$maxWait--
+}
 
-start "" "%EXE_PATH%"
-exit /b 0
+Start-Sleep -Seconds 1
+
+# 2. Create atomic backup
+try {
+    if (Test-Path \$BackupDir) { Remove-Item -Path \$BackupDir -Recurse -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Path \$BackupDir -Force | Out-Null
+    Copy-Item -Path "\$AppDir\\*" -Destination \$BackupDir -Recurse -Force -ErrorAction Stop
+} catch {
+    Start-Process -FilePath \$ExePath
+    exit 1
+}
+
+# 3. Apply update files
+try {
+    Copy-Item -Path "\$SourceDir\\*" -Destination \$AppDir -Recurse -Force -ErrorAction Stop
+    Remove-Item -Path \$BackupDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path \$SourceDir -Recurse -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath \$ExePath
+    exit 0
+} catch {
+    # Rollback on copy failure
+    Copy-Item -Path "\$BackupDir\\*" -Destination \$AppDir -Recurse -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath \$ExePath
+    exit 1
+}
 ''';
 
-    final batFile = File(batPath);
-    await batFile.writeAsString(scriptContent);
+    final ps1File = File(ps1Path);
+    await ps1File.writeAsString(scriptContent);
 
-    // Launch updater script in detached shell
+    // Launch PowerShell updater in background detached window
     await Process.start(
-      'cmd.exe',
-      ['/c', 'start', '/min', batPath, currentPid.toString(), appDir, extractDir.path, backupDir],
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-WindowStyle', 'Hidden',
+        '-File', ps1Path,
+        currentPid.toString(),
+        appDir,
+        sourceDir.path,
+        backupDir,
+        exeFile.path,
+      ],
       runInShell: false,
     );
 
-    // Terminate current process immediately to release file lock
+    // Terminate current process immediately so PowerShell script can replace files
     exit(0);
   }
 }
