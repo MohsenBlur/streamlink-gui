@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.20';
+  static const String currentVersion = '1.0.21';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -222,10 +222,10 @@ try {
 }
 Write-Host ""
 
-# 4. Re-launch application
+# 4. Re-launch application as normal user via explorer.exe (non-elevated & fully detached)
 Write-Host "[4/4] Launching updated Twitch Streamlink GUI..." -ForegroundColor Green
-Start-Process -FilePath \$ExePath
-Start-Sleep -Seconds 2
+Start-Process "explorer.exe" -ArgumentList "`"\$ExePath`""
+Start-Sleep -Seconds 1
 exit 0
 ''';
 
@@ -239,7 +239,7 @@ exit 0
 net session >nul 2>&1
 if %errorLevel% NEQ 0 (
     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-    exit /b
+    exit /b 0
 )
 
 title Twitch Streamlink GUI - Application Self-Updater
