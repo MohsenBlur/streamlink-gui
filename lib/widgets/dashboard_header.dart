@@ -327,7 +327,12 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           children: [
             Row(
               children: [
-                _buildAvatar(radius: 18, strokeWidth: 2.0),
+                widget.channel.isLive
+                    ? HoverOverlayMenu(
+                        trigger: _buildAvatar(radius: 18, strokeWidth: 2.0),
+                        menu: _buildLivePreviewPopup(widget.channel),
+                      )
+                    : _buildAvatar(radius: 18, strokeWidth: 2.0),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Row(
@@ -461,62 +466,114 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    SizedBox(
-                      height: 28,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: widget.isPlaying
-                              ? const Color(0xFF1E2433)
-                              : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
-                          foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                          elevation: (widget.channel.isLive && !widget.isPlaying) ? 2 : 0,
-                        ),
-                        onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
-                        child: widget.isPlaying
-                            ? const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  SizedBox(
-                                    width: 10,
-                                    height: 10,
-                                    child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
-                                  ),
-                                  SizedBox(width: 4),
-                                  Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white54)),
-                                ],
-                              )
-                            : (!widget.channel.isLive
-                                ? const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.videocam_off, size: 12, color: Colors.white30),
-                                      SizedBox(width: 4),
-                                      Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white30)),
-                                    ],
-                                  )
-                                : const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.play_arrow, size: 14),
-                                      SizedBox(width: 2),
-                                      Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                                    ],
-                                  )),
-                      ),
-                    ),
+                    widget.channel.isLive
+                        ? HoverOverlayMenu(
+                            trigger: SizedBox(
+                              height: 28,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: widget.isPlaying
+                                      ? const Color(0xFF1E2433)
+                                      : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
+                                  foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                  elevation: (widget.channel.isLive && !widget.isPlaying) ? 2 : 0,
+                                ),
+                                onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
+                                child: widget.isPlaying
+                                    ? const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          SizedBox(
+                                            width: 10,
+                                            height: 10,
+                                            child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
+                                          ),
+                                          SizedBox(width: 4),
+                                          Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white54)),
+                                        ],
+                                      )
+                                    : (!widget.channel.isLive
+                                        ? const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.videocam_off, size: 12, color: Colors.white30),
+                                              SizedBox(width: 4),
+                                              Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white30)),
+                                            ],
+                                          )
+                                        : const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.play_arrow, size: 14),
+                                              SizedBox(width: 2),
+                                              Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                            ],
+                                          )),
+                              ),
+                            ),
+                            menu: _buildLivePreviewPopup(widget.channel),
+                          )
+                        : SizedBox(
+                            height: 28,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: widget.isPlaying
+                                    ? const Color(0xFF1E2433)
+                                    : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
+                                foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                elevation: (widget.channel.isLive && !widget.isPlaying) ? 2 : 0,
+                              ),
+                              onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
+                              child: widget.isPlaying
+                                  ? const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox(
+                                          width: 10,
+                                          height: 10,
+                                          child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white54)),
+                                      ],
+                                    )
+                                  : (!widget.channel.isLive
+                                      ? const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.videocam_off, size: 12, color: Colors.white30),
+                                            SizedBox(width: 4),
+                                            Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white30)),
+                                          ],
+                                        )
+                                      : const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.play_arrow, size: 14),
+                                            SizedBox(width: 2),
+                                            Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                          ],
+                                        )),
+                            ),
+                          ),
                   ],
                 ),
               ],
             ),
             if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
               const SizedBox(height: 6),
-              Text(
-                '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
-                style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w500),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              HoverOverlayMenu(
+                trigger: Text(
+                  '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
+                  style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                menu: _buildLivePreviewPopup(widget.channel),
               ),
             ],
             if (widget.channel.errorMessage != null) ...[
@@ -789,10 +846,24 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 children: [
                   SizedBox(
                     width: 90,
-                    child: Center(child: avatarContainer),
+                    child: Center(
+                      child: widget.channel.isLive
+                          ? HoverOverlayMenu(
+                              trigger: avatarContainer,
+                              menu: _buildLivePreviewPopup(widget.channel),
+                            )
+                          : avatarContainer,
+                    ),
                   ),
                   const SizedBox(width: 20),
-                  Expanded(child: profileDetails),
+                  Expanded(
+                    child: widget.channel.isLive
+                        ? HoverOverlayMenu(
+                            trigger: profileDetails,
+                            menu: _buildLivePreviewPopup(widget.channel),
+                          )
+                        : profileDetails,
+                  ),
                 ],
               ),
               const SizedBox(height: 14),
@@ -802,7 +873,12 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   SizedBox(
                     width: 90,
                     height: 32,
-                    child: playButton,
+                    child: widget.channel.isLive
+                        ? HoverOverlayMenu(
+                            trigger: playButton,
+                            menu: _buildLivePreviewPopup(widget.channel),
+                          )
+                        : playButton,
                   ),
                   const SizedBox(width: 20),
                   Expanded(
