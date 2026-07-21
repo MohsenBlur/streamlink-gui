@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.8';
+  static const String currentVersion = '1.0.9';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -169,57 +169,77 @@ param(
     [string]\$ExePath
 )
 
+\$Host.UI.RawUI.WindowTitle = "Twitch Streamlink GUI - Application Self-Updater"
+
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host "       Twitch Streamlink GUI - Self-Updater              " -ForegroundColor White
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host ""
+
 # 1. Wait for parent process to fully terminate
+Write-Host "[1/4] Waiting for main application (PID \$AppPid) to close..." -ForegroundColor Yellow
 \$maxWait = 10
 while (\$maxWait -gt 0 -and (Get-Process -Id \$AppPid -ErrorAction SilentlyContinue)) {
     Stop-Process -Id \$AppPid -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
     \$maxWait--
 }
-
 Start-Sleep -Seconds 1
+Write-Host "      Application closed successfully." -ForegroundColor Green
+Write-Host ""
 
 # 2. Create atomic backup
+Write-Host "[2/4] Creating safety backup of existing files..." -ForegroundColor Yellow
 try {
     if (Test-Path \$BackupDir) { Remove-Item -Path \$BackupDir -Recurse -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path \$BackupDir -Force | Out-Null
     Copy-Item -Path "\$AppDir\\*" -Destination \$BackupDir -Recurse -Force -ErrorAction Stop
+    Write-Host "      Safety backup created." -ForegroundColor Green
 } catch {
+    Write-Host "      [ERROR] Backup creation failed: \$_" -ForegroundColor Red
+    Write-Host "      Restarting application..." -ForegroundColor Red
     Start-Process -FilePath \$ExePath
+    Start-Sleep -Seconds 5
     exit 1
 }
+Write-Host ""
 
 # 3. Apply update files
+Write-Host "[3/4] Installing updated files..." -ForegroundColor Yellow
 try {
     Copy-Item -Path "\$SourceDir\\*" -Destination \$AppDir -Recurse -Force -ErrorAction Stop
     Remove-Item -Path \$BackupDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path \$SourceDir -Recurse -Force -ErrorAction SilentlyContinue
-    Start-Process -FilePath \$ExePath
-    exit 0
+    Write-Host "      Files installed successfully!" -ForegroundColor Green
 } catch {
-    # Rollback on copy failure
+    Write-Host "      [ERROR] Update failed: \$_" -ForegroundColor Red
+    Write-Host "      Rolling back to backup..." -ForegroundColor Red
     Copy-Item -Path "\$BackupDir\\*" -Destination \$AppDir -Recurse -Force -ErrorAction SilentlyContinue
     Start-Process -FilePath \$ExePath
+    Start-Sleep -Seconds 5
     exit 1
 }
+Write-Host ""
+
+# 4. Re-launch application
+Write-Host "[4/4] Launching updated Twitch Streamlink GUI..." -ForegroundColor Green
+Start-Process -FilePath \$ExePath
+Start-Sleep -Seconds 2
+exit 0
 ''';
 
     final ps1File = File(ps1Path);
     await ps1File.writeAsString(scriptContent);
 
-    // Launch PowerShell updater in background detached window
+    final psCommand = "& { & '$ps1Path' -AppPid $currentPid -AppDir '$appDir' -SourceDir '${sourceDir.path}' -BackupDir '$backupDir' -ExePath '${exeFile.path}' }";
+
+    // Launch PowerShell updater in a VISIBLE console window
     await Process.start(
       'powershell.exe',
       [
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
-        '-WindowStyle', 'Hidden',
-        '-File', ps1Path,
-        currentPid.toString(),
-        appDir,
-        sourceDir.path,
-        backupDir,
-        exeFile.path,
+        '-Command', psCommand,
       ],
       runInShell: false,
     );
