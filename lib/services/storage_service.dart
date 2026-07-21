@@ -13,24 +13,13 @@ class StorageService {
       final exeDir = Directory(exePath).parent.path;
       final exeFile = File('$exeDir/$filename');
 
-      // Helper to check if a directory is writable by attempting to create and delete a temporary file
-      bool isDirWritable(String path) {
-        try {
-          final testFile = File('$path/.write_test');
-          testFile.writeAsStringSync('test');
-          testFile.deleteSync();
-          return true;
-        } catch (_) {
-          return false;
-        }
-      }
-
-      // If the executable directory is writable, keep portable mode configuration in exeDir
-      if (isDirWritable(exeDir)) {
+      // Check if user explicitly wants portable mode (by placing portable.txt in exeDir)
+      final portableMarker = File('$exeDir/portable.txt');
+      if (portableMarker.existsSync()) {
         return exeFile;
       }
 
-      // If not writable (e.g., Program Files), use the user's AppData/Config directory
+      // Default persistent storage: AppData directory
       String? appDataDir;
       if (Platform.isWindows) {
         appDataDir = Platform.environment['APPDATA'] ?? Platform.environment['LOCALAPPDATA'];
