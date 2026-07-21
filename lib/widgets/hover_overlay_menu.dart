@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class HoverOverlayMenu extends StatefulWidget {
   final Widget trigger;
   final Widget menu;
+  final bool enabled;
   
   const HoverOverlayMenu({
     Key? key,
     required this.trigger,
     required this.menu,
+    this.enabled = true,
   }) : super(key: key);
 
   @override
@@ -18,8 +20,16 @@ class _HoverOverlayMenuState extends State<HoverOverlayMenu> {
   OverlayEntry? _entry;
   Offset _mousePos = Offset.zero;
 
+  @override
+  void didUpdateWidget(HoverOverlayMenu oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enabled && _entry != null) {
+      _hideMenu();
+    }
+  }
+
   void _showMenu() {
-    if (_entry != null) return;
+    if (!widget.enabled || _entry != null) return;
     
     _entry = OverlayEntry(
       builder: (context) {

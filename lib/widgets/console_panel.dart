@@ -74,13 +74,43 @@ class ConsolePanel extends StatefulWidget {
 
 class _ConsolePanelState extends State<ConsolePanel> {
   final Map<String, ScrollController> _scrollControllers = {};
+  bool _hasUnreadLogs = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.logNotifier.addListener(_onLogUpdated);
+  }
+
+  @override
+  void didUpdateWidget(ConsolePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.logNotifier != widget.logNotifier) {
+      oldWidget.logNotifier.removeListener(_onLogUpdated);
+      widget.logNotifier.addListener(_onLogUpdated);
+    }
+    if (!widget.consoleCollapsed) {
+      _hasUnreadLogs = false;
+    }
+  }
 
   @override
   void dispose() {
+    widget.logNotifier.removeListener(_onLogUpdated);
     for (final ctrl in _scrollControllers.values) {
       ctrl.dispose();
     }
     super.dispose();
+  }
+
+  void _onLogUpdated() {
+    if (widget.consoleCollapsed && !_hasUnreadLogs) {
+      if (mounted) {
+        setState(() {
+          _hasUnreadLogs = true;
+        });
+      }
+    }
   }
 
   ScrollController _getScrollController(String key) {
@@ -150,6 +180,41 @@ class _ConsolePanelState extends State<ConsolePanel> {
                     color: Colors.white54,
                   ),
                 ),
+                if (widget.consoleCollapsed) ...[
+                  if (widget.activeDownloadTasks.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.greenAccent,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.greenAccent.withOpacity(0.5),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else if (_hasUnreadLogs) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: theme.primaryColor,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: theme.primaryColor.withOpacity(0.5),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
                 const SizedBox(width: 16),
                 
                 // Tabs List

@@ -1027,12 +1027,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
+  final Map<String, List<TwitchVideo>> _vodCache = {};
+
   Future<void> _fetchVodsForChannel(TwitchChannel channel, {bool loadMore = false}) async {
+    final cached = _vodCache[channel.username];
     setState(() {
-      _isLoadingVods = true;
+      _isLoadingVods = cached == null || loadMore;
       _vodsError = null;
       if (!loadMore) {
-        _channelVods = [];
+        _channelVods = cached ?? [];
         _vodPaginationCursor = null;
       }
     });
@@ -1052,18 +1055,37 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           _channelVods.addAll(result.vods);
         } else {
           _channelVods = result.vods;
+          _vodCache[channel.username] = result.vods;
         }
       });
       _checkDownloadedVods();
       await _saveChannels();
     } catch (e) {
-      setState(() {
-        _vodsError = e.toString().replaceFirst('Exception: ', '');
-      });
+      if (_channelVods.isEmpty) {
+        setState(() {
+          _vodsError = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
     } finally {
       setState(() {
         _isLoadingVods = false;
       });
+    }
+  }
+
+  void _prefetchVodsInBackground(List<TwitchChannel> channels) async {
+    if (_settings.twitchOauthToken.trim().isEmpty) return;
+    for (final channel in channels.take(10)) {
+      if (!_vodCache.containsKey(channel.username)) {
+        try {
+          final result = await _apiService.fetchVodsForChannel(
+            channel: channel,
+            settings: _settings,
+            localVodsProgress: _localVodsProgress,
+          );
+          _vodCache[channel.username] = result.vods;
+        } catch (_) {}
+      }
     }
   }
 
@@ -1149,6 +1171,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
       }
     }
+
+    _prefetchVodsInBackground(_channels);
   }
 
   Future<void> _addChannel(String name) async {
@@ -1560,28 +1584,31 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final liveFavorites = _channels.where((c) => c.isLive).toList();
     final activeDownloads = _playerService.activeDownloadTasks;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(28.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Title Header
-          Row(
-            children: [
-              Icon(Icons.dashboard_outlined, size: 28, color: theme.primaryColor),
-              const SizedBox(width: 10),
-              const Text(
-                'Dashboard Hub',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Welcome back! Select a channel or choose a quick action below.',
-            style: TextStyle(fontSize: 13, color: Colors.white54),
-          ),
-          const SizedBox(height: 24),
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(28.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Title Header
+                Row(
+                  children: [
+                    Icon(Icons.dashboard_outlined, size: 28, color: theme.primaryColor),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Dashboard Hub',
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Welcome back! Select a channel or choose a quick action below.',
+                  style: TextStyle(fontSize: 13, color: Colors.white54),
+                ),
+                const SizedBox(height: 24),
 
           // Active Downloads card (Conditional)
           if (activeDownloads.isNotEmpty) ...[
@@ -2037,22 +2064,52 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   }
                 },
               ),
-              _buildQuickActionCard(
-                context: context,
-                theme: theme,
-                icon: Icons.terminal,
-                title: 'Toggle Console Logs',
-                subtitle: 'View live process output',
-                onTap: () {
-                  setState(() {
-                    _consoleCollapsed = !_consoleCollapsed;
-                  });
-                },
-              ),
             ],
           ),
         ],
       ),
+    ),
+  ),
+  ConsolePanel(
+          logNotifier: _logNotifier,
+          playerTabTitles: _playerService.playerTabTitles,
+          playingVodIds: _playerService.playingVodIds,
+          runningChannels: _playerService.runningChannels,
+          selectedConsoleTabKey: _selectedConsoleTabKey,
+          consoleCollapsed: _consoleCollapsed,
+          activeDownloadsProgress: _playerService.activeDownloadsProgress,
+          activeDownloadTasks: _playerService.activeDownloadTasks,
+          downloadQueue: _playerService.downloadQueue,
+          queuedDownloadTasks: _playerService.queuedDownloadTasks,
+          downloadTitles: _playerService.downloadTitles,
+          onCancelDownload: (vodId) {
+            final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
+            _cancelVodDownload(vodId, channel);
+          },
+          onTabSelected: (key) {
+            setState(() {
+              _selectedConsoleTabKey = key;
+              _consoleCollapsed = false;
+            });
+          },
+          onCloseTab: (key) {
+            setState(() {
+              _playerService.playerTabTitles.remove(key);
+              if (_selectedConsoleTabKey == key) {
+                _selectedConsoleTabKey = '__downloads_manager__';
+              }
+            });
+          },
+          onToggleCollapse: () {
+            setState(() {
+              _consoleCollapsed = !_consoleCollapsed;
+            });
+          },
+          onKillProcess: (key) {
+            _playerService.killProcess(key);
+          },
+        ),
+      ],
     );
   }
 
@@ -2287,24 +2344,49 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 children: [
                                   InteractivePopover(
                                     popover: _buildVodsSettingMenu(theme),
-                                    child: MouseRegion(
-                                      cursor: SystemMouseCursors.click,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF1E2433),
-                                          borderRadius: BorderRadius.circular(6),
-                                          border: Border.all(color: Colors.white10),
-                                        ),
-                                        child: const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.tune, color: Colors.white70, size: 16),
-                                            SizedBox(width: 4),
-                                            Text('VOD Settings', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
-                                          ],
-                                        ),
-                                      ),
+                                    child: StatefulBuilder(
+                                      builder: (context, setHoverState) {
+                                        bool isHovered = false;
+                                        return MouseRegion(
+                                          onEnter: (_) => setHoverState(() => isHovered = true),
+                                          onExit: (_) => setHoverState(() => isHovered = false),
+                                          cursor: SystemMouseCursors.click,
+                                          child: AnimatedContainer(
+                                            duration: const Duration(milliseconds: 180),
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              color: isHovered ? theme.primaryColor.withOpacity(0.2) : const Color(0xFF1E2433),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: isHovered ? theme.primaryColor : Colors.white10,
+                                                width: isHovered ? 1.5 : 1.0,
+                                              ),
+                                              boxShadow: [
+                                                if (isHovered)
+                                                  BoxShadow(
+                                                    color: theme.primaryColor.withOpacity(0.25),
+                                                    blurRadius: 6,
+                                                  ),
+                                              ],
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.tune, color: isHovered ? Colors.white : Colors.white70, size: 16),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  'VOD Settings',
+                                                  style: TextStyle(
+                                                    color: isHovered ? Colors.white : Colors.white70,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     ),
                                   ),
                                 ],
