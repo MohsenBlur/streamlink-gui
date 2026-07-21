@@ -2,12 +2,51 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as path;
 import '../models/app_settings.dart';
 import '../models/twitch_video.dart';
 import 'twitch_api_service.dart';
 
 class PlayerService {
   final TwitchApiService _apiService = TwitchApiService();
+
+  String _getExecutablePath(String name) {
+    final exeName = Platform.isWindows ? '$name.exe' : name;
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    
+    // Option 1: app_dir/bin/name.exe
+    final bundledInBin = path.join(exeDir, 'bin', exeName);
+    if (File(bundledInBin).existsSync()) {
+      return bundledInBin;
+    }
+
+    // Option 2: app_dir/name.exe
+    final bundledInRoot = path.join(exeDir, exeName);
+    if (File(bundledInRoot).existsSync()) {
+      return bundledInRoot;
+    }
+
+    // Option 3: project_root/bin/name.exe (during development)
+    final devBin = path.join(Directory.current.path, 'bin', exeName);
+    if (File(devBin).existsSync()) {
+      return devBin;
+    }
+
+    // Fallback: system PATH
+    return name;
+  }
+
+  Map<String, String> _getEnvironmentWithBin() {
+    final env = Map<String, String>.from(Platform.environment);
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final binPath = path.join(exeDir, 'bin');
+    final devBinPath = path.join(Directory.current.path, 'bin');
+    
+    final pathKey = env.keys.firstWhere((k) => k.toUpperCase() == 'PATH', orElse: () => 'PATH');
+    final existingPath = env[pathKey] ?? '';
+    env[pathKey] = '$binPath;$devBinPath;$existingPath';
+    return env;
+  }
   
   String? downloadArchiveFilePath;
 
@@ -168,8 +207,9 @@ class PlayerService {
 
     try {
       final proc = await Process.start(
-        'yt-dlp',
+        _getExecutablePath('yt-dlp'),
         args,
+        environment: _getEnvironmentWithBin(),
         runInShell: false,
       );
 
@@ -590,8 +630,9 @@ class PlayerService {
 
     try {
       final proc = await Process.start(
-        'streamlink',
+        _getExecutablePath('streamlink'),
         args,
+        environment: _getEnvironmentWithBin(),
         runInShell: false,
       );
 
@@ -700,8 +741,9 @@ class PlayerService {
 
     try {
       final proc = await Process.start(
-        'streamlink',
+        _getExecutablePath('streamlink'),
         args,
+        environment: _getEnvironmentWithBin(),
         runInShell: false,
       );
 
