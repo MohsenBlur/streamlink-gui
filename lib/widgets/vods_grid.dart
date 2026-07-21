@@ -229,32 +229,35 @@ class _VodsGridState extends State<VodsGrid> {
                           left: isAll ? 0 : 4,
                           right: (index == sortedGames.length) ? 0 : 4,
                         ),
-                        child: FilterChip(
-                          selected: isSelected,
-                          label: Text(
-                            game,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              color: isSelected ? Colors.white : Colors.white70,
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: FilterChip(
+                            selected: isSelected,
+                            label: Text(
+                              game,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                color: isSelected ? Colors.white : Colors.white70,
+                              ),
                             ),
-                          ),
-                          backgroundColor: const Color(0xFF161B26),
-                          selectedColor: widget.theme.primaryColor,
-                          checkmarkColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                            side: BorderSide(
-                              color: isSelected ? Colors.transparent : Colors.white10,
+                            backgroundColor: const Color(0xFF161B26),
+                            selectedColor: widget.theme.primaryColor,
+                            checkmarkColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              side: BorderSide(
+                                color: isSelected ? Colors.transparent : Colors.white10,
+                              ),
                             ),
+                            onSelected: (selected) {
+                              if (isAll) {
+                                widget.onClearGameFilter();
+                              } else {
+                                widget.onGameFilterSelected(game);
+                              }
+                            },
                           ),
-                          onSelected: (selected) {
-                            if (isAll) {
-                              widget.onClearGameFilter();
-                            } else {
-                              widget.onGameFilterSelected(game);
-                            }
-                          },
                         ),
                       );
                     },

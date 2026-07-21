@@ -161,50 +161,53 @@ class _ConsolePanelState extends State<ConsolePanel> {
                       (() {
                         final isSelected = activeKey == '__downloads_manager__';
                         final isTabRunning = widget.activeDownloadsProgress.isNotEmpty;
-                        return GestureDetector(
-                          onTap: () {
-                            widget.onTabSelected('__downloads_manager__');
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            decoration: BoxDecoration(
-                              color: isSelected ? const Color(0xFF1A1F31) : const Color(0xFF0D0F16),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: isSelected ? Colors.greenAccent.withOpacity(0.4) : const Color(0xFF1E2433),
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.download, size: 12, color: isTabRunning ? Colors.greenAccent : Colors.white60),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Downloads Manager',
-                                  style: TextStyle(
-                                    fontFamily: 'Consolas',
-                                    fontSize: 11,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                    color: isSelected ? Colors.white : Colors.white60,
-                                  ),
+                        return MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: () {
+                              widget.onTabSelected('__downloads_manager__');
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected ? const Color(0xFF1A1F31) : const Color(0xFF0D0F16),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: isSelected ? Colors.greenAccent.withOpacity(0.4) : const Color(0xFF1E2433),
+                                  width: 1,
                                 ),
-                                if (isTabRunning) ...[
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.download, size: 12, color: isTabRunning ? Colors.greenAccent : Colors.white60),
                                   const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: Colors.greenAccent.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      '${widget.activeDownloadsProgress.length}',
-                                      style: const TextStyle(fontSize: 9, color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                                  Text(
+                                    'Downloads Manager',
+                                    style: TextStyle(
+                                      fontFamily: 'Consolas',
+                                      fontSize: 11,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      color: isSelected ? Colors.white : Colors.white60,
                                     ),
                                   ),
+                                  if (isTabRunning) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: Colors.greenAccent.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        '${widget.activeDownloadsProgress.length}',
+                                        style: const TextStyle(fontSize: 9, color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
                           ),
                         );
@@ -216,50 +219,56 @@ class _ConsolePanelState extends State<ConsolePanel> {
                                              widget.runningChannels.contains(key.replaceFirst('stream_', ''));
                         final title = widget.playerTabTitles[key] ?? key;
                         
-                        return GestureDetector(
-                          onTap: () {
-                            widget.onTabSelected(key);
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            decoration: BoxDecoration(
-                              color: isSelected ? const Color(0xFF1A1F31) : const Color(0xFF0D0F16),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: isSelected ? Colors.greenAccent.withOpacity(0.4) : const Color(0xFF1E2433),
-                                width: 1,
+                        return MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: () {
+                              widget.onTabSelected(key);
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected ? const Color(0xFF1A1F31) : const Color(0xFF0D0F16),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: isSelected ? Colors.greenAccent.withOpacity(0.4) : const Color(0xFF1E2433),
+                                  width: 1,
+                                ),
                               ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: isTabRunning ? Colors.greenAccent : Colors.redAccent,
-                                    shape: BoxShape.circle,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      color: isTabRunning ? Colors.greenAccent : Colors.redAccent,
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  title.length > 25 ? '${title.substring(0, 22)}...' : title,
-                                  style: TextStyle(
-                                    fontFamily: 'Consolas',
-                                    fontSize: 11,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                    color: isSelected ? Colors.white : Colors.white60,
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    title.length > 25 ? '${title.substring(0, 22)}...' : title,
+                                    style: TextStyle(
+                                      fontFamily: 'Consolas',
+                                      fontSize: 11,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      color: isSelected ? Colors.white : Colors.white60,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                GestureDetector(
-                                  onTap: () {
-                                    widget.onCloseTab(key);
-                                  },
-                                  child: const Icon(Icons.close, size: 10, color: Colors.white38),
-                                ),
-                              ],
+                                  const SizedBox(width: 6),
+                                  MouseRegion(
+                                    cursor: SystemMouseCursors.click,
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        widget.onCloseTab(key);
+                                      },
+                                      child: const Icon(Icons.close, size: 10, color: Colors.white38),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         );

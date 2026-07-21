@@ -124,8 +124,10 @@ class SettingsDialog {
               final isSelected = tempPrimary.value == primary.value &&
                   tempBackground.value == bg.value &&
                   tempSurface.value == surface.value;
-              return GestureDetector(
-                onTap: () {
+              return MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () {
                   setDialogState(() {
                     tempPrimary = primary;
                     tempBackground = bg;
@@ -186,7 +188,8 @@ class SettingsDialog {
                     ],
                   ),
                 ),
-              );
+              ),
+            );
             }
 
             Widget buildColorSlider({
@@ -997,27 +1000,30 @@ class SettingsDialog {
                               runSpacing: 8,
                               children: presets.map((preset) {
                                 final isSelected = activeColor.value == preset.value;
-                                return GestureDetector(
-                                  onTap: () {
-                                    updateActiveColor(preset);
-                                  },
-                                  child: Container(
-                                    width: 30,
-                                    height: 30,
-                                    decoration: BoxDecoration(
-                                      color: preset,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: isSelected ? Colors.white : Colors.white24,
-                                        width: isSelected ? 2.5 : 1.0,
+                                return MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      updateActiveColor(preset);
+                                    },
+                                    child: Container(
+                                      width: 30,
+                                      height: 30,
+                                      decoration: BoxDecoration(
+                                        color: preset,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: isSelected ? Colors.white : Colors.white24,
+                                          width: isSelected ? 2.5 : 1.0,
+                                        ),
+                                        boxShadow: [
+                                          if (isSelected)
+                                            BoxShadow(
+                                              color: preset.withOpacity(0.5),
+                                              blurRadius: 6,
+                                            )
+                                        ],
                                       ),
-                                      boxShadow: [
-                                        if (isSelected)
-                                          BoxShadow(
-                                            color: preset.withOpacity(0.5),
-                                            blurRadius: 6,
-                                          )
-                                      ],
                                     ),
                                   ),
                                 );
