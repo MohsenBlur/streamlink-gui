@@ -368,6 +368,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                               final itemWidget = MouseRegion(
                                 onEnter: (_) => setRowState(() => isRowHovered = true),
                                 onExit: (_) => setRowState(() => isRowHovered = false),
+                                cursor: SystemMouseCursors.click,
                                 child: Container(
                                   margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                                   decoration: BoxDecoration(
@@ -625,11 +626,13 @@ class _SidebarPanelState extends State<SidebarPanel> {
               final ch = activeList[index];
               final isSelected = widget.selectedChannel?.username == ch.username;
               
-              final itemWidget = Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Tooltip(
-                  message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
-                  child: GestureDetector(
+              final itemWidget = MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Tooltip(
+                    message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
+                    child: GestureDetector(
                     onTap: () => widget.onChannelSelected(ch),
                     onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch.username) : null,
                     child: _buildAvatarBorder(
@@ -666,7 +669,8 @@ class _SidebarPanelState extends State<SidebarPanel> {
                     ),
                   ),
                 ),
-              );
+              ),
+            );
 
               return ch.isLive
                   ? HoverOverlayMenu(
@@ -869,43 +873,46 @@ class _SidebarPanelState extends State<SidebarPanel> {
                   final ch = activeList[index];
                   final isSelected = widget.selectedChannel?.username == ch.username;
                   
-                  final itemWidget = Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                    child: Tooltip(
-                      message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
-                      child: GestureDetector(
-                        onTap: () => widget.onChannelSelected(ch),
-                        onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch.username) : null,
-                        child: _buildAvatarBorder(
-                          channel: ch,
-                          isSelected: isSelected,
-                          theme: theme,
-                          child: Stack(
-                            alignment: Alignment.bottomRight,
-                            children: [
-                              CircleAvatar(
-                                radius: 18,
-                                backgroundColor: const Color(0xFF1F2937),
-                                backgroundImage: ch.avatarUrl != null ? NetworkImage(ch.avatarUrl!) : null,
-                                child: ch.avatarUrl == null
-                                    ? const Icon(Icons.person, size: 18, color: Colors.white70)
-                                    : null,
-                              ),
-                              if (ch.isLive)
-                                Positioned(
-                                  bottom: 0,
-                                  right: 0,
-                                  child: Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: Colors.redAccent,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: const Color(0xFF111420), width: 1),
+                  final itemWidget = MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                      child: Tooltip(
+                        message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
+                        child: GestureDetector(
+                          onTap: () => widget.onChannelSelected(ch),
+                          onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch.username) : null,
+                          child: _buildAvatarBorder(
+                            channel: ch,
+                            isSelected: isSelected,
+                            theme: theme,
+                            child: Stack(
+                              alignment: Alignment.bottomRight,
+                              children: [
+                                CircleAvatar(
+                                  radius: 18,
+                                  backgroundColor: const Color(0xFF1F2937),
+                                  backgroundImage: ch.avatarUrl != null ? NetworkImage(ch.avatarUrl!) : null,
+                                  child: ch.avatarUrl == null
+                                      ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                      : null,
+                                ),
+                                if (ch.isLive)
+                                  Positioned(
+                                    bottom: 0,
+                                    right: 0,
+                                    child: Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: const Color(0xFF111420), width: 1),
+                                      ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),

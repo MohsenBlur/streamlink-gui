@@ -42,15 +42,21 @@ class StorageService {
         final configDir = Directory('$appDataDir/TwitchStreamlinkGUI');
         final appDataFile = File('${configDir.path}/$filename');
 
-        // Migrate existing config file from exeDir if it exists but the AppData config doesn't
-        if (!appDataFile.existsSync() && exeFile.existsSync()) {
-          try {
-            if (!configDir.existsSync()) {
-              configDir.createSync(recursive: true);
-            }
-            exeFile.copySync(appDataFile.path);
-          } catch (_) {
-            // Ignore migration failure, fallback to clean config creation
+        // Migrate existing config file from exeDir if it exists and is newer or AppData config doesn't exist
+        if (exeFile.existsSync()) {
+          if (!appDataFile.existsSync()) {
+            try {
+              if (!configDir.existsSync()) {
+                configDir.createSync(recursive: true);
+              }
+              exeFile.copySync(appDataFile.path);
+            } catch (_) {}
+          } else {
+            try {
+              if (exeFile.lastModifiedSync().isAfter(appDataFile.lastModifiedSync())) {
+                exeFile.copySync(appDataFile.path);
+              }
+            } catch (_) {}
           }
         } else if (!appDataFile.existsSync()) {
           try {
@@ -119,6 +125,18 @@ class StorageService {
         await file.writeAsString(content, flush: true);
       } catch (_) {}
     }
+
+    // Mirror save to exeDir file if it exists or is writable so portable fallback stays in sync
+    try {
+      final exePath = Platform.resolvedExecutable;
+      if (!exePath.contains('flutter_tester') && !exePath.contains('dart')) {
+        final exeDir = Directory(exePath).parent.path;
+        final exeFile = File('$exeDir/channels_config.json');
+        if (exeFile.path != file.path) {
+          await exeFile.writeAsString(content, flush: true);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<List<Map<String, dynamic>>> loadRecentWatchedVods() async {

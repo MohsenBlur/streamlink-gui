@@ -594,19 +594,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     await windowManager.destroy();
   }
 
+  Timer? _windowSaveTimer;
+
   Future<void> _saveWindowState() async {
-    try {
-      final isMaximized = await windowManager.isMaximized();
-      if (!isMaximized) {
-        final bounds = await windowManager.getBounds();
-        _settings.windowWidth = bounds.width;
-        _settings.windowHeight = bounds.height;
-        _settings.windowX = bounds.left;
-        _settings.windowY = bounds.top;
-      }
-      _settings.isWindowMaximized = isMaximized;
-      await _saveChannels();
-    } catch (_) {}
+    _windowSaveTimer?.cancel();
+    _windowSaveTimer = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final isMaximized = await windowManager.isMaximized();
+        if (!isMaximized) {
+          final bounds = await windowManager.getBounds();
+          _settings.windowWidth = bounds.width;
+          _settings.windowHeight = bounds.height;
+          _settings.windowX = bounds.left;
+          _settings.windowY = bounds.top;
+        }
+        _settings.isWindowMaximized = isMaximized;
+        await _saveChannels();
+      } catch (_) {}
+    });
   }
 
   @override
@@ -2703,16 +2708,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       children: [
                         const Text('Filter by Games:', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
                         if (_selectedGamesFilter.isNotEmpty)
-                          GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _selectedGamesFilter.clear();
-                              });
-                              setMenuState(() {});
-                            },
-                            child: Text(
-                              'Clear All',
-                              style: TextStyle(fontSize: 10, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                          MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedGamesFilter.clear();
+                                });
+                                setMenuState(() {});
+                              },
+                              child: Text(
+                                'Clear All',
+                                style: TextStyle(fontSize: 10, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ),
                       ],
