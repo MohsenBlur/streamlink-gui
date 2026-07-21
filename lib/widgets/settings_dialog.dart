@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import '../models/app_settings.dart';
 import '../services/player_service.dart';
+import '../services/update_service.dart';
 import '../utils/color_utils.dart';
 
 // Abstract theme notifier interface to break dependencies
@@ -1085,51 +1086,118 @@ class SettingsDialog {
                   ),
                 ),
                 actions: [
-                  TextButton(
-                    onPressed: () {
-                      themeNotifier.updateTheme(
-                        primary: origPrimary,
-                        background: origBackground,
-                        surface: origSurface,
-                        activeProgress: origActiveProgress,
-                        watchedProgress: origWatchedProgress,
-                      );
-                      Navigator.pop(context);
-                    },
-                    child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
-                  ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
-                    onPressed: () {
-                      final updated = AppSettings(
-                        defaultQuality: tempQuality,
-                        twitchLowLatency: tempLowLatency,
-                        playerType: tempPlayerType,
-                        watchedThreshold: tempWatchedThreshold,
-                        twitchOauthToken: tokenController.text.trim(),
-                        twitchWebOauthToken: webTokenController.text.trim(),
-                        customPlayerPath: playerPathController.text.trim(),
-                        customPlayerArgs: playerArgsController.text.trim(),
-                        twitchClientId: clientIdController.text.trim(),
-                        localServerPort: int.tryParse(portController.text.trim()) ?? 65432,
-                        vodDownloadFolder: downloadFolderController.text.trim(),
-                        maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
-                        unfinishedDownloads: settings.unfinishedDownloads,
-                        maxRecentlyWatched: tempMaxRecentlyWatched,
-                        activeSidebarTab: settings.activeSidebarTab,
-                        sidebarCollapsed: settings.sidebarCollapsed,
-                      );
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E2433),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: const Text(
+                              'v${UpdateService.currentVersion}',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            borderRadius: BorderRadius.circular(6),
+                            onTap: () => openExternalLink(UpdateService.githubRepoUrl),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.code, size: 14, color: Colors.white54),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'GitHub Repo',
+                                    style: TextStyle(fontSize: 11, color: themeNotifier.primaryColor, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
+                            onPressed: () async {
+                              final updateInfo = await UpdateService().checkForUpdates();
+                              if (context.mounted) {
+                                if (updateInfo != null) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Update Available: v${updateInfo.version}! Check main window prompt.')),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Twitch Streamlink GUI is up to date (v${UpdateService.currentVersion}).')),
+                                  );
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.refresh, size: 13, color: Colors.white54),
+                            label: const Text('Check for Updates', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              themeNotifier.updateTheme(
+                                primary: origPrimary,
+                                background: origBackground,
+                                surface: origSurface,
+                                activeProgress: origActiveProgress,
+                                watchedProgress: origWatchedProgress,
+                              );
+                              Navigator.pop(context);
+                            },
+                            child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
+                            onPressed: () {
+                              final updated = AppSettings(
+                                defaultQuality: tempQuality,
+                                twitchLowLatency: tempLowLatency,
+                                playerType: tempPlayerType,
+                                watchedThreshold: tempWatchedThreshold,
+                                twitchOauthToken: tokenController.text.trim(),
+                                twitchWebOauthToken: webTokenController.text.trim(),
+                                customPlayerPath: playerPathController.text.trim(),
+                                customPlayerArgs: playerArgsController.text.trim(),
+                                twitchClientId: clientIdController.text.trim(),
+                                localServerPort: int.tryParse(portController.text.trim()) ?? 65432,
+                                vodDownloadFolder: downloadFolderController.text.trim(),
+                                maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
+                                unfinishedDownloads: settings.unfinishedDownloads,
+                                maxRecentlyWatched: tempMaxRecentlyWatched,
+                                activeSidebarTab: settings.activeSidebarTab,
+                                sidebarCollapsed: settings.sidebarCollapsed,
+                              );
 
-                      updated.primaryColorHex = colorToHex(tempPrimary);
-                      updated.backgroundColorHex = colorToHex(tempBackground);
-                      updated.surfaceColorHex = colorToHex(tempSurface);
-                      updated.activeProgressColorHex = colorToHex(tempActiveProgress);
-                      updated.watchedProgressColorHex = colorToHex(tempWatchedProgress);
+                              updated.primaryColorHex = colorToHex(tempPrimary);
+                              updated.backgroundColorHex = colorToHex(tempBackground);
+                              updated.surfaceColorHex = colorToHex(tempSurface);
+                              updated.activeProgressColorHex = colorToHex(tempActiveProgress);
+                              updated.watchedProgressColorHex = colorToHex(tempWatchedProgress);
 
-                      onSave(updated);
-                      Navigator.pop(context);
-                    },
-                    child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              onSave(updated);
+                              Navigator.pop(context);
+                            },
+                            child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ],
               ),

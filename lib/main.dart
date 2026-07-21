@@ -13,6 +13,7 @@ import 'models/twitch_video.dart';
 import 'services/storage_service.dart';
 import 'services/twitch_api_service.dart';
 import 'services/player_service.dart';
+import 'services/update_service.dart';
 import 'widgets/console_panel.dart';
 import 'widgets/sidebar_panel.dart';
 import 'widgets/dashboard_header.dart';
@@ -328,6 +329,161 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     
     _favoritesLiveCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       _refreshAllChannels();
+    });
+
+    // Automated update check on startup
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForAppUpdates();
+    });
+  }
+
+  Future<void> _checkForAppUpdates() async {
+    try {
+      final updateService = UpdateService();
+      final updateInfo = await updateService.checkForUpdates();
+      if (updateInfo != null && mounted) {
+        _showUpdatePromptDialog(updateInfo);
+      }
+    } catch (_) {}
+  }
+
+  void _showUpdatePromptDialog(UpdateInfo info) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: themeNotifier.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.system_update, color: themeNotifier.primaryColor),
+              const SizedBox(width: 10),
+              Text('Update Available (${info.tagName})'),
+            ],
+          ),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'A new version of Twitch Streamlink GUI is available on GitHub Releases.\n\n'
+                  'Current Version: v${UpdateService.currentVersion}\n'
+                  'Latest Version: ${info.tagName}',
+                  style: const TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
+                ),
+                if (info.releaseNotes.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text('Release Notes:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white)),
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0C0F17),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: SingleChildScrollView(
+                      child: Text(
+                        info.releaseNotes,
+                        style: const TextStyle(fontSize: 11, color: Colors.white60),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Remind Me Later', style: TextStyle(color: Colors.white30)),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
+              onPressed: () {
+                Navigator.pop(context);
+                _performAppUpdate(info);
+              },
+              icon: const Icon(Icons.download, size: 16, color: Colors.white),
+              label: const Text('Update Now & Restart', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _performAppUpdate(UpdateInfo info) {
+    double progress = 0.0;
+    String statusText = 'Downloading update archive...';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setProgressState) {
+            return AlertDialog(
+              backgroundColor: themeNotifier.surfaceColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  Icon(Icons.downloading, color: themeNotifier.primaryColor),
+                  const SizedBox(width: 10),
+                  const Text('Updating Application'),
+                ],
+              ),
+              content: SizedBox(
+                width: 400,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(statusText, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(
+                      value: progress > 0 ? progress : null,
+                      backgroundColor: Colors.white10,
+                      color: themeNotifier.primaryColor,
+                    ),
+                    const SizedBox(height: 8),
+                    Text('${(progress * 100).toStringAsFixed(1)}%', style: const TextStyle(fontSize: 11, color: Colors.white38)),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    Future.microtask(() async {
+      try {
+        final updateService = UpdateService();
+        final zipFile = await updateService.downloadUpdate(info.downloadUrl, (pct) {
+          progress = pct;
+          if (mounted) setState(() {});
+        });
+
+        statusText = 'Verifying and extracting update files...';
+        if (mounted) setState(() {});
+
+        final extractDir = await updateService.extractAndVerifyZip(zipFile);
+
+        statusText = 'Applying update and restarting app...';
+        if (mounted) setState(() {});
+
+        await updateService.applyUpdateAndRestart(extractDir);
+      } catch (e) {
+        if (mounted) {
+          Navigator.pop(context);
+          _showSnackBar('Update failed: $e', isError: true);
+        }
+      }
     });
   }
 
