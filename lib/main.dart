@@ -21,6 +21,7 @@ import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
+import 'widgets/horizontal_mouse_scrollable.dart';
 import 'utils/color_utils.dart';
 import 'utils/process_monitor.dart';
 
@@ -1528,6 +1529,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         });
         _saveChannels();
       },
+      onGoToDashboard: () {
+        setState(() {
+          _selectedChannel = null;
+        });
+      },
       onTabChanged: (tabIdx) {
         setState(() {
           _sidebarTab = tabIdx;
@@ -1715,171 +1721,171 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: 12),
             SizedBox(
               height: 155,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _recentWatchedVods.length,
-                itemBuilder: (context, index) {
-                  final video = _recentWatchedVods[index];
-                  final w = 240;
-                  final h = 135;
-                  final thumbUrl = video.thumbnailUrl.isNotEmpty
-                      ? video.thumbnailUrl.replaceAll('%{width}', w.toString()).replaceAll('%{height}', h.toString())
-                      : null;
+              child: HorizontalMouseScrollable(
+                child: Row(
+                  children: List.generate(_recentWatchedVods.length, (index) {
+                    final video = _recentWatchedVods[index];
+                    final w = 240;
+                    final h = 135;
+                    final thumbUrl = video.thumbnailUrl.isNotEmpty
+                        ? video.thumbnailUrl.replaceAll('%{width}', w.toString()).replaceAll('%{height}', h.toString())
+                        : null;
 
-                  bool isHovered = false;
+                    bool isHovered = false;
 
-                  final progressPct = ((video.watchProgress ?? 0.0) * 100).toInt();
+                    final progressPct = ((video.watchProgress ?? 0.0) * 100).toInt();
 
-                  return StatefulBuilder(
-                    builder: (context, setHoverState) {
-                      return MouseRegion(
-                        onEnter: (_) => setHoverState(() => isHovered = true),
-                        onExit: (_) => setHoverState(() => isHovered = false),
-                        cursor: SystemMouseCursors.click,
-                        child: Tooltip(
-                          message: '${video.title}\nResume at $progressPct% (${video.duration})',
-                          child: GestureDetector(
-                            onTap: () => _playVod(video, 'VOD'),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 180),
-                              width: 200,
-                              margin: const EdgeInsets.only(right: 16),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF161B26),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isHovered ? theme.primaryColor : Colors.white10,
-                                  width: isHovered ? 1.5 : 1.0,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: isHovered ? theme.primaryColor.withOpacity(0.25) : Colors.black.withOpacity(0.2),
-                                    blurRadius: isHovered ? 8 : 4,
-                                    offset: const Offset(0, 2),
+                    return StatefulBuilder(
+                      builder: (context, setHoverState) {
+                        return MouseRegion(
+                          onEnter: (_) => setHoverState(() => isHovered = true),
+                          onExit: (_) => setHoverState(() => isHovered = false),
+                          cursor: SystemMouseCursors.click,
+                          child: Tooltip(
+                            message: '${video.title}\nResume at $progressPct% (${video.duration})',
+                            child: GestureDetector(
+                              onTap: () => _playVod(video, 'VOD'),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                width: 200,
+                                margin: const EdgeInsets.only(right: 16),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF161B26),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isHovered ? theme.primaryColor : Colors.white10,
+                                    width: isHovered ? 1.5 : 1.0,
                                   ),
-                                ],
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(11),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Stack(
-                                        children: [
-                                          Positioned.fill(
-                                            child: thumbUrl != null
-                                                ? Image.network(
-                                                    thumbUrl,
-                                                    fit: BoxFit.cover,
-                                                    errorBuilder: (context, error, stackTrace) => Container(
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: isHovered ? theme.primaryColor.withOpacity(0.25) : Colors.black.withOpacity(0.2),
+                                      blurRadius: isHovered ? 8 : 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(11),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Stack(
+                                          children: [
+                                            Positioned.fill(
+                                              child: thumbUrl != null
+                                                  ? Image.network(
+                                                      thumbUrl,
+                                                      fit: BoxFit.cover,
+                                                      errorBuilder: (context, error, stackTrace) => Container(
+                                                        color: const Color(0xFF1F2937),
+                                                        child: const Icon(Icons.movie, color: Colors.white24, size: 36),
+                                                      ),
+                                                    )
+                                                  : Container(
                                                       color: const Color(0xFF1F2937),
                                                       child: const Icon(Icons.movie, color: Colors.white24, size: 36),
                                                     ),
-                                                  )
-                                                : Container(
-                                                    color: const Color(0xFF1F2937),
-                                                    child: const Icon(Icons.movie, color: Colors.white24, size: 36),
-                                                  ),
-                                          ),
-                                          if (isHovered)
-                                            Positioned.fill(
-                                              child: Container(
-                                                color: Colors.black45,
-                                                child: Center(
-                                                  child: Container(
-                                                    padding: const EdgeInsets.all(8),
-                                                    decoration: BoxDecoration(
-                                                      color: theme.primaryColor,
-                                                      shape: BoxShape.circle,
-                                                      boxShadow: [
-                                                        BoxShadow(
-                                                          color: theme.primaryColor.withOpacity(0.5),
-                                                          blurRadius: 10,
-                                                        )
-                                                      ],
-                                                    ),
-                                                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 24),
-                                                  ),
-                                                ),
-                                              ),
                                             ),
-                                          Positioned(
-                                            bottom: 4,
-                                            right: 6,
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black.withOpacity(0.75),
-                                                borderRadius: BorderRadius.circular(4),
-                                              ),
-                                              child: Text(
-                                                video.duration,
-                                                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
-                                              ),
-                                            ),
-                                          ),
-                                          if (video.watchProgress != null && video.watchProgress! > 0.0)
-                                            Positioned(
-                                              bottom: 0,
-                                              left: 0,
-                                              right: 0,
-                                              child: Container(
-                                                height: 3,
-                                                color: Colors.black45,
-                                                child: Align(
-                                                  alignment: Alignment.centerLeft,
-                                                  child: FractionallySizedBox(
-                                                    widthFactor: video.watchProgress!.clamp(0.0, 1.0),
+                                            if (isHovered)
+                                              Positioned.fill(
+                                                child: Container(
+                                                  color: Colors.black45,
+                                                  child: Center(
                                                     child: Container(
-                                                      color: theme.primaryColor,
+                                                      padding: const EdgeInsets.all(8),
+                                                      decoration: BoxDecoration(
+                                                        color: theme.primaryColor,
+                                                        shape: BoxShape.circle,
+                                                        boxShadow: [
+                                                          BoxShadow(
+                                                            color: theme.primaryColor.withOpacity(0.5),
+                                                            blurRadius: 10,
+                                                          )
+                                                        ],
+                                                      ),
+                                                      child: const Icon(Icons.play_arrow, color: Colors.white, size: 24),
                                                     ),
                                                   ),
                                                 ),
                                               ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.all(8.0),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            video.title,
-                                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                            children: [
-                                              Text(
-                                                video.publishedAt.toLocal().toString().substring(0, 10),
-                                                style: const TextStyle(fontSize: 9, color: Colors.white38),
-                                              ),
-                                              if (progressPct > 0)
-                                                Text(
-                                                  '$progressPct%',
-                                                  style: TextStyle(fontSize: 9, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                                            Positioned(
+                                              bottom: 4,
+                                              right: 6,
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.black.withOpacity(0.75),
+                                                  borderRadius: BorderRadius.circular(4),
                                                 ),
-                                            ],
-                                          ),
-                                        ],
+                                                child: Text(
+                                                  video.duration,
+                                                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                                ),
+                                              ),
+                                            ),
+                                            if (video.watchProgress != null && video.watchProgress! > 0.0)
+                                              Positioned(
+                                                bottom: 0,
+                                                left: 0,
+                                                right: 0,
+                                                child: Container(
+                                                  height: 3,
+                                                  color: Colors.black45,
+                                                  child: Align(
+                                                    alignment: Alignment.centerLeft,
+                                                    child: FractionallySizedBox(
+                                                      widthFactor: (video.watchProgress ?? 0.0).clamp(0.0, 1.0),
+                                                      child: Container(
+                                                        color: theme.primaryColor,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      Padding(
+                                        padding: const EdgeInsets.all(8),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              video.title,
+                                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Text(
+                                                  video.publishedAt.toLocal().toString().substring(0, 10),
+                                                  style: const TextStyle(fontSize: 9, color: Colors.white38),
+                                                ),
+                                                if (progressPct > 0)
+                                                  Text(
+                                                    '$progressPct%',
+                                                    style: TextStyle(fontSize: 9, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                                                  ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  );
-                },
+                        );
+                      },
+                    );
+                  }),
+                ),
               ),
             ),
             const SizedBox(height: 24),

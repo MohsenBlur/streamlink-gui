@@ -6,6 +6,7 @@ import '../models/app_settings.dart';
 import '../services/player_service.dart';
 import '../services/update_service.dart';
 import '../utils/color_utils.dart';
+import 'horizontal_mouse_scrollable.dart';
 
 // Abstract theme notifier interface to break dependencies
 abstract class ThemeUpdateListener extends ChangeNotifier {
@@ -861,8 +862,7 @@ class SettingsDialog {
                           children: [
                             const Text('Preset Theme Swatches', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                             const SizedBox(height: 8),
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
+                            HorizontalMouseScrollable(
                               child: Row(
                                 children: [
                                   buildPresetCard(

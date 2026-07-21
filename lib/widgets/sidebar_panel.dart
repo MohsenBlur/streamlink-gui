@@ -27,6 +27,7 @@ class SidebarPanel extends StatefulWidget {
   final ValueChanged<String> onAddChannel;
   final ValueChanged<TwitchChannel> onToggleFavorite;
   final ValueChanged<bool> onToggleCollapse;
+  final VoidCallback? onGoToDashboard;
   final ValueChanged<int> onTabChanged;
   final VoidCallback onRefresh;
   final VoidCallback onShowSettings;
@@ -53,6 +54,7 @@ class SidebarPanel extends StatefulWidget {
     required this.onAddChannel,
     required this.onToggleFavorite,
     required this.onToggleCollapse,
+    this.onGoToDashboard,
     required this.onTabChanged,
     required this.onRefresh,
     required this.onShowSettings,
@@ -139,45 +141,82 @@ class _SidebarPanelState extends State<SidebarPanel> {
           : Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
                   decoration: const BoxDecoration(
                     border: Border(bottom: BorderSide(color: Color(0xFF1E2433), width: 1.5)),
                   ),
                   child: Row(
                     children: [
-                      widget.authenticatedUserAvatar != null
-                          ? CircleAvatar(
-                              radius: 20,
-                              backgroundColor: const Color(0xFF1F2937),
-                              backgroundImage: NetworkImage(widget.authenticatedUserAvatar!),
-                            )
-                          : Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: theme.primaryColor.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: theme.primaryColor, width: 1.5),
-                              ),
-                              child: Icon(Icons.live_tv, color: theme.colorScheme.secondary, size: 24),
-                            ),
-                      const SizedBox(width: 14),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Streamlink Twitch',
-                              style: theme.textTheme.titleLarge?.copyWith(fontSize: 18),
-                              overflow: TextOverflow.ellipsis,
+                        child: Tooltip(
+                          message: 'Dashboard Hub (Return Home)',
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: InkWell(
+                              onTap: widget.onGoToDashboard,
+                              borderRadius: BorderRadius.circular(8),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                                child: Row(
+                                  children: [
+                                    widget.authenticatedUserAvatar != null
+                                        ? CircleAvatar(
+                                            radius: 18,
+                                            backgroundColor: const Color(0xFF1F2937),
+                                            backgroundImage: NetworkImage(widget.authenticatedUserAvatar!),
+                                          )
+                                        : Container(
+                                            padding: const EdgeInsets.all(6),
+                                            decoration: BoxDecoration(
+                                              color: theme.primaryColor.withOpacity(0.15),
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: theme.primaryColor.withOpacity(0.4), width: 1),
+                                            ),
+                                            child: Icon(Icons.dashboard_outlined, color: theme.primaryColor, size: 20),
+                                          ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Streamlink GUI',
+                                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Row(
+                                            children: [
+                                              Container(
+                                                width: 6,
+                                                height: 6,
+                                                decoration: BoxDecoration(
+                                                  color: widget.authenticatedUserLogin != null ? Colors.greenAccent : Colors.white38,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: Text(
+                                                  widget.authenticatedUserLogin != null
+                                                      ? '@${widget.authenticatedUserLogin}'
+                                                      : 'Guest Mode',
+                                                  style: const TextStyle(fontSize: 11, color: Colors.white54),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                            Text(
-                              widget.authenticatedUserLogin != null
-                                  ? 'User: ${widget.authenticatedUserLogin}'
-                                  : 'DecAPI Live stats manager',
-                              style: theme.textTheme.bodyMedium?.copyWith(fontSize: 11),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                       IconButton(
@@ -544,17 +583,42 @@ class _SidebarPanelState extends State<SidebarPanel> {
     
     return Column(
       children: [
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        Tooltip(
+          message: 'Dashboard Hub (Return Home)',
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: widget.onGoToDashboard,
+              child: widget.authenticatedUserAvatar != null
+                  ? CircleAvatar(
+                      radius: 16,
+                      backgroundColor: const Color(0xFF1F2937),
+                      backgroundImage: NetworkImage(widget.authenticatedUserAvatar!),
+                    )
+                  : Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: theme.primaryColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: theme.primaryColor.withOpacity(0.4), width: 1),
+                      ),
+                      child: Icon(Icons.dashboard_outlined, color: theme.primaryColor, size: 18),
+                    ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
         IconButton(
-          icon: const Icon(Icons.keyboard_double_arrow_right, color: Colors.white70, size: 24),
+          icon: const Icon(Icons.keyboard_double_arrow_right, color: Colors.white70, size: 20),
           tooltip: 'Expand sidebar',
           onPressed: () => widget.onToggleCollapse(false),
           hoverColor: theme.primaryColor.withOpacity(0.2),
-          splashRadius: 22,
+          splashRadius: 20,
         ),
         const SizedBox(height: 10),
         const Divider(color: Color(0xFF1E2433), height: 1.5, thickness: 1.5),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         
         // Collapsed Tab Toggle
         (() {

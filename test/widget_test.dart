@@ -10,7 +10,7 @@ void main() {
     await tester.pumpWidget(const TwitchStreamlinkApp());
 
     // Verify that the title/branding exists
-    expect(find.text('Streamlink Twitch'), findsOneWidget);
+    expect(find.text('Streamlink GUI'), findsOneWidget);
 
     // Verify that the search input field is present
     expect(find.byType(TextField), findsOneWidget);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import 'twitch_video_card.dart';
 import 'hover_overlay_menu.dart';
+import 'horizontal_mouse_scrollable.dart';
 import 'package:flutter/gestures.dart';
 
 class VodsGrid extends StatefulWidget {
@@ -194,30 +195,10 @@ class _VodsGridState extends State<VodsGrid> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: Listener(
-                  onPointerSignal: (pointerSignal) {
-                    if (pointerSignal is PointerScrollEvent) {
-                      GestureBinding.instance.pointerSignalResolver.register(pointerSignal, (event) {
-                        if (event is PointerScrollEvent && _gameScrollController.hasClients) {
-                          final delta = event.scrollDelta.dy != 0.0
-                              ? event.scrollDelta.dy
-                              : event.scrollDelta.dx;
-                          if (delta != 0.0) {
-                            final newOffset = (_gameScrollController.offset + delta).clamp(
-                              0.0,
-                              _gameScrollController.position.maxScrollExtent,
-                            );
-                            _gameScrollController.jumpTo(newOffset);
-                          }
-                        }
-                      });
-                    }
-                  },
-                  child: ListView.builder(
-                    controller: _gameScrollController,
-                    scrollDirection: Axis.horizontal,
-                    itemCount: sortedGames.length + 1,
-                    itemBuilder: (context, index) {
+                child: HorizontalMouseScrollable(
+                  controller: _gameScrollController,
+                  child: Row(
+                    children: List.generate(sortedGames.length + 1, (index) {
                       final isAll = index == 0;
                       final game = isAll ? 'All Games' : sortedGames[index - 1];
                       final isSelected = isAll 
@@ -241,13 +222,14 @@ class _VodsGridState extends State<VodsGrid> {
                                 color: isSelected ? Colors.white : Colors.white70,
                               ),
                             ),
-                            backgroundColor: const Color(0xFF161B26),
                             selectedColor: widget.theme.primaryColor,
+                            backgroundColor: const Color(0xFF161B26),
                             checkmarkColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(18),
                               side: BorderSide(
-                                color: isSelected ? Colors.transparent : Colors.white10,
+                                color: isSelected ? widget.theme.primaryColor : const Color(0xFF1E2433),
+                                width: 1,
                               ),
                             ),
                             onSelected: (selected) {
@@ -260,7 +242,7 @@ class _VodsGridState extends State<VodsGrid> {
                           ),
                         ),
                       );
-                    },
+                    }),
                   ),
                 ),
               ),
