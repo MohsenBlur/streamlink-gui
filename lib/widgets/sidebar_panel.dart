@@ -776,16 +776,6 @@ class _SidebarPanelState extends State<SidebarPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          Tooltip(
-            message: 'Expand sidebar',
-            child: IconButton(
-              icon: const Icon(Icons.keyboard_double_arrow_down, color: Colors.white70, size: 22),
-              onPressed: () => widget.onToggleCollapse(false),
-              hoverColor: theme.primaryColor.withOpacity(0.2),
-              splashRadius: 20,
-            ),
-          ),
-          const SizedBox(width: 8),
           (() {
             bool isHovered = false;
             return StatefulBuilder(

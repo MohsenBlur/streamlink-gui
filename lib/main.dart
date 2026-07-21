@@ -1841,12 +1841,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               itemCount: liveFavorites.length,
               itemBuilder: (context, index) {
                 final channel = liveFavorites[index];
-                return GestureDetector(
+                final itemCard = GestureDetector(
                   onTap: () {
                     setState(() {
                       _selectedChannel = channel;
                       _fetchVodsForChannel(channel);
                     });
+                  },
+                  onDoubleTap: () {
+                    if (_playerService.runningChannels.contains(channel.username)) return;
+                    _playerService.launchStreamlinkForLive(
+                      channel.username,
+                      channel.isLive,
+                      channel.streamTitle,
+                      channel.game,
+                      _settings,
+                    );
                   },
                   child: Container(
                     padding: const EdgeInsets.all(12),
@@ -1922,6 +1932,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       ],
                     ),
                   ),
+                );
+
+                return HoverOverlayMenu(
+                  trigger: itemCard,
+                  menu: _buildLivePreviewPopup(channel),
                 );
               },
             ),
