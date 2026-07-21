@@ -391,13 +391,17 @@ class _ConsolePanelState extends State<ConsolePanel> {
                             itemCount: activeLogs.length,
                             itemBuilder: (context, index) {
                               final log = activeLogs[index];
-                              Color logColor = Colors.white70;
-                              if (log.startsWith('[System Error]') || log.startsWith('[Streamlink Err]') || log.startsWith('[Streamlink ERR]')) {
-                                logColor = Colors.redAccent;
+                              Color logColor = const Color(0xFFCBD5E1);
+                              if (log.contains('[Error]') || log.contains('[Streamlink Err]') || log.contains('error:') || log.contains('failed')) {
+                                logColor = const Color(0xFFF43F5E);
                               } else if (log.startsWith('[System]')) {
-                                logColor = theme.colorScheme.secondary;
-                              } else if (log.contains('[cli][info]')) {
-                                logColor = Colors.greenAccent;
+                                logColor = const Color(0xFF38BDF8);
+                              } else if (log.startsWith('[Streamlink]')) {
+                                logColor = theme.primaryColor;
+                              } else if (log.contains('[cli][info]') || log.contains('Available streams:')) {
+                                logColor = const Color(0xFF10B981);
+                              } else if (log.contains('[Download]')) {
+                                logColor = const Color(0xFF34D399);
                               }
 
                               return Padding(

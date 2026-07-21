@@ -105,9 +105,17 @@ class _SidebarPanelState extends State<SidebarPanel> {
         border: Border.all(
           color: isSelected
               ? theme.primaryColor
-              : (channel.isLive ? Colors.redAccent.withOpacity(0.4) : Colors.transparent),
+              : (channel.isLive ? Colors.redAccent.withOpacity(0.8) : Colors.transparent),
           width: 2.0,
         ),
+        boxShadow: [
+          if (channel.isLive)
+            BoxShadow(
+              color: (isSelected ? theme.primaryColor : Colors.redAccent).withOpacity(0.4),
+              blurRadius: 6,
+              spreadRadius: 1,
+            ),
+        ],
       ),
       child: child,
     );

@@ -280,7 +280,10 @@ class SettingsDialog {
                   ],
                 ),
                 backgroundColor: themeNotifier.surfaceColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: themeNotifier.primaryColor.withOpacity(0.3), width: 1.5),
+                ),
                 content: SizedBox(
                   width: 520,
                   height: 520,

@@ -2133,6 +2133,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             borderRadius: BorderRadius.circular(12),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
+              transform: Matrix4.translationValues(0, isHovered ? -2 : 0, 0),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: const Color(0xFF161B26),
@@ -2143,9 +2144,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: isHovered ? theme.primaryColor.withOpacity(0.2) : Colors.black.withOpacity(0.15),
-                    blurRadius: isHovered ? 8 : 4,
-                    offset: const Offset(0, 2),
+                    color: isHovered ? theme.primaryColor.withOpacity(0.25) : Colors.black.withOpacity(0.15),
+                    blurRadius: isHovered ? 10 : 4,
+                    offset: Offset(0, isHovered ? 4 : 2),
                   ),
                 ],
               ),
