@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.15';
+  static const String currentVersion = '1.0.16';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -184,6 +184,7 @@ while (\$maxWait -gt 0 -and (Get-Process -Id \$AppPid -ErrorAction SilentlyConti
     Start-Sleep -Milliseconds 500
     \$maxWait--
 }
+Get-Process -Name "streamlink_gui" -ErrorAction SilentlyContinue | Where-Object { \$_.Id -ne \$PID } | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 Write-Host "      Application closed successfully." -ForegroundColor Green
 Write-Host ""
@@ -234,7 +235,14 @@ exit 0
     final batPath = path.join(tempDir, 'run_update.bat');
     final batContent = '''
 @echo off
-title Twitch Streamlink GUI Updater
+:: Self-elevate to Administrator privileges to ensure write access to protected directories (e.g. C:\\Program Files)
+net session >nul 2>&1
+if %errorLevel% NEQ 0 (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    exit /b
+)
+
+title Twitch Streamlink GUI - Application Self-Updater
 powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "$ps1Path" -AppPid $currentPid -AppDir "$appDir" -SourceDir "${sourceDir.path}" -BackupDir "$backupDir" -ExePath "${exeFile.path}"
 ''';
 
