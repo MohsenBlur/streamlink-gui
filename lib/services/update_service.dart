@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.12';
+  static const String currentVersion = '1.0.13';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -231,20 +231,25 @@ exit 0
     final ps1File = File(ps1Path);
     await ps1File.writeAsString(scriptContent);
 
-    final psCommand = "& { & '$ps1Path' -AppPid $currentPid -AppDir '$appDir' -SourceDir '${sourceDir.path}' -BackupDir '$backupDir' -ExePath '${exeFile.path}' }";
+    final batPath = path.join(tempDir, 'run_update.bat');
+    final batContent = '''
+@echo off
+title Twitch Streamlink GUI Updater
+powershell.exe -NoExit -NoProfile -ExecutionPolicy Bypass -File "$ps1Path" -AppPid $currentPid -AppDir "$appDir" -SourceDir "${sourceDir.path}" -BackupDir "$backupDir" -ExePath "${exeFile.path}"
+''';
 
-    // Launch PowerShell updater in a VISIBLE console window
+    final batFile = File(batPath);
+    await batFile.writeAsString(batContent);
+
+    // Launch detached updater console window that survives parent process exit(0)
     await Process.start(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-Command', psCommand,
-      ],
-      runInShell: false,
+      'cmd.exe',
+      ['/c', 'start', 'Twitch Streamlink GUI Updater', batPath],
+      mode: ProcessStartMode.detached,
     );
 
-    // Terminate current process immediately so PowerShell script can replace files
+    // Give Windows OS time to initialize the detached process window before exiting
+    await Future.delayed(const Duration(milliseconds: 500));
     exit(0);
   }
 }
