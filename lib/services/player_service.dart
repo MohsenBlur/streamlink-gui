@@ -789,9 +789,7 @@ class PlayerService {
       args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
     }
 
-    if (settings.twitchLowLatency) {
-      args.add('--twitch-low-latency');
-    }
+    // Note: --twitch-low-latency is deprecated/unrecognized in modern Streamlink versions
 
     if (settings.playerType == 'vlc') {
       args.addAll(['--player', findVlcPath() ?? 'vlc']);
