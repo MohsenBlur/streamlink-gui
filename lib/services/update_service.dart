@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.37';
+  static const String currentVersion = '1.0.38';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -68,7 +68,7 @@ class UpdateService {
       final latestVerInt = _versionToComparableInt(tagName);
       final currentVerInt = _versionToComparableInt(currentVersion);
 
-      final isAvailable = latestVerInt > currentVerInt;
+      final isAvailable = (latestVerInt > currentVerInt) && zipUrl.isNotEmpty && zipUrl.startsWith('http');
 
       return UpdateInfo(
         version: tagName.startsWith('v') ? tagName.substring(1) : tagName,
@@ -85,6 +85,9 @@ class UpdateService {
     String zipUrl,
     void Function(double progress)? onProgress,
   ) async {
+    if (zipUrl.isEmpty || !zipUrl.startsWith('http')) {
+      throw Exception('No valid download URL provided for update.');
+    }
     final request = http.Request('GET', Uri.parse(zipUrl));
     final response = await http.Client().send(request);
 

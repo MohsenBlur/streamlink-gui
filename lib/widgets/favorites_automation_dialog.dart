@@ -242,7 +242,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                   if (newIndex > oldIndex) newIndex -= 1;
                                   final item = priorityChannels.removeAt(oldIndex);
                                   priorityChannels.insert(newIndex, item);
-                                  _updatePriorities();
+                                  for (int i = 0; i < priorityChannels.length; i++) {
+                                    priorityChannels[i].autoPlayPriority = i;
+                                  }
+                                  _sortPriorityList();
                                 });
                               },
                               children: priorityChannels.asMap().entries.map((entry) {
