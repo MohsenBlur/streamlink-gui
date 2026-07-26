@@ -812,12 +812,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     setState(() => _isGlobalLoading = true);
     try {
       final config = await _storageService.loadConfig();
-      List<String> usernames = [];
+      List<TwitchChannel> loadedChannels = [];
 
       if (config != null) {
         final channelsJson = config['channels'];
         if (channelsJson is List) {
-          usernames = channelsJson.map((item) => item.toString()).toList();
+          for (final item in channelsJson) {
+            if (item is Map<String, dynamic>) {
+              loadedChannels.add(TwitchChannel.fromJson(item));
+            } else if (item is Map) {
+              loadedChannels.add(TwitchChannel.fromJson(Map<String, dynamic>.from(item)));
+            } else if (item != null) {
+              final username = item.toString().toLowerCase().trim();
+              if (username.isNotEmpty) {
+                loadedChannels.add(TwitchChannel(username: username));
+              }
+            }
+          }
         }
         final settingsJson = config['settings'];
         if (settingsJson is Map<String, dynamic>) {
@@ -853,11 +864,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
 
       _channels.clear();
-      if (usernames.isNotEmpty) {
-        for (var str in usernames) {
-          final channel = TwitchChannel(username: str.toLowerCase().trim());
-          _channels.add(channel);
-        }
+      if (loadedChannels.isNotEmpty) {
+        _channels.addAll(loadedChannels);
       } else {
         final defaults = ['limmy'];
         for (var name in defaults) {

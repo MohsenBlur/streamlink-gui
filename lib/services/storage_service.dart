@@ -93,9 +93,9 @@ class StorageService {
     Map<String, String> downloadedVods,
   ) async {
     final file = _getStorageFile();
-    final usernames = channels.map((c) => c.username).toList();
+    final channelData = channels.map((c) => c.toJson()).toList();
     final config = {
-      'channels': usernames,
+      'channels': channelData,
       'settings': settings.toJson(),
       'local_vods_progress': localProgress,
       'downloaded_vods': downloadedVods,
