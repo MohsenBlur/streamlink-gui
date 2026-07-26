@@ -2,6 +2,43 @@ import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 
+class _ChannelAutomationState {
+  final TwitchChannel originalChannel;
+  bool autoPlayLive;
+  int autoPlayPriority;
+  bool autoDownloadVods;
+  int maxVodKeepCount;
+  bool stopAtLastWatchedVod;
+
+  _ChannelAutomationState({
+    required this.originalChannel,
+    required this.autoPlayLive,
+    required this.autoPlayPriority,
+    required this.autoDownloadVods,
+    required this.maxVodKeepCount,
+    required this.stopAtLastWatchedVod,
+  });
+
+  factory _ChannelAutomationState.fromChannel(TwitchChannel ch) {
+    return _ChannelAutomationState(
+      originalChannel: ch,
+      autoPlayLive: ch.autoPlayLive,
+      autoPlayPriority: ch.autoPlayPriority,
+      autoDownloadVods: ch.autoDownloadVods,
+      maxVodKeepCount: ch.maxVodKeepCount,
+      stopAtLastWatchedVod: ch.stopAtLastWatchedVod,
+    );
+  }
+
+  void applyToOriginal() {
+    originalChannel.autoPlayLive = autoPlayLive;
+    originalChannel.autoPlayPriority = autoPlayPriority;
+    originalChannel.autoDownloadVods = autoDownloadVods;
+    originalChannel.maxVodKeepCount = maxVodKeepCount;
+    originalChannel.stopAtLastWatchedVod = stopAtLastWatchedVod;
+  }
+}
+
 class FavoritesAutomationDialog extends StatefulWidget {
   final List<TwitchChannel> favorites;
   final AppSettings settings;
@@ -20,13 +57,13 @@ class FavoritesAutomationDialog extends StatefulWidget {
 
 class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
   late int _threshold;
-  late List<TwitchChannel> _favChannels;
+  late List<_ChannelAutomationState> _favChannels;
 
   @override
   void initState() {
     super.initState();
     _threshold = widget.settings.vodWatchExclusionThreshold;
-    _favChannels = List<TwitchChannel>.from(widget.favorites);
+    _favChannels = widget.favorites.map((ch) => _ChannelAutomationState.fromChannel(ch)).toList();
     _sortPriorityList();
   }
 
@@ -39,7 +76,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
       } else if (b.autoPlayLive) {
         return 1;
       }
-      return a.username.toLowerCase().compareTo(b.username.toLowerCase());
+      return a.originalChannel.username.toLowerCase().compareTo(b.originalChannel.username.toLowerCase());
     });
   }
 
@@ -94,9 +131,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.white60),
                   onPressed: () {
-                    widget.settings.vodWatchExclusionThreshold = _threshold;
-                    _updatePriorities();
-                    widget.onSettingsSaved();
+                    // Close without applying changes
                     Navigator.of(context).pop();
                   },
                 ),
@@ -213,7 +248,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                 final index = entry.key;
                                 final ch = entry.value;
                                 return Container(
-                                  key: ValueKey('priority_${ch.username}'),
+                                  key: ValueKey('priority_${ch.originalChannel.username}'),
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                   decoration: const BoxDecoration(
                                     border: Border(bottom: BorderSide(color: Color(0xFF1E2433), width: 0.5)),
@@ -231,10 +266,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         ),
                                       ),
                                       const SizedBox(width: 8),
-                                      if (ch.avatarUrl != null)
+                                      if (ch.originalChannel.avatarUrl != null)
                                         CircleAvatar(
                                           radius: 14,
-                                          backgroundImage: NetworkImage(ch.avatarUrl!),
+                                          backgroundImage: NetworkImage(ch.originalChannel.avatarUrl!),
                                         )
                                       else
                                         const CircleAvatar(
@@ -244,7 +279,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          ch.username,
+                                          ch.originalChannel.username,
                                           style: const TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.bold,
@@ -307,10 +342,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                               children: [
                                 Row(
                                   children: [
-                                    if (ch.avatarUrl != null)
+                                    if (ch.originalChannel.avatarUrl != null)
                                       CircleAvatar(
                                         radius: 16,
-                                        backgroundImage: NetworkImage(ch.avatarUrl!),
+                                        backgroundImage: NetworkImage(ch.originalChannel.avatarUrl!),
                                       )
                                     else
                                       const CircleAvatar(
@@ -320,7 +355,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
-                                        ch.username,
+                                        ch.originalChannel.username,
                                         style: const TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.bold,
@@ -482,6 +517,9 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                 onPressed: () {
                   widget.settings.vodWatchExclusionThreshold = _threshold;
                   _updatePriorities();
+                  for (final st in _favChannels) {
+                    st.applyToOriginal();
+                  }
                   widget.onSettingsSaved();
                   Navigator.of(context).pop();
                 },
