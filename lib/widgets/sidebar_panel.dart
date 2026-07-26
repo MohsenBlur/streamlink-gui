@@ -5,6 +5,13 @@ import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
+import 'neumorphic/neu_container.dart';
+import 'neumorphic/neu_button.dart';
+import 'neumorphic/neu_avatar_frame.dart';
+import 'neumorphic/neu_text_field.dart';
+import 'neumorphic/neu_segmented_control.dart';
+import 'neumorphic/neu_led_indicator.dart';
+import 'neumorphic/neu_card.dart';
 import 'package:flutter/gestures.dart';
 import '../main.dart';
 
@@ -247,50 +254,29 @@ class _SidebarPanelState extends State<SidebarPanel> {
                   ),
                 ),
 
-                // Add channel section
+                // Add / Search channel section
                 Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   child: Row(
                     children: [
                       Expanded(
-                        child: SizedBox(
-                          height: 42,
-                          child: TextField(
-                            controller: widget.searchController,
-                            style: const TextStyle(fontSize: 13, color: Colors.white),
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_]')),
-                            ],
-                            decoration: const InputDecoration(
-                              hintText: 'Search or add username...',
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                            ),
-                            onChanged: (val) {
-                              setState(() {});
-                            },
-                            onSubmitted: (val) => widget.onAddChannel(val),
-                          ),
+                        child: NeuTextField(
+                          controller: widget.searchController,
+                          hintText: 'Search or add username...',
+                          prefixIcon: Icons.search,
+                          onChanged: (val) => setState(() {}),
+                          onSubmitted: (val) => widget.onAddChannel(val),
+                          onClear: () => setState(() {}),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      SizedBox(
-                        height: 42,
-                        width: 42,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.primaryColor,
-                            padding: EdgeInsets.zero,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          onPressed: widget.isAdding ? null : () => widget.onAddChannel(widget.searchController.text),
-                          child: widget.isAdding
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.add, color: Colors.white, size: 20),
-                        ),
+                      NeuIconButton(
+                        icon: widget.isAdding ? Icons.hourglass_top : Icons.add_rounded,
+                        activeColor: theme.primaryColor,
+                        isSelected: true,
+                        size: 40,
+                        tooltip: 'Add Channel',
+                        onPressed: widget.isAdding ? null : () => widget.onAddChannel(widget.searchController.text),
                       ),
                     ],
                   ),
@@ -299,51 +285,53 @@ class _SidebarPanelState extends State<SidebarPanel> {
                 // Sidebar Tabs (Only if authenticated)
                 if (widget.settings.twitchOauthToken.trim().isNotEmpty) ...[
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF161B26),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF1E2433)),
-                      ),
-                      child: Row(
-                        children: [
-                          _buildExpandedTabButton(0, 'Favorites'),
-                          _buildExpandedTabButton(1, 'Followed', showLoading: widget.isLoadingFollowed),
-                          _buildExpandedTabButton(2, 'Live'),
-                        ],
-                      ),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    child: NeuSegmentedControl<int>(
+                      selectedValue: widget.sidebarTab,
+                      onValueChanged: (val) => widget.onTabChanged(val),
+                      children: const {
+                        0: Text('Favorites'),
+                        1: Text('Followed'),
+                        2: Text('Live'),
+                      },
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                 ],
 
-                // Global Actions
+                // Global Actions Toolbar
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF1E2433)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            foregroundColor: Colors.white70,
-                          ),
+                        child: NeuButton(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          depth: 3.0,
                           onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
-                          icon: widget.isGlobalLoading || widget.isLoadingFollowed
-                              ? const SizedBox(
-                                  width: 12,
-                                  height: 12,
-                                  child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (widget.isGlobalLoading || widget.isLoadingFollowed)
+                                const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white70),
                                 )
-                              : const Icon(Icons.refresh, size: 14),
-                          label: Text(
-                            widget.sidebarTab == 0
-                                ? 'Refresh Favorites'
-                                : (widget.sidebarTab == 1 ? 'Refresh Follows' : 'Refresh Live'),
-                            style: const TextStyle(fontSize: 12),
+                              else
+                                const Icon(Icons.refresh, size: 14),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  widget.sidebarTab == 0
+                                      ? 'Refresh Favorites'
+                                      : (widget.sidebarTab == 1 ? 'Refresh Follows' : 'Refresh Live'),
+                                  style: const TextStyle(fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),

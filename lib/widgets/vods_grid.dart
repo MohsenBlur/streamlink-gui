@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import 'twitch_video_card.dart';
-import 'hover_overlay_menu.dart';
 import 'horizontal_mouse_scrollable.dart';
-import 'package:flutter/gestures.dart';
 import '../main.dart';
 
 class VodsGrid extends StatefulWidget {

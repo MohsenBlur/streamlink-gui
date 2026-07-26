@@ -22,15 +22,29 @@ import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
+import 'widgets/neumorphic/neu_title_bar.dart';
 import 'utils/color_utils.dart';
 import 'utils/process_monitor.dart';
 
 class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
+  bool isDarkTheme = true;
   Color primaryColor = const Color(0xFF9146FF);
-  Color backgroundColor = const Color(0xFF0C0F17);
-  Color surfaceColor = const Color(0xFF161B26);
+  Color backgroundColor = const Color(0xFF181A20);
+  Color surfaceColor = const Color(0xFF1E222B);
   Color activeProgressColor = const Color(0xFF9146FF);
-  Color watchedProgressColor = const Color(0x804CAF50); // transparent green
+  Color watchedProgressColor = const Color(0x804CAF50);
+
+  void setDarkTheme(bool isDark) {
+    isDarkTheme = isDark;
+    if (isDark) {
+      backgroundColor = const Color(0xFF181A20);
+      surfaceColor = const Color(0xFF1E222B);
+    } else {
+      backgroundColor = const Color(0xFFE6ECEF);
+      surfaceColor = const Color(0xFFE0E5EC);
+    }
+    notifyListeners();
+  }
 
   @override
   void updateTheme({
@@ -100,59 +114,47 @@ class TwitchStreamlinkApp extends StatelessWidget {
     return ListenableBuilder(
       listenable: themeNotifier,
       builder: (context, _) {
+        final isDark = themeNotifier.isDarkTheme;
         return MaterialApp(
           title: 'Twitch Streamlink GUI',
           debugShowCheckedModeBanner: false,
-          themeMode: ThemeMode.dark,
+          themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+          theme: ThemeData(
+            brightness: Brightness.light,
+            fontFamily: 'Segoe UI',
+            scaffoldBackgroundColor: themeNotifier.backgroundColor,
+            primaryColor: themeNotifier.primaryColor,
+            cardColor: themeNotifier.surfaceColor,
+            colorScheme: ColorScheme.light(
+              primary: themeNotifier.primaryColor,
+              secondary: const Color(0xFF00C853),
+              surface: themeNotifier.surfaceColor,
+              background: themeNotifier.backgroundColor,
+              error: const Color(0xFFFF4D4D),
+            ),
+            textTheme: const TextTheme(
+              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+              bodyLarge: TextStyle(color: Color(0xFF2D3748)),
+              bodyMedium: TextStyle(color: Color(0xFF718096)),
+            ),
+          ),
           darkTheme: ThemeData(
             brightness: Brightness.dark,
             fontFamily: 'Segoe UI',
             scaffoldBackgroundColor: themeNotifier.backgroundColor,
             primaryColor: themeNotifier.primaryColor,
+            cardColor: themeNotifier.surfaceColor,
             colorScheme: ColorScheme.dark(
               primary: themeNotifier.primaryColor,
-              secondary: const Color(0xFF00F2FE), // Cyan Accent
+              secondary: const Color(0xFF00E6A5),
               surface: themeNotifier.surfaceColor,
               background: themeNotifier.backgroundColor,
               error: const Color(0xFFFF4D4D),
             ),
-            cardTheme: CardThemeData(
-              color: themeNotifier.surfaceColor,
-              elevation: 4,
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(12)),
-              ),
-            ),
             textTheme: const TextTheme(
-              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-              bodyLarge: TextStyle(color: Color(0xFFE2E8F0)),
-              bodyMedium: TextStyle(color: Color(0xFF94A3B8)),
-            ),
-            inputDecorationTheme: InputDecorationTheme(
-              filled: true,
-              fillColor: const Color(0xFF1F2937),
-              border: const OutlineInputBorder(
-                borderRadius: BorderRadius.all(Radius.circular(8)),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: const BorderRadius.all(Radius.circular(8)),
-                borderSide: BorderSide(color: themeNotifier.primaryColor, width: 1.5),
-              ),
-              hintStyle: const TextStyle(color: Colors.white38),
-            ),
-            scrollbarTheme: ScrollbarThemeData(
-              thumbColor: MaterialStateProperty.resolveWith((states) {
-                if (states.contains(MaterialState.hovered)) {
-                  return themeNotifier.primaryColor.withOpacity(0.5);
-                }
-                return themeNotifier.primaryColor.withOpacity(0.2);
-              }),
-              trackColor: MaterialStateProperty.all(Colors.transparent),
-              thickness: MaterialStateProperty.all(6.0),
-              radius: const Radius.circular(8.0),
-              thumbVisibility: MaterialStateProperty.all(false),
-              interactive: true,
+              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFF0F4F8)),
+              bodyLarge: TextStyle(color: Color(0xFFF0F4F8)),
+              bodyMedium: TextStyle(color: Color(0xFF8A96A6)),
             ),
           ),
           home: const MainScreen(),
@@ -1723,19 +1725,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
 
     return Scaffold(
-      body: isVertical
-          ? Column(
-              children: [
-                sidebar,
-                contentArea,
-              ],
-            )
-          : Row(
-              children: [
-                sidebar,
-                contentArea,
-              ],
-            ),
+      body: Column(
+        children: [
+          NeuTitleBar(
+            isDarkTheme: themeNotifier.isDarkTheme,
+            onThemeToggle: (isDark) {
+              setState(() {
+                themeNotifier.setDarkTheme(isDark);
+              });
+            },
+          ),
+          Expanded(
+            child: isVertical
+                ? Column(
+                    children: [
+                      sidebar,
+                      contentArea,
+                    ],
+                  )
+                : Row(
+                    children: [
+                      sidebar,
+                      contentArea,
+                    ],
+                  ),
+          ),
+        ],
+      ),
     );
   }
 

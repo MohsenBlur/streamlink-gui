@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
+import 'neumorphic/neu_container.dart';
+import 'neumorphic/neu_button.dart';
+import 'neumorphic/neu_avatar_frame.dart';
+import 'neumorphic/neu_led_indicator.dart';
+import 'neumorphic/neu_card.dart';
 import '../main.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -226,51 +231,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   }
 
   Widget _buildAvatar({required double radius, double strokeWidth = 2.5}) {
-    return AnimatedBuilder(
-      animation: widget.pulseController,
-      builder: (context, child) {
-        final pulseVal = widget.pulseController.value;
-        final isNewlyLive = _isNewlyLive(widget.channel);
-        final avatar = CircleAvatar(
-          radius: radius,
-          backgroundColor: const Color(0xFF1F2937),
-          backgroundImage: widget.channel.avatarUrl != null ? NetworkImage(widget.channel.avatarUrl!) : null,
-          child: widget.channel.avatarUrl == null
-              ? Icon(Icons.person, size: radius, color: Colors.white70)
-              : null,
-        );
-
-        if (isNewlyLive) {
-          return LiveRainbowBorder(
-            borderRadius: 100,
-            strokeWidth: strokeWidth,
-            child: avatar,
-          );
-        }
-
-        return Container(
-          padding: const EdgeInsets.all(2.5),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: widget.channel.isLive
-                  ? Colors.redAccent.withOpacity(0.5 + pulseVal * 0.5)
-                  : Colors.white24,
-              width: strokeWidth,
-            ),
-            boxShadow: widget.channel.isLive
-                ? [
-                    BoxShadow(
-                      color: Colors.redAccent.withOpacity(0.2 * pulseVal),
-                      blurRadius: 6 + 6 * pulseVal,
-                      spreadRadius: 1 + 1 * pulseVal,
-                    )
-                  ]
-                : null,
-          ),
-          child: avatar,
-        );
-      },
+    return NeuAvatarFrame(
+      imageUrl: widget.channel.avatarUrl,
+      size: radius * 2.2,
+      isLive: widget.channel.isLive,
+      fallbackText: widget.channel.username,
     );
   }
 

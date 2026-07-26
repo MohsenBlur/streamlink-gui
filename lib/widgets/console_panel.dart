@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import 'horizontal_mouse_scrollable.dart';

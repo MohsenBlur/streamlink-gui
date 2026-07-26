@@ -1,0 +1,73 @@
+import 'package:flutter/material.dart';
+import 'neu_container.dart';
+
+class NeuCard extends StatelessWidget {
+  final Widget child;
+  final double? width;
+  final double? height;
+  final EdgeInsetsGeometry padding;
+  final EdgeInsetsGeometry margin;
+  final BorderRadius? borderRadius;
+  final VoidCallback? onTap;
+  final bool isSelected;
+  final bool isLive;
+  final Color? baseColor;
+  final double depth;
+
+  const NeuCard({
+    Key? key,
+    required this.child,
+    this.width,
+    this.height,
+    this.padding = const EdgeInsets.all(16.0),
+    this.margin = EdgeInsets.zero,
+    this.borderRadius,
+    this.onTap,
+    this.isSelected = false,
+    this.isLive = false,
+    this.baseColor,
+    this.depth = 6.0,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final primary = theme.primaryColor;
+
+    Border? cardBorder;
+    if (isSelected) {
+      cardBorder = Border.all(color: primary, width: 2.0);
+    } else if (isLive) {
+      cardBorder = Border.all(
+        color: const Color(0xFF00E6A5).withOpacity(0.6),
+        width: 1.5,
+      );
+    }
+
+    Widget cardCore = NeuContainer(
+      width: width,
+      height: height,
+      padding: padding,
+      margin: margin,
+      borderRadius: borderRadius ?? BorderRadius.circular(20),
+      style: NeuStyle.raised,
+      depth: depth,
+      color: baseColor ?? (isDark ? const Color(0xFF20242F) : const Color(0xFFE6ECEF)),
+      border: cardBorder,
+      child: child,
+    );
+
+    if (onTap != null) {
+      return GestureDetector(
+        onTap: onTap,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: cardCore,
+        ),
+      );
+    }
+
+    return cardCore;
+  }
+}
