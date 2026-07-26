@@ -4,6 +4,7 @@ import 'twitch_video_card.dart';
 import 'hover_overlay_menu.dart';
 import 'horizontal_mouse_scrollable.dart';
 import 'package:flutter/gestures.dart';
+import '../main.dart';
 
 class VodsGrid extends StatefulWidget {
   final List<TwitchVideo> vods;
@@ -223,7 +224,7 @@ class _VodsGridState extends State<VodsGrid> {
                               ),
                             ),
                             selectedColor: widget.theme.primaryColor,
-                            backgroundColor: const Color(0xFF161B26),
+                            backgroundColor: themeNotifier.surfaceColor,
                             checkmarkColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(18),
@@ -257,8 +258,8 @@ class _VodsGridState extends State<VodsGrid> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            const Color(0xFF0C0F17),
-                            const Color(0xFF0C0F17).withOpacity(0.0),
+                            themeNotifier.backgroundColor,
+                            themeNotifier.backgroundColor.withOpacity(0.0),
                           ],
                           begin: Alignment.centerLeft,
                           end: Alignment.centerRight,
@@ -278,8 +279,8 @@ class _VodsGridState extends State<VodsGrid> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            const Color(0xFF0C0F17).withOpacity(0.0),
-                            const Color(0xFF0C0F17),
+                            themeNotifier.backgroundColor.withOpacity(0.0),
+                            themeNotifier.backgroundColor,
                           ],
                           begin: Alignment.centerLeft,
                           end: Alignment.centerRight,
@@ -375,7 +376,7 @@ class _VodsGridState extends State<VodsGrid> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF161B26).withOpacity(0.85),
+                  color: themeNotifier.surfaceColor.withOpacity(0.85),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: widget.theme.primaryColor.withOpacity(0.3), width: 1.5),
                   boxShadow: [

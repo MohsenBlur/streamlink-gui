@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
+import '../main.dart';
 
 class TwitchVideoCard extends StatefulWidget {
   final TwitchVideo vod;
@@ -222,7 +223,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
             curve: Curves.easeOutCubic,
             transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
             decoration: BoxDecoration(
-              color: const Color(0xFF161B26),
+              color: themeNotifier.surfaceColor,
               borderRadius: BorderRadius.circular(12),
               border: widget.isMultiSelectMode
                   ? Border.all(

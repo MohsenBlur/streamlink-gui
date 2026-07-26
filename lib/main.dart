@@ -392,7 +392,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     constraints: const BoxConstraints(maxHeight: 120),
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0C0F17),
+                      color: themeNotifier.backgroundColor,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.white10),
                     ),
@@ -1687,7 +1687,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     final contentArea = Expanded(
       child: Container(
-        color: const Color(0xFF0C0F17),
+        color: themeNotifier.backgroundColor,
         child: _selectedChannel == null
             ? _buildWelcomeScreen(theme)
             : _buildDashboard(theme, _selectedChannel!),
@@ -1750,7 +1750,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 gradient: LinearGradient(
                   colors: [
                     theme.primaryColor.withOpacity(0.15),
-                    const Color(0xFF161B26),
+                    themeNotifier.surfaceColor,
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -2529,7 +2529,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   Tooltip(
                                     message: 'Show all played games on thumbnails at a glance',
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF161B26),
+                                      color: themeNotifier.surfaceColor,
                                       borderRadius: BorderRadius.circular(6),
                                       border: Border.all(color: const Color(0xFF1E2433)),
                                     ),
