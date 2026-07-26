@@ -27,20 +27,34 @@ import 'utils/process_monitor.dart';
 
 class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
   bool isDarkTheme = true;
-  Color primaryColor = const Color(0xFF9146FF);
-  Color backgroundColor = const Color(0xFF181A20);
-  Color surfaceColor = const Color(0xFF1E222B);
-  Color activeProgressColor = const Color(0xFF9146FF);
+  Color primaryColor = const Color(0xFF8B5CF6);
+  Color backgroundColor = const Color(0xFF1D212A);
+  Color surfaceColor = const Color(0xFF222632);
+  Color lightShadowColor = const Color(0xFF2B303F);
+  Color darkShadowColor = const Color(0xFF12151B);
+  Color textColor = const Color(0xFFE2E8F0);
+  Color subtextColor = const Color(0xFF94A3B8);
+  Color activeProgressColor = const Color(0xFF8B5CF6);
   Color watchedProgressColor = const Color(0x804CAF50);
 
   void setDarkTheme(bool isDark) {
     isDarkTheme = isDark;
     if (isDark) {
-      backgroundColor = const Color(0xFF181A20);
-      surfaceColor = const Color(0xFF1E222B);
+      backgroundColor = const Color(0xFF1D212A);
+      surfaceColor = const Color(0xFF222632);
+      lightShadowColor = const Color(0xFF2B303F);
+      darkShadowColor = const Color(0xFF12151B);
+      textColor = const Color(0xFFE2E8F0);
+      subtextColor = const Color(0xFF94A3B8);
+      primaryColor = const Color(0xFF8B5CF6);
     } else {
-      backgroundColor = const Color(0xFFE6ECEF);
-      surfaceColor = const Color(0xFFE0E5EC);
+      backgroundColor = const Color(0xFFE0E5EC);
+      surfaceColor = const Color(0xFFE4E9F0);
+      lightShadowColor = const Color(0xFFFFFFFF);
+      darkShadowColor = const Color(0xFFA3B1C6);
+      textColor = const Color(0xFF2D3748);
+      subtextColor = const Color(0xFF718096);
+      primaryColor = const Color(0xFF7C3AED);
     }
     notifyListeners();
   }
@@ -86,7 +100,7 @@ void main() async {
     center: shouldCenter,
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
-    titleBarStyle: TitleBarStyle.normal,
+    titleBarStyle: TitleBarStyle.hidden,
   );
 
   windowManager.waitUntilReadyToShow(windowOptions, () async {

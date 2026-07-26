@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import 'twitch_video_card.dart';
 import 'horizontal_mouse_scrollable.dart';
+import 'neumorphic/neu_button.dart';
 import '../main.dart';
 
 class VodsGrid extends StatefulWidget {
@@ -209,35 +210,35 @@ class _VodsGridState extends State<VodsGrid> {
                           left: isAll ? 0 : 4,
                           right: (index == sortedGames.length) ? 0 : 4,
                         ),
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: FilterChip(
-                            selected: isSelected,
-                            label: Text(
-                              game,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                color: isSelected ? Colors.white : Colors.white70,
+                        child: NeuButton(
+                          onPressed: () {
+                            if (isAll) {
+                              widget.onClearGameFilter();
+                            } else {
+                              widget.onGameFilterSelected(game);
+                            }
+                          },
+                          isSelected: isSelected,
+                          borderRadius: BorderRadius.circular(18),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isSelected) ...[
+                                const Icon(Icons.check, size: 13, color: Colors.white),
+                                const SizedBox(width: 4),
+                              ],
+                              Text(
+                                game,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                  color: isSelected 
+                                      ? Colors.white 
+                                      : themeNotifier.textColor,
+                                ),
                               ),
-                            ),
-                            selectedColor: widget.theme.primaryColor,
-                            backgroundColor: themeNotifier.surfaceColor,
-                            checkmarkColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                              side: BorderSide(
-                                color: isSelected ? widget.theme.primaryColor : const Color(0xFF1E2433),
-                                width: 1,
-                              ),
-                            ),
-                            onSelected: (selected) {
-                              if (isAll) {
-                                widget.onClearGameFilter();
-                              } else {
-                                widget.onGameFilterSelected(game);
-                              }
-                            },
+                            ],
                           ),
                         ),
                       );
