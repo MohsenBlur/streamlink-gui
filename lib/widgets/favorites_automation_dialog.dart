@@ -202,6 +202,46 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                 ],
               ),
             ),
+            const SizedBox(height: 12),
+
+            // Preempt Switch Toggle
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: themeNotifier.surfaceColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Preempt Lower Priority Streams',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'If a lower priority stream is playing and a higher priority channel goes live, switch automatically.',
+                          style: TextStyle(fontSize: 11, color: Colors.white54),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch(
+                    value: widget.settings.autoPlayPreemptLowerPriority,
+                    activeColor: theme.primaryColor,
+                    onChanged: (val) {
+                      setState(() {
+                        widget.settings.autoPlayPreemptLowerPriority = val;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 16),
 
             // Content List

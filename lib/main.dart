@@ -1096,6 +1096,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final priorityChannels = _channels.where((c) => c.autoPlayLive).toList()
       ..sort((a, b) => a.autoPlayPriority.compareTo(b.autoPlayPriority));
 
+    // CRITICAL: Wait until EVERY channel with auto-play enabled has finished checking live status
+    // before making any auto-play decisions, preventing lower priority streams from starting prematurely!
+    if (priorityChannels.any((c) => c.isLoading)) {
+      print('[Auto-Play Manager] Postponing auto-play check: priority channels are still fetching live status.');
+      return;
+    }
+
     for (int i = 0; i < priorityChannels.length; i++) {
       final targetChan = priorityChannels[i];
       if (targetChan.isLive) {
@@ -1110,6 +1117,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
         if (!higherIsPlayingOrLive) {
           final cleanName = targetChan.username.toLowerCase();
+
+          // Option: Preempt/kill lower priority auto-played streams if a higher priority channel is live
+          if (_settings.autoPlayPreemptLowerPriority) {
+            for (int k = i + 1; k < priorityChannels.length; k++) {
+              final lowerChan = priorityChannels[k];
+              final lowerCleanName = lowerChan.username.toLowerCase();
+              if (_playerService.runningChannels.contains(lowerCleanName)) {
+                print('[Auto-Play Preemption] Killing lower priority stream @${lowerChan.username} (Priority #${k + 1}) to switch to higher priority stream @${targetChan.username} (Priority #${i + 1})');
+                _playerService.killProcess(lowerCleanName);
+              }
+            }
+          }
+
           if (!_playerService.runningChannels.contains(cleanName)) {
             _playerService.launchStreamlinkForLive(
               targetChan.username,

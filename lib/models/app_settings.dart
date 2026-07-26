@@ -31,6 +31,7 @@ class AppSettings {
   bool isWindowMaximized = false;
   bool showGamesOnThumbnails = true;
   int vodWatchExclusionThreshold = 15; // default 15%
+  bool autoPlayPreemptLowerPriority = false;
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -61,6 +62,7 @@ class AppSettings {
     this.isWindowMaximized = false,
     this.showGamesOnThumbnails = true,
     this.vodWatchExclusionThreshold = 15,
+    this.autoPlayPreemptLowerPriority = false,
   }) {
     if (vodDownloadFolder.isEmpty) {
       if (Platform.environment['USERPROFILE'] != null) {
@@ -102,6 +104,7 @@ class AppSettings {
         'is_window_maximized': isWindowMaximized,
         'show_games_on_thumbnails': showGamesOnThumbnails,
         'vod_watch_exclusion_threshold': vodWatchExclusionThreshold,
+        'auto_play_preempt_lower_priority': autoPlayPreemptLowerPriority,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -133,5 +136,6 @@ class AppSettings {
         isWindowMaximized: json['is_window_maximized'] ?? false,
         showGamesOnThumbnails: json['show_games_on_thumbnails'] ?? true,
         vodWatchExclusionThreshold: json['vod_watch_exclusion_threshold'] ?? 15,
+        autoPlayPreemptLowerPriority: json['auto_play_preempt_lower_priority'] ?? false,
       );
 }
