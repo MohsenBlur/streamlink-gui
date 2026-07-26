@@ -42,22 +42,14 @@ class StorageService {
         final configDir = Directory('$appDataDir/TwitchStreamlinkGUI');
         final appDataFile = File('${configDir.path}/$filename');
 
-        // Migrate existing config file from exeDir if it exists and is newer or AppData config doesn't exist
-        if (exeFile.existsSync()) {
-          if (!appDataFile.existsSync()) {
-            try {
-              if (!configDir.existsSync()) {
-                configDir.createSync(recursive: true);
-              }
-              exeFile.copySync(appDataFile.path);
-            } catch (_) {}
-          } else {
-            try {
-              if (exeFile.lastModifiedSync().isAfter(appDataFile.lastModifiedSync())) {
-                exeFile.copySync(appDataFile.path);
-              }
-            } catch (_) {}
-          }
+        // Migrate existing config file from exeDir ONLY if AppData config does not exist yet
+        if (!appDataFile.existsSync() && exeFile.existsSync()) {
+          try {
+            if (!configDir.existsSync()) {
+              configDir.createSync(recursive: true);
+            }
+            exeFile.copySync(appDataFile.path);
+          } catch (_) {}
         } else if (!appDataFile.existsSync()) {
           try {
             if (!configDir.existsSync()) {

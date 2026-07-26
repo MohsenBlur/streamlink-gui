@@ -1,118 +1,113 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as path;
 import 'package:archive/archive.dart';
+import 'package:path/path.dart' as path;
 
 class UpdateInfo {
   final String version;
-  final String tagName;
   final String releaseNotes;
-  final String downloadUrl;
-  final int fileSize;
+  final String zipDownloadUrl;
+  final bool isUpdateAvailable;
 
   UpdateInfo({
     required this.version,
-    required this.tagName,
     required this.releaseNotes,
-    required this.downloadUrl,
-    required this.fileSize,
+    required this.zipDownloadUrl,
+    required this.isUpdateAvailable,
   });
+
+  String get tagName => version.startsWith('v') ? version : 'v$version';
+  String get downloadUrl => zipDownloadUrl;
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.32';
+  static const String currentVersion = '1.0.33';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
-  bool isNewerVersion(String latestTag, String currentVer) {
-    final latestClean = latestTag.replaceAll(RegExp(r'[^0-9.]'), '');
-    final currentClean = currentVer.replaceAll(RegExp(r'[^0-9.]'), '');
-    
-    final lParts = latestClean.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-    final cParts = currentClean.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-
-    final maxLength = lParts.length > cParts.length ? lParts.length : cParts.length;
-    for (int i = 0; i < maxLength; i++) {
-      final l = i < lParts.length ? lParts[i] : 0;
-      final c = i < cParts.length ? cParts[i] : 0;
-      if (l > c) return true;
-      if (l < c) return false;
+  int _versionToComparableInt(String version) {
+    final clean = version.replaceAll(RegExp(r'[^0-9.]'), '');
+    final parts = clean.split('.').map((p) => int.tryParse(p) ?? 0).toList();
+    while (parts.length < 3) {
+      parts.add(0);
     }
-    return false;
+    return (parts[0] * 10000) + (parts[1] * 100) + parts[2];
   }
 
   Future<UpdateInfo?> checkForUpdates() async {
     try {
       final response = await http.get(
         Uri.parse(githubApiReleaseUrl),
-        headers: {
-          'Accept': 'application/vnd.github+json',
-          'User-Agent': 'Twitch-Streamlink-GUI-App',
-        },
-      ).timeout(const Duration(seconds: 5));
+        headers: {'Accept': 'application/vnd.github.v3+json'},
+      ).timeout(const Duration(seconds: 8));
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        final tagName = data['tag_name'] as String? ?? '';
-        final body = data['body'] as String? ?? '';
-        final assets = data['assets'] as List<dynamic>? ?? [];
+      if (response.statusCode != 200) {
+        return null;
+      }
 
-        if (isNewerVersion(tagName, currentVersion)) {
-          String? downloadUrl;
-          int size = 0;
-          for (final asset in assets) {
-            final name = (asset['name'] as String? ?? '').toLowerCase();
-            if (name.endsWith('.zip') && (name.contains('windows') || name.contains('gui'))) {
-              downloadUrl = asset['browser_download_url'] as String?;
-              size = asset['size'] as int? ?? 0;
-              break;
-            }
-          }
+      final data = json.decode(response.body);
+      if (data is! Map<String, dynamic>) return null;
 
-          if (downloadUrl != null) {
-            return UpdateInfo(
-              version: tagName.replaceAll('v', ''),
-              tagName: tagName,
-              releaseNotes: body,
-              downloadUrl: downloadUrl,
-              fileSize: size,
-            );
+      final tagName = data['tag_name'] as String? ?? '';
+      final body = data['body'] as String? ?? 'No release notes provided.';
+      final assets = data['assets'] as List<dynamic>? ?? [];
+
+      String zipUrl = '';
+      for (final asset in assets) {
+        if (asset is Map<String, dynamic>) {
+          final name = (asset['name'] as String? ?? '').toLowerCase();
+          final downloadUrl = asset['browser_download_url'] as String? ?? '';
+          if (name.endsWith('.zip') && downloadUrl.isNotEmpty) {
+            zipUrl = downloadUrl;
+            break;
           }
         }
       }
-    } catch (_) {}
-    return null;
+
+      final latestVerInt = _versionToComparableInt(tagName);
+      final currentVerInt = _versionToComparableInt(currentVersion);
+
+      final isAvailable = latestVerInt > currentVerInt;
+
+      return UpdateInfo(
+        version: tagName.startsWith('v') ? tagName.substring(1) : tagName,
+        releaseNotes: body,
+        zipDownloadUrl: zipUrl,
+        isUpdateAvailable: isAvailable,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
-  Future<File> downloadUpdate(String downloadUrl, void Function(double progress) onProgress) async {
-    final client = http.Client();
-    final request = http.Request('GET', Uri.parse(downloadUrl));
-    request.headers['User-Agent'] = 'Twitch-Streamlink-GUI-App';
-    
-    final response = await client.send(request);
+  Future<File> downloadUpdate(
+    String zipUrl,
+    void Function(double progress)? onProgress,
+  ) async {
+    final request = http.Request('GET', Uri.parse(zipUrl));
+    final response = await http.Client().send(request);
+
     if (response.statusCode != 200) {
       throw Exception('Failed to download update file (HTTP ${response.statusCode})');
     }
 
     final contentLength = response.contentLength ?? 0;
-    final tempDir = Directory.systemTemp.createTempSync('streamlink_gui_update_');
+    final tempDir = await Directory.systemTemp.createTemp('streamlink_gui_update_');
     final zipFile = File(path.join(tempDir.path, 'update.zip'));
-    final sink = zipFile.openWrite();
 
+    final List<int> bytesList = [];
     int downloadedBytes = 0;
-    await response.stream.listen((chunk) {
-      downloadedBytes += chunk.length;
-      sink.add(chunk);
-      if (contentLength > 0) {
-        final pct = downloadedBytes / contentLength;
-        onProgress(pct.clamp(0.0, 1.0));
-      }
-    }).asFuture();
 
-    await sink.close();
-    client.close();
+    await for (final chunk in response.stream) {
+      bytesList.addAll(chunk);
+      downloadedBytes += chunk.length;
+      if (contentLength > 0 && onProgress != null) {
+        onProgress(downloadedBytes / contentLength);
+      }
+    }
+
+    await zipFile.writeAsBytes(bytesList);
     return zipFile;
   }
 
@@ -161,15 +156,21 @@ class UpdateService {
     final ps1Path = path.join(tempDir, 'updater.ps1');
     final launcherPath = path.join(tempDir, 'launch_updater.ps1');
 
+    final normAppDir = path.normalize(appDir).replaceAll('\\', '/');
+    final normSourceDir = path.normalize(sourceDir.path).replaceAll('\\', '/');
+    final normBackupDir = path.normalize(backupDir).replaceAll('\\', '/');
+    final normExePath = path.normalize(exeFile.path).replaceAll('\\', '/');
+    final normPs1Path = path.normalize(ps1Path).replaceAll('\\', '/');
+
     final scriptContent = '''
 # Auto-generated Updater Script for Twitch Streamlink GUI
 \$ErrorActionPreference = "Stop"
 
 \$AppPid = $currentPid
-\$AppDir = "$appDir"
-\$SourceDir = "${sourceDir.path}"
-\$BackupDir = "$backupDir"
-\$ExePath = "${exeFile.path}"
+\$AppDir = "$normAppDir"
+\$SourceDir = "$normSourceDir"
+\$BackupDir = "$normBackupDir"
+\$ExePath = "$normExePath"
 
 # 1. Wait for parent process to fully terminate
 \$maxWait = 15
@@ -182,14 +183,14 @@ Stop-Process -Name "streamlink_gui" -Force -ErrorAction SilentlyContinue
 Stop-Process -Name "streamlink" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
-# 2. Backup & File Replacement
+# 2. Backup & File Replacement (Protect channels_config.json & portable.txt)
 try {
     if (Test-Path "\$BackupDir") { Remove-Item -Path "\$BackupDir" -Recurse -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path "\$BackupDir" -Force | Out-Null
     
-    & robocopy "\$AppDir" "\$BackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "launch_updater.ps1"
+    & robocopy "\$AppDir" "\$BackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "launch_updater.ps1" "channels_config.json" "portable.txt"
     
-    & robocopy "\$SourceDir" "\$AppDir" /E /IS /IT /NP /R:5 /W:1
+    & robocopy "\$SourceDir" "\$AppDir" /E /IS /IT /NP /R:5 /W:1 /XF "channels_config.json" "portable.txt"
     if (\$LASTEXITCODE -ge 8) {
         throw "Robocopy failed with exit code \$LASTEXITCODE during file installation."
     }
@@ -216,7 +217,7 @@ Start-Process "explorer.exe" -ArgumentList "`"\$ExePath`""
 ''';
 
     final launcherContent = '''
-Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1Path`"" -Verb RunAs
+Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$normPs1Path`"" -Verb RunAs
 ''';
 
     await File(ps1Path).writeAsString(scriptContent);
