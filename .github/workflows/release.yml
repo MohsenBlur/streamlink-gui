@@ -1,0 +1,78 @@
+name: Automated Release & Build Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build-release:
+    name: Build Windows Release & Publish
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Extract Version from pubspec.yaml
+        id: get_version
+        shell: powershell
+        run: |
+          $pubspec = Get-Content pubspec.yaml
+          $versionLine = $pubspec | Select-String -Pattern '^version:\s*(.+)'
+          $version = $versionLine.Matches.Groups[1].Value.Trim()
+          Write-Host "Detected app version: $version"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Analyze Project Code
+        run: flutter analyze
+
+      - name: Build Windows Application
+        run: flutter build windows --release
+
+      - name: Package Release Zip
+        shell: powershell
+        run: |
+          $ReleaseDir = "build/windows/x64/runner/Release"
+          $ZipName = "streamlink-gui-windows.zip"
+          if (Test-Path $ZipName) { Remove-Item $ZipName -Force }
+          
+          # Include bundled dependencies if bin directory exists
+          if (Test-Path "bin") {
+              Copy-Item -Path "bin" -Destination "$ReleaseDir/bin" -Recurse -Force
+          }
+          
+          Compress-Archive -Path "$ReleaseDir/*" -DestinationPath $ZipName -Force
+          Write-Host "Successfully created $ZipName"
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release v${{ steps.get_version.outputs.version }}
+          files: streamlink-gui-windows.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
