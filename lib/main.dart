@@ -246,7 +246,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       if (mounted) {
         setState(() {
           _selectedConsoleTabKey = key;
-          _consoleCollapsed = false;
         });
       }
     };
