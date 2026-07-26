@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
-import 'neumorphic/neu_container.dart';
-import 'neumorphic/neu_card.dart';
 import '../main.dart';
 
 class TwitchVideoCard extends StatefulWidget {

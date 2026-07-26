@@ -466,13 +466,11 @@ class PlayerService {
           }
         });
 
-        int deletedCount = 0;
         while (allFiles.length > settings.maxDownloadsToKeep) {
           final oldestFile = allFiles.removeAt(0);
           try {
             if (oldestFile.existsSync()) {
               oldestFile.deleteSync();
-              deletedCount++;
             }
           } catch (_) {}
         }

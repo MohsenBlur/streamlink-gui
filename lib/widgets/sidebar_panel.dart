@@ -1,17 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
-import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_button.dart';
-import 'neumorphic/neu_avatar_frame.dart';
 import 'neumorphic/neu_text_field.dart';
 import 'neumorphic/neu_segmented_control.dart';
-import 'neumorphic/neu_led_indicator.dart';
-import 'neumorphic/neu_card.dart';
 import 'package:flutter/gestures.dart';
 import '../main.dart';
 
@@ -116,7 +111,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
     required ThemeData theme,
     required Widget child,
   }) {
-    if (_isNewlyLive(channel) && widget.pulseController != null) {
+    if (_isNewlyLive(channel)) {
       return LiveRainbowBorder(
         borderRadius: 100,
         strokeWidth: 2.5,
@@ -788,43 +783,6 @@ class _SidebarPanelState extends State<SidebarPanel> {
     );
   }
 
-  Widget _buildExpandedTabButton(int tabIdx, String label, {bool showLoading = false}) {
-    final isSelected = widget.sidebarTab == tabIdx;
-    final theme = Theme.of(context);
-    
-    return Expanded(
-      child: InkWell(
-        onTap: () => widget.onTabChanged(tabIdx),
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? theme.primaryColor : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                if (showLoading) ...[
-                  const SizedBox(width: 6),
-                  const SizedBox(
-                    width: 10,
-                    height: 10,
-                    child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   List<TwitchChannel> _getListToDisplay() {
     if (widget.sidebarTab == 0) return widget.channels;

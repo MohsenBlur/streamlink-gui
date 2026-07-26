@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
@@ -2520,50 +2519,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 children: [
                                   InteractivePopover(
                                     popover: _buildVodsSettingMenu(theme),
-                                    child: StatefulBuilder(
-                                      builder: (context, setHoverState) {
-                                        bool isHovered = false;
-                                        return MouseRegion(
-                                          onEnter: (_) => setHoverState(() => isHovered = true),
-                                          onExit: (_) => setHoverState(() => isHovered = false),
-                                          cursor: SystemMouseCursors.click,
-                                          child: AnimatedContainer(
-                                            duration: const Duration(milliseconds: 180),
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                            decoration: BoxDecoration(
-                                              color: isHovered ? theme.primaryColor.withOpacity(0.2) : const Color(0xFF1E2433),
-                                              borderRadius: BorderRadius.circular(6),
-                                              border: Border.all(
-                                                color: isHovered ? theme.primaryColor : Colors.white10,
-                                                width: isHovered ? 1.5 : 1.0,
-                                              ),
-                                              boxShadow: [
-                                                if (isHovered)
-                                                  BoxShadow(
-                                                    color: theme.primaryColor.withOpacity(0.25),
-                                                    blurRadius: 6,
-                                                  ),
-                                              ],
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.tune, color: isHovered ? Colors.white : Colors.white70, size: 16),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  'VOD Settings',
-                                                  style: TextStyle(
-                                                    color: isHovered ? Colors.white : Colors.white70,
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                                    child: _VodSettingsHoverButton(theme: theme),
                                   ),
                                 ],
                               )
@@ -3411,5 +3367,60 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _isMultiSelectMode = false;
     });
     _showSnackBar('Deleted $count downloaded VOD files.', isError: false);
+  }
+}
+
+class _VodSettingsHoverButton extends StatefulWidget {
+  final ThemeData theme;
+  const _VodSettingsHoverButton({Key? key, required this.theme}) : super(key: key);
+
+  @override
+  State<_VodSettingsHoverButton> createState() => _VodSettingsHoverButtonState();
+}
+
+class _VodSettingsHoverButtonState extends State<_VodSettingsHoverButton> {
+  bool isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => isHovered = true),
+      onExit: (_) => setState(() => isHovered = false),
+      cursor: SystemMouseCursors.click,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isHovered ? widget.theme.primaryColor.withOpacity(0.2) : const Color(0xFF1E2433),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isHovered ? widget.theme.primaryColor : Colors.white10,
+            width: isHovered ? 1.5 : 1.0,
+          ),
+          boxShadow: [
+            if (isHovered)
+              BoxShadow(
+                color: widget.theme.primaryColor.withOpacity(0.25),
+                blurRadius: 6,
+              ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.tune, color: isHovered ? Colors.white : Colors.white70, size: 16),
+            const SizedBox(width: 4),
+            Text(
+              'VOD Settings',
+              style: TextStyle(
+                color: isHovered ? Colors.white : Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

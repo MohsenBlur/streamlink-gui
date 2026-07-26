@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
-import 'live_rainbow_border.dart';
-import 'neumorphic/neu_container.dart';
-import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_avatar_frame.dart';
-import 'neumorphic/neu_led_indicator.dart';
-import 'neumorphic/neu_card.dart';
 import '../main.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -32,11 +27,6 @@ class DashboardHeader extends StatefulWidget {
 }
 
 class _DashboardHeaderState extends State<DashboardHeader> {
-  bool _isNewlyLive(TwitchChannel channel) {
-    if (channel.wentLiveTime == null) return false;
-    final diff = DateTime.now().difference(channel.wentLiveTime!);
-    return diff.inSeconds < 60;
-  }
 
   String _timeAgo(DateTime dateTime) {
     final now = DateTime.now();

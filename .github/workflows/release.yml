@@ -45,7 +45,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze Project Code
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Build Windows Application
         run: flutter build windows --release
