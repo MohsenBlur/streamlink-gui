@@ -312,6 +312,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _checkDownloadedVods();
         _saveChannels();
         _showSnackBar('Download completed: $title', isError: false);
+        try {
+          final notification = LocalNotification(
+            title: 'VOD Download Completed',
+            body: title,
+            silent: false,
+          );
+          notification.show();
+        } catch (e) {
+          print('[Download Notification Error]: $e');
+        }
       }
     };
 
@@ -1074,6 +1084,116 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
+  Future<void> _checkFavoritesAutomation() async {
+    // 1. Priority Live Stream Auto-Play
+    final priorityChannels = _channels.where((c) => c.autoPlayLive).toList()
+      ..sort((a, b) => a.autoPlayPriority.compareTo(b.autoPlayPriority));
+
+    for (int i = 0; i < priorityChannels.length; i++) {
+      final targetChan = priorityChannels[i];
+      if (targetChan.isLive) {
+        bool higherIsPlayingOrLive = false;
+        for (int j = 0; j < i; j++) {
+          final higherChan = priorityChannels[j];
+          if (higherChan.isLive || _playerService.runningChannels.contains(higherChan.username.toLowerCase())) {
+            higherIsPlayingOrLive = true;
+            break;
+          }
+        }
+
+        if (!higherIsPlayingOrLive) {
+          final cleanName = targetChan.username.toLowerCase();
+          if (!_playerService.runningChannels.contains(cleanName)) {
+            _playerService.launchStreamlinkForLive(
+              targetChan.username,
+              targetChan.isLive,
+              targetChan.streamTitle,
+              targetChan.game,
+              _settings,
+            );
+
+            try {
+              final gameText = targetChan.game ?? 'Twitch';
+              final notification = LocalNotification(
+                title: 'Auto-Playing Live Stream',
+                body: '${targetChan.username} is now live (Priority #${i + 1})\nPlaying $gameText',
+                silent: false,
+              );
+              await notification.show();
+            } catch (e) {
+              print('[Auto-Play Notification Error]: $e');
+            }
+          }
+        }
+        break; // Stop after evaluating top live priority channel
+      }
+    }
+
+    // 2. VOD Auto-Download
+    final autoDownloadChannels = _channels.where((c) => c.autoDownloadVods).toList();
+    if (autoDownloadChannels.isEmpty) return;
+
+    final thresholdFrac = (_settings.vodWatchExclusionThreshold.clamp(5, 90)) / 100.0;
+
+    for (final channel in autoDownloadChannels) {
+      try {
+        final result = await _apiService.fetchVodsForChannel(
+          channel: channel,
+          settings: _settings,
+          localVodsProgress: _localVodsProgress,
+        );
+        final vods = result.vods;
+        if (vods.isEmpty) continue;
+
+        List<TwitchVideo> candidateVods = [];
+        for (final vod in vods) {
+          final watchProgress = _localVodsProgress[vod.id] ?? vod.watchProgress ?? 0.0;
+          
+          if (channel.stopAtLastWatchedVod && watchProgress > 0.05) {
+            print('[VOD Auto-Download] Stopping collection for @${channel.username} at watched VOD ${vod.id} ($watchProgress)');
+            break;
+          }
+
+          if (watchProgress < thresholdFrac) {
+            candidateVods.add(vod);
+          }
+        }
+
+        if (candidateVods.isEmpty) continue;
+
+        // Sort in order of oldest to latest (chronological order) so the user can watch the oldest first
+        candidateVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
+
+        final toDownload = candidateVods.take(channel.maxVodKeepCount).toList();
+
+        for (final vod in toDownload) {
+          final isAlreadyDownloaded = _downloadedVodsRegistry.containsKey(vod.id);
+          final isDownloading = _playerService.activeDownloadTasks.containsKey(vod.id) ||
+              _playerService.activeDownloadProcesses.containsKey(vod.id) ||
+              _playerService.downloadQueue.contains(vod.id);
+
+          if (!isAlreadyDownloaded && !isDownloading) {
+            print('[VOD Auto-Download] Starting auto-download for @${channel.username} VOD ${vod.id} (${vod.title})');
+            _playerService.queueVodDownload(vod, channel.username, _settings);
+
+            try {
+              final notification = LocalNotification(
+                title: 'Auto-Downloading VOD',
+                body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
+                silent: false,
+              );
+              await notification.show();
+            } catch (e) {
+              print('[Auto-Download Notification Error]: $e');
+            }
+          }
+        }
+      } catch (e) {
+        print('[VOD Auto-Download Error] Failed for @${channel.username}: $e');
+      }
+    }
+  }
+
   void _prefetchVodsInBackground(List<TwitchChannel> channels) async {
     if (_settings.twitchOauthToken.trim().isEmpty) return;
     for (final channel in channels.take(10)) {
@@ -1142,6 +1262,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _previouslyLiveFavoriteUsernames.remove(cleanName);
       }
     }
+
+    _checkFavoritesAutomation();
 
     if (_selectedChannel != null) {
       final index = _channels.indexWhere((c) => c.username == _selectedChannel!.username);
@@ -1533,6 +1655,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         setState(() {
           _selectedChannel = null;
         });
+      },
+      onSaveAutomationSettings: () {
+        _saveChannels();
+        _checkFavoritesAutomation();
       },
       onTabChanged: (tabIdx) {
         setState(() {

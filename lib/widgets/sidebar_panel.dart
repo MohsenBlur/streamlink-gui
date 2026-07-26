@@ -4,6 +4,7 @@ import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
+import 'favorites_automation_dialog.dart';
 import 'package:flutter/gestures.dart';
 
 class SidebarPanel extends StatefulWidget {
@@ -28,6 +29,7 @@ class SidebarPanel extends StatefulWidget {
   final ValueChanged<TwitchChannel> onToggleFavorite;
   final ValueChanged<bool> onToggleCollapse;
   final VoidCallback? onGoToDashboard;
+  final VoidCallback? onSaveAutomationSettings;
   final ValueChanged<int> onTabChanged;
   final VoidCallback onRefresh;
   final VoidCallback onShowSettings;
@@ -55,6 +57,7 @@ class SidebarPanel extends StatefulWidget {
     required this.onToggleFavorite,
     required this.onToggleCollapse,
     this.onGoToDashboard,
+    this.onSaveAutomationSettings,
     required this.onTabChanged,
     required this.onRefresh,
     required this.onShowSettings,
@@ -72,6 +75,19 @@ class _SidebarPanelState extends State<SidebarPanel> {
   void initState() {
     super.initState();
     _horizontalScrollController = ScrollController();
+  }
+
+  void _openFavoritesAutomationDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => FavoritesAutomationDialog(
+        favorites: widget.channels,
+        settings: widget.settings,
+        onSettingsSaved: () {
+          widget.onSaveAutomationSettings?.call();
+        },
+      ),
+    );
   }
 
   @override
@@ -330,6 +346,13 @@ class _SidebarPanelState extends State<SidebarPanel> {
                           ),
                         ),
                       ),
+                      if (widget.sidebarTab == 0) ...[
+                        const SizedBox(width: 8),
+                        _PinnedFavoritesAutomationButton(
+                          theme: theme,
+                          onPressed: _openFavoritesAutomationDialog,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1001,6 +1024,13 @@ class _SidebarPanelState extends State<SidebarPanel> {
               ),
             ),
           ),
+          if (widget.sidebarTab == 0) ...[
+            const SizedBox(width: 6),
+            _PinnedFavoritesAutomationButton(
+              theme: theme,
+              onPressed: _openFavoritesAutomationDialog,
+            ),
+          ],
           const SizedBox(width: 8),
           Container(width: 1, height: 24, color: const Color(0xFF1E2433)),
           const SizedBox(width: 8),
@@ -1012,6 +1042,91 @@ class _SidebarPanelState extends State<SidebarPanel> {
             splashRadius: 20,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PinnedFavoritesAutomationButton extends StatefulWidget {
+  final ThemeData theme;
+  final VoidCallback onPressed;
+
+  const _PinnedFavoritesAutomationButton({
+    Key? key,
+    required this.theme,
+    required this.onPressed,
+  }) : super(key: key);
+
+  @override
+  State<_PinnedFavoritesAutomationButton> createState() => _PinnedFavoritesAutomationButtonState();
+}
+
+class _PinnedFavoritesAutomationButtonState extends State<_PinnedFavoritesAutomationButton> {
+  bool isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => isHovered = true),
+      onExit: (_) => setState(() => isHovered = false),
+      cursor: SystemMouseCursors.click,
+      child: Tooltip(
+        message: 'Auto Download & Play',
+        waitDuration: Duration.zero,
+        child: GestureDetector(
+          onTap: widget.onPressed,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: isHovered
+                  ? widget.theme.primaryColor.withOpacity(0.25)
+                  : const Color(0xFF161B26),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isHovered
+                    ? widget.theme.primaryColor
+                    : const Color(0xFF1E2433),
+                width: 1.5,
+              ),
+              boxShadow: isHovered
+                  ? [
+                      BoxShadow(
+                        color: widget.theme.primaryColor.withOpacity(0.35),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      )
+                    ]
+                  : [],
+            ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  isHovered ? Icons.settings : Icons.play_arrow,
+                  color: isHovered ? Colors.white : widget.theme.primaryColor,
+                  size: 16,
+                ),
+                Positioned(
+                  right: -5,
+                  bottom: -5,
+                  child: Container(
+                    padding: const EdgeInsets.all(0.5),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0F121C),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.star,
+                      color: Colors.amber,
+                      size: 9,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
