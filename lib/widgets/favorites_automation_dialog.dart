@@ -199,6 +199,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                             ),
                             child: ReorderableListView(
                               shrinkWrap: true,
+                              buildDefaultDragHandles: false,
                               physics: const NeverScrollableScrollPhysics(),
                               onReorder: (oldIndex, newIndex) {
                                 setState(() {
@@ -208,7 +209,9 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                   _updatePriorities();
                                 });
                               },
-                              children: priorityChannels.map((ch) {
+                              children: priorityChannels.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final ch = entry.value;
                                 return Container(
                                   key: ValueKey('priority_${ch.username}'),
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -217,8 +220,17 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                   ),
                                   child: Row(
                                     children: [
-                                      const Icon(Icons.drag_handle, color: Colors.white54, size: 20),
-                                      const SizedBox(width: 12),
+                                      ReorderableDragStartListener(
+                                        index: index,
+                                        child: MouseRegion(
+                                          cursor: SystemMouseCursors.grab,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            child: const Icon(Icons.drag_handle, color: Colors.white54, size: 20),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
                                       if (ch.avatarUrl != null)
                                         CircleAvatar(
                                           radius: 14,
