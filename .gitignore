@@ -53,7 +53,6 @@ app.*.map.json
 /*.zip
 *.exe
 .write_test
-/bin/
 
 # Environment / Secret configs
 .env
