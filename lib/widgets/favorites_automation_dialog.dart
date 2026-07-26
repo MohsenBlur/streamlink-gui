@@ -237,6 +237,21 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                               shrinkWrap: true,
                               buildDefaultDragHandles: false,
                               physics: const NeverScrollableScrollPhysics(),
+                              proxyDecorator: (Widget child, int index, Animation<double> animation) {
+                                return AnimatedBuilder(
+                                  animation: animation,
+                                  builder: (BuildContext context, Widget? child) {
+                                    return Material(
+                                      elevation: 8,
+                                      color: themeNotifier.surfaceColor,
+                                      borderRadius: BorderRadius.circular(8),
+                                      shadowColor: Colors.black.withOpacity(0.5),
+                                      child: child,
+                                    );
+                                  },
+                                  child: child,
+                                );
+                              },
                               onReorder: (oldIndex, newIndex) {
                                 setState(() {
                                   if (newIndex > oldIndex) newIndex -= 1;
@@ -245,7 +260,8 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                   for (int i = 0; i < priorityChannels.length; i++) {
                                     priorityChannels[i].autoPlayPriority = i;
                                   }
-                                  _sortPriorityList();
+                                  _favChannels.removeWhere((c) => c.autoPlayLive);
+                                  _favChannels.insertAll(0, priorityChannels);
                                 });
                               },
                               children: priorityChannels.asMap().entries.map((entry) {
