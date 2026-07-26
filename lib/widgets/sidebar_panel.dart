@@ -8,6 +8,7 @@ import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
 import 'neumorphic/neu_segmented_control.dart';
 import 'package:flutter/gestures.dart';
+import '../theme/neu_theme.dart';
 import '../main.dart';
 
 class SidebarPanel extends StatefulWidget {
@@ -198,9 +199,9 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          const Text(
+                                          Text(
                                             'Streamlink GUI',
-                                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 15),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
@@ -221,7 +222,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                                   widget.authenticatedUserLogin != null
                                                       ? '@${widget.authenticatedUserLogin}'
                                                       : 'Guest Mode',
-                                                  style: const TextStyle(fontSize: 11, color: Colors.white54),
+                                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                                                   maxLines: 1,
                                                   overflow: TextOverflow.ellipsis,
                                                 ),
@@ -239,7 +240,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.keyboard_double_arrow_left, color: Colors.white70, size: 20),
+                        icon: Icon(Icons.keyboard_double_arrow_left, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 20),
                         tooltip: 'Collapse Sidebar',
                         onPressed: () => widget.onToggleCollapse(true),
                         hoverColor: theme.primaryColor.withOpacity(0.2),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import 'horizontal_mouse_scrollable.dart';
+import '../theme/neu_theme.dart';
 import '../main.dart';
 
 class LogNotifier extends ChangeNotifier {
@@ -148,7 +149,13 @@ class _ConsolePanelState extends State<ConsolePanel> {
       height: widget.consoleCollapsed ? 38 : 220,
       decoration: BoxDecoration(
         color: themeNotifier.backgroundColor,
-        border: const Border(top: BorderSide(color: Color(0xFF1E2433), width: 1.5)),
+        boxShadow: [
+          BoxShadow(
+            color: NeuTheme.shadow(themeNotifier.isDarkTheme).withOpacity(0.5),
+            offset: const Offset(0, -3),
+            blurRadius: 6,
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -163,7 +170,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                   icon: Icon(
                     widget.consoleCollapsed ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
                     size: 18,
-                    color: Colors.white70,
+                    color: NeuTheme.text(themeNotifier.isDarkTheme),
                   ),
                   onPressed: widget.onToggleCollapse,
                   tooltip: widget.consoleCollapsed ? 'Expand Console' : 'Collapse Console',
@@ -172,14 +179,9 @@ class _ConsolePanelState extends State<ConsolePanel> {
                   splashRadius: 16,
                 ),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   'Terminal Console',
-                  style: TextStyle(
-                    fontFamily: 'Consolas',
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white54,
-                  ),
+                  style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12),
                 ),
                 if (widget.consoleCollapsed) ...[
                   if (widget.activeDownloadTasks.isNotEmpty) ...[

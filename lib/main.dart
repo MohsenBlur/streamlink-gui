@@ -22,6 +22,7 @@ import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
+import 'theme/neu_theme.dart';
 import 'utils/color_utils.dart';
 import 'utils/process_monitor.dart';
 
@@ -1810,16 +1811,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   children: [
                     Icon(Icons.dashboard_outlined, size: 28, color: theme.primaryColor),
                     const SizedBox(width: 10),
-                    const Text(
+                    Text(
                       'Dashboard Hub',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 24),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   'Welcome back! Select a channel or choose a quick action below.',
-                  style: TextStyle(fontSize: 13, color: Colors.white54),
+                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
                 ),
                 const SizedBox(height: 24),
 
@@ -1921,9 +1922,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
           // Recently Watched VODs (Conditional)
           if (_recentWatchedVods.isNotEmpty) ...[
-            const Text(
+            Text(
               'Recently Watched Past Broadcasts',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -2099,9 +2100,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           ],
 
           // Live Channels Section
-          const Text(
+          Text(
             'Live Favorite Channels',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
           ),
           const SizedBox(height: 12),
           if (liveFavorites.isEmpty)
@@ -2157,17 +2158,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   },
                   child: Container(
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF161B26),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: theme.primaryColor.withOpacity(0.2)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 6,
-                          offset: const Offset(0, 3),
-                        )
-                      ],
+                    decoration: NeuTheme.raisedDecoration(
+                      themeNotifier.isDarkTheme,
+                      radius: 12,
+                      border: Border.all(color: theme.primaryColor.withOpacity(0.25)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2181,14 +2175,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   : null,
                               backgroundColor: Colors.transparent,
                               child: channel.avatarUrl == null || channel.avatarUrl!.isEmpty
-                                  ? const Icon(Icons.person, size: 18)
+                                  ? Icon(Icons.person, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme))
                                   : null,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 channel.username,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -2199,7 +2193,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         Expanded(
                           child: Text(
                             channel.streamTitle ?? 'No Stream Title',
-                            style: const TextStyle(fontSize: 11, color: Colors.white54),
+                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -2240,9 +2234,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           const SizedBox(height: 32),
 
           // Quick Action Cards
-          const Text(
+          Text(
             'Quick Action Control Room',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
           ),
           const SizedBox(height: 12),
           GridView(
@@ -2348,27 +2342,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               duration: const Duration(milliseconds: 180),
               transform: Matrix4.translationValues(0, isHovered ? -2 : 0, 0),
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF161B26),
-                borderRadius: BorderRadius.circular(12),
+              decoration: NeuTheme.raisedDecoration(
+                themeNotifier.isDarkTheme,
+                radius: 12,
                 border: Border.all(
-                  color: isHovered ? theme.primaryColor : Colors.white10,
-                  width: isHovered ? 1.5 : 1.0,
+                  color: isHovered ? theme.primaryColor : Colors.transparent,
+                  width: isHovered ? 1.5 : 0.0,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: isHovered ? theme.primaryColor.withOpacity(0.25) : Colors.black.withOpacity(0.15),
-                    blurRadius: isHovered ? 10 : 4,
-                    offset: Offset(0, isHovered ? 4 : 2),
-                  ),
-                ],
               ),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: theme.primaryColor.withOpacity(0.1),
+                      color: theme.primaryColor.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(icon, size: 20, color: theme.primaryColor),
@@ -2381,14 +2368,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       children: [
                         Text(
                           title,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
                         Text(
                           subtitle,
-                          style: const TextStyle(fontSize: 10, color: Colors.white38),
+                          style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),

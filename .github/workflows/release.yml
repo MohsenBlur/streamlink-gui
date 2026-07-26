@@ -2,8 +2,6 @@ name: Automated Release & Build Pipeline
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
 
