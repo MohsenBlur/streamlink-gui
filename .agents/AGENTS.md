@@ -2,7 +2,7 @@
 
 - Always commit and push to GitHub after you're done with your work.
 - Always build the Windows build and push it to releases on GitHub.
-- NEVER remove, modify, or break `.github/workflows/release.yml` or the automated versioning and build release pipeline on GitHub.
+- NEVER remove `.github/workflows/release.yml` or break the automated versioning and build release pipeline on GitHub. (Modifying the workflow to maintain, fix, or improve it is allowed, but completely removing it requires explicit permission).
 
 ## Self-Updater & User Settings Preservation Rules (CRITICAL)
 
