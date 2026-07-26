@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.27';
+  static const String currentVersion = '1.0.28';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -159,126 +159,76 @@ class UpdateService {
     final tempDir = sourceDir.parent.path;
     final backupDir = path.join(tempDir, 'backup');
     final ps1Path = path.join(tempDir, 'updater.ps1');
+    final launcherPath = path.join(tempDir, 'launch_updater.ps1');
 
     final scriptContent = '''
-param(
-    [int]\$AppPid,
-    [string]\$AppDir,
-    [string]\$SourceDir,
-    [string]\$BackupDir,
-    [string]\$ExePath
-)
+# Auto-generated Updater Script for Twitch Streamlink GUI
+\$ErrorActionPreference = "Stop"
 
-\$Host.UI.RawUI.WindowTitle = "Twitch Streamlink GUI - Application Self-Updater"
-
-Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "       Twitch Streamlink GUI - Self-Updater              " -ForegroundColor White
-Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host ""
+\$AppPid = $currentPid
+\$AppDir = "$appDir"
+\$SourceDir = "${sourceDir.path}"
+\$BackupDir = "$backupDir"
+\$ExePath = "${exeFile.path}"
 
 # 1. Wait for parent process to fully terminate
-Write-Host "[1/4] Waiting for main application (PID \$AppPid) to close..." -ForegroundColor Yellow
-\$maxWait = 10
+\$maxWait = 15
 while (\$maxWait -gt 0 -and (Get-Process -Id \$AppPid -ErrorAction SilentlyContinue)) {
     Stop-Process -Id \$AppPid -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 300
     \$maxWait--
 }
 Stop-Process -Name "streamlink_gui" -Force -ErrorAction SilentlyContinue
 Stop-Process -Name "streamlink" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-Write-Host "      Application closed successfully." -ForegroundColor Green
-Write-Host ""
+Start-Sleep -Seconds 1
 
-\$updateFailed = \$false
-\$errorMessage = ""
-
+# 2. Backup & File Replacement
 try {
-    # 2. Create safety backup using robocopy
-    Write-Host "[2/4] Creating safety backup of existing files..." -ForegroundColor Yellow
-    if (Test-Path \$BackupDir) { Remove-Item -Path \$BackupDir -Recurse -Force -ErrorAction SilentlyContinue }
-    New-Item -ItemType Directory -Path \$BackupDir -Force | Out-Null
+    if (Test-Path "\$BackupDir") { Remove-Item -Path "\$BackupDir" -Recurse -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Path "\$BackupDir" -Force | Out-Null
     
-    & robocopy "\$AppDir" "\$BackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "run_update.bat"
-    if (\$LASTEXITCODE -ge 8) {
-        throw "Backup failed with robocopy exit code \$LASTEXITCODE"
-    }
-    Write-Host "      Safety backup created." -ForegroundColor Green
-    Write-Host ""
-
-    # 3. Install update files using robocopy (retries up to 5 times for locked files)
-    Write-Host "[3/4] Installing updated files..." -ForegroundColor Yellow
+    & robocopy "\$AppDir" "\$BackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "launch_updater.ps1"
+    
     & robocopy "\$SourceDir" "\$AppDir" /E /IS /IT /NP /R:5 /W:1
     if (\$LASTEXITCODE -ge 8) {
-        throw "Update installation failed with robocopy exit code \$LASTEXITCODE"
+        throw "Robocopy failed with exit code \$LASTEXITCODE during file installation."
     }
 
-    Remove-Item -Path \$BackupDir -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path \$SourceDir -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "      Files installed successfully!" -ForegroundColor Green
-    Write-Host ""
+    Remove-Item -Path "\$BackupDir" -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
-    \$updateFailed = \$true
-    \$errorMessage = \$_
-    Write-Host ""
-    Write-Host "==========================================================" -ForegroundColor Red
-    Write-Host "      [ERROR] Update failed: \$_" -ForegroundColor Red
-    Write-Host "      Rolling back to backup..." -ForegroundColor Red
-    Write-Host "==========================================================" -ForegroundColor Red
-    
-    if (Test-Path \$BackupDir) {
+    if (Test-Path "\$BackupDir") {
         & robocopy "\$BackupDir" "\$AppDir" /E /IS /IT /NP /R:3 /W:1
     }
     
     try {
         Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.MessageBox]::Show(
-            "The application update could not be completed.`n`nDetails: \$_`n`nThe previous version of Streamlink GUI has been restored.",
-            "Streamlink GUI Update Error",
+            "The application update could not be completed.`n`nError details: \$_`n`nThe previous version of Streamlink GUI has been restored.",
+            "Streamlink GUI Update Failure",
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error
         )
     } catch {}
 }
 
-# 4. Re-launch application as normal user via explorer.exe (non-elevated & fully detached)
-Write-Host "[4/4] Launching Twitch Streamlink GUI..." -ForegroundColor Green
+# 3. Re-launch updated application as standard user via explorer.exe
 Start-Process "explorer.exe" -ArgumentList "`"\$ExePath`""
-Start-Sleep -Seconds 1
-
-# Force-close parent cmd, OpenConsole, and WindowsTerminal host processes to ensure no empty terminal windows remain
-try {
-    \$currentPid = \$PID
-    \$parentPid = (Get-CimInstance Win32_Process -Filter "ProcessId = \$currentPid").ParentProcessId
-    while (\$parentPid) {
-        \$proc = Get-Process -Id \$parentPid -ErrorAction SilentlyContinue
-        if (\$null -eq \$proc) { break }
-        \$procName = \$proc.ProcessName
-        \$nextParentPid = (Get-CimInstance Win32_Process -Filter "ProcessId = \$parentPid").ParentProcessId
-        if (\$procName -eq "cmd" -or \$procName -eq "powershell" -or \$procName -eq "OpenConsole" -or \$procName -eq "WindowsTerminal") {
-            Stop-Process -Id \$parentPid -Force -ErrorAction SilentlyContinue
-        }
-        if (\$procName -eq "WindowsTerminal" -or \$procName -eq "explorer") { break }
-        \$parentPid = \$nextParentPid
-    }
-} catch {}
-
-[System.Environment]::Exit(0)
 ''';
 
-    final ps1File = File(ps1Path);
-    await ps1File.writeAsString(scriptContent);
+    final launcherContent = '''
+Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1Path`"" -Verb RunAs
+''';
 
-    // Launch PowerShell elevated via single clean Start-Process -Verb RunAs
-    final psCommand = "Start-Process powershell.exe -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"\"\"$ps1Path\"\"\" -AppPid $currentPid -AppDir \"\"\"$appDir\"\"\" -SourceDir \"\"\"${sourceDir.path}\"\"\" -BackupDir \"\"\"$backupDir\"\"\" -ExePath \"\"\"${exeFile.path}\"\"\"' -Verb RunAs";
+    await File(ps1Path).writeAsString(scriptContent);
+    await File(launcherPath).writeAsString(launcherContent);
 
     await Process.start(
       'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCommand],
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', launcherPath],
       mode: ProcessStartMode.detached,
     );
 
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 300));
     exit(0);
   }
 }
