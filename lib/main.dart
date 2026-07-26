@@ -351,7 +351,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     try {
       final updateService = UpdateService();
       final updateInfo = await updateService.checkForUpdates();
-      if (updateInfo != null && mounted) {
+      if (updateInfo != null && updateInfo.isUpdateAvailable && mounted) {
         _showUpdatePromptDialog(updateInfo);
       }
     } catch (_) {}
