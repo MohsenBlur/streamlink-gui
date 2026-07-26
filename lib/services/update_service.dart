@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.24';
+  static const String currentVersion = '1.0.25';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -184,46 +184,65 @@ while (\$maxWait -gt 0 -and (Get-Process -Id \$AppPid -ErrorAction SilentlyConti
     Start-Sleep -Milliseconds 500
     \$maxWait--
 }
-Get-Process -Name "streamlink_gui" -ErrorAction SilentlyContinue | Where-Object { \$_.Id -ne \$PID } | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
+Stop-Process -Name "streamlink_gui" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "streamlink" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
 Write-Host "      Application closed successfully." -ForegroundColor Green
 Write-Host ""
 
-# 2. Create atomic backup
-Write-Host "[2/4] Creating safety backup of existing files..." -ForegroundColor Yellow
+\$updateFailed = \$false
+\$errorMessage = ""
+
 try {
+    # 2. Create safety backup using robocopy
+    Write-Host "[2/4] Creating safety backup of existing files..." -ForegroundColor Yellow
     if (Test-Path \$BackupDir) { Remove-Item -Path \$BackupDir -Recurse -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path \$BackupDir -Force | Out-Null
-    Copy-Item -Path "\$AppDir\\*" -Destination \$BackupDir -Recurse -Force -ErrorAction Stop
+    
+    & robocopy "\$AppDir" "\$BackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "run_update.bat"
+    if (\$LASTEXITCODE -ge 8) {
+        throw "Backup failed with robocopy exit code \$LASTEXITCODE"
+    }
     Write-Host "      Safety backup created." -ForegroundColor Green
-} catch {
-    Write-Host "      [ERROR] Backup creation failed: \$_" -ForegroundColor Red
-    Write-Host "      Restarting application..." -ForegroundColor Red
-    Start-Process -FilePath \$ExePath
-    Start-Sleep -Seconds 5
-    exit 1
-}
-Write-Host ""
+    Write-Host ""
 
-# 3. Apply update files
-Write-Host "[3/4] Installing updated files..." -ForegroundColor Yellow
-try {
-    Copy-Item -Path "\$SourceDir\\*" -Destination \$AppDir -Recurse -Force -ErrorAction Stop
+    # 3. Install update files using robocopy (retries up to 5 times for locked files)
+    Write-Host "[3/4] Installing updated files..." -ForegroundColor Yellow
+    & robocopy "\$SourceDir" "\$AppDir" /E /IS /IT /NP /R:5 /W:1
+    if (\$LASTEXITCODE -ge 8) {
+        throw "Update installation failed with robocopy exit code \$LASTEXITCODE"
+    }
+
     Remove-Item -Path \$BackupDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path \$SourceDir -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "      Files installed successfully!" -ForegroundColor Green
+    Write-Host ""
 } catch {
+    \$updateFailed = \$true
+    \$errorMessage = \$_
+    Write-Host ""
+    Write-Host "==========================================================" -ForegroundColor Red
     Write-Host "      [ERROR] Update failed: \$_" -ForegroundColor Red
     Write-Host "      Rolling back to backup..." -ForegroundColor Red
-    Copy-Item -Path "\$BackupDir\\*" -Destination \$AppDir -Recurse -Force -ErrorAction SilentlyContinue
-    Start-Process -FilePath \$ExePath
-    Start-Sleep -Seconds 5
-    exit 1
+    Write-Host "==========================================================" -ForegroundColor Red
+    
+    if (Test-Path \$BackupDir) {
+        & robocopy "\$BackupDir" "\$AppDir" /E /IS /IT /NP /R:3 /W:1
+    }
+    
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.MessageBox]::Show(
+            "The application update could not be completed.`n`nDetails: \$_`n`nThe previous version of Streamlink GUI has been restored.",
+            "Streamlink GUI Update Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+    } catch {}
 }
-Write-Host ""
 
 # 4. Re-launch application as normal user via explorer.exe (non-elevated & fully detached)
-Write-Host "[4/4] Launching updated Twitch Streamlink GUI..." -ForegroundColor Green
+Write-Host "[4/4] Launching Twitch Streamlink GUI..." -ForegroundColor Green
 Start-Process "explorer.exe" -ArgumentList "`"\$ExePath`""
 Start-Sleep -Seconds 1
 
@@ -250,32 +269,15 @@ try {
     final ps1File = File(ps1Path);
     await ps1File.writeAsString(scriptContent);
 
-    final batPath = path.join(tempDir, 'run_update.bat');
-    final batContent = '''
-@echo off
-:: Self-elevate to Administrator privileges to ensure write access to protected directories (e.g. C:\\Program Files)
-net session >nul 2>&1
-if %errorLevel% NEQ 0 (
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-    exit /b 0
-)
+    // Launch PowerShell elevated via single clean Start-Process -Verb RunAs
+    final psCommand = "Start-Process powershell.exe -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"\"\"$ps1Path\"\"\" -AppPid $currentPid -AppDir \"\"\"$appDir\"\"\" -SourceDir \"\"\"${sourceDir.path}\"\"\" -BackupDir \"\"\"$backupDir\"\"\" -ExePath \"\"\"${exeFile.path}\"\"\"' -Verb RunAs";
 
-title Twitch Streamlink GUI - Application Self-Updater
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$ps1Path" -AppPid $currentPid -AppDir "$appDir" -SourceDir "${sourceDir.path}" -BackupDir "$backupDir" -ExePath "${exeFile.path}"
-exit /b 0
-''';
-
-    final batFile = File(batPath);
-    await batFile.writeAsString(batContent);
-
-    // Launch detached updater console window that survives parent process exit(0)
     await Process.start(
-      'cmd.exe',
-      ['/c', 'start', 'Twitch Streamlink GUI Updater', batPath],
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCommand],
       mode: ProcessStartMode.detached,
     );
 
-    // Give Windows OS time to initialize the detached process window before exiting
     await Future.delayed(const Duration(milliseconds: 500));
     exit(0);
   }
