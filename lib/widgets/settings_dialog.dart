@@ -179,11 +179,13 @@ class SettingsDialog {
                       const SizedBox(height: 6),
                       Row(
                         children: [
-                          Container(width: 12, height: 12, decoration: BoxDecoration(color: primary, shape: BoxShape.circle)),
-                          const SizedBox(width: 4),
-                          Container(width: 12, height: 12, decoration: BoxDecoration(color: bg, shape: BoxShape.circle)),
-                          const SizedBox(width: 4),
-                          Container(width: 12, height: 12, decoration: BoxDecoration(color: surface, shape: BoxShape.circle)),
+                          Container(width: 10, height: 10, decoration: BoxDecoration(color: primary, shape: BoxShape.circle)),
+                          const SizedBox(width: 3),
+                          Container(width: 10, height: 10, decoration: BoxDecoration(color: bg, shape: BoxShape.circle)),
+                          const SizedBox(width: 3),
+                          Container(width: 10, height: 10, decoration: BoxDecoration(color: surface, shape: BoxShape.circle)),
+                          const SizedBox(width: 3),
+                          Container(width: 10, height: 10, decoration: BoxDecoration(color: activeProg, shape: BoxShape.circle)),
                         ],
                       ),
                     ],

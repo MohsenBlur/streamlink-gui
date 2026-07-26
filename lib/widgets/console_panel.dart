@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import 'horizontal_mouse_scrollable.dart';
+import '../main.dart';
 
 class LogNotifier extends ChangeNotifier {
   final Map<String, List<String>> _logs = {};
@@ -146,9 +147,9 @@ class _ConsolePanelState extends State<ConsolePanel> {
 
     return Container(
       height: widget.consoleCollapsed ? 38 : 220,
-      decoration: const BoxDecoration(
-        color: Color(0xFF07090E),
-        border: Border(top: BorderSide(color: Color(0xFF1E2433), width: 1.5)),
+      decoration: BoxDecoration(
+        color: themeNotifier.backgroundColor,
+        border: const Border(top: BorderSide(color: Color(0xFF1E2433), width: 1.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -156,7 +157,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
           // Console Header
           Container(
             height: 36,
-            color: const Color(0xFF111420),
+            color: themeNotifier.surfaceColor,
             child: Row(
               children: [
                 IconButton(

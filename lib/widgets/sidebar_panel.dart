@@ -6,6 +6,7 @@ import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
 import 'package:flutter/gestures.dart';
+import '../main.dart';
 
 class SidebarPanel extends StatefulWidget {
   final List<TwitchChannel> channels;
@@ -151,7 +152,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
 
     return Container(
       width: sidebarWidth,
-      color: const Color(0xFF111420),
+      color: themeNotifier.surfaceColor,
       child: widget.sidebarCollapsed
           ? _buildCollapsedSidebar(theme)
           : Column(
@@ -871,7 +872,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
     return Container(
       height: 60,
       width: double.infinity,
-      color: const Color(0xFF111420),
+      color: themeNotifier.surfaceColor,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [

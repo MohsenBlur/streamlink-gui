@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
+import '../main.dart';
 
 class _ChannelAutomationState {
   final TwitchChannel originalChannel;
@@ -95,7 +96,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
     final priorityChannels = _favChannels.where((c) => c.autoPlayLive).toList();
 
     return Dialog(
-      backgroundColor: const Color(0xFF0F121C),
+      backgroundColor: themeNotifier.backgroundColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: theme.primaryColor.withOpacity(0.4), width: 1.5),
@@ -145,7 +146,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF161B26),
+                color: themeNotifier.surfaceColor,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFF1E2433)),
               ),
@@ -228,7 +229,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                           ),
                           Container(
                             decoration: BoxDecoration(
-                              color: const Color(0xFF141924),
+                              color: themeNotifier.surfaceColor,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: Colors.amber.withOpacity(0.3)),
                             ),

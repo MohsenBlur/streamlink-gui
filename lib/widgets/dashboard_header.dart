@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
+import '../main.dart';
 
 class DashboardHeader extends StatefulWidget {
   final TwitchChannel channel;
@@ -64,7 +65,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     return Container(
       width: 260,
       decoration: BoxDecoration(
-        color: const Color(0xFF161B26),
+        color: themeNotifier.surfaceColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF1E2433)),
         boxShadow: const [
@@ -206,7 +207,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C0F17),
+        color: themeNotifier.backgroundColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.white10),
       ),
@@ -310,7 +311,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFF161B26),
+          color: themeNotifier.surfaceColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: const Color(0xFF1E2433)),
           boxShadow: [
@@ -827,7 +828,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: const Color(0xFF161B26),
+            color: themeNotifier.surfaceColor,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: const Color(0xFF1E2433)),
             boxShadow: [
