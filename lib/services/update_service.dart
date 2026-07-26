@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.39';
+  static const String currentVersion = '1.0.40';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -175,6 +175,12 @@ class UpdateService {
 \$BackupDir = "$normBackupDir"
 \$ExePath = "$normExePath"
 
+# Windows native tools (robocopy & explorer.exe) require backslashes
+\$WinAppDir = \$AppDir.Replace('/', '\\')
+\$WinSourceDir = \$SourceDir.Replace('/', '\\')
+\$WinBackupDir = \$BackupDir.Replace('/', '\\')
+\$WinExePath = \$ExePath.Replace('/', '\\')
+
 # 1. Wait for parent process to fully terminate
 \$maxWait = 15
 while (\$maxWait -gt 0 -and (Get-Process -Id \$AppPid -ErrorAction SilentlyContinue)) {
@@ -188,20 +194,20 @@ Start-Sleep -Seconds 1
 
 # 2. Backup & File Replacement (Protect channels_config.json & portable.txt)
 try {
-    if (Test-Path "\$BackupDir") { Remove-Item -Path "\$BackupDir" -Recurse -Force -ErrorAction SilentlyContinue }
-    New-Item -ItemType Directory -Path "\$BackupDir" -Force | Out-Null
+    if (Test-Path "\$WinBackupDir") { Remove-Item -Path "\$WinBackupDir" -Recurse -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Path "\$WinBackupDir" -Force | Out-Null
     
-    & robocopy "\$AppDir" "\$BackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "launch_updater.ps1" "channels_config.json" "portable.txt"
+    & robocopy "\$WinAppDir" "\$WinBackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "launch_updater.ps1" "channels_config.json" "portable.txt"
     
-    & robocopy "\$SourceDir" "\$AppDir" /E /IS /IT /NP /R:5 /W:1 /XF "channels_config.json" "portable.txt"
+    & robocopy "\$WinSourceDir" "\$WinAppDir" /E /IS /IT /NP /R:5 /W:1 /XF "channels_config.json" "portable.txt"
     if (\$LASTEXITCODE -ge 8) {
         throw "Robocopy failed with exit code \$LASTEXITCODE during file installation."
     }
 
-    Remove-Item -Path "\$BackupDir" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "\$WinBackupDir" -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
-    if (Test-Path "\$BackupDir") {
-        & robocopy "\$BackupDir" "\$AppDir" /E /IS /IT /NP /R:3 /W:1
+    if (Test-Path "\$WinBackupDir") {
+        & robocopy "\$WinBackupDir" "\$WinAppDir" /E /IS /IT /NP /R:3 /W:1
     }
     
     try {
@@ -215,12 +221,12 @@ try {
     } catch {}
 }
 
-# 3. Re-launch updated application as standard user via explorer.exe
-Start-Process "explorer.exe" -ArgumentList "`"\$ExePath`""
+# 3. Re-launch updated application as standard user via explorer.exe (with Windows backslashes)
+Start-Process "explorer.exe" -ArgumentList "`"\$WinExePath`""
 ''';
 
     final launcherContent = '''
-Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$normPs1Path`"" -Verb RunAs
+Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$normPs1Path`"" -Verb RunAs
 ''';
 
     await File(ps1Path).writeAsString(scriptContent);
