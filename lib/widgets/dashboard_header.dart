@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
 import 'neumorphic/neu_avatar_frame.dart';
+import 'neumorphic/neu_container.dart';
+import 'neumorphic/neu_card.dart';
 import '../main.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -263,20 +265,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     ];
 
     if (isCompact) {
-      return Container(
+      return NeuContainer(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: themeNotifier.surfaceColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF1E2433)),
-          boxShadow: [
-            BoxShadow(
-              color: (widget.channel.isLive ? Colors.green : Colors.grey).withOpacity(0.03),
-              blurRadius: 12,
-              spreadRadius: 1,
-            )
-          ],
-        ),
+        borderRadius: BorderRadius.circular(16),
+        style: NeuStyle.raised,
+        color: themeNotifier.surfaceColor,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -780,20 +773,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       onTap: (widget.channel.isLive && !widget.isPlaying) ? widget.onPlay : null,
       child: MouseRegion(
         cursor: (widget.channel.isLive && !widget.isPlaying) ? SystemMouseCursors.click : SystemMouseCursors.basic,
-        child: Container(
+        child: NeuCard(
           padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: themeNotifier.surfaceColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF1E2433)),
-            boxShadow: [
-              BoxShadow(
-                color: (widget.channel.isLive ? Colors.green : Colors.grey).withOpacity(0.03),
-                blurRadius: 20,
-                spreadRadius: 2,
-              )
-            ],
-          ),
+          borderRadius: BorderRadius.circular(20),
+          baseColor: themeNotifier.surfaceColor,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

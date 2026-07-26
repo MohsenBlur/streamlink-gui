@@ -6,15 +6,25 @@ import '../models/app_settings.dart';
 import '../services/player_service.dart';
 import '../services/update_service.dart';
 import '../utils/color_utils.dart';
-import 'horizontal_mouse_scrollable.dart';
 
 // Abstract theme notifier interface to break dependencies
 abstract class ThemeUpdateListener extends ChangeNotifier {
   Color get primaryColor;
   Color get backgroundColor;
   Color get surfaceColor;
+  Color get lightShadowColor;
+  Color get darkShadowColor;
+  Color get textColor;
+  Color get subtextColor;
   Color get activeProgressColor;
   Color get watchedProgressColor;
+  Color get lightAccentColor;
+  Color get darkAccentColor;
+  bool get isDarkTheme;
+
+  void setDarkTheme(bool isDark);
+  void setLightAccent(Color color);
+  void setDarkAccent(Color color);
 
   void updateTheme({
     Color? primary,
@@ -57,197 +67,12 @@ class SettingsDialog {
     String? tokenTestResult;
     bool isTokenValid = false;
 
-    // Capture original theme colors to support Cancel/Rollback
-    final origPrimary = parseHexColor(settings.primaryColorHex, const Color(0xFF9146FF));
-    final origBackground = parseHexColor(settings.backgroundColorHex, const Color(0xFF0C0F17));
-    final origSurface = parseHexColor(settings.surfaceColorHex, const Color(0xFF161B26));
-    final origActiveProgress = parseHexColor(settings.activeProgressColorHex, const Color(0xFF9146FF));
-    final origWatchedProgress = parseHexColor(settings.watchedProgressColorHex, const Color(0x804CAF50));
-
-    Color tempPrimary = origPrimary;
-    Color tempBackground = origBackground;
-    Color tempSurface = origSurface;
-    Color tempActiveProgress = origActiveProgress;
-    Color tempWatchedProgress = origWatchedProgress;
-
-    String activeColorKey = 'primary';
-    final hexController = TextEditingController(text: colorToHex(tempPrimary));
-
     showDialog(
       context: context,
-      barrierDismissible: false, // Force user to click save/cancel to ensure proper color rollback
+      barrierDismissible: false,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            Color getActiveColor() {
-              switch (activeColorKey) {
-                case 'primary': return tempPrimary;
-                case 'background': return tempBackground;
-                case 'surface': return tempSurface;
-                case 'activeProgress': return tempActiveProgress;
-                case 'watchedProgress': return tempWatchedProgress;
-                default: return tempPrimary;
-              }
-            }
-
-            void updateActiveColor(Color c) {
-              setDialogState(() {
-                switch (activeColorKey) {
-                  case 'primary': tempPrimary = c; break;
-                  case 'background': tempBackground = c; break;
-                  case 'surface': tempSurface = c; break;
-                  case 'activeProgress': tempActiveProgress = c; break;
-                  case 'watchedProgress': tempWatchedProgress = c; break;
-                }
-                final activeColor = getActiveColor();
-                final hexStr = colorToHex(activeColor);
-                if (hexController.text.toUpperCase() != hexStr.toUpperCase()) {
-                  hexController.text = hexStr;
-                }
-              });
-              themeNotifier.updateTheme(
-                primary: tempPrimary,
-                background: tempBackground,
-                surface: tempSurface,
-                activeProgress: tempActiveProgress,
-                watchedProgress: tempWatchedProgress,
-              );
-            }
-
-            Widget buildPresetCard({
-              required String name,
-              required Color primary,
-              required Color bg,
-              required Color surface,
-              required Color activeProg,
-              required Color watchedProg,
-            }) {
-              final isSelected = tempPrimary.value == primary.value &&
-                  tempBackground.value == bg.value &&
-                  tempSurface.value == surface.value;
-              return MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  onTap: () {
-                  setDialogState(() {
-                    tempPrimary = primary;
-                    tempBackground = bg;
-                    tempSurface = surface;
-                    tempActiveProgress = activeProg;
-                    tempWatchedProgress = watchedProg;
-                    hexController.text = colorToHex(getActiveColor());
-                  });
-                  themeNotifier.updateTheme(
-                    primary: tempPrimary,
-                    background: tempBackground,
-                    surface: tempSurface,
-                    activeProgress: tempActiveProgress,
-                    watchedProgress: tempWatchedProgress,
-                  );
-                },
-                child: Container(
-                  width: 110,
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isSelected ? primary : Colors.white10,
-                      width: isSelected ? 2 : 1,
-                    ),
-                    boxShadow: [
-                      if (isSelected)
-                        BoxShadow(
-                          color: primary.withOpacity(0.3),
-                          blurRadius: 6,
-                        ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        name,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: isSelected ? Colors.white : Colors.white70,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Container(width: 10, height: 10, decoration: BoxDecoration(color: primary, shape: BoxShape.circle)),
-                          const SizedBox(width: 3),
-                          Container(width: 10, height: 10, decoration: BoxDecoration(color: bg, shape: BoxShape.circle)),
-                          const SizedBox(width: 3),
-                          Container(width: 10, height: 10, decoration: BoxDecoration(color: surface, shape: BoxShape.circle)),
-                          const SizedBox(width: 3),
-                          Container(width: 10, height: 10, decoration: BoxDecoration(color: activeProg, shape: BoxShape.circle)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-            }
-
-            Widget buildColorSlider({
-              required String label,
-              required double value,
-              required Color sliderColor,
-              required ValueChanged<double> onChanged,
-            }) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
-                        Text(value.round().toString(), style: const TextStyle(fontSize: 11, fontFamily: 'Consolas', color: Colors.white70)),
-                      ],
-                    ),
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 2,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                        activeTrackColor: sliderColor,
-                        inactiveTrackColor: Colors.white10,
-                        thumbColor: sliderColor,
-                      ),
-                      child: Slider(
-                        value: value,
-                        min: 0,
-                        max: 255,
-                        onChanged: onChanged,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            final presets = [
-              const Color(0xFF9146FF), // Twitch Purple
-              const Color(0xFF00F2FE), // Cyan Accent
-              const Color(0xFF4CAF50), // Green
-              const Color(0xFFF44336), // Red
-              const Color(0xFFFF9800), // Orange
-              const Color(0xFFFFEB3B), // Yellow
-              const Color(0xFFE91E63), // Pink
-              const Color(0xFF2196F3), // Blue
-              const Color(0xFF0C0F17), // Dark Background
-              const Color(0xFF161B26), // Dark Card
-            ];
-
-            final activeColor = getActiveColor();
-
             return DefaultTabController(
               length: 5,
               child: AlertDialog(
@@ -857,209 +682,149 @@ class SettingsDialog {
                       ),
 
                       // TAB 4: STYLING & COLORS
+                      // TAB 4: THEME & STYLING SETTINGS
                       SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Preset Theme Swatches', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                            const SizedBox(height: 8),
-                            HorizontalMouseScrollable(
-                              child: Row(
-                                children: [
-                                  buildPresetCard(
-                                    name: 'Twitch Royal',
-                                    primary: const Color(0xFFA970FF),
-                                    bg: const Color(0xFF0B0E14),
-                                    surface: const Color(0xFF151A23),
-                                    activeProg: const Color(0xFFA970FF),
-                                    watchedProg: const Color(0x9922C55E),
-                                  ),
-                                  buildPresetCard(
-                                    name: 'Cyberpunk Neon',
-                                    primary: const Color(0xFF00F2FE),
-                                    bg: const Color(0xFF090A10),
-                                    surface: const Color(0xFF121522),
-                                    activeProg: const Color(0xFFFF007F),
-                                    watchedProg: const Color(0x9910B981),
-                                  ),
-                                  buildPresetCard(
-                                    name: 'Solar Sunset',
-                                    primary: const Color(0xFFFF7A00),
-                                    bg: const Color(0xFF0E0C0A),
-                                    surface: const Color(0xFF1C1814),
-                                    activeProg: const Color(0xFFFF9900),
-                                    watchedProg: const Color(0x9934D399),
-                                  ),
-                                  buildPresetCard(
-                                    name: 'Tokyo Drift',
-                                    primary: const Color(0xFFFF2A85),
-                                    bg: const Color(0xFF0A0612),
-                                    surface: const Color(0xFF160E24),
-                                    activeProg: const Color(0xFF7B2CBF),
-                                    watchedProg: const Color(0x9900F5D4),
-                                  ),
-                                  buildPresetCard(
-                                    name: 'Obsidian OLED',
-                                    primary: const Color(0xFF38BDF8),
-                                    bg: const Color(0xFF000000),
-                                    surface: const Color(0xFF111111),
-                                    activeProg: const Color(0xFF38BDF8),
-                                    watchedProg: const Color(0x994ADE80),
-                                  ),
-                                  buildPresetCard(
-                                    name: 'Nordic Emerald',
-                                    primary: const Color(0xFF10B981),
-                                    bg: const Color(0xFF07120E),
-                                    surface: const Color(0xFF0F241C),
-                                    activeProg: const Color(0xFF10B981),
-                                    watchedProg: const Color(0x992DD4BF),
-                                  ),
-                                  buildPresetCard(
-                                    name: 'Vampire Crimson',
-                                    primary: const Color(0xFFF43F5E),
-                                    bg: const Color(0xFF0F080A),
-                                    surface: const Color(0xFF1F1115),
-                                    activeProg: const Color(0xFFF43F5E),
-                                    watchedProg: const Color(0x9910B981),
-                                  ),
-                                  buildPresetCard(
-                                    name: 'Nordic Glacier',
-                                    primary: const Color(0xFF60A5FA),
-                                    bg: const Color(0xFF0F172A),
-                                    surface: const Color(0xFF1E293B),
-                                    activeProg: const Color(0xFF60A5FA),
-                                    watchedProg: const Color(0x9934D399),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-                            const Text(
-                              'Choose Custom Color to Edit',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<String>(
-                              value: activeColorKey,
-                              decoration: const InputDecoration(
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                              ),
-                              items: const [
-                                DropdownMenuItem(value: 'primary', child: Text('Primary Branding Color')),
-                                DropdownMenuItem(value: 'background', child: Text('Application Background')),
-                                DropdownMenuItem(value: 'surface', child: Text('Card / Sidebar / Dialog Background')),
-                                DropdownMenuItem(value: 'activeProgress', child: Text('In-Progress VOD Color')),
-                                DropdownMenuItem(value: 'watchedProgress', child: Text('Fully Watched VOD Color')),
-                              ],
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setDialogState(() {
-                                    activeColorKey = val;
-                                    hexController.text = colorToHex(getActiveColor());
-                                  });
-                                }
-                              },
-                            ),
-                            const SizedBox(height: 20),
+                            const Text('Application Theme Mode', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            const SizedBox(height: 4),
+                            Text('Choose between Soft Light and Deep Dark Neumorphic themes.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
+                            const SizedBox(height: 12),
                             Row(
                               children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    color: activeColor,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.white24, width: 1.5),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.3),
-                                        blurRadius: 4,
-                                      )
-                                    ]
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      themeNotifier.setDarkTheme(false);
+                                      setDialogState(() {});
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEBECF0),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: !themeNotifier.isDarkTheme ? themeNotifier.primaryColor : Colors.transparent,
+                                          width: 2,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(color: Colors.white, offset: Offset(-3, -3), blurRadius: 6),
+                                          BoxShadow(color: Color(0xFFA3B1C6), offset: Offset(3, 3), blurRadius: 6),
+                                        ],
+                                      ),
+                                      child: Column(
+                                        children: const [
+                                          Icon(Icons.light_mode, color: Color(0xFFFF6584), size: 24),
+                                          SizedBox(height: 6),
+                                          Text('Soft Light', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2D3748))),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 14),
                                 Expanded(
-                                  child: TextField(
-                                    controller: hexController,
-                                    style: const TextStyle(fontSize: 13, fontFamily: 'Consolas'),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Hex Color Value',
-                                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                    ),
-                                    onChanged: (val) {
-                                      final newCol = parseHexColor(val, getActiveColor());
-                                      if (newCol != getActiveColor()) {
-                                        updateActiveColor(newCol);
-                                      }
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      themeNotifier.setDarkTheme(true);
+                                      setDialogState(() {});
                                     },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF1D212A),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: themeNotifier.isDarkTheme ? themeNotifier.primaryColor : Colors.transparent,
+                                          width: 2,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(color: Color(0xFF2B303F), offset: Offset(-3, -3), blurRadius: 6),
+                                          BoxShadow(color: Color(0xFF12151B), offset: Offset(3, 3), blurRadius: 6),
+                                        ],
+                                      ),
+                                      child: Column(
+                                        children: const [
+                                          Icon(Icons.dark_mode, color: Color(0xFFFF3B30), size: 24),
+                                          SizedBox(height: 6),
+                                          Text('Deep Dark', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFE2E8F0))),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 18),
-                            buildColorSlider(
-                              label: 'Red Channel',
-                              value: activeColor.red.toDouble(),
-                              sliderColor: Colors.redAccent,
-                              onChanged: (val) {
-                                updateActiveColor(Color.fromARGB(activeColor.alpha, val.round(), activeColor.green, activeColor.blue));
-                              },
-                            ),
-                            buildColorSlider(
-                              label: 'Green Channel',
-                              value: activeColor.green.toDouble(),
-                              sliderColor: Colors.greenAccent,
-                              onChanged: (val) {
-                                updateActiveColor(Color.fromARGB(activeColor.alpha, activeColor.red, val.round(), activeColor.blue));
-                              },
-                            ),
-                            buildColorSlider(
-                              label: 'Blue Channel',
-                              value: activeColor.blue.toDouble(),
-                              sliderColor: Colors.blueAccent,
-                              onChanged: (val) {
-                                updateActiveColor(Color.fromARGB(activeColor.alpha, activeColor.red, activeColor.green, val.round()));
-                              },
-                            ),
-                            buildColorSlider(
-                              label: 'Opacity (Alpha Channel)',
-                              value: activeColor.alpha.toDouble(),
-                              sliderColor: Colors.white70,
-                              onChanged: (val) {
-                                updateActiveColor(Color.fromARGB(val.round(), activeColor.red, activeColor.green, activeColor.blue));
-                              },
-                            ),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 24),
+                            const Text('Light Theme Accent Color', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('Accent color used when Soft Light theme is active.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
+                            const SizedBox(height: 8),
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
-                              children: presets.map((preset) {
-                                final isSelected = activeColor.value == preset.value;
-                                return MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      updateActiveColor(preset);
-                                    },
-                                    child: Container(
-                                      width: 30,
-                                      height: 30,
-                                      decoration: BoxDecoration(
-                                        color: preset,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: isSelected ? Colors.white : Colors.white24,
-                                          width: isSelected ? 2.5 : 1.0,
-                                        ),
-                                        boxShadow: [
-                                          if (isSelected)
-                                            BoxShadow(
-                                              color: preset.withOpacity(0.5),
-                                              blurRadius: 6,
-                                            )
-                                        ],
+                              children: [
+                                const Color(0xFFFF6584), // Soft Pink
+                                const Color(0xFF7C3AED), // Twitch Purple
+                                const Color(0xFF00F2FE), // Cyan
+                                const Color(0xFF10B981), // Emerald
+                                const Color(0xFFFF7A00), // Orange
+                                const Color(0xFFF43F5E), // Rose
+                              ].map((color) {
+                                final isSelected = themeNotifier.lightAccentColor.value == color.value;
+                                return GestureDetector(
+                                  onTap: () {
+                                    themeNotifier.setLightAccent(color);
+                                    setDialogState(() {});
+                                  },
+                                  child: Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isSelected ? Colors.white : Colors.black26,
+                                        width: isSelected ? 3.0 : 1.0,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 24),
+                            const Text('Dark Theme Accent Color', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('Accent color used when Deep Dark theme is active.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                const Color(0xFFFF3B30), // Vibrant Red
+                                const Color(0xFF8B5CF6), // Electric Purple
+                                const Color(0xFF38BDF8), // Sky Blue
+                                const Color(0xFFFF2A85), // Magenta
+                                const Color(0xFFF59E0B), // Gold
+                                const Color(0xFF10B981), // Emerald
+                              ].map((color) {
+                                final isSelected = themeNotifier.darkAccentColor.value == color.value;
+                                return GestureDetector(
+                                  onTap: () {
+                                    themeNotifier.setDarkAccent(color);
+                                    setDialogState(() {});
+                                  },
+                                  child: Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isSelected ? Colors.white : Colors.black45,
+                                        width: isSelected ? 3.0 : 1.0,
                                       ),
                                     ),
                                   ),
@@ -1193,13 +958,6 @@ class SettingsDialog {
                         children: [
                           TextButton(
                             onPressed: () {
-                              themeNotifier.updateTheme(
-                                primary: origPrimary,
-                                background: origBackground,
-                                surface: origSurface,
-                                activeProgress: origActiveProgress,
-                                watchedProgress: origWatchedProgress,
-                              );
                               Navigator.pop(context);
                             },
                             child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
@@ -1227,11 +985,8 @@ class SettingsDialog {
                                 sidebarCollapsed: settings.sidebarCollapsed,
                               );
 
-                              updated.primaryColorHex = colorToHex(tempPrimary);
-                              updated.backgroundColorHex = colorToHex(tempBackground);
-                              updated.surfaceColorHex = colorToHex(tempSurface);
-                              updated.activeProgressColorHex = colorToHex(tempActiveProgress);
-                              updated.watchedProgressColorHex = colorToHex(tempWatchedProgress);
+                              updated.lightAccentColorHex = colorToHex(themeNotifier.lightAccentColor);
+                              updated.darkAccentColorHex = colorToHex(themeNotifier.darkAccentColor);
 
                               onSave(updated);
                               Navigator.pop(context);

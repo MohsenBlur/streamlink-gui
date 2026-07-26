@@ -474,8 +474,9 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                           Expanded(
                                             child: Text(
                                               channel.username,
-                                              style: theme.textTheme.bodyLarge?.copyWith(
-                                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                              style: TextStyle(
+                                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                                color: themeNotifier.textColor,
                                                 fontSize: 14,
                                               ),
                                               overflow: TextOverflow.ellipsis,

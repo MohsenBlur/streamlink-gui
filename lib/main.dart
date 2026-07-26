@@ -26,36 +26,57 @@ import 'utils/color_utils.dart';
 import 'utils/process_monitor.dart';
 
 class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
+  @override
   bool isDarkTheme = true;
-  Color primaryColor = const Color(0xFF8B5CF6);
-  Color backgroundColor = const Color(0xFF1D212A);
-  Color surfaceColor = const Color(0xFF222632);
-  Color lightShadowColor = const Color(0xFF2B303F);
-  Color darkShadowColor = const Color(0xFF12151B);
-  Color textColor = const Color(0xFFE2E8F0);
-  Color subtextColor = const Color(0xFF94A3B8);
-  Color activeProgressColor = const Color(0xFF8B5CF6);
+
+  @override
+  Color lightAccentColor = const Color(0xFFFF6584);
+
+  @override
+  Color darkAccentColor = const Color(0xFFFF3B30);
+
+  @override
+  Color get primaryColor => isDarkTheme ? darkAccentColor : lightAccentColor;
+
+  @override
+  Color get backgroundColor => isDarkTheme ? const Color(0xFF1D212A) : const Color(0xFFEBECF0);
+
+  @override
+  Color get surfaceColor => isDarkTheme ? const Color(0xFF222632) : const Color(0xFFEBECF0);
+
+  @override
+  Color get lightShadowColor => isDarkTheme ? const Color(0xFF2B303F) : const Color(0xFFFFFFFF);
+
+  @override
+  Color get darkShadowColor => isDarkTheme ? const Color(0xFF12151B) : const Color(0xFFA3B1C6);
+
+  @override
+  Color get textColor => isDarkTheme ? const Color(0xFFE2E8F0) : const Color(0xFF2D3748);
+
+  @override
+  Color get subtextColor => isDarkTheme ? const Color(0xFF94A3B8) : const Color(0xFF718096);
+
+  @override
+  Color activeProgressColor = const Color(0xFFFF3B30);
+
+  @override
   Color watchedProgressColor = const Color(0x804CAF50);
 
+  @override
   void setDarkTheme(bool isDark) {
     isDarkTheme = isDark;
-    if (isDark) {
-      backgroundColor = const Color(0xFF1D212A);
-      surfaceColor = const Color(0xFF222632);
-      lightShadowColor = const Color(0xFF2B303F);
-      darkShadowColor = const Color(0xFF12151B);
-      textColor = const Color(0xFFE2E8F0);
-      subtextColor = const Color(0xFF94A3B8);
-      primaryColor = const Color(0xFF8B5CF6);
-    } else {
-      backgroundColor = const Color(0xFFE0E5EC);
-      surfaceColor = const Color(0xFFE4E9F0);
-      lightShadowColor = const Color(0xFFFFFFFF);
-      darkShadowColor = const Color(0xFFA3B1C6);
-      textColor = const Color(0xFF2D3748);
-      subtextColor = const Color(0xFF718096);
-      primaryColor = const Color(0xFF7C3AED);
-    }
+    notifyListeners();
+  }
+
+  @override
+  void setLightAccent(Color color) {
+    lightAccentColor = color;
+    notifyListeners();
+  }
+
+  @override
+  void setDarkAccent(Color color) {
+    darkAccentColor = color;
     notifyListeners();
   }
 
@@ -67,9 +88,13 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
     Color? activeProgress,
     Color? watchedProgress,
   }) {
-    if (primary != null) primaryColor = primary;
-    if (background != null) backgroundColor = background;
-    if (surface != null) surfaceColor = surface;
+    if (primary != null) {
+      if (isDarkTheme) {
+        darkAccentColor = primary;
+      } else {
+        lightAccentColor = primary;
+      }
+    }
     if (activeProgress != null) activeProgressColor = activeProgress;
     if (watchedProgress != null) watchedProgressColor = watchedProgress;
     notifyListeners();

@@ -33,6 +33,9 @@ class AppSettings {
   int vodWatchExclusionThreshold = 15; // default 15%
   bool autoPlayPreemptLowerPriority = false;
 
+  String lightAccentColorHex = '#FF6584';
+  String darkAccentColorHex = '#FF3B30';
+
   AppSettings({
     this.defaultQuality = 'best',
     this.twitchLowLatency = true,
@@ -50,6 +53,8 @@ class AppSettings {
     this.surfaceColorHex = '#161B26',
     this.activeProgressColorHex = '#9146FF',
     this.watchedProgressColorHex = '#804CAF50',
+    this.lightAccentColorHex = '#FF6584',
+    this.darkAccentColorHex = '#FF3B30',
     this.vodDownloadFolder = '',
     this.maxDownloadsToKeep = 0,
     this.unfinishedDownloads = const [],
@@ -92,6 +97,8 @@ class AppSettings {
         'surface_color_hex': surfaceColorHex,
         'active_progress_color_hex': activeProgressColorHex,
         'watched_progress_color_hex': watchedProgressColorHex,
+        'light_accent_color_hex': lightAccentColorHex,
+        'dark_accent_color_hex': darkAccentColorHex,
         'vod_download_folder': vodDownloadFolder,
         'max_downloads_to_keep': maxDownloadsToKeep,
         'unfinished_downloads': unfinishedDownloads,
@@ -124,6 +131,8 @@ class AppSettings {
         surfaceColorHex: json['surface_color_hex'] ?? '#161B26',
         activeProgressColorHex: json['active_progress_color_hex'] ?? '#9146FF',
         watchedProgressColorHex: json['watched_progress_color_hex'] ?? '#804CAF50',
+        lightAccentColorHex: json['light_accent_color_hex'] ?? '#FF6584',
+        darkAccentColorHex: json['dark_accent_color_hex'] ?? '#FF3B30',
         vodDownloadFolder: json['vod_download_folder'] ?? '',
         maxDownloadsToKeep: json['max_downloads_to_keep'] ?? 0,
         unfinishedDownloads: json['unfinished_downloads'] ?? const [],

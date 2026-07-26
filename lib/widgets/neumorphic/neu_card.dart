@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
+import '../../main.dart';
 
 class NeuCard extends StatelessWidget {
   final Widget child;
@@ -31,9 +32,7 @@ class NeuCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final primary = theme.primaryColor;
+    final primary = Theme.of(context).primaryColor;
 
     Border? cardBorder;
     if (isSelected) {
@@ -53,7 +52,7 @@ class NeuCard extends StatelessWidget {
       borderRadius: borderRadius ?? BorderRadius.circular(20),
       style: NeuStyle.raised,
       depth: depth,
-      color: baseColor ?? (isDark ? const Color(0xFF20242F) : const Color(0xFFE6ECEF)),
+      color: baseColor ?? themeNotifier.surfaceColor,
       border: cardBorder,
       child: child,
     );

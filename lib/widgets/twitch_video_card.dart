@@ -224,41 +224,30 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
             transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
             decoration: BoxDecoration(
               color: themeNotifier.surfaceColor,
-              borderRadius: BorderRadius.circular(12),
-              border: widget.isMultiSelectMode
+              borderRadius: BorderRadius.circular(16),
+              border: widget.isSelected || widget.isPlaying
                   ? Border.all(
-                      color: widget.isSelected
-                          ? widget.theme.primaryColor
-                          : (_isHovered ? widget.theme.primaryColor.withOpacity(0.5) : const Color(0xFF1E2433)),
-                      width: widget.isSelected ? 2.0 : 1.0,
+                      color: widget.theme.primaryColor,
+                      width: widget.isSelected ? 2.5 : 2.0,
                     )
-                  : widget.isPlaying
-                      ? Border.all(
-                          color: widget.theme.primaryColor.withOpacity(0.4 + 0.6 * widget.pulseController!.value),
-                          width: 2.5,
-                        )
-                      : Border.all(
-                          color: _isHovered ? widget.theme.primaryColor.withOpacity(0.8) : const Color(0xFF1E2433),
-                          width: _isHovered ? 1.5 : 1.0,
-                        ),
-              boxShadow: widget.isPlaying
-                  ? [
-                      BoxShadow(
-                        color: widget.theme.primaryColor.withOpacity(0.35 * widget.pulseController!.value),
-                        blurRadius: 12 + 8 * widget.pulseController!.value,
-                        spreadRadius: 1 + 2 * widget.pulseController!.value,
-                      )
-                    ]
-                  : [
-                      BoxShadow(
-                        color: _isHovered 
-                            ? widget.theme.primaryColor.withOpacity(0.15) 
-                            : Colors.black.withOpacity(0.2),
-                        blurRadius: _isHovered ? 16 : 8,
-                        spreadRadius: _isHovered ? 2 : 0,
-                        offset: Offset(0, _isHovered ? 6 : 2),
-                      )
-                    ],
+                  : Border.all(
+                      color: _isHovered 
+                          ? widget.theme.primaryColor.withOpacity(0.6) 
+                          : Colors.white.withOpacity(themeNotifier.isDarkTheme ? 0.05 : 0.6),
+                      width: 1.0,
+                    ),
+              boxShadow: [
+                BoxShadow(
+                  color: themeNotifier.lightShadowColor.withOpacity(_isHovered ? 0.9 : 0.7),
+                  offset: Offset(_isHovered ? -6 : -4, _isHovered ? -6 : -4),
+                  blurRadius: _isHovered ? 14 : 10,
+                ),
+                BoxShadow(
+                  color: themeNotifier.darkShadowColor.withOpacity(_isHovered ? 0.9 : 0.7),
+                  offset: Offset(_isHovered ? 6 : 4, _isHovered ? 6 : 4),
+                  blurRadius: _isHovered ? 14 : 10,
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -664,7 +653,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                         style: TextStyle(
                           fontSize: widget.fontSize * (1.0 + (widget.scale - 200.0) / 400.0 * 0.8), 
                           fontWeight: FontWeight.bold, 
-                          color: Colors.white, 
+                          color: themeNotifier.textColor, 
                           height: 1.25
                         ),
                       ),
