@@ -13,23 +13,20 @@ class PlayerService {
   String _getExecutablePath(String name) {
     final exeName = Platform.isWindows ? '$name.exe' : name;
     final exeDir = File(Platform.resolvedExecutable).parent.path;
-    
-    // Option 1: app_dir/bin/name.exe
-    final bundledInBin = path.join(exeDir, 'bin', exeName);
-    if (File(bundledInBin).existsSync()) {
-      return bundledInBin;
-    }
+    final devDir = Directory.current.path;
 
-    // Option 2: app_dir/name.exe
-    final bundledInRoot = path.join(exeDir, exeName);
-    if (File(bundledInRoot).existsSync()) {
-      return bundledInRoot;
-    }
+    final candidates = [
+      path.join(exeDir, 'bin', 'bin', exeName),
+      path.join(exeDir, 'bin', exeName),
+      path.join(exeDir, exeName),
+      path.join(devDir, 'bin', 'bin', exeName),
+      path.join(devDir, 'bin', exeName),
+    ];
 
-    // Option 3: project_root/bin/name.exe (during development)
-    final devBin = path.join(Directory.current.path, 'bin', exeName);
-    if (File(devBin).existsSync()) {
-      return devBin;
+    for (final candidate in candidates) {
+      if (File(candidate).existsSync()) {
+        return candidate;
+      }
     }
 
     // Fallback: system PATH
@@ -39,12 +36,16 @@ class PlayerService {
   Map<String, String> _getEnvironmentWithBin() {
     final env = Map<String, String>.from(Platform.environment);
     final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final devDir = Directory.current.path;
+
+    final binSubPath = path.join(exeDir, 'bin', 'bin');
     final binPath = path.join(exeDir, 'bin');
-    final devBinPath = path.join(Directory.current.path, 'bin');
-    
+    final devBinSubPath = path.join(devDir, 'bin', 'bin');
+    final devBinPath = path.join(devDir, 'bin');
+
     final pathKey = env.keys.firstWhere((k) => k.toUpperCase() == 'PATH', orElse: () => 'PATH');
     final existingPath = env[pathKey] ?? '';
-    env[pathKey] = '$binPath;$devBinPath;$existingPath';
+    env[pathKey] = '$binSubPath;$binPath;$devBinSubPath;$devBinPath;$existingPath';
     return env;
   }
   
