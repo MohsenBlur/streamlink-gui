@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.41';
+  static const String currentVersion = '1.0.42';
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
@@ -157,7 +157,6 @@ class UpdateService {
     final tempDir = sourceDir.parent.path;
     final backupDir = path.join(tempDir, 'backup');
     final ps1Path = path.join(tempDir, 'updater.ps1');
-    final launcherPath = path.join(tempDir, 'launch_updater.ps1');
 
     final normAppDir = path.normalize(appDir).replaceAll('\\', '/');
     final normSourceDir = path.normalize(sourceDir.path).replaceAll('\\', '/');
@@ -166,7 +165,7 @@ class UpdateService {
     final normPs1Path = path.normalize(ps1Path).replaceAll('\\', '/');
 
     final scriptContent = '''
-# Auto-generated Updater Script for Twitch Streamlink GUI
+# Auto-generated Single Self-Elevating Updater Script for Twitch Streamlink GUI
 \$ErrorActionPreference = "Stop"
 
 \$AppPid = $currentPid
@@ -175,11 +174,26 @@ class UpdateService {
 \$BackupDir = "$normBackupDir"
 \$ExePath = "$normExePath"
 
-# Windows native tools (robocopy & explorer.exe) require backslashes
 \$WinAppDir = \$AppDir.Replace('/', '\\')
 \$WinSourceDir = \$SourceDir.Replace('/', '\\')
 \$WinBackupDir = \$BackupDir.Replace('/', '\\')
 \$WinExePath = \$ExePath.Replace('/', '\\')
+
+# Check write permission for target directory
+\$testFile = Join-Path \$WinAppDir ".perm_test"
+\$needsElevation = \$false
+try {
+    [System.IO.File]::WriteAllText(\$testFile, "test")
+    Remove-Item \$testFile -Force -ErrorAction SilentlyContinue
+} catch {
+    \$needsElevation = \$true
+}
+
+# If target directory requires elevation and we are not admin, self-elevate
+if (\$needsElevation -and -not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$normPs1Path`"" -Verb RunAs
+    exit
+}
 
 # 1. Wait for parent process to fully terminate
 \$maxWait = 15
@@ -197,8 +211,7 @@ try {
     if (Test-Path "\$WinBackupDir") { Remove-Item -Path "\$WinBackupDir" -Recurse -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path "\$WinBackupDir" -Force | Out-Null
     
-    & robocopy "\$WinAppDir" "\$WinBackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "launch_updater.ps1" "channels_config.json" "portable.txt"
-    
+    & robocopy "\$WinAppDir" "\$WinBackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "channels_config.json" "portable.txt"
     & robocopy "\$WinSourceDir" "\$WinAppDir" /E /IS /IT /NP /R:5 /W:1 /XF "channels_config.json" "portable.txt"
     if (\$LASTEXITCODE -ge 8) {
         throw "Robocopy failed with exit code \$LASTEXITCODE during file installation."
@@ -221,20 +234,19 @@ try {
     } catch {}
 }
 
-# 3. Re-launch updated application as standard user via explorer.exe (with Windows backslashes)
-Start-Process "explorer.exe" -ArgumentList "`"\$WinExePath`""
-''';
-
-    final launcherContent = '''
-Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$normPs1Path`"" -Verb RunAs
+# 3. Re-launch updated application
+try {
+    Start-Process "\$WinExePath"
+} catch {
+    Start-Process "cmd.exe" -ArgumentList "/c start `"`" `"\$WinExePath`""
+}
 ''';
 
     await File(ps1Path).writeAsString(scriptContent);
-    await File(launcherPath).writeAsString(launcherContent);
 
     await Process.start(
       'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', launcherPath],
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1Path],
       mode: ProcessStartMode.detached,
     );
 
