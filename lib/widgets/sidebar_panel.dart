@@ -426,14 +426,18 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                 cursor: SystemMouseCursors.click,
                                 child: Container(
                                   margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(10),
-                                    color: isSelected ? theme.primaryColor.withOpacity(0.15) : Colors.transparent,
-                                    border: Border.all(
-                                      color: isSelected ? theme.primaryColor.withOpacity(0.4) : Colors.transparent,
-                                      width: 1,
-                                    ),
-                                  ),
+                                  decoration: isSelected
+                                      ? NeuTheme.raisedDecoration(
+                                          themeNotifier.isDarkTheme,
+                                          radius: 10,
+                                          border: Border.all(color: theme.primaryColor, width: 1.5),
+                                        )
+                                      : (isRowHovered
+                                          ? NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 10)
+                                          : BoxDecoration(
+                                              color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                              borderRadius: BorderRadius.circular(10),
+                                            )),
                                   child: GestureDetector(
                                     onDoubleTap: channel.isLive
                                         ? () => widget.onChannelDoubleTapped(channel.username)

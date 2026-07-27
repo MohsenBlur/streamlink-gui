@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
+import '../theme/neu_theme.dart';
 import '../main.dart';
 
 class TwitchVideoCard extends StatefulWidget {
@@ -222,32 +223,17 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
             transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
-            decoration: BoxDecoration(
-              color: themeNotifier.surfaceColor,
-              borderRadius: BorderRadius.circular(16),
+            decoration: NeuTheme.raisedDecoration(
+              themeNotifier.isDarkTheme,
+              radius: 16,
               border: widget.isSelected || widget.isPlaying
                   ? Border.all(
                       color: widget.theme.primaryColor,
                       width: widget.isSelected ? 2.5 : 2.0,
                     )
-                  : Border.all(
-                      color: _isHovered 
-                          ? widget.theme.primaryColor.withOpacity(0.6) 
-                          : Colors.white.withOpacity(themeNotifier.isDarkTheme ? 0.05 : 0.6),
-                      width: 1.0,
-                    ),
-              boxShadow: [
-                BoxShadow(
-                  color: themeNotifier.lightShadowColor.withOpacity(_isHovered ? 0.9 : 0.7),
-                  offset: Offset(_isHovered ? -6 : -4, _isHovered ? -6 : -4),
-                  blurRadius: _isHovered ? 14 : 10,
-                ),
-                BoxShadow(
-                  color: themeNotifier.darkShadowColor.withOpacity(_isHovered ? 0.9 : 0.7),
-                  offset: Offset(_isHovered ? 6 : 4, _isHovered ? 6 : 4),
-                  blurRadius: _isHovered ? 14 : 10,
-                ),
-              ],
+                  : (_isHovered
+                      ? Border.all(color: widget.theme.primaryColor.withOpacity(0.6), width: 1.5)
+                      : null),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

@@ -4,6 +4,7 @@ import 'hover_overlay_menu.dart';
 import 'neumorphic/neu_avatar_frame.dart';
 import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_card.dart';
+import '../theme/neu_theme.dart';
 import '../main.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -184,13 +185,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
   Widget _buildMiniActionBtn({required IconData icon, required String tooltip, required VoidCallback? onPressed}) {
     return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF374151)),
-      ),
+      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
       child: IconButton(
-        icon: Icon(icon, size: 14, color: Colors.white70),
+        icon: Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme)),
         tooltip: tooltip,
         onPressed: onPressed,
         constraints: const BoxConstraints.tightFor(width: 32, height: 32),
@@ -203,11 +200,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   Widget _buildHeaderChip({required IconData icon, required Color color, required String label}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: themeNotifier.backgroundColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white10),
-      ),
+      decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -215,7 +208,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.w500),
+            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
           ),
         ],
       ),

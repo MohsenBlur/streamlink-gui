@@ -238,18 +238,17 @@ class _ConsolePanelState extends State<ConsolePanel> {
                               child: Container(
                                 margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                                 padding: const EdgeInsets.symmetric(horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: isSelected ? const Color(0xFF1A1F31) : const Color(0xFF0D0F16),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(
-                                    color: isSelected ? Colors.greenAccent.withOpacity(0.4) : const Color(0xFF1E2433),
-                                    width: 1,
-                                  ),
-                                ),
+                                decoration: isSelected
+                                    ? NeuTheme.sunkenDecoration(
+                                        themeNotifier.isDarkTheme,
+                                        radius: 6,
+                                        border: Border.all(color: Colors.greenAccent.withOpacity(0.6), width: 1.5),
+                                      )
+                                    : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.download, size: 12, color: isTabRunning ? Colors.greenAccent : Colors.white60),
+                                    Icon(Icons.download, size: 12, color: isTabRunning ? Colors.greenAccent : NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                     const SizedBox(width: 6),
                                     Text(
                                       'Downloads Manager',
@@ -257,7 +256,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                                         fontFamily: 'Consolas',
                                         fontSize: 11,
                                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                        color: isSelected ? Colors.white : Colors.white60,
+                                        color: isSelected ? theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
                                       ),
                                     ),
                                     if (isTabRunning) ...[
@@ -295,21 +294,20 @@ class _ConsolePanelState extends State<ConsolePanel> {
                               child: Container(
                                 margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                                 padding: const EdgeInsets.symmetric(horizontal: 8),
-                                decoration: BoxDecoration(
-                                  color: isSelected ? const Color(0xFF1A1F31) : const Color(0xFF0D0F16),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(
-                                    color: isSelected ? theme.primaryColor.withOpacity(0.5) : const Color(0xFF1E2433),
-                                    width: 1,
-                                  ),
-                                ),
+                                decoration: isSelected
+                                    ? NeuTheme.sunkenDecoration(
+                                        themeNotifier.isDarkTheme,
+                                        radius: 6,
+                                        border: Border.all(color: theme.primaryColor, width: 1.5),
+                                      )
+                                    : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
                                       icon,
                                       size: 12,
-                                      color: isRunning ? theme.primaryColor : Colors.white38,
+                                      color: isRunning ? theme.primaryColor : NeuTheme.subtext(themeNotifier.isDarkTheme),
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
@@ -318,7 +316,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                                         fontFamily: 'Consolas',
                                         fontSize: 11,
                                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                        color: isSelected ? Colors.white : Colors.white60,
+                                        color: isSelected ? theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
                                       ),
                                     ),
                                     const SizedBox(width: 6),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
+import '../../main.dart';
 
 class NeuButton extends StatefulWidget {
   final Widget child;
@@ -85,9 +86,7 @@ class _NeuButtonState extends State<NeuButton> {
                 style: TextStyle(
                   color: widget.isSelected
                       ? accentColor
-                      : (_isHovered
-                          ? theme.textTheme.bodyLarge?.color
-                          : theme.textTheme.bodyMedium?.color),
+                      : themeNotifier.textColor,
                   fontWeight: widget.isSelected ? FontWeight.bold : FontWeight.w600,
                 ),
                 child: widget.child,
@@ -138,7 +137,7 @@ class NeuIconButton extends StatelessWidget {
     final theme = Theme.of(context);
     final effectiveIconColor = isSelected
         ? (activeColor ?? theme.primaryColor)
-        : (iconColor ?? theme.textTheme.bodyLarge?.color ?? Colors.white);
+        : (iconColor ?? themeNotifier.textColor);
 
     Widget btn = NeuButton(
       width: size,
