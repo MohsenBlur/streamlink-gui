@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_checkbox.dart';
 import '../main.dart';
 
 class _ChannelAutomationState {
@@ -436,9 +437,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Checkbox(
+                                          NeuCheckbox(
                                             value: ch.autoPlayLive,
                                             activeColor: theme.primaryColor,
+                                            isDark: themeNotifier.isDarkTheme,
                                             onChanged: (val) {
                                               setState(() {
                                                 ch.autoPlayLive = val ?? false;
@@ -447,9 +449,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                               });
                                             },
                                           ),
-                                          const Text(
+                                          const SizedBox(width: 8),
+                                          Text(
                                             'Auto Play When Live',
-                                            style: TextStyle(fontSize: 12, color: Colors.white),
+                                            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                           ),
                                         ],
                                       ),
@@ -465,18 +468,20 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Checkbox(
+                                          NeuCheckbox(
                                             value: ch.autoDownloadVods,
                                             activeColor: theme.primaryColor,
+                                            isDark: themeNotifier.isDarkTheme,
                                             onChanged: (val) {
                                               setState(() {
                                                 ch.autoDownloadVods = val ?? false;
                                               });
                                             },
                                           ),
-                                          const Text(
+                                          const SizedBox(width: 8),
+                                          Text(
                                             'Auto Download VODs',
-                                            style: TextStyle(fontSize: 12, color: Colors.white),
+                                            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                           ),
                                         ],
                                       ),
@@ -487,13 +492,13 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          const Text(
+                                          Text(
                                             'Keep Max VODs: ',
-                                            style: TextStyle(fontSize: 12, color: Colors.white70),
+                                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                           ),
                                           DropdownButton<int>(
                                             value: ch.maxVodKeepCount.clamp(1, 5),
-                                            dropdownColor: const Color(0xFF161B26),
+                                            dropdownColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                                             style: TextStyle(color: theme.primaryColor, fontWeight: FontWeight.bold),
                                             items: [1, 2, 3, 4, 5].map((val) {
                                               return DropdownMenuItem<int>(
@@ -522,18 +527,20 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Checkbox(
+                                            NeuCheckbox(
                                               value: ch.stopAtLastWatchedVod,
                                               activeColor: theme.primaryColor,
+                                              isDark: themeNotifier.isDarkTheme,
                                               onChanged: (val) {
                                                 setState(() {
                                                   ch.stopAtLastWatchedVod = val ?? true;
                                                 });
                                               },
                                             ),
-                                            const Text(
+                                            const SizedBox(width: 8),
+                                            Text(
                                               'Stop at last watched (> 5%)',
-                                              style: TextStyle(fontSize: 12, color: Colors.white70),
+                                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                             ),
                                           ],
                                         ),

@@ -250,7 +250,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       ),
       _buildHeaderChip(
         icon: Icons.update,
-        color: Colors.white38,
+        color: NeuTheme.subtext(themeNotifier.isDarkTheme),
         label: widget.channel.lastUpdated != null
             ? 'Updated: ${_timeAgo(widget.channel.lastUpdated!)}'
             : 'Not updated',

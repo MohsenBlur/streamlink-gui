@@ -3,6 +3,7 @@ import '../models/twitch_video.dart';
 import 'twitch_video_card.dart';
 import 'horizontal_mouse_scrollable.dart';
 import 'neumorphic/neu_button.dart';
+import '../theme/neu_theme.dart';
 import '../main.dart';
 
 class VodsGrid extends StatefulWidget {
@@ -305,7 +306,7 @@ class _VodsGridState extends State<VodsGrid> {
             widget.selectedGamesFilter.isNotEmpty
                 ? 'No past broadcasts match game filter "${widget.selectedGamesFilter.join(', ')}".'
                 : (searchQuery.isEmpty ? 'No past broadcasts found.' : 'No VODs match "$searchQuery".'),
-            style: const TextStyle(color: Colors.white38, fontSize: 13),
+            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
           ),
         ),
       );

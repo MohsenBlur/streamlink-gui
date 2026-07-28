@@ -3009,9 +3009,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: 16),
             Row(
               children: [
-                const Icon(Icons.photo_size_select_large, size: 14, color: Colors.white38),
+                Icon(Icons.photo_size_select_large, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                 const SizedBox(width: 6),
-                const Text('Card Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                Text('Card Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                 Expanded(
                   child: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
@@ -3019,7 +3019,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                       overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                       activeTrackColor: theme.primaryColor,
-                      inactiveTrackColor: Colors.white10,
+                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
                       thumbColor: theme.primaryColor,
                       overlayColor: theme.primaryColor.withOpacity(0.12),
                     ),
@@ -3040,9 +3040,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(Icons.format_size, size: 14, color: Colors.white38),
+                Icon(Icons.format_size, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                 const SizedBox(width: 6),
-                const Text('Font Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                Text('Font Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                 Expanded(
                   child: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
@@ -3050,7 +3050,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                       overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                       activeTrackColor: theme.primaryColor,
-                      inactiveTrackColor: Colors.white10,
+                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
                       thumbColor: theme.primaryColor,
                       overlayColor: theme.primaryColor.withOpacity(0.12),
                     ),
@@ -3187,27 +3187,27 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             children: [
               Text('You have selected ${selectedVods.length} VODs to download.'),
               const SizedBox(height: 12),
-              const Text('Please select how the download order should be processed:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              Text('Please select how the download order should be processed:', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
               const SizedBox(height: 10),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.arrow_downward, color: Colors.white70),
-                title: const Text('Newest First', style: TextStyle(fontSize: 13)),
-                subtitle: const Text('Downloads the latest broadcasts sequentially', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                leading: Icon(Icons.arrow_downward, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                title: Text('Newest First', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                subtitle: Text('Downloads the latest broadcasts sequentially', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                 onTap: () => Navigator.pop(context, 'newest'),
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.arrow_upward, color: Colors.white70),
-                title: const Text('Oldest First', style: TextStyle(fontSize: 13)),
-                subtitle: const Text('Downloads the oldest broadcasts sequentially', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                leading: Icon(Icons.arrow_upward, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                title: Text('Oldest First', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                subtitle: Text('Downloads the oldest broadcasts sequentially', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                 onTap: () => Navigator.pop(context, 'oldest'),
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.bolt, color: Colors.white70),
-                title: const Text('Simultaneous Downloads', style: TextStyle(fontSize: 13)),
-                subtitle: const Text('Starts all downloads in parallel (may consume high CPU/bandwidth)', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                leading: Icon(Icons.bolt, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                title: Text('Simultaneous Downloads', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                subtitle: Text('Starts all downloads in parallel (may consume high CPU/bandwidth)', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                 onTap: () => Navigator.pop(context, 'parallel'),
               ),
             ],
@@ -3215,7 +3215,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
+              child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
             ),
           ],
         );
@@ -3274,17 +3274,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Are you sure you want to delete the downloaded files on disk for the following videos? This cannot be undone.',
-                  style: TextStyle(height: 1.4),
+                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
                 ),
                 const SizedBox(height: 12),
                 Container(
                   constraints: const BoxConstraints(maxHeight: 180),
-                  decoration: BoxDecoration(
-                    color: Colors.black12,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 8),
                   child: ListView.builder(
                     shrinkWrap: true,
                     itemCount: toDelete.length,
@@ -3295,7 +3292,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           toDelete[index].title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12),
+                          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                         ),
                       );
                     },
@@ -3307,7 +3304,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
+              child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
