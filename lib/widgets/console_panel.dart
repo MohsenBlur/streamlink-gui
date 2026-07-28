@@ -391,7 +391,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                             itemCount: activeLogs.length,
                             itemBuilder: (context, index) {
                               final log = activeLogs[index];
-                              Color logColor = const Color(0xFFCBD5E1);
+                              Color logColor = NeuTheme.text(themeNotifier.isDarkTheme);
                               if (log.contains('[Error]') || log.contains('[Streamlink Err]') || log.contains('error:') || log.contains('failed')) {
                                 logColor = const Color(0xFFF43F5E);
                               } else if (log.startsWith('[System]')) {
@@ -460,11 +460,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F131E),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.white10),
-                ),
+                decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 6),
                 child: Row(
                   children: [
                     Expanded(
@@ -473,7 +469,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                         children: [
                           Text(
                             title,
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Consolas'),
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: NeuTheme.text(themeNotifier.isDarkTheme), fontFamily: 'Consolas'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -485,7 +481,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                                   borderRadius: BorderRadius.circular(2),
                                   child: LinearProgressIndicator(
                                     value: progress,
-                                    backgroundColor: Colors.white10,
+                                    backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
                                     valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).primaryColor),
                                     minHeight: 4,
                                   ),
@@ -494,7 +490,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                               const SizedBox(width: 10),
                               Text(
                                 taskText,
-                                style: const TextStyle(fontSize: 11, color: Colors.white60, fontFamily: 'Consolas'),
+                                style: TextStyle(fontSize: 11, color: NeuTheme.subtext(themeNotifier.isDarkTheme), fontFamily: 'Consolas'),
                               ),
                             ],
                           ),
@@ -533,11 +529,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
               return Container(
                 margin: const EdgeInsets.only(bottom: 6),
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F131E),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.white10),
-                ),
+                decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 6),
                 child: Row(
                   children: [
                     Expanded(

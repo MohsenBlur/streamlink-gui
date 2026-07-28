@@ -621,17 +621,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       cursor: SystemMouseCursors.click,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E2433),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.white10),
-                        ),
-                        child: const Row(
+                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.more_vert, color: Colors.white70, size: 16),
-                            SizedBox(width: 4),
-                            Text('Actions', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+                            Icon(Icons.more_vert, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 16),
+                            const SizedBox(width: 4),
+                            Text('Actions', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                           ],
                         ),
                       ),
@@ -639,17 +635,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     menu: Container(
                       width: 160,
                       padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF161B26),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF1E2433)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.5),
-                            blurRadius: 10,
-                          )
-                        ],
-                      ),
+                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -706,7 +692,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
           Text(
             widget.channel.streamTitle!,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
+            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -718,7 +704,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               : 'Channel is currently offline',
           style: TextStyle(
             fontSize: 13,
-            color: widget.channel.isLive ? Colors.white70 : Colors.white38,
+            color: widget.channel.isLive
+                ? NeuTheme.text(themeNotifier.isDarkTheme)
+                : NeuTheme.subtext(themeNotifier.isDarkTheme),
             fontWeight: widget.channel.isLive ? FontWeight.w500 : FontWeight.normal,
           ),
         ),
@@ -728,9 +716,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     final playButton = ElevatedButton(
       style: ElevatedButton.styleFrom(
         backgroundColor: widget.isPlaying
-            ? const Color(0xFF1E2433)
-            : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
-        foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
+            ? NeuTheme.surface(themeNotifier.isDarkTheme)
+            : (widget.channel.isLive ? theme.primaryColor : NeuTheme.surface(themeNotifier.isDarkTheme)),
+        foregroundColor: widget.channel.isLive && !widget.isPlaying
+            ? Colors.white
+            : NeuTheme.disabledText(themeNotifier.isDarkTheme),
         padding: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         elevation: (widget.channel.isLive && !widget.isPlaying) ? 4 : 0,

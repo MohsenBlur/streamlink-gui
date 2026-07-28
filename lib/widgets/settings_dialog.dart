@@ -6,6 +6,7 @@ import '../models/app_settings.dart';
 import '../services/player_service.dart';
 import '../services/update_service.dart';
 import '../utils/color_utils.dart';
+import '../theme/neu_theme.dart';
 
 // Abstract theme notifier interface to break dependencies
 abstract class ThemeUpdateListener extends ChangeNotifier {
@@ -902,14 +903,10 @@ class SettingsDialog {
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1E2433),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.white10),
-                            ),
-                            child: const Text(
+                            decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 6),
+                            child: Text(
                               'v${UpdateService.currentVersion}',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70),
+                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -921,7 +918,7 @@ class SettingsDialog {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.code, size: 14, color: Colors.white54),
+                                  Icon(Icons.code, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                   const SizedBox(width: 4),
                                   Text(
                                     'GitHub Repo',
@@ -948,8 +945,8 @@ class SettingsDialog {
                                 }
                               }
                             },
-                            icon: const Icon(Icons.refresh, size: 13, color: Colors.white54),
-                            label: const Text('Check for Updates', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                            icon: Icon(Icons.refresh, size: 13, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                            label: Text('Check for Updates', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                           ),
                         ],
                       ),
@@ -960,7 +957,7 @@ class SettingsDialog {
                             onPressed: () {
                               Navigator.pop(context);
                             },
-                            child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
+                            child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
                           ),
                           const SizedBox(width: 8),
                           ElevatedButton(
@@ -1018,7 +1015,7 @@ class SettingsDialog {
               const Text('How to get Browser Token'),
             ],
           ),
-          backgroundColor: const Color(0xFF161B26),
+          backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           content: SizedBox(
             width: 480,
@@ -1027,29 +1024,29 @@ class SettingsDialog {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'To enable background watch progress syncing and VOD progress bars, you must copy your first-party browser login token from Twitch:',
-                    style: TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
+                    style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
                   ),
                   const SizedBox(height: 16),
-                  _buildStep('1', 'Open your web browser, go to twitch.tv, and make sure you are logged in to your account.'),
+                  _buildStep('1', 'Open your web browser, go to twitch.tv, and make sure you are logged in to your account.', themeNotifier),
                   const SizedBox(height: 12),
-                  _buildStep('2', 'Press F12 (or right-click anywhere on the page and select Inspect) to open the Developer Tools panel.'),
+                  _buildStep('2', 'Press F12 (or right-click anywhere on the page and select Inspect) to open the Developer Tools panel.', themeNotifier),
                   const SizedBox(height: 12),
-                  _buildStep('3', 'Locate your cookies:\n• Chrome/Edge: Go to the Application tab -> expand Cookies on the left -> select https://www.twitch.tv\n• Firefox: Go to the Storage tab -> expand Cookies -> select https://www.twitch.tv'),
+                  _buildStep('3', 'Locate your cookies:\n• Chrome/Edge: Go to the Application tab -> expand Cookies on the left -> select https://www.twitch.tv\n• Firefox: Go to the Storage tab -> expand Cookies -> select https://www.twitch.tv', themeNotifier),
                   const SizedBox(height: 12),
-                  _buildStep('4', 'In the cookies list, find the one named auth-token. Double-click its value, copy it, and paste it into the settings field.'),
+                  _buildStep('4', 'In the cookies list, find the one named auth-token. Double-click its value, copy it, and paste it into the settings field.', themeNotifier),
                   const SizedBox(height: 16),
-                  const Divider(color: Colors.white10),
+                  Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      const Icon(Icons.info, size: 14, color: Colors.white30),
+                      Icon(Icons.info, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Note: Do NOT click "Log Out" on the Twitch website after copying this token. Clicking log out will immediately revoke the token on Twitch\'s servers.',
-                          style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.4), height: 1.3),
+                          style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                         ),
                       ),
                     ],
@@ -1070,7 +1067,7 @@ class SettingsDialog {
     );
   }
 
-  static Widget _buildStep(String number, String text) {
+  static Widget _buildStep(String number, String text, ThemeUpdateListener themeNotifier) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1078,10 +1075,7 @@ class SettingsDialog {
           width: 20,
           height: 20,
           alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: Color(0xFF1E2433),
-            shape: BoxShape.circle,
-          ),
+          decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 10),
           child: Text(
             number,
             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orangeAccent),

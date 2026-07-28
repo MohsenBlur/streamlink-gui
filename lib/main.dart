@@ -2881,17 +2881,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         maxHeight: MediaQuery.of(context).size.height * 0.75,
       ),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF161B26),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1E2433)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.5),
-            blurRadius: 10,
-          )
-        ],
-      ),
+      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2902,11 +2892,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 return Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Row(
+                    Row(
                       children: [
-                        Icon(Icons.sports_esports, size: 14, color: Colors.white54),
-                        SizedBox(width: 6),
-                        Text('Show All Games on Thumbnails', style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold)),
+                        Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                        const SizedBox(width: 6),
+                        Text('Show All Games on Thumbnails', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                       ],
                     ),
                     Transform.scale(
@@ -2929,20 +2919,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               },
             ),
             const SizedBox(height: 12),
-            const Text('Filter Broadcasts:', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+            Text('Filter Broadcasts:', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             SizedBox(
               height: 36,
               child: TextField(
                 controller: _vodSearchController,
-                style: const TextStyle(fontSize: 12, color: Colors.white),
+                style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                 decoration: InputDecoration(
                   hintText: 'Filter VODs...',
-                  hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
-                  prefixIcon: const Icon(Icons.search, size: 14, color: Colors.white38),
+                  hintStyle: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                  prefixIcon: Icon(Icons.search, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                   contentPadding: EdgeInsets.zero,
                   filled: true,
-                  fillColor: const Color(0xFF1E2433),
+                  fillColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(6),
                     borderSide: BorderSide.none,
@@ -2964,7 +2954,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Filter by Games:', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+                        Text('Filter by Games:', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold)),
                         if (_selectedGamesFilter.isNotEmpty)
                           MouseRegion(
                             cursor: SystemMouseCursors.click,
@@ -2986,10 +2976,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     const SizedBox(height: 8),
                     Container(
                       constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E2433),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
+                      decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 6),
                       child: ListView(
                         shrinkWrap: true,
                         padding: const EdgeInsets.symmetric(vertical: 4),
@@ -3033,7 +3020,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   Expanded(
                                     child: Text(
                                       game,
-                                      style: const TextStyle(fontSize: 11, color: Colors.white),
+                                      style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 11),
                                     ),
                                   ),
                                 ],
@@ -3413,30 +3400,26 @@ class _VodSettingsHoverButtonState extends State<_VodSettingsHoverButton> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: isHovered ? widget.theme.primaryColor.withOpacity(0.2) : const Color(0xFF1E2433),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: isHovered ? widget.theme.primaryColor : Colors.white10,
-            width: isHovered ? 1.5 : 1.0,
-          ),
-          boxShadow: [
-            if (isHovered)
-              BoxShadow(
-                color: widget.theme.primaryColor.withOpacity(0.25),
-                blurRadius: 6,
-              ),
-          ],
-        ),
+        decoration: isHovered
+            ? NeuTheme.raisedDecoration(
+                themeNotifier.isDarkTheme,
+                radius: 6,
+                border: Border.all(color: widget.theme.primaryColor, width: 1.5),
+              )
+            : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.tune, color: isHovered ? Colors.white : Colors.white70, size: 16),
+            Icon(
+              Icons.tune,
+              color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
+              size: 16,
+            ),
             const SizedBox(width: 4),
             Text(
               'VOD Settings',
               style: TextStyle(
-                color: isHovered ? Colors.white : Colors.white70,
+                color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
               ),

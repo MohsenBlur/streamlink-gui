@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
+import '../theme/neu_theme.dart';
 import '../main.dart';
 
 class _ChannelAutomationState {
@@ -122,15 +123,11 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                 Expanded(
                   child: Text(
                     'Auto Download & Play Manager',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                    style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 20),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white60),
+                  icon: Icon(Icons.close, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                   onPressed: () {
                     // Close without applying changes
                     Navigator.of(context).pop();
@@ -139,32 +136,28 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
               ],
             ),
             const SizedBox(height: 16),
-            const Divider(color: Color(0xFF1E2433)),
+            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
             const SizedBox(height: 12),
 
             // Threshold Setting Bar
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: themeNotifier.surfaceColor,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF1E2433)),
-              ),
+              decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
               child: Row(
                 children: [
-                  const Icon(Icons.tune, color: Colors.white70, size: 20),
+                  Icon(Icons.tune, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'VOD Exclusion Threshold',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                         ),
                         Text(
                           'Excludes VODs from auto-download if watch progress exceeds this limit',
-                          style: TextStyle(fontSize: 11, color: Colors.white54),
+                          style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                         ),
                       ],
                     ),
@@ -310,8 +303,8 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                 return Container(
                                   key: ValueKey('priority_${ch.originalChannel.username}'),
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  decoration: const BoxDecoration(
-                                    border: Border(bottom: BorderSide(color: Color(0xFF1E2433), width: 0.5)),
+                                  decoration: BoxDecoration(
+                                    border: Border(bottom: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 0.5)),
                                   ),
                                   child: Row(
                                     children: [
@@ -321,7 +314,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                           cursor: SystemMouseCursors.grab,
                                           child: Container(
                                             padding: const EdgeInsets.all(4),
-                                            child: const Icon(Icons.drag_handle, color: Colors.white54, size: 20),
+                                            child: Icon(Icons.drag_handle, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
                                           ),
                                         ),
                                       ),

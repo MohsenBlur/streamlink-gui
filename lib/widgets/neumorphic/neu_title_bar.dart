@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'neu_container.dart';
 import 'neu_button.dart';
+import '../../theme/neu_theme.dart';
 
 class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -25,15 +26,14 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       height: 40.0,
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF14161B) : const Color(0xFFDCE2EC),
+        color: NeuTheme.background(isDarkTheme),
         border: Border(
           bottom: BorderSide(
-            color: isDark ? Colors.black.withOpacity(0.5) : Colors.black.withOpacity(0.08),
+            color: NeuTheme.shadow(isDarkTheme).withOpacity(0.3),
             width: 1.0,
           ),
         ),
@@ -83,7 +83,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                     Text(
                       title.toUpperCase(),
                       style: TextStyle(
-                        color: isDark ? const Color(0xFFD0D7DE) : const Color(0xFF24292F),
+                        color: NeuTheme.text(isDarkTheme),
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 1.1,
@@ -174,7 +174,7 @@ class _WindowControlButton extends StatelessWidget {
         iconSize: 12,
         iconColor: isClose
             ? const Color(0xFFFF4565)
-            : (isDark ? Colors.white70 : Colors.black87),
+            : NeuTheme.text(isDark),
         activeColor: isClose ? const Color(0xFFFF4565) : null,
         tooltip: tooltip,
         onPressed: onPressed,

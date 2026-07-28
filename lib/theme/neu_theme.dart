@@ -23,8 +23,11 @@ class NeuTheme {
   static Color surface(bool isDark) => isDark ? darkSurface : lightSurface;
   static Color text(bool isDark) => isDark ? darkText : lightText;
   static Color subtext(bool isDark) => isDark ? darkSubtext : lightSubtext;
+  static Color disabledText(bool isDark) => isDark ? const Color(0xFF64748B) : const Color(0xFFA0AEC0);
   static Color highlight(bool isDark) => isDark ? darkHighlight : lightHighlight;
   static Color shadow(bool isDark) => isDark ? darkShadow : lightShadow;
+  static Color border(bool isDark) => isDark ? const Color(0xFF334155).withOpacity(0.4) : const Color(0xFFA3B1C6).withOpacity(0.5);
+  static Color terminalBg(bool isDark) => isDark ? const Color(0xFF0F131E) : const Color(0xFFF8FAFC);
 
   // Unified Typography Tokens
   static TextStyle titleStyle(bool isDark, {double fontSize = 16, FontWeight fontWeight = FontWeight.bold}) {
