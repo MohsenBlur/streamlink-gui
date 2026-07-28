@@ -106,20 +106,16 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     Expanded(
                       child: Text(
                         channel.username,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
+                        style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (channel.viewerCount != null && channel.viewerCount != '0') ...[
-                      const Icon(Icons.remove_red_eye, color: Colors.white54, size: 12),
+                      Icon(Icons.remove_red_eye, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 12),
                       const SizedBox(width: 4),
                       Text(
                         channel.viewerCount!,
-                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                       ),
                     ],
                   ],
@@ -129,11 +125,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   channel.streamTitle ?? 'Streaming Live!',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    height: 1.3,
-                  ),
+                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                 ),
                 if (channel.game != null && channel.game != 'Offline') ...[
                   const SizedBox(height: 6),

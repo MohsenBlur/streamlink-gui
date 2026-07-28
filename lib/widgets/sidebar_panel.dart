@@ -180,11 +180,11 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                 child: Row(
                                   children: [
                                     widget.authenticatedUserAvatar != null
-                                        ? CircleAvatar(
-                                            radius: 18,
-                                            backgroundColor: const Color(0xFF1F2937),
-                                            backgroundImage: NetworkImage(widget.authenticatedUserAvatar!),
-                                          )
+                                         ? CircleAvatar(
+                                             radius: 18,
+                                             backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                             backgroundImage: NetworkImage(widget.authenticatedUserAvatar!),
+                                           )
                                         : Container(
                                             padding: const EdgeInsets.all(6),
                                             decoration: BoxDecoration(
@@ -212,7 +212,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                                 width: 6,
                                                 height: 6,
                                                 decoration: BoxDecoration(
-                                                  color: widget.authenticatedUserLogin != null ? Colors.greenAccent : Colors.white38,
+                                                  color: widget.authenticatedUserLogin != null ? Colors.greenAccent : NeuTheme.subtext(themeNotifier.isDarkTheme),
                                                   shape: BoxShape.circle,
                                                 ),
                                               ),
@@ -309,11 +309,11 @@ class _SidebarPanelState extends State<SidebarPanel> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               if (widget.isGlobalLoading || widget.isLoadingFollowed)
-                                const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(strokeWidth: 1.8, color: Colors.white70),
-                                )
+                                 SizedBox(
+                                   width: 14,
+                                   height: 14,
+                                   child: CircularProgressIndicator(strokeWidth: 1.8, color: theme.primaryColor),
+                                 )
                               else
                                 const Icon(Icons.refresh, size: 14),
                               const SizedBox(width: 6),
@@ -406,7 +406,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                         height: 16,
                                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                       )
-                                    : const Icon(Icons.chevron_right, color: Colors.white54, size: 18),
+                                     : Icon(Icons.chevron_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
                                 onTap: widget.isAdding ? null : () => widget.onAddChannel(query),
                               ),
                             );
@@ -452,10 +452,10 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                             theme: theme,
                                             child: CircleAvatar(
                                               radius: 18,
-                                              backgroundColor: const Color(0xFF1F2937),
+                                              backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                                               backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
                                               child: channel.avatarUrl == null
-                                                  ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                                  ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
                                                   : null,
                                             ),
                                           ),
@@ -468,7 +468,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                               decoration: BoxDecoration(
                                                 color: channel.isLive ? Colors.green : Colors.grey,
                                                 shape: BoxShape.circle,
-                                                border: Border.all(color: const Color(0xFF111420), width: 1.5),
+                                                border: Border.all(color: themeNotifier.surfaceColor, width: 1.5),
                                               ),
                                             ),
                                           ),
@@ -606,7 +606,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
               child: widget.authenticatedUserAvatar != null
                   ? CircleAvatar(
                       radius: 16,
-                      backgroundColor: const Color(0xFF1F2937),
+                      backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                       backgroundImage: NetworkImage(widget.authenticatedUserAvatar!),
                     )
                   : Container(
@@ -687,12 +687,12 @@ class _SidebarPanelState extends State<SidebarPanel> {
               : (widget.sidebarTab == 1 ? 'Refresh Followed List' : 'Refresh Live'),
           child: IconButton(
             icon: widget.isGlobalLoading || widget.isLoadingFollowed
-                ? const SizedBox(
+                ? SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
                   )
-                : const Icon(Icons.refresh, color: Colors.white70, size: 18),
+                : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
             onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
             hoverColor: theme.primaryColor.withOpacity(0.2),
             splashRadius: 20,
@@ -729,10 +729,10 @@ class _SidebarPanelState extends State<SidebarPanel> {
                         children: [
                           CircleAvatar(
                             radius: 18,
-                            backgroundColor: const Color(0xFF1F2937),
+                            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                             backgroundImage: ch.avatarUrl != null ? NetworkImage(ch.avatarUrl!) : null,
                             child: ch.avatarUrl == null
-                                ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
                                 : null,
                           ),
                           if (ch.isLive)
@@ -745,7 +745,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                 decoration: BoxDecoration(
                                   color: Colors.redAccent,
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: const Color(0xFF111420), width: 1),
+                                  border: Border.all(color: themeNotifier.surfaceColor, width: 1),
                                 ),
                               ),
                             ),
@@ -939,10 +939,10 @@ class _SidebarPanelState extends State<SidebarPanel> {
                               children: [
                                 CircleAvatar(
                                   radius: 18,
-                                  backgroundColor: const Color(0xFF1F2937),
+                                  backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                                   backgroundImage: ch.avatarUrl != null ? NetworkImage(ch.avatarUrl!) : null,
                                   child: ch.avatarUrl == null
-                                      ? const Icon(Icons.person, size: 18, color: Colors.white70)
+                                      ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
                                       : null,
                                 ),
                                 if (ch.isLive)
@@ -955,7 +955,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                                       decoration: BoxDecoration(
                                         color: Colors.redAccent,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: const Color(0xFF111420), width: 1),
+                                        border: Border.all(color: themeNotifier.surfaceColor, width: 1),
                                       ),
                                     ),
                                   ),

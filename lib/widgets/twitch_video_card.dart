@@ -253,13 +253,13 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                 thumbnailUrl,
                                 fit: BoxFit.cover,
                                 errorBuilder: (context, error, stackTrace) => Container(
-                                  color: const Color(0xFF1F2937),
-                                  child: const Icon(Icons.movie, color: Colors.white30, size: 32),
+                                  color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                  child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 32),
                                 ),
                               )
                             : Container(
-                                color: const Color(0xFF1F2937),
-                                child: const Icon(Icons.movie, color: Colors.white30, size: 32),
+                                color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 32),
                               ),
 
                          if (widget.vod.watchProgress != null && widget.vod.watchProgress! > 0.0)
@@ -390,17 +390,17 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                         Tooltip(
                                           message: _games!.join('\n'),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFF161B26),
+                                            color: NeuTheme.surface(themeNotifier.isDarkTheme),
                                             borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: const Color(0xFF1E2433)),
+                                            border: Border.all(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                                             boxShadow: [
                                               BoxShadow(
-                                                color: Colors.black.withOpacity(0.3),
+                                                color: Colors.black.withOpacity(0.2),
                                                 blurRadius: 6,
                                               ),
                                             ],
                                           ),
-                                          textStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
+                                          textStyle: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
                                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                           preferBelow: true,
                                           child: _buildGameBadge(widget.theme),

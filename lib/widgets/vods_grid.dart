@@ -375,17 +375,10 @@ class _VodsGridState extends State<VodsGrid> {
             child: Center(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: themeNotifier.surfaceColor.withOpacity(0.85),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: widget.theme.primaryColor.withOpacity(0.3), width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.4),
-                      blurRadius: 16,
-                      spreadRadius: 2,
-                    ),
-                  ],
+                decoration: NeuTheme.raisedDecoration(
+                  themeNotifier.isDarkTheme,
+                  radius: 16,
+                  border: Border.all(color: widget.theme.primaryColor.withOpacity(0.4), width: 1.5),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -394,10 +387,10 @@ class _VodsGridState extends State<VodsGrid> {
                     const SizedBox(width: 10),
                     Text(
                       '${widget.selectedVodIds.length} VODs Selected',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                     ),
                     const SizedBox(width: 20),
-                    Container(width: 1, height: 18, color: Colors.white12),
+                    Container(width: 1, height: 18, color: NeuTheme.border(themeNotifier.isDarkTheme)),
                     const SizedBox(width: 20),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
@@ -425,7 +418,7 @@ class _VodsGridState extends State<VodsGrid> {
                     ),
                     const SizedBox(width: 12),
                     TextButton(
-                      style: TextButton.styleFrom(foregroundColor: Colors.white54),
+                      style: TextButton.styleFrom(foregroundColor: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                       onPressed: widget.onDeselectAll,
                       child: const Text('Deselect All', style: TextStyle(fontSize: 12)),
                     ),

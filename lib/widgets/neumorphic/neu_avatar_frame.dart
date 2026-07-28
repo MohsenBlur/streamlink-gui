@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
 import 'neu_led_indicator.dart';
+import '../../theme/neu_theme.dart';
 
 class NeuAvatarFrame extends StatelessWidget {
   final String? imageUrl;
@@ -68,7 +69,7 @@ class NeuAvatarFrame extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF181A20) : const Color(0xFFE6ECEF),
+                    color: NeuTheme.surface(isDark),
                     shape: BoxShape.circle,
                     boxShadow: const [
                       BoxShadow(

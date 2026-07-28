@@ -323,22 +323,20 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       if (ch.originalChannel.avatarUrl != null)
                                         CircleAvatar(
                                           radius: 14,
+                                          backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                                           backgroundImage: NetworkImage(ch.originalChannel.avatarUrl!),
                                         )
                                       else
-                                        const CircleAvatar(
+                                        CircleAvatar(
                                           radius: 14,
-                                          child: Icon(Icons.person, size: 14),
+                                          backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                          child: Icon(Icons.person, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                         ),
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
                                           ch.originalChannel.username,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
+                                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                                         ),
                                       ),
                                       Container(
@@ -366,15 +364,11 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                           const SizedBox(height: 20),
                         ],
 
-                        const Padding(
-                          padding: EdgeInsets.only(bottom: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
                           child: Text(
                             'All Favorite Channels Controls',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white70,
-                            ),
+                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                           ),
                         ),
 
@@ -382,13 +376,13 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                           return Container(
                             margin: const EdgeInsets.only(bottom: 10),
                             padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF161B26),
-                              borderRadius: BorderRadius.circular(12),
+                            decoration: NeuTheme.raisedDecoration(
+                              themeNotifier.isDarkTheme,
+                              radius: 12,
                               border: Border.all(
                                 color: (ch.autoPlayLive || ch.autoDownloadVods)
                                     ? theme.primaryColor.withOpacity(0.4)
-                                    : const Color(0xFF1E2433),
+                                    : NeuTheme.border(themeNotifier.isDarkTheme),
                               ),
                             ),
                             child: Column(
@@ -399,22 +393,20 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                     if (ch.originalChannel.avatarUrl != null)
                                       CircleAvatar(
                                         radius: 16,
+                                        backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                                         backgroundImage: NetworkImage(ch.originalChannel.avatarUrl!),
                                       )
                                     else
-                                      const CircleAvatar(
+                                      CircleAvatar(
                                         radius: 16,
-                                        child: Icon(Icons.person, size: 16),
+                                        backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                        child: Icon(Icons.person, size: 16, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                       ),
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
                                         ch.originalChannel.username,
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
+                                        style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
                                       ),
                                     ),
                                   ],
@@ -557,7 +549,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
             ),
 
             const SizedBox(height: 16),
-            const Divider(color: Color(0xFF1E2433)),
+            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
             const SizedBox(height: 12),
 
             // Save & Close Button

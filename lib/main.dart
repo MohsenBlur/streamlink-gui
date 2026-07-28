@@ -410,7 +410,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             children: [
               Icon(Icons.system_update, color: themeNotifier.primaryColor),
               const SizedBox(width: 10),
-              Text('Update Available (${info.tagName})'),
+              Text('Update Available (${info.tagName})', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
           ),
           content: SizedBox(
@@ -584,16 +584,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         context: context,
         builder: (context) {
           return AlertDialog(
-            title: const Text('Exit Twitch Streamlink GUI?'),
-            content: const Text(
+            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text('Exit Twitch Streamlink GUI?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+            content: Text(
               'There are VOD downloads currently in progress or queued. '
               'If you exit, they will be paused and resumed the next time you start the app.\n\n'
-              'Do you want to exit now?'
+              'Do you want to exit now?',
+              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
+                child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -770,23 +773,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.folder_copy, color: Colors.orangeAccent),
-              SizedBox(width: 10),
-              Text('Configure Download Folder'),
+              const Icon(Icons.folder_copy, color: Colors.orangeAccent),
+              const SizedBox(width: 10),
+              Text('Configure Download Folder', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
           ),
           backgroundColor: themeNotifier.surfaceColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: const Text(
+          content: Text(
             'A VOD download folder has not been configured yet.\n\nWould you like to select a folder now to proceed with your download?',
-            style: TextStyle(height: 1.4),
+            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white30)),
+              child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
@@ -2767,9 +2770,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         height: 40,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF1E2433),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                            foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            ),
                             elevation: 0,
                           ),
                           onPressed: _isLoadingVods

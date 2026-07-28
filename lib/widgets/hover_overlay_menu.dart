@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../theme/neu_theme.dart';
+import '../main.dart';
 
 class HoverOverlayMenu extends StatefulWidget {
   final Widget trigger;
@@ -126,7 +128,7 @@ class _HoverStarIconState extends State<HoverStarIcon> {
       child: IconButton(
         icon: Icon(
           useGold ? Icons.star : Icons.star_border,
-          color: useGold ? Colors.amber : Colors.white30,
+          color: useGold ? Colors.amber : NeuTheme.subtext(themeNotifier.isDarkTheme),
           size: 18,
         ),
         onPressed: widget.onTap,

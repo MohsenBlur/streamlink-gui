@@ -358,7 +358,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                 ],
                 if (activeKey != '__downloads_manager__') ...[
                   IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 14, color: Colors.white30),
+                    icon: Icon(Icons.delete_outline, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                     onPressed: () {
                       widget.logNotifier.clear(activeKey);
                     },
@@ -432,10 +432,10 @@ class _ConsolePanelState extends State<ConsolePanel> {
     final queuedKeys = widget.downloadQueue;
 
     if (activeKeys.isEmpty && queuedKeys.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No active or queued downloads.',
-          style: TextStyle(fontFamily: 'Consolas', fontSize: 12, color: Colors.white38),
+          style: TextStyle(fontFamily: 'Consolas', fontSize: 12, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
         ),
       );
     }
@@ -535,7 +535,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                     Expanded(
                       child: Text(
                         title,
-                        style: const TextStyle(fontSize: 12, color: Colors.white70, fontFamily: 'Consolas'),
+                        style: TextStyle(fontSize: 12, color: NeuTheme.text(themeNotifier.isDarkTheme), fontFamily: 'Consolas'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),

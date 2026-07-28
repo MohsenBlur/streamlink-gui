@@ -258,12 +258,14 @@ class SettingsDialog {
                                 showDialog(
                                   context: context,
                                   builder: (context) => AlertDialog(
-                                    title: const Text('Clear Watch History?'),
-                                    content: const Text('Are you sure you want to clear your local watch progress history for all VODs? This action cannot be undone.'),
+                                    title: Text('Clear Watch History?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+                                    backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    content: Text('Are you sure you want to clear your local watch progress history for all VODs? This action cannot be undone.', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                                     actions: [
                                       TextButton(
                                         onPressed: () => Navigator.pop(context),
-                                        child: const Text('Cancel'),
+                                        child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
                                       ),
                                       TextButton(
                                         style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
