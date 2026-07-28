@@ -700,7 +700,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
         ),
         
         const SizedBox(height: 10),
-        const Divider(color: Color(0xFF1E2433), height: 1, thickness: 1),
+        Divider(color: NeuTheme.border(themeNotifier.isDarkTheme), height: 1, thickness: 1),
         const SizedBox(height: 12),
         
         Expanded(
@@ -879,19 +879,19 @@ class _SidebarPanelState extends State<SidebarPanel> {
                 : (widget.sidebarTab == 1 ? 'Refresh Followed List' : 'Refresh Live'),
             child: IconButton(
               icon: widget.isGlobalLoading || widget.isLoadingFollowed
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
                     )
-                  : const Icon(Icons.refresh, color: Colors.white70, size: 18),
+                  : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
               onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
               hoverColor: theme.primaryColor.withOpacity(0.2),
               splashRadius: 20,
             ),
           ),
           const SizedBox(width: 8),
-          Container(width: 1, height: 24, color: const Color(0xFF1E2433)),
+          Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
           const SizedBox(width: 8),
           Expanded(
             child: Listener(

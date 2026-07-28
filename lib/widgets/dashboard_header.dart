@@ -63,18 +63,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     
     return Container(
       width: 260,
-      decoration: BoxDecoration(
-        color: themeNotifier.surfaceColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1E2433)),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black54,
-            blurRadius: 15,
-            spreadRadius: 2,
-          )
-        ],
-      ),
+      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -88,9 +77,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    color: const Color(0xFF1F2937),
-                    child: const Center(
-                      child: Icon(Icons.live_tv, color: Colors.white24, size: 36),
+                    color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                    child: Center(
+                      child: Icon(Icons.live_tv, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
                     ),
                   );
                 },
@@ -364,40 +353,26 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       onPressed: widget.channel.isLoading ? null : widget.onRefresh,
                     ),
                     const SizedBox(width: 6),
-                    HoverOverlayMenu(
-                      trigger: MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF0C0F17),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.analytics_outlined, size: 12, color: theme.primaryColor),
-                              const SizedBox(width: 4),
-                              const Text('Stats', style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                      ),
-                      menu: Container(
-                        width: 200,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF161B26),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFF1E2433)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.5),
-                              blurRadius: 10,
-                            )
+                    InteractivePopover(
+                      targetAnchor: Alignment.bottomRight,
+                      followerAnchor: Alignment.topRight,
+                      offset: const Offset(0, 6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.analytics_outlined, size: 12, color: theme.primaryColor),
+                            const SizedBox(width: 4),
+                            Text('Stats', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 10)),
                           ],
                         ),
+                      ),
+                      popover: Container(
+                        width: 200,
+                        padding: const EdgeInsets.all(10),
+                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -416,9 +391,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                               child: ElevatedButton(
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: widget.isPlaying
-                                      ? const Color(0xFF1E2433)
-                                      : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
-                                  foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
+                                      ? NeuTheme.surface(themeNotifier.isDarkTheme)
+                                      : (widget.channel.isLive ? theme.primaryColor : NeuTheme.surface(themeNotifier.isDarkTheme)),
+                                  foregroundColor: widget.channel.isLive && !widget.isPlaying
+                                      ? Colors.white
+                                      : NeuTheme.subtext(themeNotifier.isDarkTheme),
                                   padding: const EdgeInsets.symmetric(horizontal: 10),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                                   elevation: (widget.channel.isLive && !widget.isPlaying) ? 2 : 0,
@@ -463,9 +440,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                             child: ElevatedButton(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: widget.isPlaying
-                                    ? const Color(0xFF1E2433)
-                                    : (widget.channel.isLive ? theme.primaryColor : const Color(0xFF1E2433).withOpacity(0.3)),
-                                foregroundColor: widget.channel.isLive && !widget.isPlaying ? Colors.white : Colors.white30,
+                                    ? NeuTheme.surface(themeNotifier.isDarkTheme)
+                                    : (widget.channel.isLive ? theme.primaryColor : NeuTheme.surface(themeNotifier.isDarkTheme)),
+                                foregroundColor: widget.channel.isLive && !widget.isPlaying
+                                    ? Colors.white
+                                    : NeuTheme.subtext(themeNotifier.isDarkTheme),
                                 padding: const EdgeInsets.symmetric(horizontal: 10),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                                 elevation: (widget.channel.isLive && !widget.isPlaying) ? 2 : 0,
