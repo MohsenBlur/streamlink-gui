@@ -2187,7 +2187,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 const SizedBox(width: 4),
                                 Text(
                                   channel.viewerCount != null ? '${channel.viewerCount}' : '0',
-                                  style: const TextStyle(fontSize: 10, color: Colors.white54, fontWeight: FontWeight.bold),
+                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10, fontWeight: FontWeight.bold),
                                 ),
                               ],
                             ),

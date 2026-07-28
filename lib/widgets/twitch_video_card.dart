@@ -334,22 +334,22 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                           top: 8,
                           right: 8,
                           child: widget.isMultiSelectMode
-                              ? Container(
-                                  decoration: BoxDecoration(
-                                    color: widget.isSelected ? widget.theme.primaryColor : Colors.black54,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 1.5),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.3),
-                                        blurRadius: 4,
-                                      ),
-                                    ],
-                                  ),
+                              ? AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
                                   width: 24,
                                   height: 24,
+                                  decoration: widget.isSelected
+                                      ? NeuTheme.raisedDecoration(
+                                          themeNotifier.isDarkTheme,
+                                          radius: 12,
+                                          border: Border.all(color: widget.theme.primaryColor, width: 2),
+                                        )
+                                      : NeuTheme.sunkenDecoration(
+                                          themeNotifier.isDarkTheme,
+                                          radius: 12,
+                                        ),
                                   child: widget.isSelected
-                                      ? const Icon(Icons.check, size: 16, color: Colors.white)
+                                      ? Icon(Icons.check_rounded, size: 14, color: widget.theme.primaryColor)
                                       : null,
                                 )
                               : Row(
@@ -588,20 +588,15 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             )
                                           : Container(
                                               padding: const EdgeInsets.all(5),
-                                              decoration: BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: Colors.green.withOpacity(0.9),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black.withOpacity(0.3),
-                                                    blurRadius: 4,
-                                                  ),
-                                                ],
+                                              decoration: NeuTheme.raisedDecoration(
+                                                themeNotifier.isDarkTheme,
+                                                radius: 12,
+                                                border: Border.all(color: Colors.green, width: 1.5),
                                               ),
                                               child: const Icon(
-                                                Icons.check,
+                                                Icons.check_rounded,
                                                 size: 14,
-                                                color: Colors.white,
+                                                color: Colors.green,
                                               ),
                                             ))
                                       : (_isHovered
