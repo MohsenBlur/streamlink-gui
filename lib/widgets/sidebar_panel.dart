@@ -985,10 +985,10 @@ class _SidebarPanelState extends State<SidebarPanel> {
             ),
           ],
           const SizedBox(width: 8),
-          Container(width: 1, height: 24, color: const Color(0xFF1E2433)),
+          Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
           const SizedBox(width: 8),
           IconButton(
-            icon: const Icon(Icons.settings, color: Colors.white70, size: 20),
+            icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
             tooltip: 'Settings',
             onPressed: widget.onShowSettings,
             hoverColor: theme.primaryColor.withOpacity(0.2),
@@ -1031,33 +1031,19 @@ class _PinnedFavoritesAutomationButtonState extends State<_PinnedFavoritesAutoma
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(
-              color: isHovered
-                  ? widget.theme.primaryColor.withOpacity(0.25)
-                  : const Color(0xFF161B26),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: isHovered
-                    ? widget.theme.primaryColor
-                    : const Color(0xFF1E2433),
-                width: 1.5,
-              ),
-              boxShadow: isHovered
-                  ? [
-                      BoxShadow(
-                        color: widget.theme.primaryColor.withOpacity(0.35),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                      )
-                    ]
-                  : [],
-            ),
+            decoration: isHovered
+                ? NeuTheme.raisedDecoration(
+                    themeNotifier.isDarkTheme,
+                    radius: 8,
+                    border: Border.all(color: widget.theme.primaryColor, width: 1.5),
+                  )
+                : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
                 Icon(
                   isHovered ? Icons.settings : Icons.play_arrow,
-                  color: isHovered ? Colors.white : widget.theme.primaryColor,
+                  color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
                   size: 16,
                 ),
                 Positioned(
@@ -1065,8 +1051,8 @@ class _PinnedFavoritesAutomationButtonState extends State<_PinnedFavoritesAutoma
                   bottom: -5,
                   child: Container(
                     padding: const EdgeInsets.all(0.5),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF0F121C),
+                    decoration: BoxDecoration(
+                      color: NeuTheme.surface(themeNotifier.isDarkTheme),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(

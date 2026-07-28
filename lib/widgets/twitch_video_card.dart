@@ -608,18 +608,15 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                           ? _buildCardButton(
                                               onTap: widget.onDownload,
                                               icon: Icons.download,
-                                              backgroundColor: Colors.black.withOpacity(0.8),
+                                              backgroundColor: widget.theme.primaryColor,
                                               tooltip: 'Download VOD',
                                             )
                                           : Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black.withOpacity(0.75),
-                                                borderRadius: BorderRadius.circular(4),
-                                              ),
+                                              decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 4),
                                               child: Text(
                                                 _timeAgo(widget.vod.publishedAt),
-                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                                style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold),
                                               ),
                                             )))),
                         ),

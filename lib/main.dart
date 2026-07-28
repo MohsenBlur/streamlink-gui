@@ -423,24 +423,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   'A new version of Twitch Streamlink GUI is available on GitHub Releases.\n\n'
                   'Current Version: v${UpdateService.currentVersion}\n'
                   'Latest Version: ${info.tagName}',
-                  style: const TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
+                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
                 ),
                 if (info.releaseNotes.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  const Text('Release Notes:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white)),
+                  Text('Release Notes:', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                   const SizedBox(height: 6),
                   Container(
                     constraints: const BoxConstraints(maxHeight: 120),
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: themeNotifier.backgroundColor,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white10),
-                    ),
+                    decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 8),
                     child: SingleChildScrollView(
                       child: Text(
                         info.releaseNotes,
-                        style: const TextStyle(fontSize: 11, color: Colors.white60),
+                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                       ),
                     ),
                   ),
@@ -451,7 +447,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Remind Me Later', style: TextStyle(color: Colors.white30)),
+              child: Text('Remind Me Later', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
@@ -485,7 +481,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 children: [
                   Icon(Icons.downloading, color: themeNotifier.primaryColor),
                   const SizedBox(width: 10),
-                  const Text('Updating Application'),
+                  Text('Updating Application', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
                 ],
               ),
               content: SizedBox(
@@ -494,15 +490,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(statusText, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                    Text(statusText, style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                     const SizedBox(height: 12),
                     LinearProgressIndicator(
                       value: progress > 0 ? progress : null,
-                      backgroundColor: Colors.white10,
+                      backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
                       color: themeNotifier.primaryColor,
                     ),
                     const SizedBox(height: 8),
-                    Text('${(progress * 100).toStringAsFixed(1)}%', style: const TextStyle(fontSize: 11, color: Colors.white38)),
+                    Text('${(progress * 100).toStringAsFixed(1)}%', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                   ],
                 ),
               ),
@@ -1858,9 +1854,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         children: [
                           Icon(Icons.downloading, color: theme.primaryColor, size: 20),
                           const SizedBox(width: 8),
-                          const Text(
+                          Text(
                             'Active Downloads Running',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
                           ),
                         ],
                       ),
@@ -1891,14 +1887,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               children: [
                                 Text(
                                   title,
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70),
+                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 4),
                                 LinearProgressIndicator(
                                   value: progress,
-                                  backgroundColor: Colors.white10,
+                                  backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
                                   valueColor: AlwaysStoppedAnimation<Color>(theme.primaryColor),
                                   minHeight: 3,
                                 ),
@@ -1908,7 +1904,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           const SizedBox(width: 16),
                           Text(
                             taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
-                            style: const TextStyle(fontSize: 11, color: Colors.white54, fontFamily: 'Consolas'),
+                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                           ),
                         ],
                       ),
@@ -2432,7 +2428,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           IconButton(
                             icon: Icon(
                               _isMultiSelectMode ? Icons.edit_off : Icons.edit,
-                              color: _isMultiSelectMode ? theme.primaryColor : Colors.white70,
+                              color: _isMultiSelectMode ? theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
                               size: 18,
                             ),
                             tooltip: _isMultiSelectMode ? 'Cancel Multi-Select' : 'Toggle Multi-Select Mode',
@@ -2447,17 +2443,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             const SizedBox(width: 8),
                             Text(
                               '${_selectedVodIds.length} selected',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70),
+                              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12),
                             ),
                             if (_isBulkUpdatingVods) ...[
                               const SizedBox(width: 12),
-                              const SizedBox(
+                              SizedBox(
                                 width: 14,
                                 height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                               ),
                               const SizedBox(width: 8),
-                              const Text('Syncing with Twitch...', style: TextStyle(fontSize: 11, color: Colors.white60)),
+                              Text('Syncing with Twitch...', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                             ] else ...[
                               const SizedBox(width: 12),
                               TextButton.icon(
@@ -2475,8 +2471,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.unpublished_outlined, size: 16),
                                 label: const Text('Mark Unwatched', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: Colors.white10,
-                                  foregroundColor: Colors.white70,
+                                  backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
+                                  foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
                                 onPressed: () => _bulkUpdateSelectedVods(false),
@@ -2505,7 +2501,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ),
                               const SizedBox(width: 8),
                               IconButton(
-                                icon: const Icon(Icons.select_all, size: 18, color: Colors.white70),
+                                icon: Icon(Icons.select_all, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                                 tooltip: 'Select All Visible',
                                 onPressed: () {
                                   final searchQuery = _vodSearchController.text.trim().toLowerCase();
@@ -2523,7 +2519,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 },
                               ),
                               IconButton(
-                                icon: const Icon(Icons.deselect, size: 18, color: Colors.white70),
+                                icon: Icon(Icons.deselect, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                                 tooltip: 'Deselect All',
                                 onPressed: () {
                                   setState(() {
@@ -2551,19 +2547,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 children: [
                                   Tooltip(
                                     message: 'Show all played games on thumbnails at a glance',
-                                    decoration: BoxDecoration(
-                                      color: themeNotifier.surfaceColor,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: const Color(0xFF1E2433)),
-                                    ),
-                                    textStyle: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                    decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 6),
+                                    textStyle: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 10, fontWeight: FontWeight.bold),
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        const Icon(Icons.sports_esports, size: 14, color: Colors.white38),
+                                        Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                         const SizedBox(width: 4),
-                                        const Text('Show All Games', style: TextStyle(fontSize: 11, color: Colors.white54, fontWeight: FontWeight.bold)),
+                                        Text('Show All Games', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                                         Transform.scale(
                                           scale: 0.7,
                                           child: Switch(
@@ -2587,14 +2579,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                     height: 28,
                                     child: TextField(
                                       controller: _vodSearchController,
-                                      style: const TextStyle(fontSize: 11, color: Colors.white),
+                                      style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 11),
                                       decoration: InputDecoration(
                                         hintText: 'Filter VODs...',
-                                        hintStyle: const TextStyle(fontSize: 11, color: Colors.white38),
-                                        prefixIcon: const Icon(Icons.search, size: 12, color: Colors.white38),
+                                        hintStyle: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                                        prefixIcon: Icon(Icons.search, size: 12, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                         contentPadding: EdgeInsets.zero,
                                         filled: true,
-                                        fillColor: const Color(0xFF1E2433),
+                                        fillColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                                         border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(6),
                                           borderSide: BorderSide.none,
@@ -2606,9 +2598,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                     ),
                                   ),
                                   const SizedBox(width: 14),
-                                  const Icon(Icons.photo_size_select_large, size: 14, color: Colors.white38),
+                                  Icon(Icons.photo_size_select_large, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                   const SizedBox(width: 6),
-                                  const Text('Card Size: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                                  Text('Card Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                                   SizedBox(
                                     width: 110,
                                     child: SliderTheme(
@@ -2617,7 +2609,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                                         overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                                         activeTrackColor: theme.primaryColor,
-                                        inactiveTrackColor: Colors.white10,
+                                        inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
                                         thumbColor: theme.primaryColor,
                                         overlayColor: theme.primaryColor.withOpacity(0.12),
                                       ),
@@ -2634,9 +2626,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                     ),
                                   ),
                                   const SizedBox(width: 14),
-                                  const Icon(Icons.format_size, size: 14, color: Colors.white38),
+                                  Icon(Icons.format_size, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                   const SizedBox(width: 6),
-                                  const Text('Font: ', style: TextStyle(fontSize: 12, color: Colors.white38)),
+                                  Text('Font: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                                   SizedBox(
                                     width: 90,
                                     child: SliderTheme(
@@ -2645,7 +2637,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                                         overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                                         activeTrackColor: theme.primaryColor,
-                                        inactiveTrackColor: Colors.white10,
+                                        inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
                                         thumbColor: theme.primaryColor,
                                         overlayColor: theme.primaryColor.withOpacity(0.12),
                                       ),
