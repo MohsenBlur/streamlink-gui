@@ -162,8 +162,8 @@ class _SidebarPanelState extends State<SidebarPanel> {
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Color(0xFF1E2433), width: 1.5)),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1.5)),
                   ),
                   child: Row(
                     children: [
@@ -569,13 +569,13 @@ class _SidebarPanelState extends State<SidebarPanel> {
                 // Settings bottom bar
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: const BoxDecoration(
-                    border: Border(top: BorderSide(color: Color(0xFF1E2433), width: 1)),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1)),
                   ),
                   child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.settings, color: Colors.white60, size: 20),
+                        icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
                         tooltip: 'Settings',
                         onPressed: widget.onShowSettings,
                         hoverColor: theme.primaryColor.withOpacity(0.2),
@@ -623,14 +623,14 @@ class _SidebarPanelState extends State<SidebarPanel> {
         ),
         const SizedBox(height: 8),
         IconButton(
-          icon: const Icon(Icons.keyboard_double_arrow_right, color: Colors.white70, size: 20),
+          icon: Icon(Icons.keyboard_double_arrow_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 20),
           tooltip: 'Expand sidebar',
           onPressed: () => widget.onToggleCollapse(false),
           hoverColor: theme.primaryColor.withOpacity(0.2),
           splashRadius: 20,
         ),
         const SizedBox(height: 10),
-        const Divider(color: Color(0xFF1E2433), height: 1.5, thickness: 1.5),
+        Divider(color: NeuTheme.border(themeNotifier.isDarkTheme), height: 1.5, thickness: 1.5),
         const SizedBox(height: 12),
         
         // Collapsed Tab Toggle
@@ -770,12 +770,12 @@ class _SidebarPanelState extends State<SidebarPanel> {
         Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           width: double.infinity,
-          decoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: Color(0xFF1E2433), width: 1)),
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1)),
           ),
           child: Center(
             child: IconButton(
-              icon: const Icon(Icons.settings, color: Colors.white60, size: 20),
+              icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
               tooltip: 'Settings',
               onPressed: widget.onShowSettings,
               hoverColor: theme.primaryColor.withOpacity(0.2),

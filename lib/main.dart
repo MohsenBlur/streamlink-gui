@@ -874,6 +874,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             _sidebarCollapsed = _settings.sidebarCollapsed;
             _sidebarTab = _settings.activeSidebarTab;
             _showGamesOnThumbnails = _settings.showGamesOnThumbnails;
+            themeNotifier.setDarkTheme(_settings.isDarkTheme);
              
             if (_settings.unfinishedDownloads.isNotEmpty) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1559,18 +1560,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     
     return Container(
       width: 260,
-      decoration: BoxDecoration(
-        color: const Color(0xFF161B26),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1E2433)),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black54,
-            blurRadius: 15,
-            spreadRadius: 2,
-          )
-        ],
-      ),
+      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1584,9 +1574,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    color: const Color(0xFF1F2937),
-                    child: const Center(
-                      child: Icon(Icons.live_tv, color: Colors.white24, size: 36),
+                    color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                    child: Center(
+                      child: Icon(Icons.live_tv, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
                     ),
                   );
                 },
@@ -1613,20 +1603,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     Expanded(
                       child: Text(
                         channel.username,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
+                        style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (channel.viewerCount != null && channel.viewerCount != '0') ...[
-                      const Icon(Icons.remove_red_eye, color: Colors.white54, size: 12),
+                      Icon(Icons.remove_red_eye, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 12),
                       const SizedBox(width: 4),
                       Text(
                         channel.viewerCount!,
-                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                       ),
                     ],
                   ],
@@ -1636,18 +1622,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   channel.streamTitle ?? 'Streaming Live!',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    height: 1.3,
-                  ),
+                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                 ),
                 if (channel.game != null && channel.game != 'Offline') ...[
                   const SizedBox(height: 6),
                   Text(
                     channel.game!,
-                    style: const TextStyle(
-                      color: Color(0xFF9146FF),
+                    style: TextStyle(
+                      color: themeNotifier.primaryColor,
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1767,7 +1749,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             onThemeToggle: (isDark) {
               setState(() {
                 themeNotifier.setDarkTheme(isDark);
+                _settings.isDarkTheme = isDark;
               });
+              _saveChannels();
             },
           ),
           Expanded(
@@ -2102,19 +2086,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: const Color(0xFF161B26),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: const Column(
+              decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 12),
+              child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.portable_wifi_off, size: 36, color: Colors.white30),
-                  SizedBox(height: 10),
+                  Icon(Icons.portable_wifi_off, size: 36, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                  const SizedBox(height: 10),
                   Text(
                     'No favorite channels are currently live.',
-                    style: TextStyle(fontSize: 13, color: Colors.white30),
+                    style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
                   ),
                 ],
               ),
@@ -2796,10 +2776,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ? null
                               : () => _fetchVodsForChannel(channel, loadMore: true),
                           child: _isLoadingVods
-                              ? const SizedBox(
+                              ? SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                                 )
                               : const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,

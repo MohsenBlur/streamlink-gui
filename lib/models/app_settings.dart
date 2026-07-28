@@ -32,6 +32,7 @@ class AppSettings {
   bool showGamesOnThumbnails = true;
   int vodWatchExclusionThreshold = 15; // default 15%
   bool autoPlayPreemptLowerPriority = false;
+  bool isDarkTheme = true;
 
   String lightAccentColorHex = '#FF6584';
   String darkAccentColorHex = '#FF3B30';
@@ -68,6 +69,7 @@ class AppSettings {
     this.showGamesOnThumbnails = true,
     this.vodWatchExclusionThreshold = 15,
     this.autoPlayPreemptLowerPriority = false,
+    this.isDarkTheme = true,
   }) {
     if (vodDownloadFolder.isEmpty) {
       if (Platform.environment['USERPROFILE'] != null) {
@@ -112,6 +114,7 @@ class AppSettings {
         'show_games_on_thumbnails': showGamesOnThumbnails,
         'vod_watch_exclusion_threshold': vodWatchExclusionThreshold,
         'auto_play_preempt_lower_priority': autoPlayPreemptLowerPriority,
+        'is_dark_theme': isDarkTheme,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -146,5 +149,6 @@ class AppSettings {
         showGamesOnThumbnails: json['show_games_on_thumbnails'] ?? true,
         vodWatchExclusionThreshold: json['vod_watch_exclusion_threshold'] ?? 15,
         autoPlayPreemptLowerPriority: json['auto_play_preempt_lower_priority'] ?? false,
+        isDarkTheme: json['is_dark_theme'] ?? true,
       );
 }
