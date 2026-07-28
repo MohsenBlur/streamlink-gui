@@ -87,13 +87,13 @@ class SettingsDialog {
                         children: [
                           Icon(Icons.settings, color: themeNotifier.primaryColor),
                           const SizedBox(width: 10),
-                          const Text('Streamlink Settings'),
+                          Text('Streamlink Settings', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
                         ],
                       ),
                     ),
                     TabBar(
                       labelColor: themeNotifier.primaryColor,
-                      unselectedLabelColor: Colors.white60,
+                      unselectedLabelColor: NeuTheme.subtext(themeNotifier.isDarkTheme),
                       indicatorColor: themeNotifier.primaryColor,
                       indicatorSize: TabBarIndicatorSize.tab,
                       isScrollable: true,
@@ -124,9 +124,9 @@ class SettingsDialog {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Default Video Quality',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                             ),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
@@ -159,11 +159,11 @@ class SettingsDialog {
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Low Latency Streams', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    Text('Low Latency Streams', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                                     const SizedBox(height: 4),
                                     Text(
                                       'Reduces delay on Twitch streams',
-                                      style: TextStyle(fontSize: 11, color: Colors.white38),
+                                      style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                                     ),
                                   ],
                                 ),
@@ -179,20 +179,20 @@ class SettingsDialog {
                               ],
                             ),
                             const SizedBox(height: 18),
-                            const Text('VOD Watched Threshold', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('VOD Watched Threshold', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 4),
-                            Text('Mark VOD as fully watched at $tempWatchedThreshold% completion.', style: const TextStyle(fontSize: 11, color: Colors.white38)),
+                            Text('Mark VOD as fully watched at $tempWatchedThreshold% completion.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                             const SizedBox(height: 8),
                             Row(
                               children: [
-                                const Text('50%', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                                Text('50%', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                                 Expanded(
                                   child: SliderTheme(
                                     data: SliderTheme.of(context).copyWith(
                                       trackHeight: 2,
                                       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                                       activeTrackColor: themeNotifier.primaryColor,
-                                      inactiveTrackColor: Colors.white10,
+                                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
                                       thumbColor: themeNotifier.primaryColor,
                                     ),
                                     child: Slider(
@@ -207,24 +207,24 @@ class SettingsDialog {
                                     ),
                                   ),
                                 ),
-                                const Text('100%', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                                Text('100%', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                               ],
                             ),
                             const SizedBox(height: 18),
-                            const Text('Recently Watched VODs Limit', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('Recently Watched VODs Limit', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 4),
-                            Text('Limit dashboard watch history to $tempMaxRecentlyWatched VODs.', style: const TextStyle(fontSize: 11, color: Colors.white38)),
+                            Text('Limit dashboard watch history to $tempMaxRecentlyWatched VODs.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                             const SizedBox(height: 8),
                             Row(
                               children: [
-                                const Text('1', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                                Text('1', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                                 Expanded(
                                   child: SliderTheme(
                                     data: SliderTheme.of(context).copyWith(
                                       trackHeight: 2,
                                       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                                       activeTrackColor: themeNotifier.primaryColor,
-                                      inactiveTrackColor: Colors.white10,
+                                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
                                       thumbColor: themeNotifier.primaryColor,
                                     ),
                                     child: Slider(
@@ -239,13 +239,13 @@ class SettingsDialog {
                                     ),
                                   ),
                                 ),
-                                const Text('20', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                                Text('20', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                               ],
                             ),
                             const SizedBox(height: 24),
-                            const Divider(color: Colors.white12),
+                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                             const SizedBox(height: 12),
-                            const Text('Watch History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('Watch History', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 8),
                             OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
@@ -290,7 +290,7 @@ class SettingsDialog {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Player Type', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('Player Type', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
                               value: tempPlayerType,
@@ -394,14 +394,14 @@ class SettingsDialog {
                             ),
                             if (tempPlayerType == 'custom') ...[
                               const SizedBox(height: 18),
-                              const Text('Custom Player Executable Path', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              Text('Custom Player Executable Path', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                               const SizedBox(height: 6),
                               Row(
                                 children: [
                                   Expanded(
                                     child: TextField(
                                       controller: playerPathController,
-                                      style: const TextStyle(fontSize: 12),
+                                      style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                       decoration: const InputDecoration(
                                         hintText: 'e.g. C:\\Program Files\\MPV\\mpv.exe',
                                       ),
@@ -431,11 +431,11 @@ class SettingsDialog {
                               ),
                             ],
                             const SizedBox(height: 18),
-                            const Text('Custom Player Arguments (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('Custom Player Arguments (Optional)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 6),
                             TextField(
                               controller: playerArgsController,
-                              style: const TextStyle(fontSize: 13),
+                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
                               decoration: const InputDecoration(
                                 hintText: 'e.g. --ontop --no-border (for mpv)',
                               ),
@@ -450,15 +450,11 @@ class SettingsDialog {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Twitch API Authentication', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
+                            Text('Twitch API Authentication', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14)),
                             const SizedBox(height: 10),
                             Container(
                               padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: themeNotifier.backgroundColor,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.white10),
-                              ),
+                              decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 8),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
@@ -503,20 +499,20 @@ class SettingsDialog {
                                   ),
                                   if (settings.twitchOauthToken.trim().isNotEmpty) ...[
                                     const SizedBox(height: 8),
-                                    const Text(
+                                    Text(
                                       'Connecting allows you to automatically load your followed channels, view channel VOD lists, stream subscriber-only feeds, and remove ads.',
-                                      style: TextStyle(fontSize: 10, color: Colors.white38, height: 1.4),
+                                      style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10),
                                     ),
                                   ],
                                 ],
                               ),
                             ),
                             const SizedBox(height: 14),
-                            const Text('Twitch Client ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            Text('Twitch Client ID', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                             const SizedBox(height: 4),
                             TextField(
                               controller: clientIdController,
-                              style: const TextStyle(fontSize: 11, fontFamily: 'Consolas'),
+                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 11),
                               decoration: const InputDecoration(
                                 hintText: 'Twitch Client ID',
                                 contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -526,7 +522,7 @@ class SettingsDialog {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Twitch OAuth Token (Optional)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                Text('Twitch OAuth Token (Optional)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                                 TextButton(
                                   style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                                   onPressed: () => openExternalLink('https://twitchapps.com/tmi/'),
@@ -538,7 +534,7 @@ class SettingsDialog {
                             TextField(
                               controller: tokenController,
                               obscureText: obscureToken,
-                              style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
+                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                               decoration: InputDecoration(
                                 hintText: 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -554,7 +550,7 @@ class SettingsDialog {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Twitch Browser Token (Optional, for VOD Sync)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                Text('Twitch Browser Token (Optional, for VOD Sync)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                                 IconButton(
                                   icon: const Icon(Icons.help_outline, size: 16),
                                   color: themeNotifier.primaryColor,
@@ -572,7 +568,7 @@ class SettingsDialog {
                                   child: TextField(
                                     controller: webTokenController,
                                     obscureText: obscureWebToken,
-                                    style: const TextStyle(fontSize: 12, fontFamily: 'Consolas'),
+                                    style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                     decoration: InputDecoration(
                                       hintText: 'e.g. 5vnv4iix6wz8y31ok3p7xlccuyb72s',
                                       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -590,7 +586,7 @@ class SettingsDialog {
                                   height: 36,
                                   child: ElevatedButton(
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: isTestingToken ? const Color(0xFF1E2433) : themeNotifier.primaryColor,
+                                      backgroundColor: isTestingToken ? NeuTheme.surface(themeNotifier.isDarkTheme) : themeNotifier.primaryColor,
                                       padding: const EdgeInsets.symmetric(horizontal: 12),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                                     ),
@@ -689,7 +685,7 @@ class SettingsDialog {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Application Theme Mode', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            Text('Application Theme Mode', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14)),
                             const SizedBox(height: 4),
                             Text('Choose between Soft Light and Deep Dark Neumorphic themes.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
                             const SizedBox(height: 12),
@@ -703,17 +699,13 @@ class SettingsDialog {
                                     },
                                     child: Container(
                                       padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFEBECF0),
-                                        borderRadius: BorderRadius.circular(12),
+                                      decoration: NeuTheme.raisedDecoration(
+                                        false,
+                                        radius: 12,
                                         border: Border.all(
                                           color: !themeNotifier.isDarkTheme ? themeNotifier.primaryColor : Colors.transparent,
                                           width: 2,
                                         ),
-                                        boxShadow: const [
-                                          BoxShadow(color: Colors.white, offset: Offset(-3, -3), blurRadius: 6),
-                                          BoxShadow(color: Color(0xFFA3B1C6), offset: Offset(3, 3), blurRadius: 6),
-                                        ],
                                       ),
                                       child: Column(
                                         children: const [
@@ -734,17 +726,13 @@ class SettingsDialog {
                                     },
                                     child: Container(
                                       padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF1D212A),
-                                        borderRadius: BorderRadius.circular(12),
+                                      decoration: NeuTheme.raisedDecoration(
+                                        true,
+                                        radius: 12,
                                         border: Border.all(
                                           color: themeNotifier.isDarkTheme ? themeNotifier.primaryColor : Colors.transparent,
                                           width: 2,
                                         ),
-                                        boxShadow: const [
-                                          BoxShadow(color: Color(0xFF2B303F), offset: Offset(-3, -3), blurRadius: 6),
-                                          BoxShadow(color: Color(0xFF12151B), offset: Offset(3, 3), blurRadius: 6),
-                                        ],
                                       ),
                                       child: Column(
                                         children: const [
@@ -759,7 +747,7 @@ class SettingsDialog {
                               ],
                             ),
                             const SizedBox(height: 24),
-                            const Text('Light Theme Accent Color', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('Light Theme Accent Color', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 4),
                             Text('Accent color used when Soft Light theme is active.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
                             const SizedBox(height: 8),
@@ -787,7 +775,7 @@ class SettingsDialog {
                                       color: color,
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                        color: isSelected ? Colors.white : Colors.black26,
+                                        color: isSelected ? NeuTheme.text(themeNotifier.isDarkTheme) : NeuTheme.border(themeNotifier.isDarkTheme),
                                         width: isSelected ? 3.0 : 1.0,
                                       ),
                                     ),
@@ -796,7 +784,7 @@ class SettingsDialog {
                               }).toList(),
                             ),
                             const SizedBox(height: 24),
-                            const Text('Dark Theme Accent Color', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('Dark Theme Accent Color', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 4),
                             Text('Accent color used when Deep Dark theme is active.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
                             const SizedBox(height: 8),
@@ -824,7 +812,7 @@ class SettingsDialog {
                                       color: color,
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                        color: isSelected ? Colors.white : Colors.black45,
+                                        color: isSelected ? NeuTheme.text(themeNotifier.isDarkTheme) : NeuTheme.border(themeNotifier.isDarkTheme),
                                         width: isSelected ? 3.0 : 1.0,
                                       ),
                                     ),
@@ -842,14 +830,14 @@ class SettingsDialog {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('VOD Download Directory', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('VOD Download Directory', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 6),
                             Row(
                               children: [
                                 Expanded(
                                   child: TextField(
                                     controller: downloadFolderController,
-                                    style: const TextStyle(fontSize: 13),
+                                    style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
                                     decoration: const InputDecoration(
                                       hintText: 'e.g. C:\\Downloads\\TwitchVODs',
                                     ),
@@ -862,7 +850,6 @@ class SettingsDialog {
                                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
                                   ),
                                   onPressed: () async {
-                                    // Use standard native FilePicker (resolving Issue 2)
                                     final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
                                     if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
                                       setDialogState(() {
@@ -876,14 +863,14 @@ class SettingsDialog {
                               ],
                             ),
                             const SizedBox(height: 18),
-                            const Text('Maximum downloads to keep (Threshold)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text('Maximum downloads to keep (Threshold)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 4),
-                            const Text('Delete oldest downloads automatically when limit is reached. Leave empty or set to 0 for unlimited.', style: TextStyle(fontSize: 11, color: Colors.white38)),
+                            Text('Delete oldest downloads automatically when limit is reached. Leave empty or set to 0 for unlimited.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                             const SizedBox(height: 8),
                             TextField(
                               controller: maxDownloadsController,
                               keyboardType: TextInputType.number,
-                              style: const TextStyle(fontSize: 13),
+                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
                               decoration: const InputDecoration(
                                 hintText: 'e.g. 5, 10, or leave empty',
                               ),
@@ -1012,7 +999,7 @@ class SettingsDialog {
             children: [
               Icon(Icons.help_outline, color: themeNotifier.primaryColor),
               const SizedBox(width: 10),
-              const Text('How to get Browser Token'),
+              Text('How to get Browser Token', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
           ),
           backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
@@ -1085,7 +1072,7 @@ class SettingsDialog {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontSize: 13, color: Colors.white, height: 1.35),
+            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13).copyWith(height: 1.35),
           ),
         ),
       ],
