@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_channel.dart';
 import 'hover_overlay_menu.dart';
+import 'interactive_popover.dart';
 import 'neumorphic/neu_avatar_frame.dart';
 import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_card.dart';
@@ -172,13 +173,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       child: TextButton.icon(
         style: TextButton.styleFrom(
           alignment: Alignment.centerLeft,
-          foregroundColor: Colors.white,
+          foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
           padding: const EdgeInsets.symmetric(horizontal: 8),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
         ),
         onPressed: onPressed,
-        icon: Icon(icon, size: 14, color: Colors.white70),
-        label: Text(label, style: const TextStyle(fontSize: 12)),
+        icon: Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+        label: Text(label, style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
       ),
     );
   }
@@ -616,23 +617,23 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               ],
             ),
             isSmall
-                ? HoverOverlayMenu(
-                    trigger: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.more_vert, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 16),
-                            const SizedBox(width: 4),
-                            Text('Actions', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                          ],
-                        ),
+                ? InteractivePopover(
+                    targetAnchor: Alignment.bottomRight,
+                    followerAnchor: Alignment.topRight,
+                    offset: const Offset(0, 6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.more_vert, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 16),
+                          const SizedBox(width: 4),
+                          Text('Actions', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                        ],
                       ),
                     ),
-                    menu: Container(
+                    popover: Container(
                       width: 160,
                       padding: const EdgeInsets.all(8),
                       decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
