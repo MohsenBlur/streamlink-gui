@@ -3100,13 +3100,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     }
     
-    if (file == null) {
-      file = _playerService.getDownloadedVodFile(
-        vod.id,
-        channelName,
-        _settings.vodDownloadFolder
-      );
-    }
+    file ??= _playerService.getDownloadedVodFile(
+      vod.id,
+      channelName,
+      _settings.vodDownloadFolder,
+    );
+
     
     if (file != null && file.existsSync()) {
       _playerService.playDownloadedVod(file, vod, _settings);

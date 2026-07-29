@@ -349,18 +349,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       targetAnchor: Alignment.bottomRight,
                       followerAnchor: Alignment.topRight,
                       offset: const Offset(0, 6),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.analytics_outlined, size: 12, color: theme.primaryColor),
-                            const SizedBox(width: 4),
-                            Text('Stats', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 10)),
-                          ],
-                        ),
-                      ),
                       popover: Container(
                         width: 200,
                         padding: const EdgeInsets.all(10),
@@ -374,7 +362,20 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                           )).toList(),
                         ),
                       ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.analytics_outlined, size: 12, color: theme.primaryColor),
+                            const SizedBox(width: 4),
+                            Text('Stats', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 10)),
+                          ],
+                        ),
+                      ),
                     ),
+
                     const SizedBox(width: 6),
                     widget.channel.isLive
                         ? HoverOverlayMenu(
@@ -592,18 +593,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     targetAnchor: Alignment.bottomRight,
                     followerAnchor: Alignment.topRight,
                     offset: const Offset(0, 6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.more_vert, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 16),
-                          const SizedBox(width: 4),
-                          Text('Actions', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                        ],
-                      ),
-                    ),
                     popover: Container(
                       width: 160,
                       padding: const EdgeInsets.all(8),
@@ -635,7 +624,20 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         ],
                       ),
                     ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.more_vert, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 16),
+                          const SizedBox(width: 4),
+                          Text('Actions', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                        ],
+                      ),
+                    ),
                   )
+
                 : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

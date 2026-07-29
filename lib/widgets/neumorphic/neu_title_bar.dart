@@ -57,7 +57,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: [
-                    if (leading != null) leading!,
+                    ?leading,
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -96,7 +96,8 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
           ),
 
           // Custom Actions
-          if (actions != null) ...actions!,
+          ...?actions,
+
 
           // Theme Toggle Button
           NeuIconButton(
