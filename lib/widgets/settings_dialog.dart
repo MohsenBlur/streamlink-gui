@@ -62,6 +62,8 @@ class SettingsDialog {
     final maxDownloadsController = TextEditingController(
       text: settings.maxDownloadsToKeep == 0 ? '' : settings.maxDownloadsToKeep.toString()
     );
+    bool tempDisableVodPostProcessing = settings.disableVodPostProcessing;
+    final customVodArgsController = TextEditingController(text: settings.customVodArgs);
     bool obscureToken = true;
     bool obscureWebToken = true;
     bool isTestingToken = false;
@@ -877,6 +879,34 @@ class SettingsDialog {
                                 hintText: 'e.g. 5, 10, or leave empty',
                               ),
                             ),
+                            const SizedBox(height: 18),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              activeColor: themeNotifier.primaryColor,
+                              title: Text('Fast VOD Downloads (Skip heavy post-processing)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                              subtitle: Text(
+                                'Bypasses slow thumbnail/metadata container rewrites after download completion (prevents multi-gigabyte VODs from taking forever after 100%).',
+                                style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                              ),
+                              value: tempDisableVodPostProcessing,
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  tempDisableVodPostProcessing = val;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            Text('Custom yt-dlp VOD Download Arguments', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('Pass additional options directly to yt-dlp when downloading VODs.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: customVodArgsController,
+                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                              decoration: const InputDecoration(
+                                hintText: 'e.g. --concurrent-fragments 5 --no-mtime',
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -969,6 +999,8 @@ class SettingsDialog {
                                 maxRecentlyWatched: tempMaxRecentlyWatched,
                                 activeSidebarTab: settings.activeSidebarTab,
                                 sidebarCollapsed: settings.sidebarCollapsed,
+                                disableVodPostProcessing: tempDisableVodPostProcessing,
+                                customVodArgs: customVodArgsController.text.trim(),
                               );
 
                               updated.lightAccentColorHex = colorToHex(themeNotifier.lightAccentColor);

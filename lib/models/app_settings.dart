@@ -33,6 +33,8 @@ class AppSettings {
   int vodWatchExclusionThreshold = 15; // default 15%
   bool autoPlayPreemptLowerPriority = false;
   bool isDarkTheme = true;
+  bool disableVodPostProcessing = true;
+  String customVodArgs = '';
 
   String lightAccentColorHex = '#FF6584';
   String darkAccentColorHex = '#FF3B30';
@@ -70,6 +72,8 @@ class AppSettings {
     this.vodWatchExclusionThreshold = 15,
     this.autoPlayPreemptLowerPriority = false,
     this.isDarkTheme = true,
+    this.disableVodPostProcessing = true,
+    this.customVodArgs = '',
   }) {
     if (vodDownloadFolder.isEmpty) {
       if (Platform.environment['USERPROFILE'] != null) {
@@ -115,6 +119,8 @@ class AppSettings {
         'vod_watch_exclusion_threshold': vodWatchExclusionThreshold,
         'auto_play_preempt_lower_priority': autoPlayPreemptLowerPriority,
         'is_dark_theme': isDarkTheme,
+        'disable_vod_post_processing': disableVodPostProcessing,
+        'custom_vod_args': customVodArgs,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
@@ -150,5 +156,7 @@ class AppSettings {
         vodWatchExclusionThreshold: json['vod_watch_exclusion_threshold'] ?? 15,
         autoPlayPreemptLowerPriority: json['auto_play_preempt_lower_priority'] ?? false,
         isDarkTheme: json['is_dark_theme'] ?? true,
+        disableVodPostProcessing: json['disable_vod_post_processing'] ?? true,
+        customVodArgs: json['custom_vod_args'] ?? '',
       );
 }

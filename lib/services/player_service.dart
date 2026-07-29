@@ -242,6 +242,22 @@ class PlayerService {
     if (isRetryWithFfmpeg) {
       args.addAll(['--downloader', 'ffmpeg']);
     }
+    if (settings.disableVodPostProcessing) {
+      args.addAll([
+        '--no-embed-thumbnail',
+        '--no-add-metadata',
+        '--no-sponsorblock',
+        '--no-embed-subs',
+      ]);
+    }
+    if (settings.customVodArgs.trim().isNotEmpty) {
+      final customArgsList = settings.customVodArgs
+          .trim()
+          .split(RegExp(r'\s+'))
+          .where((s) => s.isNotEmpty)
+          .toList();
+      args.addAll(customArgsList);
+    }
     args.addAll([
       '-o', outputTemplate,
       url
@@ -268,9 +284,21 @@ class PlayerService {
       activeDownloadProcesses[vodId] = proc;
 
       proc.stdout.transform(utf8.decoder).listen((line) {
-        log(key, line.trim());
+        final trimmed = line.trim();
+        log(key, trimmed);
         if (line.contains('Initialization fragment found after media fragments')) {
           needsFfmpegFallback = true;
+        }
+
+        if (trimmed.startsWith('[Metadata]') ||
+            trimmed.startsWith('[EmbedThumbnail]') ||
+            trimmed.startsWith('[ModifyChapters]') ||
+            trimmed.startsWith('[EmbedSubtitle]') ||
+            trimmed.startsWith('[Fixup') ||
+            trimmed.startsWith('[Merger]')) {
+          activeDownloadTasks[vodId] = 'Finalizing file...';
+          onDownloadProgress?.call(vodId, 1.0, 'Finalizing file...');
+          return;
         }
 
         // Robust regex matching both integer & decimal percentage output
@@ -290,7 +318,9 @@ class PlayerService {
           final double progress = pct / 100.0;
           activeDownloadsProgress[vodId] = progress;
           String statusText = '';
-          if (speed != null) {
+          if (progress >= 1.0) {
+            statusText = 'Finishing download...';
+          } else if (speed != null) {
             statusText = 'Downloading: ${pct.toStringAsFixed(1)}% ($speed)';
           } else {
             statusText = 'Downloading: ${pct.toStringAsFixed(1)}%';
