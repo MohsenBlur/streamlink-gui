@@ -22,7 +22,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.59';
+  static const String currentVersion = '1.0.60';
 
 
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';

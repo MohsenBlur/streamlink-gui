@@ -265,6 +265,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _consoleCollapsed = true;
   String? _selectedConsoleTabKey = '__downloads_manager__';
 
+  bool _isUpdatePromptOpen = false;
+  bool _isUpdateInProgress = false;
+  final Map<String, String> _lastAutoPlayedStreamSession = {};
+
   @override
   void initState() {
     super.initState();
@@ -399,6 +403,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _showUpdatePromptDialog(UpdateInfo info) {
+    _isUpdatePromptOpen = true;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -461,10 +466,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           ],
         );
       },
-    );
+    ).then((_) {
+      _isUpdatePromptOpen = false;
+    });
   }
 
   void _performAppUpdate(UpdateInfo info) {
+    _isUpdateInProgress = true;
     double progress = 0.0;
     String statusText = 'Downloading update archive...';
 
@@ -526,6 +534,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
         await updateService.applyUpdateAndRestart(extractDir);
       } catch (e) {
+        _isUpdateInProgress = false;
         if (mounted) {
           Navigator.pop(context);
           _showSnackBar('Update failed: $e', isError: true);
@@ -1133,6 +1142,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _checkFavoritesAutomation() async {
+    // Cleanup session tracking for channels that went offline
+    final currentLiveUsernames = _channels.where((c) => c.isLive).map((c) => c.username.toLowerCase()).toSet();
+    _lastAutoPlayedStreamSession.removeWhere((username, _) => !currentLiveUsernames.contains(username));
+
+    // Stand down auto-play if user is watching a VOD (downloaded or streaming)
+    if (_playerService.playingVodIds.isNotEmpty || _activePlayingVideos.isNotEmpty) {
+      print('[Auto-Play Manager] Postponing auto-play: user is currently watching a VOD.');
+      return;
+    }
+
+    // Stand down auto-play if app update prompt is visible or update is in progress
+    if (_isUpdatePromptOpen || _isUpdateInProgress) {
+      print('[Auto-Play Manager] Postponing auto-play: app update prompt or update is active.');
+      return;
+    }
+
     // 1. Priority Live Stream Auto-Play
     final priorityChannels = _channels.where((c) => c.autoPlayLive).toList()
       ..sort((a, b) => a.autoPlayPriority.compareTo(b.autoPlayPriority));
@@ -1147,6 +1172,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     for (int i = 0; i < priorityChannels.length; i++) {
       final targetChan = priorityChannels[i];
       if (targetChan.isLive) {
+        final cleanName = targetChan.username.toLowerCase();
+        final sessionKey = '${cleanName}_${targetChan.wentLiveTime?.millisecondsSinceEpoch ?? targetChan.uptime ?? targetChan.streamTitle ?? "live"}';
+
+        // Check if this live stream session has already been auto-played once
+        if (_lastAutoPlayedStreamSession[cleanName] == sessionKey) {
+          print('[Auto-Play Manager] Skipping @${targetChan.username}: live stream session already auto-played.');
+          continue;
+        }
+
         bool higherIsPlayingOrLive = false;
         for (int j = 0; j < i; j++) {
           final higherChan = priorityChannels[j];
@@ -1157,8 +1191,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
 
         if (!higherIsPlayingOrLive) {
-          final cleanName = targetChan.username.toLowerCase();
-
           // Option: Preempt/kill lower priority auto-played streams if a higher priority channel is live
           if (_settings.autoPlayPreemptLowerPriority) {
             for (int k = i + 1; k < priorityChannels.length; k++) {
@@ -1172,6 +1204,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           }
 
           if (!_playerService.runningChannels.contains(cleanName)) {
+            _lastAutoPlayedStreamSession[cleanName] = sessionKey;
             _playerService.launchStreamlinkForLive(
               targetChan.username,
               targetChan.isLive,
@@ -1191,6 +1224,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             } catch (e) {
               print('[Auto-Play Notification Error]: $e');
             }
+          } else {
+            // Already running/playing, record session key so closing won't re-trigger later in the same session
+            _lastAutoPlayedStreamSession[cleanName] = sessionKey;
           }
         }
         break; // Stop after evaluating top live priority channel
