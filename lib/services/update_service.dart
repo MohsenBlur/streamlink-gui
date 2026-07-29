@@ -152,105 +152,37 @@ class UpdateService {
   Future<void> applyUpdateAndRestart(Directory sourceDir) async {
     final exeFile = File(Platform.resolvedExecutable);
     final appDir = exeFile.parent.path;
-    final currentPid = pid;
+    final exeName = path.basename(exeFile.path);
 
-    final tempDir = sourceDir.parent.path;
-    final backupDir = path.join(tempDir, 'backup');
-    final ps1Path = path.join(tempDir, 'updater.ps1');
-
-    final normAppDir = path.normalize(appDir).replaceAll('\\', '/');
-    final normSourceDir = path.normalize(sourceDir.path).replaceAll('\\', '/');
-    final normBackupDir = path.normalize(backupDir).replaceAll('\\', '/');
-    final normExePath = path.normalize(exeFile.path).replaceAll('\\', '/');
-    final normPs1Path = path.normalize(ps1Path).replaceAll('\\', '/');
-
-    final scriptContent = '''
-# Auto-generated Single Self-Elevating Updater Script for Twitch Streamlink GUI
-\$ErrorActionPreference = "Stop"
-
-\$AppPid = $currentPid
-\$AppDir = "$normAppDir"
-\$SourceDir = "$normSourceDir"
-\$BackupDir = "$normBackupDir"
-\$ExePath = "$normExePath"
-
-\$WinAppDir = \$AppDir.Replace('/', '\\')
-\$WinSourceDir = \$SourceDir.Replace('/', '\\')
-\$WinBackupDir = \$BackupDir.Replace('/', '\\')
-\$WinExePath = \$ExePath.Replace('/', '\\')
-
-# Check write permission for target directory
-\$testFile = Join-Path \$WinAppDir ".perm_test"
-\$needsElevation = \$false
-try {
-    [System.IO.File]::WriteAllText(\$testFile, "test")
-    Remove-Item \$testFile -Force -ErrorAction SilentlyContinue
-} catch {
-    \$needsElevation = \$true
-}
-
-# If target directory requires elevation and we are not admin, self-elevate
-if (\$needsElevation -and -not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$normPs1Path`"" -Verb RunAs
-    exit
-}
-
-# 1. Wait for parent process to fully terminate
-\$maxWait = 15
-while (\$maxWait -gt 0 -and (Get-Process -Id \$AppPid -ErrorAction SilentlyContinue)) {
-    Stop-Process -Id \$AppPid -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 300
-    \$maxWait--
-}
-Stop-Process -Name "streamlink_gui" -Force -ErrorAction SilentlyContinue
-Stop-Process -Name "streamlink" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
-
-# 2. Backup & File Replacement (Protect channels_config.json & portable.txt)
-try {
-    if (Test-Path "\$WinBackupDir") { Remove-Item -Path "\$WinBackupDir" -Recurse -Force -ErrorAction SilentlyContinue }
-    New-Item -ItemType Directory -Path "\$WinBackupDir" -Force | Out-Null
-    
-    & robocopy "\$WinAppDir" "\$WinBackupDir" /E /NP /R:3 /W:1 /XF "updater.ps1" "channels_config.json" "portable.txt"
-    & robocopy "\$WinSourceDir" "\$WinAppDir" /E /IS /IT /NP /R:5 /W:1 /XF "channels_config.json" "portable.txt"
-    if (\$LASTEXITCODE -ge 8) {
-        throw "Robocopy failed with exit code \$LASTEXITCODE during file installation."
+    // 1. Locate updater.exe helper binary
+    File helperExe = File(path.join(appDir, 'updater.exe'));
+    if (!helperExe.existsSync()) {
+      // Check in extracted source directory if missing from local app directory
+      final extractedHelper = File(path.join(sourceDir.path, 'updater.exe'));
+      if (extractedHelper.existsSync()) {
+        helperExe = extractedHelper;
+      }
     }
 
-    Remove-Item -Path "\$WinBackupDir" -Recurse -Force -ErrorAction SilentlyContinue
-} catch {
-    if (Test-Path "\$WinBackupDir") {
-        & robocopy "\$WinBackupDir" "\$WinAppDir" /E /IS /IT /NP /R:3 /W:1
+    if (!helperExe.existsSync()) {
+      throw Exception('Update helper binary (updater.exe) not found.');
     }
-    
-    try {
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show(
-            "The application update could not be completed.`n`nError details: \$_`n`nThe previous version of Streamlink GUI has been restored.",
-            "Streamlink GUI Update Failure",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Error
-        )
-    } catch {}
-}
 
-# 3. Re-launch updated application
-try {
-    Start-Process "\$WinExePath"
-} catch {
-    Start-Process "cmd.exe" -ArgumentList "/c start `"`" `"\$WinExePath`""
-}
-''';
+    // 2. Copy helper binary to %TEMP% to prevent self-locking during directory swap
+    final tempRunner = File(path.join(Directory.systemTemp.path, 'streamlink_updater_runner.exe'));
+    await helperExe.copy(tempRunner.path);
 
-    await File(ps1Path).writeAsString(scriptContent);
-
+    // 3. Spawn detached native helper executable
+    // Arguments: [TargetAppDir, SourceStagingDir, ExeName]
     await Process.start(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1Path],
+      tempRunner.path,
+      [appDir, sourceDir.path, exeName],
       mode: ProcessStartMode.detached,
     );
 
-    await Future.delayed(const Duration(milliseconds: 300));
+    // 4. Gracefully terminate main application process
+    await Future.delayed(const Duration(milliseconds: 200));
     exit(0);
   }
 }
+

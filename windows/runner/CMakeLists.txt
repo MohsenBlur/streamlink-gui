@@ -38,3 +38,14 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# Define the standalone update helper executable target
+add_executable(updater WIN32
+  "win32_updater/main.cpp"
+)
+apply_standard_settings(updater)
+target_link_libraries(updater PRIVATE "shell32.lib" "shlwapi.lib" "user32.lib")
+
+# Install updater into the release bundle output directory
+install(TARGETS updater RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+
