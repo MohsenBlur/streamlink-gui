@@ -12,6 +12,7 @@ class _ChannelAutomationState {
   bool autoDownloadVods;
   int maxVodKeepCount;
   bool stopAtLastWatchedVod;
+  bool autoDownloadFastDownload;
 
   _ChannelAutomationState({
     required this.originalChannel,
@@ -20,6 +21,7 @@ class _ChannelAutomationState {
     required this.autoDownloadVods,
     required this.maxVodKeepCount,
     required this.stopAtLastWatchedVod,
+    required this.autoDownloadFastDownload,
   });
 
   factory _ChannelAutomationState.fromChannel(TwitchChannel ch) {
@@ -30,6 +32,7 @@ class _ChannelAutomationState {
       autoDownloadVods: ch.autoDownloadVods,
       maxVodKeepCount: ch.maxVodKeepCount,
       stopAtLastWatchedVod: ch.stopAtLastWatchedVod,
+      autoDownloadFastDownload: ch.autoDownloadFastDownload,
     );
   }
 
@@ -39,6 +42,7 @@ class _ChannelAutomationState {
     originalChannel.autoDownloadVods = autoDownloadVods;
     originalChannel.maxVodKeepCount = maxVodKeepCount;
     originalChannel.stopAtLastWatchedVod = stopAtLastWatchedVod;
+    originalChannel.autoDownloadFastDownload = autoDownloadFastDownload;
   }
 }
 
@@ -532,6 +536,35 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                             const SizedBox(width: 8),
                                             Text(
                                               'Stop at last watched (> 5%)',
+                                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                      // Fast Download Checkbox (Skip post-processing)
+                                      InkWell(
+                                        onTap: () {
+                                          setState(() {
+                                            ch.autoDownloadFastDownload = !ch.autoDownloadFastDownload;
+                                          });
+                                        },
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            NeuCheckbox(
+                                              value: ch.autoDownloadFastDownload,
+                                              activeColor: theme.primaryColor,
+                                              isDark: themeNotifier.isDarkTheme,
+                                              onChanged: (val) {
+                                                setState(() {
+                                                  ch.autoDownloadFastDownload = val ?? false;
+                                                });
+                                              },
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'Fast Download (Skip post-processing)',
                                               style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                             ),
                                           ],

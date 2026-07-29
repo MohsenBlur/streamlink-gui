@@ -18,6 +18,7 @@ class TwitchChannel {
   bool autoDownloadVods;
   int maxVodKeepCount;
   bool stopAtLastWatchedVod;
+  bool autoDownloadFastDownload;
 
   TwitchChannel({
     required this.username,
@@ -26,6 +27,7 @@ class TwitchChannel {
     this.autoDownloadVods = false,
     this.maxVodKeepCount = 1,
     this.stopAtLastWatchedVod = true,
+    this.autoDownloadFastDownload = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -35,6 +37,7 @@ class TwitchChannel {
         'autoDownloadVods': autoDownloadVods,
         'maxVodKeepCount': maxVodKeepCount,
         'stopAtLastWatchedVod': stopAtLastWatchedVod,
+        'autoDownloadFastDownload': autoDownloadFastDownload,
       };
 
   factory TwitchChannel.fromJson(Map<String, dynamic> json) => TwitchChannel(
@@ -44,5 +47,6 @@ class TwitchChannel {
         autoDownloadVods: json['autoDownloadVods'] as bool? ?? false,
         maxVodKeepCount: json['maxVodKeepCount'] as int? ?? 1,
         stopAtLastWatchedVod: json['stopAtLastWatchedVod'] as bool? ?? true,
+        autoDownloadFastDownload: json['autoDownloadFastDownload'] as bool? ?? false,
       );
 }

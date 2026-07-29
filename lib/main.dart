@@ -1242,7 +1242,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
           if (!isAlreadyDownloaded && !isDownloading) {
             print('[VOD Auto-Download] Starting auto-download for @${channel.username} VOD ${vod.id} (${vod.title})');
-            _playerService.queueVodDownload(vod, channel.username, _settings);
+            _playerService.queueVodDownload(
+              vod,
+              channel.username,
+              _settings,
+              overrideDisablePostProcessing: channel.autoDownloadFastDownload,
+            );
 
             try {
               final notification = LocalNotification(

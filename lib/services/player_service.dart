@@ -214,7 +214,7 @@ class PlayerService {
     } catch (_) {}
   }
 
-  Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool isRetryWithFfmpeg = false}) async {
+  Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool isRetryWithFfmpeg = false, bool? overrideDisablePostProcessing}) async {
     final downloadFolder = settings.vodDownloadFolder.trim();
     if (downloadFolder.isEmpty) {
       throw Exception('Download folder is empty');
@@ -242,7 +242,8 @@ class PlayerService {
     if (isRetryWithFfmpeg) {
       args.addAll(['--downloader', 'ffmpeg']);
     }
-    if (settings.disableVodPostProcessing) {
+    final disablePostProc = overrideDisablePostProcessing ?? settings.disableVodPostProcessing;
+    if (disablePostProc) {
       args.addAll([
         '--no-embed-thumbnail',
         '--no-add-metadata',
@@ -393,10 +394,16 @@ class PlayerService {
     downloadTitles.remove(vodId);
   }
 
-  void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings) {
+  final Map<String, bool> downloadTaskFastDownloadOverrides = {};
+
+  void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool? overrideDisablePostProcessing}) {
     final vodId = vod.id;
     if (queuedDownloadTasks.containsKey(vodId) || activeDownloadProcesses.containsKey(vodId)) {
       return;
+    }
+
+    if (overrideDisablePostProcessing != null) {
+      downloadTaskFastDownloadOverrides[vodId] = overrideDisablePostProcessing;
     }
 
     downloadChannelNames[vodId] = channelName;
@@ -417,11 +424,13 @@ class PlayerService {
       final vodId = downloadQueue.first;
       final vod = queuedDownloadTasks[vodId];
       final chName = downloadChannelNames[vodId] ?? channelName;
+      final overridePostProc = downloadTaskFastDownloadOverrides[vodId];
       if (vod != null) {
-        await startVodDownload(vod, chName, settings);
+        await startVodDownload(vod, chName, settings, overrideDisablePostProcessing: overridePostProc);
       }
       downloadQueue.remove(vodId);
       queuedDownloadTasks.remove(vodId);
+      downloadTaskFastDownloadOverrides.remove(vodId);
     }
 
     isQueueProcessing = false;
