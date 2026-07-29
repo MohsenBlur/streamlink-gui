@@ -34,14 +34,17 @@ class UpdateService {
     while (parts.length < 3) {
       parts.add(0);
     }
-    return (parts[0] * 10000) + (parts[1] * 100) + parts[2];
+    return (parts[0] * 1000000) + (parts[1] * 1000) + parts[2];
   }
 
   Future<UpdateInfo?> checkForUpdates() async {
     try {
       final response = await http.get(
         Uri.parse(githubApiReleaseUrl),
-        headers: {'Accept': 'application/vnd.github.v3+json'},
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'TwitchStreamlinkGUI-App',
+        },
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode != 200) {
@@ -100,19 +103,21 @@ class UpdateService {
     final contentLength = response.contentLength ?? 0;
     final tempDir = await Directory.systemTemp.createTemp('streamlink_gui_update_');
     final zipFile = File(path.join(tempDir.path, 'update.zip'));
+    final sink = zipFile.openWrite();
 
-    final List<int> bytesList = [];
     int downloadedBytes = 0;
-
-    await for (final chunk in response.stream) {
-      bytesList.addAll(chunk);
-      downloadedBytes += chunk.length;
-      if (contentLength > 0 && onProgress != null) {
-        onProgress(downloadedBytes / contentLength);
+    try {
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        downloadedBytes += chunk.length;
+        if (contentLength > 0 && onProgress != null) {
+          onProgress(downloadedBytes / contentLength);
+        }
       }
+      await sink.flush();
+    } finally {
+      await sink.close();
     }
-
-    await zipFile.writeAsBytes(bytesList);
     return zipFile;
   }
 
@@ -156,11 +161,15 @@ class UpdateService {
     final appDir = exeFile.parent.path;
     final exeName = path.basename(exeFile.path);
 
+    // Normalize paths and strip trailing slashes to prevent Windows CommandLineToArgvW quote escape corruption (\" -> ")
+    final targetPath = path.normalize(appDir).replaceAll(RegExp(r'[/\\]+$'), '');
+    final sourcePath = path.normalize(sourceDir.path).replaceAll(RegExp(r'[/\\]+$'), '');
+
     // 1. Locate updater.exe helper binary
-    File helperExe = File(path.join(appDir, 'updater.exe'));
+    File helperExe = File(path.join(targetPath, 'updater.exe'));
     if (!helperExe.existsSync()) {
       // Check in extracted source directory if missing from local app directory
-      final extractedHelper = File(path.join(sourceDir.path, 'updater.exe'));
+      final extractedHelper = File(path.join(sourcePath, 'updater.exe'));
       if (extractedHelper.existsSync()) {
         helperExe = extractedHelper;
       }
@@ -178,7 +187,7 @@ class UpdateService {
     // Arguments: [TargetAppDir, SourceStagingDir, ExeName]
     await Process.start(
       tempRunner.path,
-      [appDir, sourceDir.path, exeName],
+      [targetPath, sourcePath, exeName],
       mode: ProcessStartMode.detached,
     );
 

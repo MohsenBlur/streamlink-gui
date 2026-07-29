@@ -19,6 +19,11 @@ void TerminateProcessesInDir(const fs::path& targetDir) {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return;
 
+    std::wstring targetStr = targetDir.wstring();
+    if (!targetStr.empty() && targetStr.back() != L'\\' && targetStr.back() != L'/') {
+        targetStr += L'\\';
+    }
+
     PROCESSENTRY32W pe = { sizeof(pe) };
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
@@ -29,7 +34,6 @@ void TerminateProcessesInDir(const fs::path& targetDir) {
                 DWORD size = MAX_PATH;
                 if (QueryFullProcessImageNameW(hProcess, 0, exePath, &size)) {
                     std::wstring pStr(exePath);
-                    std::wstring targetStr = targetDir.wstring();
                     if (_wcsicmp(pStr.substr(0, targetStr.length()).c_str(), targetStr.c_str()) == 0) {
                         PostThreadMessage(pe.th32ProcessID, WM_QUIT, 0, 0);
                         if (WaitForSingleObject(hProcess, 2500) == WAIT_TIMEOUT) {
@@ -59,7 +63,13 @@ void ElevateAndRelaunch(const fs::path& targetDir, const fs::path& stagingDir, c
     wchar_t selfPath[MAX_PATH];
     GetModuleFileNameW(NULL, selfPath, MAX_PATH);
 
-    std::wstring params = L"\"" + targetDir.wstring() + L"\" \"" + stagingDir.wstring() + L"\" \"" + exeName + L"\" --elevated";
+    std::wstring targetStr = targetDir.wstring();
+    std::wstring stagingStr = stagingDir.wstring();
+
+    while (!targetStr.empty() && (targetStr.back() == L'\\' || targetStr.back() == L'/')) targetStr.pop_back();
+    while (!stagingStr.empty() && (stagingStr.back() == L'\\' || stagingStr.back() == L'/')) stagingStr.pop_back();
+
+    std::wstring params = L"\"" + targetStr + L"\" \"" + stagingStr + L"\" \"" + exeName + L"\" --elevated";
 
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
     sei.cbSize = sizeof(sei);

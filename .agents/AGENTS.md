@@ -6,18 +6,16 @@
 
 ## Self-Updater & User Settings Preservation Rules (CRITICAL)
 
-1. **Single-Script Smart Self-Elevating Updater**:
-   - `lib/services/update_service.dart` generates a single, standalone `updater.ps1` script that dynamically checks target directory write permissions (`.perm_test`).
-   - If the directory is writable (user/portable installations), `updater.ps1` runs directly without triggering UAC elevation. If protected (`C:\Program Files`), it self-elevates using `-Verb RunAs`.
+1. **Native Win32 Smart Self-Elevating Helper (`updater.exe`)**:
+   - `lib/services/update_service.dart` orchestrates update downloads and spawns a standalone native C++ binary `updater.exe` (`windows/runner/win32_updater/main.cpp`).
+   - `updater.exe` dynamically probes target directory write permissions (`IsDirWritable`). If writable (portable / user directory), it runs directly without UAC popups. If protected (`C:\Program Files`), it self-elevates via UAC `ShellExecuteExW` with `runas` verb.
 
-2. **PowerShell Path Normalization & Windows Backslashes**:
-   - ALL file and directory paths passed into PowerShell scripts MUST be normalized with forward-slashes (`/`) to avoid double-quote escape corruption (`\"`).
-   - Native Windows tools (`robocopy` and process execution) receive backslashed paths (`$WinExePath = $ExePath.Replace('/', '\')`).
+2. **Windows Path Normalization & Quote Escape Prevention**:
+   - ALL file and directory paths passed into Windows processes (`updater.exe`) MUST be normalized and stripped of trailing backslashes/slashes (`/` or `\`) to prevent Windows `CommandLineToArgvW` quote escape corruption (`\"`).
 
-3. **User Config Preservation**:
-   - `AppData/Roaming/TwitchStreamlinkGUI/channels_config.json` is the IMMUTABLE source of truth for user configuration.
-   - `StorageService` MUST NEVER overwrite existing `AppData` configuration files.
-   - `robocopy` in `updater.ps1` MUST ALWAYS specify `/XF "channels_config.json" "portable.txt"`.
+3. **User Config Preservation & Safe Rollback**:
+   - `channels_config.json` and `portable.txt` MUST NEVER be overwritten during directory file replacement (`CopyDirectoryContents`).
+   - `updater.exe` creates a full backup in `%TEMP%\streamlink_gui_backup` prior to file replacement and automatically restores from backup if replacement fails.
 
-4. **Background Hidden Execution**:
-   - `updater.ps1` executes with `-WindowStyle Hidden` so update extraction and file replacement happen seamlessly in the background without terminal popup windows.
+4. **Detached Process Execution & Mutex Sync**:
+   - `updater.exe` is copied to `%TEMP%\streamlink_updater_runner.exe` before execution to prevent binary locking, waits for `Local\TwitchStreamlinkGUIUniqueMutexName`, terminates any remaining target folder processes, replaces files, and gracefully relaunches the updated main app executable.
