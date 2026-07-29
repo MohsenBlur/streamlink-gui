@@ -14,7 +14,6 @@
 namespace fs = std::filesystem;
 const wchar_t* MUTEX_NAME = L"Local\\TwitchStreamlinkGUIUniqueMutexName";
 
-
 // 1. Terminate processes whose executable resides inside target directory
 void TerminateProcessesInDir(const fs::path& targetDir) {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -31,7 +30,6 @@ void TerminateProcessesInDir(const fs::path& targetDir) {
                 if (QueryFullProcessImageNameW(hProcess, 0, exePath, &size)) {
                     std::wstring pStr(exePath);
                     std::wstring targetStr = targetDir.wstring();
-                    // Case-insensitive check if process is inside target directory
                     if (_wcsicmp(pStr.substr(0, targetStr.length()).c_str(), targetStr.c_str()) == 0) {
                         PostThreadMessage(pe.th32ProcessID, WM_QUIT, 0, 0);
                         if (WaitForSingleObject(hProcess, 2500) == WAIT_TIMEOUT) {
@@ -57,15 +55,17 @@ bool IsDirWritable(const fs::path& dirPath) {
 }
 
 // 3. Self-elevation via UAC (RunAs)
-void ElevateAndRelaunch(const wchar_t* cmdLine) {
+void ElevateAndRelaunch(const fs::path& targetDir, const fs::path& stagingDir, const std::wstring& exeName) {
     wchar_t selfPath[MAX_PATH];
     GetModuleFileNameW(NULL, selfPath, MAX_PATH);
+
+    std::wstring params = L"\"" + targetDir.wstring() + L"\" \"" + stagingDir.wstring() + L"\" \"" + exeName + L"\" --elevated";
 
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
     sei.cbSize = sizeof(sei);
     sei.lpVerb = L"runas";
     sei.lpFile = selfPath;
-    sei.lpParameters = cmdLine;
+    sei.lpParameters = params.c_str();
     sei.nShow = SW_SHOWNORMAL;
 
     if (ShellExecuteExW(&sei)) {
@@ -73,44 +73,71 @@ void ElevateAndRelaunch(const wchar_t* cmdLine) {
     }
 }
 
-// 4. Perform atomic directory swap and preserve user configuration
-bool PerformSwap(const fs::path& targetDir, const fs::path& stagingDir) {
-    fs::path backupDir = targetDir.parent_path() / (targetDir.filename().wstring() + L"_old");
-
+// 4. Recursive directory copy with config preservation
+bool CopyDirectoryContents(const fs::path& src, const fs::path& dst, bool preserveConfigs) {
     std::error_code ec;
+    if (!fs::exists(dst, ec)) {
+        fs::create_directories(dst, ec);
+    }
+
+    for (const auto& entry : fs::recursive_directory_iterator(src, ec)) {
+        const auto& srcPath = entry.path();
+        auto relativePath = fs::relative(srcPath, src, ec);
+        auto dstPath = dst / relativePath;
+
+        if (fs::is_directory(srcPath, ec)) {
+            fs::create_directories(dstPath, ec);
+        } else if (fs::is_regular_file(srcPath, ec)) {
+            fs::create_directories(dstPath.parent_path(), ec);
+
+            if (preserveConfigs) {
+                std::wstring filename = srcPath.filename().wstring();
+                if (_wcsicmp(filename.c_str(), L"channels_config.json") == 0 ||
+                    _wcsicmp(filename.c_str(), L"portable.txt") == 0) {
+                    if (fs::exists(dstPath, ec)) {
+                        continue;
+                    }
+                }
+            }
+            fs::copy_file(srcPath, dstPath, fs::copy_options::overwrite_existing, ec);
+            if (ec) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// 5. Perform safe directory file replacement with backup & rollback
+bool PerformSwap(const fs::path& targetDir, const fs::path& stagingDir) {
+    std::error_code ec;
+
+    wchar_t tempPathBuffer[MAX_PATH];
+    GetTempPathW(MAX_PATH, tempPathBuffer);
+    fs::path backupDir = fs::path(tempPathBuffer) / L"streamlink_gui_backup";
+
     if (fs::exists(backupDir, ec)) {
         fs::remove_all(backupDir, ec);
     }
 
-    // Step A: Target -> Backup
-    if (!MoveFileExW(targetDir.c_str(), backupDir.c_str(), MOVEFILE_WRITE_THROUGH)) {
+    // Step A: Backup current installation
+    if (!CopyDirectoryContents(targetDir, backupDir, false)) {
         return false;
     }
 
-    // Step B: Staging -> Target
-    if (!MoveFileExW(stagingDir.c_str(), targetDir.c_str(), MOVEFILE_WRITE_THROUGH)) {
+    // Step B: Copy updated files from staging to target (preserving configs)
+    if (!CopyDirectoryContents(stagingDir, targetDir, true)) {
         // Rollback on failure
-        MoveFileExW(backupDir.c_str(), targetDir.c_str(), MOVEFILE_WRITE_THROUGH);
+        CopyDirectoryContents(backupDir, targetDir, false);
         return false;
     }
 
-    // Step C: Preserve Portable Configuration Files
-    const wchar_t* configFiles[] = { L"channels_config.json", L"portable.txt" };
-    for (const auto* cfg : configFiles) {
-        fs::path srcCfg = backupDir / cfg;
-        fs::path dstCfg = targetDir / cfg;
-        if (fs::exists(srcCfg, ec)) {
-            CopyFileW(srcCfg.c_str(), dstCfg.c_str(), FALSE);
-        }
-    }
-
-    // Step D: Clean up old backup
+    // Step C: Clean up backup
     fs::remove_all(backupDir, ec);
     return true;
 }
 
 int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
-    // 1. Lock DLL search path to System32 for security against DLL hijacking
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
 
     int argc = 0;
@@ -120,24 +147,24 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     fs::path targetDir = argv[1];
     fs::path stagingDir = argv[2];
     std::wstring exeName = argv[3];
+    bool isElevated = (argc >= 5 && std::wstring(argv[4]) == L"--elevated");
 
-    // 2. Wait for main app Mutex release
+    // 1. Wait for main app Mutex release
     HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, MUTEX_NAME);
     if (hMutex) {
         WaitForSingleObject(hMutex, 6000);
         CloseHandle(hMutex);
     }
 
-    // 3. Terminate any child processes running in target directory
+    // 2. Terminate any child processes running in target directory
     TerminateProcessesInDir(targetDir);
 
-    // 4. Privilege check & self-elevation if write permission is denied
-    if (!IsDirWritable(targetDir)) {
-        std::wstring rawCmd = GetCommandLineW();
-        ElevateAndRelaunch(rawCmd.c_str());
+    // 3. Privilege check & self-elevation if write permission is denied
+    if (!isElevated && !IsDirWritable(targetDir)) {
+        ElevateAndRelaunch(targetDir, stagingDir, exeName);
     }
 
-    // 5. Perform Atomic Directory Swap
+    // 4. Perform Directory File Replacement
     if (PerformSwap(targetDir, stagingDir)) {
         // Relaunch Application
         fs::path exePath = targetDir / exeName;
