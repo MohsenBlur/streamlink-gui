@@ -145,7 +145,9 @@ class _ConsolePanelState extends State<ConsolePanel> {
                             (widget.playingVodIds.contains(activeKey) || 
                              widget.runningChannels.contains(activeKey.replaceFirst('stream_', '')));
 
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.fastOutSlowIn,
       height: widget.consoleCollapsed ? 38 : 220,
       decoration: BoxDecoration(
         color: themeNotifier.backgroundColor,

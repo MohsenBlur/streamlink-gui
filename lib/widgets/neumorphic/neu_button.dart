@@ -61,10 +61,10 @@ class _NeuButtonState extends State<NeuButton> {
         onTapCancel: () => setState(() => _isPressed = false),
         onTap: widget.onPressed,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
           transform: Matrix4.identity()
-            ..scale(_isPressed ? 0.97 : (_isHovered ? 1.02 : 1.0)),
+            ..scale(_isPressed ? 0.96 : (_isHovered ? 1.025 : 1.0)),
           child: NeuContainer(
             width: widget.width,
             height: widget.height,
@@ -75,7 +75,9 @@ class _NeuButtonState extends State<NeuButton> {
             color: widget.isSelected
                 ? accentColor.withOpacity(0.15)
                 : widget.baseColor,
-            depth: _isHovered ? widget.depth + 2 : widget.depth,
+            depth: _isPressed
+                ? (widget.depth * 0.35).clamp(1.0, 3.0)
+                : (_isHovered ? widget.depth + 2.0 : widget.depth),
             border: widget.isSelected
                 ? Border.all(color: accentColor.withOpacity(0.8), width: 1.5)
                 : null,

@@ -248,19 +248,24 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        thumbnailUrl != null
-                            ? Image.network(
-                                thumbnailUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => Container(
+                        AnimatedScale(
+                          scale: _isHovered ? 1.035 : 1.0,
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          child: thumbnailUrl != null
+                              ? Image.network(
+                                  thumbnailUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => Container(
+                                    color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                    child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 32),
+                                  ),
+                                )
+                              : Container(
                                   color: NeuTheme.surface(themeNotifier.isDarkTheme),
                                   child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 32),
                                 ),
-                              )
-                            : Container(
-                                color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 32),
-                              ),
+                        ),
 
                          if (widget.vod.watchProgress != null && widget.vod.watchProgress! > 0.0)
                           Positioned(

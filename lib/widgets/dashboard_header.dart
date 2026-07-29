@@ -165,11 +165,30 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     );
   }
 
-  Widget _buildMiniActionBtn({required IconData icon, required String tooltip, required VoidCallback? onPressed}) {
+  Widget _buildMiniActionBtn({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onPressed,
+    bool isLoading = false,
+  }) {
+    Widget iconWidget = Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme));
+    if (isLoading) {
+      iconWidget = AnimatedBuilder(
+        animation: widget.pulseController,
+        builder: (context, child) {
+          return Transform.rotate(
+            angle: widget.pulseController.value * 2 * 3.141592653589793,
+            child: child,
+          );
+        },
+        child: iconWidget,
+      );
+    }
+
     return Container(
       decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
       child: IconButton(
-        icon: Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+        icon: iconWidget,
         tooltip: tooltip,
         onPressed: onPressed,
         constraints: const BoxConstraints.tightFor(width: 32, height: 32),
@@ -342,6 +361,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     _buildMiniActionBtn(
                       icon: Icons.refresh,
                       tooltip: 'Refresh statistics',
+                      isLoading: widget.channel.isLoading,
                       onPressed: widget.channel.isLoading ? null : widget.onRefresh,
                     ),
                     const SizedBox(width: 6),
