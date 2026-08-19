@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as path;
@@ -8,6 +10,10 @@ class UpdateInfo {
   final String version;
   final String releaseNotes;
   final String zipDownloadUrl;
+
+  /// URL of the release's SHA256SUMS asset, when published.
+  final String checksumUrl;
+
   final bool isUpdateAvailable;
 
   UpdateInfo({
@@ -15,6 +21,7 @@ class UpdateInfo {
     required this.releaseNotes,
     required this.zipDownloadUrl,
     required this.isUpdateAvailable,
+    this.checksumUrl = '',
   });
 
   String get tagName => version.startsWith('v') ? version : 'v$version';
@@ -99,14 +106,16 @@ class UpdateService {
       final assets = data['assets'] as List<dynamic>? ?? [];
 
       String zipUrl = '';
+      String checksumUrl = '';
       for (final asset in assets) {
-        if (asset is Map<String, dynamic>) {
-          final name = (asset['name'] as String? ?? '').toLowerCase();
-          final downloadUrl = asset['browser_download_url'] as String? ?? '';
-          if (name.endsWith('.zip') && downloadUrl.isNotEmpty) {
-            zipUrl = downloadUrl;
-            break;
-          }
+        if (asset is! Map<String, dynamic>) continue;
+        final name = (asset['name'] as String? ?? '').toLowerCase();
+        final downloadUrl = asset['browser_download_url'] as String? ?? '';
+        if (downloadUrl.isEmpty) continue;
+        if (zipUrl.isEmpty && name.endsWith('.zip')) {
+          zipUrl = downloadUrl;
+        } else if (checksumUrl.isEmpty && name == 'sha256sums') {
+          checksumUrl = downloadUrl;
         }
       }
 
@@ -118,6 +127,7 @@ class UpdateService {
         version: tagName.startsWith('v') ? tagName.substring(1) : tagName,
         releaseNotes: body,
         zipDownloadUrl: zipUrl,
+        checksumUrl: checksumUrl,
         isUpdateAvailable: isAvailable,
       );
     } catch (_) {
@@ -132,55 +142,105 @@ class UpdateService {
     if (zipUrl.isEmpty || !zipUrl.startsWith('http')) {
       throw Exception('No valid download URL provided for update.');
     }
-    final request = http.Request('GET', Uri.parse(zipUrl));
-    final response = await http.Client().send(request);
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to download update file (HTTP ${response.statusCode})');
-    }
-
-    final contentLength = response.contentLength ?? 0;
-    final tempDir = await Directory.systemTemp.createTemp('streamlink_gui_update_');
-    final zipFile = File(path.join(tempDir.path, 'update.zip'));
-    final sink = zipFile.openWrite();
-
-    int downloadedBytes = 0;
+    final client = http.Client();
     try {
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        downloadedBytes += chunk.length;
-        if (contentLength > 0 && onProgress != null) {
-          onProgress(downloadedBytes / contentLength);
-        }
+      final request = http.Request('GET', Uri.parse(zipUrl));
+      final response = await client.send(request);
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to download update file (HTTP ${response.statusCode})');
       }
-      await sink.flush();
+
+      final contentLength = response.contentLength ?? 0;
+      final tempDir = await Directory.systemTemp.createTemp('streamlink_gui_update_');
+      final zipFile = File(path.join(tempDir.path, 'update.zip'));
+      final sink = zipFile.openWrite();
+
+      int downloadedBytes = 0;
+      try {
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          downloadedBytes += chunk.length;
+          if (contentLength > 0 && onProgress != null) {
+            onProgress(downloadedBytes / contentLength);
+          }
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      return zipFile;
     } finally {
-      await sink.close();
+      client.close();
     }
-    return zipFile;
+  }
+
+  /// Verifies [zipFile] against the release's published SHA256SUMS.
+  ///
+  /// Throws if the checksum is present but does not match. A release without a
+  /// checksum asset (anything published before they were added) is allowed
+  /// through, so older installs can still update.
+  Future<void> verifyChecksum(File zipFile, String checksumUrl) async {
+    if (checksumUrl.isEmpty) return;
+
+    String expected;
+    try {
+      final response = await http
+          .get(Uri.parse(checksumUrl), headers: {'User-Agent': 'TwitchStreamlinkGUI-App'})
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) return;
+      // Format: "<hex>  streamlink-gui-windows.zip"
+      final match = RegExp(r'([a-fA-F0-9]{64})').firstMatch(response.body);
+      if (match == null) return;
+      expected = match.group(1)!.toLowerCase();
+    } catch (_) {
+      // A network failure fetching the checksum must not block the update.
+      return;
+    }
+
+    final digest = await Isolate.run(() => sha256.convert(zipFile.readAsBytesSync()).toString());
+    if (digest.toLowerCase() != expected) {
+      throw Exception(
+        'The downloaded update failed its integrity check and was discarded.\n'
+        'Expected $expected but got $digest.',
+      );
+    }
   }
 
   Future<Directory> extractAndVerifyZip(File zipFile) async {
-    final bytes = zipFile.readAsBytesSync();
-    final archive = ZipDecoder().decodeBytes(bytes);
-    
     final extractDir = Directory(path.join(zipFile.parent.path, 'extracted'));
     if (extractDir.existsSync()) {
       extractDir.deleteSync(recursive: true);
     }
     extractDir.createSync(recursive: true);
 
-    for (final file in archive) {
-      final filename = file.name;
-      if (file.isFile) {
-        final data = file.content as List<int>;
-        final outFile = File(path.join(extractDir.path, filename));
-        outFile.parent.createSync(recursive: true);
-        outFile.writeAsBytesSync(data);
-      } else {
-        Directory(path.join(extractDir.path, filename)).createSync(recursive: true);
+    final zipPath = zipFile.path;
+    final extractPath = extractDir.path;
+
+    // Decoding and writing a ~300 MB archive on the UI isolate froze the app for
+    // the whole extraction.
+    await Isolate.run(() {
+      final archive = ZipDecoder().decodeBytes(File(zipPath).readAsBytesSync());
+      final root = Directory(extractPath).absolute.path;
+
+      for (final entry in archive) {
+        // Zip Slip: an archive entry can contain '..' segments that escape the
+        // extraction directory and overwrite arbitrary files. Resolve and
+        // confirm every destination stays inside the target.
+        final destination = path.normalize(path.join(root, entry.name));
+        if (!path.isWithin(root, destination)) {
+          throw Exception('Update archive contains an unsafe path: ${entry.name}');
+        }
+
+        if (entry.isFile) {
+          final outFile = File(destination);
+          outFile.parent.createSync(recursive: true);
+          outFile.writeAsBytesSync(entry.content as List<int>);
+        } else {
+          Directory(destination).createSync(recursive: true);
+        }
       }
-    }
+    });
 
     final exeMatches = extractDir
         .listSync(recursive: true)
@@ -192,7 +252,25 @@ class UpdateService {
       throw Exception('Downloaded update archive does not contain streamlink_gui.exe!');
     }
 
-    return exeMatches.first.parent;
+    final appRoot = exeMatches.first.parent;
+
+    // Refuse an archive that unpacked without the bundled runtime: applying it
+    // would replace a working install with one that cannot play or download
+    // anything.
+    const required = [
+      'updater.exe',
+      'bin/bin/streamlink.exe',
+      'bin/yt-dlp.exe',
+      'bin/ffmpeg.exe',
+    ];
+    final missing = required
+        .where((rel) => !File(path.join(appRoot.path, rel.replaceAll('/', path.separator))).existsSync())
+        .toList();
+    if (missing.isNotEmpty) {
+      throw Exception('Update archive is incomplete (missing: ${missing.join(', ')}).');
+    }
+
+    return appRoot;
   }
 
   Future<void> applyUpdateAndRestart(Directory sourceDir) async {

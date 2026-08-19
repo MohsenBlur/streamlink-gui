@@ -13,6 +13,92 @@
 
 namespace fs = std::filesystem;
 const wchar_t* MUTEX_NAME = L"Local\\TwitchStreamlinkGUIUniqueMutexName";
+const wchar_t* BREAKAWAY_FLAG = L"--no-job";
+
+static std::wstring g_logPath;
+
+// Appends a line to updater.log next to the target application.
+//
+// The updater used to run completely blind: a single generic message box was
+// its only output, so a failed update left nothing to diagnose.
+void LogLine(const std::wstring& message) {
+    if (g_logPath.empty()) return;
+    HANDLE hFile = CreateFileW(g_logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
+                               NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return;
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    wchar_t stamp[32];
+    swprintf_s(stamp, L"%02d:%02d:%02d  ", st.wHour, st.wMinute, st.wSecond);
+
+    std::wstring line = std::wstring(stamp) + message + L"\r\n";
+    int bytes = WideCharToMultiByte(CP_UTF8, 0, line.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (bytes > 1) {
+        std::vector<char> utf8(static_cast<size_t>(bytes));
+        WideCharToMultiByte(CP_UTF8, 0, line.c_str(), -1, utf8.data(), bytes, nullptr, nullptr);
+        DWORD written = 0;
+        WriteFile(hFile, utf8.data(), static_cast<DWORD>(bytes - 1), &written, NULL);
+    }
+    CloseHandle(hFile);
+}
+
+// The main app assigns itself to a job object with KILL_ON_JOB_CLOSE so its
+// helper processes cannot outlive it. We inherit that job, which would kill us
+// the moment the app exits - in the middle of replacing its files. Relaunch
+// ourselves outside the job and let this instance exit.
+//
+// Returns true if a breakaway relaunch was started and the caller should exit.
+bool EnsureOutsideJob(int argc, LPWSTR* argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (wcscmp(argv[i], BREAKAWAY_FLAG) == 0) return false;  // already broken away
+    }
+
+    BOOL inJob = FALSE;
+    if (!IsProcessInJob(GetCurrentProcess(), NULL, &inJob) || !inJob) {
+        return false;
+    }
+
+    wchar_t selfPath[MAX_PATH];
+    if (GetModuleFileNameW(NULL, selfPath, MAX_PATH) == 0) return false;
+
+    std::wstring cmd = std::wstring(L"\"") + selfPath + L"\"";
+    for (int i = 1; i < argc; ++i) {
+        cmd += std::wstring(L" \"") + argv[i] + L"\"";
+    }
+    cmd += std::wstring(L" ") + BREAKAWAY_FLAG;
+
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi = {};
+    std::vector<wchar_t> mutableCmd(cmd.begin(), cmd.end());
+    mutableCmd.push_back(L'\0');
+
+    if (CreateProcessW(NULL, mutableCmd.data(), NULL, NULL, FALSE,
+                       CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS,
+                       NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return true;
+    }
+
+    // The job may forbid breakaway. Continuing in-job is still better than not
+    // updating at all: the app has usually already exited by this point, which
+    // closes the job and would take us with it, but if it has not we may still
+    // finish.
+    LogLine(L"WARNING: could not break away from job object; continuing in-job.");
+    return false;
+}
+
+// Posts WM_CLOSE to every top-level window owned by the given process, so it
+// can shut down cleanly instead of being terminated.
+BOOL CALLBACK CloseWindowForPid(HWND hwnd, LPARAM lParam) {
+    DWORD windowPid = 0;
+    GetWindowThreadProcessId(hwnd, &windowPid);
+    if (windowPid == static_cast<DWORD>(lParam)) {
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    }
+    return TRUE;
+}
 
 // 1. Terminate processes whose executable resides inside target directory
 void TerminateProcessesInDir(const fs::path& targetDir) {
@@ -28,16 +114,26 @@ void TerminateProcessesInDir(const fs::path& targetDir) {
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
             if (pe.th32ProcessID == GetCurrentProcessId()) continue;
-            HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
+            HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID);
             if (hProcess) {
                 wchar_t exePath[MAX_PATH];
                 DWORD size = MAX_PATH;
                 if (QueryFullProcessImageNameW(hProcess, 0, exePath, &size)) {
                     std::wstring pStr(exePath);
                     if (_wcsicmp(pStr.substr(0, targetStr.length()).c_str(), targetStr.c_str()) == 0) {
-                        PostThreadMessage(pe.th32ProcessID, WM_QUIT, 0, 0);
+                        LogLine(L"Closing process: " + pStr);
+                        // Ask nicely first. This used to call
+                        // PostThreadMessage(pe.th32ProcessID, WM_QUIT, ...),
+                        // passing a PROCESS id where a THREAD id is required:
+                        // it always failed, so every process ate the full
+                        // timeout and was then hard-killed - and because thread
+                        // and process ids share a namespace it could also
+                        // deliver WM_QUIT into an unrelated application.
+                        EnumWindows(CloseWindowForPid, static_cast<LPARAM>(pe.th32ProcessID));
                         if (WaitForSingleObject(hProcess, 2500) == WAIT_TIMEOUT) {
+                            LogLine(L"  did not exit in time; terminating.");
                             TerminateProcess(hProcess, 0);
+                            WaitForSingleObject(hProcess, 2000);
                         }
                     }
                 }
@@ -48,103 +144,284 @@ void TerminateProcessesInDir(const fs::path& targetDir) {
     CloseHandle(hSnapshot);
 }
 
-// 2. Test directory write permission
-bool IsDirWritable(const fs::path& dirPath) {
+// 2. Test directory write permission.
+//
+// Distinguishes "denied" from other failures so a transient error (a locked
+// probe file, a disconnected drive) is not misread as "needs elevation".
+bool IsDirWritable(const fs::path& dirPath, bool* accessDenied) {
+    if (accessDenied) *accessDenied = false;
+
     fs::path testFile = dirPath / L".perm_probe";
     HANDLE hFile = CreateFileW(testFile.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
                                FILE_ATTRIBUTE_HIDDEN | FILE_FLAG_DELETE_ON_CLOSE, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) return false;
+    if (hFile == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        if (accessDenied) {
+            *accessDenied = (err == ERROR_ACCESS_DENIED || err == ERROR_PRIVILEGE_NOT_HELD);
+        }
+        LogLine(L"Target directory is not writable (error " + std::to_wstring(err) + L").");
+        return false;
+    }
     CloseHandle(hFile);
     return true;
 }
 
-// 3. Self-elevation via UAC (RunAs)
-void ElevateAndRelaunch(const fs::path& targetDir, const fs::path& stagingDir, const std::wstring& exeName) {
-    wchar_t selfPath[MAX_PATH];
-    GetModuleFileNameW(NULL, selfPath, MAX_PATH);
+// Paths longer than MAX_PATH need the extended-length prefix. Applied to the
+// roots so every path derived from them inherits it.
+fs::path LongPath(const fs::path& p) {
+    std::wstring s = p.wstring();
+    if (s.size() < 240) return p;                              // comfortably short
+    if (s.rfind(L"\\\\?\\", 0) == 0) return p;                 // already extended
+    if (s.rfind(L"\\\\", 0) == 0) return fs::path(L"\\\\?\\UNC\\" + s.substr(2));
+    return fs::path(L"\\\\?\\" + s);
+}
 
-    std::wstring targetStr = targetDir.wstring();
-    std::wstring stagingStr = stagingDir.wstring();
+bool IsPreservedConfig(const std::wstring& filename) {
+    // Must never be replaced by an update: these hold the user's own data.
+    return _wcsicmp(filename.c_str(), L"channels_config.json") == 0 ||
+           _wcsicmp(filename.c_str(), L"portable.txt") == 0 ||
+           _wcsicmp(filename.c_str(), L"recent_watched_vods.json") == 0 ||
+           _wcsicmp(filename.c_str(), L"yt_dlp_archive.txt") == 0;
+}
 
-    while (!targetStr.empty() && (targetStr.back() == L'\\' || targetStr.back() == L'/')) targetStr.pop_back();
-    while (!stagingStr.empty() && (stagingStr.back() == L'\\' || stagingStr.back() == L'/')) stagingStr.pop_back();
-
-    std::wstring params = L"\"" + targetStr + L"\" \"" + stagingStr + L"\" \"" + exeName + L"\" --elevated";
-
-    SHELLEXECUTEINFOW sei = { sizeof(sei) };
-    sei.cbSize = sizeof(sei);
-    sei.lpVerb = L"runas";
-    sei.lpFile = selfPath;
-    sei.lpParameters = params.c_str();
-    sei.nShow = SW_SHOWNORMAL;
-
-    if (ShellExecuteExW(&sei)) {
-        ExitProcess(0);
+void ClearReadOnly(const fs::path& p) {
+    DWORD attrs = GetFileAttributesW(p.c_str());
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_READONLY)) {
+        SetFileAttributesW(p.c_str(), attrs & ~FILE_ATTRIBUTE_READONLY);
     }
 }
 
-// 4. Recursive directory copy with config preservation
-bool CopyDirectoryContents(const fs::path& src, const fs::path& dst, bool preserveConfigs) {
+// Collects every regular file under root, as paths relative to root.
+//
+// Uses the error_code form of directory_iterator::increment throughout. The
+// previous implementation drove a recursive_directory_iterator with a range-for,
+// whose operator++ throws - and this binary is compiled with _HAS_EXCEPTIONS=0,
+// so any unreadable subdirectory (an ACL, an antivirus lock, a directory removed
+// mid-walk) called terminate() and aborted the updater outright, halfway through
+// replacing the installation and with no rollback performed.
+bool CollectFiles(const fs::path& root, std::vector<fs::path>& out) {
     std::error_code ec;
-    if (!fs::exists(dst, ec)) {
-        fs::create_directories(dst, ec);
-    }
+    if (!fs::exists(root, ec)) return false;
 
-    for (const auto& entry : fs::recursive_directory_iterator(src, ec)) {
-        const auto& srcPath = entry.path();
-        auto relativePath = fs::relative(srcPath, src, ec);
-        auto dstPath = dst / relativePath;
+    std::vector<fs::path> pending;
+    pending.push_back(root);
 
-        if (fs::is_directory(srcPath, ec)) {
-            fs::create_directories(dstPath, ec);
-        } else if (fs::is_regular_file(srcPath, ec)) {
-            fs::create_directories(dstPath.parent_path(), ec);
+    while (!pending.empty()) {
+        fs::path dir = pending.back();
+        pending.pop_back();
 
-            if (preserveConfigs) {
-                std::wstring filename = srcPath.filename().wstring();
-                if (_wcsicmp(filename.c_str(), L"channels_config.json") == 0 ||
-                    _wcsicmp(filename.c_str(), L"portable.txt") == 0) {
-                    if (fs::exists(dstPath, ec)) {
-                        continue;
-                    }
-                }
+        fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec);
+        if (ec) {
+            LogLine(L"  skipping unreadable directory: " + dir.wstring());
+            ec.clear();
+            continue;
+        }
+        const fs::directory_iterator end;
+        while (it != end) {
+            const fs::path entry = it->path();
+            std::error_code statEc;
+            if (fs::is_directory(entry, statEc) && !statEc) {
+                pending.push_back(entry);
+            } else if (fs::is_regular_file(entry, statEc) && !statEc) {
+                std::error_code relEc;
+                fs::path rel = fs::relative(entry, root, relEc);
+                if (!relEc) out.push_back(rel);
             }
-            fs::copy_file(srcPath, dstPath, fs::copy_options::overwrite_existing, ec);
+            it.increment(ec);
             if (ec) {
-                return false;
+                LogLine(L"  stopped enumerating " + dir.wstring());
+                ec.clear();
+                break;
             }
         }
     }
     return true;
 }
 
-// 5. Perform safe directory file replacement with backup & rollback
+// Copies the given relative paths from src to dst.
+bool CopyFiles(const fs::path& src, const fs::path& dst,
+               const std::vector<fs::path>& relatives, bool preserveConfigs) {
+    std::error_code ec;
+    for (size_t i = 0; i < relatives.size(); ++i) {
+        const fs::path& rel = relatives[i];
+        const fs::path from = src / rel;
+        const fs::path to = dst / rel;
+
+        if (preserveConfigs && IsPreservedConfig(rel.filename().wstring())) {
+            ec.clear();
+            if (fs::exists(to, ec)) continue;
+        }
+
+        ec.clear();
+        fs::create_directories(to.parent_path(), ec);
+
+        ClearReadOnly(to);
+        ec.clear();
+        fs::copy_file(from, to, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            LogLine(L"FAILED to copy " + rel.wstring() + L" (error " +
+                    std::to_wstring(ec.value()) + L")");
+            return false;
+        }
+    }
+    return true;
+}
+
+// 5. Replace the installation, with a backup limited to what actually changes.
+//
+// The backup used to be a byte copy of the entire installation (hundreds of MB,
+// including the bundled Python and ffmpeg) into %TEMP% on every update. Only the
+// files the update will overwrite need saving.
 bool PerformSwap(const fs::path& targetDir, const fs::path& stagingDir) {
     std::error_code ec;
 
-    wchar_t tempPathBuffer[MAX_PATH];
-    GetTempPathW(MAX_PATH, tempPathBuffer);
-    fs::path backupDir = fs::path(tempPathBuffer) / L"streamlink_gui_backup";
+    wchar_t tempPathBuffer[MAX_PATH + 1] = {};
+    if (GetTempPathW(MAX_PATH + 1, tempPathBuffer) == 0) {
+        LogLine(L"Could not resolve %TEMP%.");
+        return false;
+    }
+    const fs::path backupDir = LongPath(fs::path(tempPathBuffer) / L"streamlink_gui_backup");
 
-    if (fs::exists(backupDir, ec)) {
+    fs::remove_all(backupDir, ec);
+    ec.clear();
+
+    std::vector<fs::path> incoming;
+    if (!CollectFiles(stagingDir, incoming) || incoming.empty()) {
+        // A missing or empty staging directory previously sailed straight
+        // through and was reported to the user as a successful update.
+        LogLine(L"Staging directory is missing or empty - refusing to continue.");
+        return false;
+    }
+    LogLine(L"Update contains " + std::to_wstring(incoming.size()) + L" files.");
+
+    // Step A: back up only the files that will be overwritten.
+    std::vector<fs::path> toBackup;
+    for (size_t i = 0; i < incoming.size(); ++i) {
+        const fs::path& rel = incoming[i];
+        if (IsPreservedConfig(rel.filename().wstring())) continue;
+        ec.clear();
+        if (fs::exists(targetDir / rel, ec)) toBackup.push_back(rel);
+    }
+    LogLine(L"Backing up " + std::to_wstring(toBackup.size()) + L" existing files.");
+    if (!CopyFiles(targetDir, backupDir, toBackup, false)) {
+        LogLine(L"Backup failed - aborting before touching the installation.");
+        ec.clear();
         fs::remove_all(backupDir, ec);
-    }
-
-    // Step A: Backup current installation
-    if (!CopyDirectoryContents(targetDir, backupDir, false)) {
         return false;
     }
 
-    // Step B: Copy updated files from staging to target (preserving configs)
-    if (!CopyDirectoryContents(stagingDir, targetDir, true)) {
-        // Rollback on failure
-        CopyDirectoryContents(backupDir, targetDir, false);
+    // Step B: install the update.
+    if (!CopyFiles(stagingDir, targetDir, incoming, true)) {
+        LogLine(L"Install failed - rolling back.");
+        if (CopyFiles(backupDir, targetDir, toBackup, false)) {
+            LogLine(L"Rollback restored " + std::to_wstring(toBackup.size()) + L" files.");
+            ec.clear();
+            fs::remove_all(backupDir, ec);
+        } else {
+            // The rollback result used to be discarded, so a partially restored
+            // installation was still reported as "safely restored". Keep the
+            // backup in place so it can be recovered by hand.
+            LogLine(L"ROLLBACK INCOMPLETE - installation may be inconsistent. "
+                    L"Previous files kept at: " + backupDir.wstring());
+        }
         return false;
     }
 
-    // Step C: Clean up backup
+    LogLine(L"Install completed successfully.");
+    ec.clear();
     fs::remove_all(backupDir, ec);
     return true;
+}
+
+// Launches the updated application.
+//
+// Called from the NON-elevated instance. When the target needs elevation the
+// swap runs in a separate elevated child, so the relaunched app inherits the
+// user's token rather than an administrator one. Relaunching from the elevated
+// process left the app running as admin until manually restarted: it broke
+// drag-and-drop, gave every downloaded file admin ownership, and - for a
+// standard user who elevated with a different admin account - redirected
+// %APPDATA% so the app appeared to have lost all of its settings.
+void RelaunchApp(const fs::path& targetDir, const std::wstring& exeName) {
+    const fs::path exePath = targetDir / exeName;
+    std::error_code ec;
+    if (!fs::exists(exePath, ec)) {
+        LogLine(L"Cannot relaunch: " + exePath.wstring() + L" not found.");
+        return;
+    }
+
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOASYNC;  // this process exits immediately afterwards
+    sei.lpVerb = L"open";
+    sei.lpFile = exePath.c_str();
+    sei.lpDirectory = targetDir.c_str();
+    sei.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&sei)) {
+        LogLine(L"Relaunch failed (error " + std::to_wstring(GetLastError()) + L").");
+    } else {
+        LogLine(L"Relaunched " + exePath.wstring());
+    }
+}
+
+enum SwapOutcome { kSwapOk, kSwapFailed, kSwapCancelled };
+
+// 3. Run the swap in an elevated copy of ourselves and wait for it to finish.
+SwapOutcome RunElevatedSwap(const fs::path& targetDir, const fs::path& stagingDir,
+                            const std::wstring& exeName) {
+    wchar_t selfPath[MAX_PATH] = {};
+    if (GetModuleFileNameW(NULL, selfPath, MAX_PATH) == 0) {
+        LogLine(L"Could not determine our own path for elevation.");
+        return kSwapFailed;
+    }
+
+    std::wstring targetStr = targetDir.wstring();
+    std::wstring stagingStr = stagingDir.wstring();
+    // Trailing separators must be stripped: CommandLineToArgvW treats a
+    // backslash immediately before a closing quote as an escape, which corrupts
+    // the argument the elevated instance receives.
+    while (!targetStr.empty() && (targetStr.back() == L'\\' || targetStr.back() == L'/')) targetStr.pop_back();
+    while (!stagingStr.empty() && (stagingStr.back() == L'\\' || stagingStr.back() == L'/')) stagingStr.pop_back();
+
+    const std::wstring params = L"\"" + targetStr + L"\" \"" + stagingStr + L"\" \"" +
+                                exeName + L"\" --elevated " + BREAKAWAY_FLAG;
+
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+    sei.lpVerb = L"runas";
+    sei.lpFile = selfPath;
+    sei.lpParameters = params.c_str();
+    sei.nShow = SW_SHOWNORMAL;
+
+    if (!ShellExecuteExW(&sei)) {
+        const DWORD err = GetLastError();
+        if (err == ERROR_CANCELLED) {
+            // The user declined the UAC prompt. Previously execution simply fell
+            // through into the swap and spent minutes copying the entire
+            // installation into %TEMP% before failing on the first write to a
+            // directory it had already proven it could not write to.
+            LogLine(L"Elevation declined by the user.");
+            return kSwapCancelled;
+        }
+        LogLine(L"Elevation failed (error " + std::to_wstring(err) + L").");
+        return kSwapFailed;
+    }
+
+    if (sei.hProcess == NULL) return kSwapFailed;
+
+    WaitForSingleObject(sei.hProcess, INFINITE);
+    DWORD exitCode = 1;
+    GetExitCodeProcess(sei.hProcess, &exitCode);
+    CloseHandle(sei.hProcess);
+
+    LogLine(L"Elevated swap finished with code " + std::to_wstring(exitCode) + L".");
+    return exitCode == 0 ? kSwapOk : kSwapFailed;
+}
+
+void ShowError(const std::wstring& message) {
+    MessageBoxW(NULL, message.c_str(), L"Streamlink GUI Update",
+                MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST);
 }
 
 int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
@@ -152,43 +429,76 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
 
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!argv || argc < 4) return 1;
+    if (!argv || argc < 4) {
+        if (argv) LocalFree(argv);
+        return 1;
+    }
 
-    fs::path targetDir = argv[1];
-    fs::path stagingDir = argv[2];
-    std::wstring exeName = argv[3];
-    bool isElevated = (argc >= 5 && std::wstring(argv[4]) == L"--elevated");
+    const fs::path targetDir = LongPath(fs::path(argv[1]));
+    const fs::path stagingDir = LongPath(fs::path(argv[2]));
+    const std::wstring exeName = argv[3];
 
-    // 1. Wait for main app Mutex release
+    bool isElevated = false;
+    for (int i = 4; i < argc; ++i) {
+        if (wcscmp(argv[i], L"--elevated") == 0) isElevated = true;
+    }
+
+    g_logPath = (targetDir / L"updater.log").wstring();
+    LogLine(L"--- updater start (elevated=" + std::wstring(isElevated ? L"yes" : L"no") + L") ---");
+    LogLine(L"target:  " + targetDir.wstring());
+    LogLine(L"staging: " + stagingDir.wstring());
+
+    // Escape the app's job object before doing anything slow, or its
+    // KILL_ON_JOB_CLOSE will take us down the moment the app exits - in the
+    // middle of replacing its files.
+    if (EnsureOutsideJob(argc, argv)) {
+        LocalFree(argv);
+        return 0;
+    }
+
+    // Wait for the app to release its single-instance mutex.
     HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, MUTEX_NAME);
     if (hMutex) {
         WaitForSingleObject(hMutex, 6000);
         CloseHandle(hMutex);
     }
 
-    // 2. Terminate any child processes running in target directory
     TerminateProcessesInDir(targetDir);
 
-    // 3. Privilege check & self-elevation if write permission is denied
-    if (!isElevated && !IsDirWritable(targetDir)) {
-        ElevateAndRelaunch(targetDir, stagingDir, exeName);
+    // The elevated child performs only the swap; its non-elevated parent does
+    // the relaunch, so the app never inherits the administrator token.
+    if (isElevated) {
+        const bool ok = PerformSwap(targetDir, stagingDir);
+        LogLine(ok ? L"--- elevated swap ok ---" : L"--- elevated swap failed ---");
+        LocalFree(argv);
+        return ok ? 0 : 1;
     }
 
-    // 4. Perform Directory File Replacement
-    if (PerformSwap(targetDir, stagingDir)) {
-        // Relaunch Application
-        fs::path exePath = targetDir / exeName;
-        SHELLEXECUTEINFOW sei = { sizeof(sei) };
-        sei.cbSize = sizeof(sei);
-        sei.lpVerb = L"open";
-        sei.lpFile = exePath.c_str();
-        sei.nShow = SW_SHOWNORMAL;
-        ShellExecuteExW(&sei);
+    SwapOutcome outcome = kSwapFailed;
+    bool accessDenied = false;
+    if (IsDirWritable(targetDir, &accessDenied)) {
+        outcome = PerformSwap(targetDir, stagingDir) ? kSwapOk : kSwapFailed;
+    } else if (accessDenied) {
+        outcome = RunElevatedSwap(targetDir, stagingDir, exeName);
     } else {
-        MessageBoxW(NULL, L"The update could not be completed. Your previous version has been safely restored.",
-                    L"Streamlink GUI Update", MB_OK | MB_ICONERROR);
+        LogLine(L"Target directory is unavailable.");
     }
 
+    // Always bring the application back. The relaunch previously lived only in
+    // the success branch, so any failure - backup error, declined UAC, copy
+    // error - left the user with no running application at all, because the app
+    // had already exited before the updater started.
+    RelaunchApp(targetDir, exeName);
+
+    if (outcome == kSwapCancelled) {
+        ShowError(L"The update was cancelled because administrator permission was not granted.\n\n"
+                  L"Your current version has been restarted and is unchanged.");
+    } else if (outcome == kSwapFailed) {
+        ShowError(L"The update could not be completed and your previous version has been restarted.\n\n"
+                  L"See updater.log in the application folder for details.");
+    }
+
+    LogLine(L"--- updater end ---");
     LocalFree(argv);
-    return 0;
+    return outcome == kSwapOk ? 0 : 1;
 }

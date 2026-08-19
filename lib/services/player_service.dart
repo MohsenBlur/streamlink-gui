@@ -468,11 +468,17 @@ class PlayerService {
     _processDownloadQueue(settings, channelName);
   }
 
+  /// Set by [stopAll] so the queue drain stops instead of starting the next
+  /// download. Without this, killing the active yt-dlp let the loop below spawn
+  /// a fresh one - after the resume list had already been written to disk, and
+  /// while the app was shutting down, leaving a stray partial file behind.
+  bool _shuttingDown = false;
+
   Future<void> _processDownloadQueue(AppSettings settings, String channelName) async {
     if (isQueueProcessing) return;
     isQueueProcessing = true;
 
-    while (downloadQueue.isNotEmpty) {
+    while (downloadQueue.isNotEmpty && !_shuttingDown) {
       final vodId = downloadQueue.first;
       final vod = queuedDownloadTasks[vodId];
       final chName = downloadChannelNames[vodId] ?? channelName;
@@ -1164,6 +1170,13 @@ class PlayerService {
   }
 
   void stopAll() {
+    // Stop the queue drain before killing anything, so terminating the active
+    // download cannot cause the next queued one to start.
+    _shuttingDown = true;
+    downloadQueue.clear();
+    queuedDownloadTasks.clear();
+    downloadTaskFastDownloadOverrides.clear();
+
     for (final proc in activePlayerProcesses.values) {
       try {
         if (Platform.isWindows) {

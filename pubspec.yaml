@@ -34,6 +34,9 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   http: ^1.2.1
+  # Verifies the SHA-256 of a downloaded update against the release's
+  # published SHA256SUMS before it is applied.
+  crypto: ^3.0.3
   window_manager: ^0.5.2
   system_tray: ^2.0.3
   local_notifier: ^0.1.6

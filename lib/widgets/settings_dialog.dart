@@ -43,6 +43,10 @@ class SettingsDialog {
     required void Function(AppSettings) onSave,
     required void Function(String) openExternalLink,
     required VoidCallback onClearWatchHistory,
+    /// Invoked when the in-dialog update check finds a newer release, so the
+    /// app can offer to install it. Without this the dialog told the user to
+    /// "check the main window prompt", which only ever appears at startup.
+    void Function(UpdateInfo)? onUpdateAvailable,
   }) {
     String tempQuality = settings.defaultQuality;
     bool tempLowLatency = settings.twitchLowLatency;
@@ -962,16 +966,28 @@ class SettingsDialog {
                             style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
                             onPressed: () async {
                               final updateInfo = await UpdateService().checkForUpdates();
-                              if (context.mounted) {
-                                if (updateInfo != null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Update Available: v${updateInfo.version}! Check main window prompt.')),
-                                  );
-                                } else {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Twitch Streamlink GUI is up to date (v${UpdateService.currentVersion}).')),
-                                  );
-                                }
+                              if (!context.mounted) return;
+
+                              // checkForUpdates returns a non-null UpdateInfo for
+                              // any successful query and reports availability via
+                              // isUpdateAvailable. Branching on null alone told
+                              // every up-to-date user an update was waiting, and
+                              // told users with no connectivity they were current.
+                              final String message;
+                              if (updateInfo == null) {
+                                message = 'Could not check for updates. Please check your connection.';
+                              } else if (updateInfo.isUpdateAvailable) {
+                                message = 'Update available: v${updateInfo.version}. '
+                                    'Close Settings to install it.';
+                              } else {
+                                message = 'Twitch Streamlink GUI is up to date '
+                                    '(v${UpdateService.currentVersion}).';
+                              }
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(SnackBar(content: Text(message)));
+
+                              if (updateInfo != null && updateInfo.isUpdateAvailable) {
+                                onUpdateAvailable?.call(updateInfo);
                               }
                             },
                             icon: Icon(Icons.refresh, size: 13, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),

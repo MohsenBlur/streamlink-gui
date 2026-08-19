@@ -42,10 +42,27 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 # Define the standalone update helper executable target
 add_executable(updater WIN32
   "win32_updater/main.cpp"
+  "win32_updater/updater.rc"
 )
 apply_standard_settings(updater)
-target_link_libraries(updater PRIVATE "shell32.lib" "shlwapi.lib" "user32.lib")
+target_link_libraries(updater PRIVATE "shell32.lib" "user32.lib")
+target_include_directories(updater PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# Install updater into the release bundle output directory
-install(TARGETS updater RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+# Same version stamp as the app, so the UAC prompt and file properties agree.
+target_compile_definitions(updater PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
+target_compile_definitions(updater PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
+target_compile_definitions(updater PRIVATE "FLUTTER_VERSION_MINOR=${FLUTTER_VERSION_MINOR}")
+target_compile_definitions(updater PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
+target_compile_definitions(updater PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
+
+# Install the updater next to the application.
+#
+# Targets the app's output directory directly rather than going through
+# CMAKE_INSTALL_PREFIX. The prefix is expanded when this file is parsed, which
+# happens before the top-level CMakeLists forces it to the bundle directory, so
+# on a clean configure it baked in CMake's default prefix (Program Files)
+# instead. A relative destination does not work either: the prefix holds an
+# unevaluated $<TARGET_FILE_DIR:...> generator expression, which CMake expands
+# in an install DESTINATION but not when prepending it to a relative path.
+install(TARGETS updater RUNTIME DESTINATION "$<TARGET_FILE_DIR:${BINARY_NAME}>" COMPONENT Runtime)
 

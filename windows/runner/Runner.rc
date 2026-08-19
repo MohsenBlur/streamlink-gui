@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.streamlinkgui" "\0"
-            VALUE "FileDescription", "streamlink_gui" "\0"
+            VALUE "CompanyName", "Twitch Streamlink GUI" "\0"
+            VALUE "FileDescription", "Twitch Streamlink GUI" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "streamlink_gui" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.streamlinkgui. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Twitch Streamlink GUI. All rights reserved." "\0"
             VALUE "OriginalFilename", "streamlink_gui.exe" "\0"
-            VALUE "ProductName", "streamlink_gui" "\0"
+            VALUE "ProductName", "Twitch Streamlink GUI" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

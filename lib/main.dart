@@ -24,7 +24,6 @@ import 'widgets/horizontal_mouse_scrollable.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
 import 'theme/neu_theme.dart';
 import 'utils/color_utils.dart';
-import 'utils/process_monitor.dart';
 
 class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
   @override
@@ -262,7 +261,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   void initState() {
     super.initState();
-    startProcessMonitor();
     windowManager.addListener(this);
     _initSystemTray();
     
@@ -466,12 +464,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     double progress = 0.0;
     String statusText = 'Downloading update archive...';
 
+    // The dialog lives in the Navigator's overlay, so rebuilding MainScreen
+    // cannot rebuild it. Progress updates must go through the dialog's own
+    // StatefulBuilder setter, which was previously captured and never called -
+    // leaving the bar frozen at "0.0%" for the entire download and extraction.
+    void Function(VoidCallback)? setDialogState;
+    void updateDialog(VoidCallback change) {
+      change();
+      final setter = setDialogState;
+      if (setter != null) setter(() {});
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setProgressState) {
+            setDialogState = setProgressState;
             return AlertDialog(
               backgroundColor: themeNotifier.surfaceColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -510,18 +520,29 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       try {
         final updateService = UpdateService();
         final zipFile = await updateService.downloadUpdate(info.downloadUrl, (pct) {
-          progress = pct;
-          if (mounted) setState(() {});
+          updateDialog(() => progress = pct);
         });
 
-        statusText = 'Verifying and extracting update files...';
-        if (mounted) setState(() {});
+        updateDialog(() {
+          statusText = 'Verifying download integrity...';
+          progress = 0.0;
+        });
+        await updateService.verifyChecksum(zipFile, info.checksumUrl);
 
+        updateDialog(() => statusText = 'Extracting update files...');
         final extractDir = await updateService.extractAndVerifyZip(zipFile);
 
-        statusText = 'Applying update and restarting app...';
-        if (mounted) setState(() {});
+        updateDialog(() => statusText = 'Closing running downloads and streams...');
 
+        // Shut down cleanly before the installation is replaced. This path
+        // previously called exit(0) directly: streamlink/yt-dlp children were
+        // orphaned and kept writing while the updater swapped the very
+        // binaries they were running from, and any in-flight downloads were
+        // lost with no resume record.
+        await _persistUnfinishedDownloadsForRestart();
+        _playerService.stopAll();
+
+        updateDialog(() => statusText = 'Applying update and restarting...');
         await updateService.applyUpdateAndRestart(extractDir);
       } catch (e) {
         _isUpdateInProgress = false;
@@ -531,6 +552,34 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
       }
     });
+  }
+
+  /// Snapshots active and queued downloads into settings so they resume after
+  /// the app restarts. Shared by the tray-exit and update paths.
+  Future<void> _persistUnfinishedDownloadsForRestart() async {
+    final unfinished = <Map<String, dynamic>>[];
+    final seen = <String>{};
+
+    // Active downloads remain at the head of downloadQueue until they finish,
+    // so de-duplicate: they used to be written into the resume list twice.
+    final ids = <String>[
+      ..._playerService.activeDownloadProcesses.keys,
+      ..._playerService.downloadQueue,
+    ];
+    for (final vodId in ids) {
+      if (!seen.add(vodId)) continue;
+      final task = _playerService.queuedDownloadTasks[vodId];
+      if (task == null) continue;
+      unfinished.add({
+        'vod': task.toJson(),
+        // The channel the download actually belongs to, not whichever channel
+        // happens to be selected in the UI right now.
+        'channelName': _playerService.downloadChannelNames[vodId] ?? 'VOD',
+      });
+    }
+
+    _settings.unfinishedDownloads = unfinished;
+    await _saveChannels();
   }
 
   @override
@@ -611,32 +660,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         return;
       }
 
-      final unfinishedList = <Map<String, dynamic>>[];
-      
-      for (final vodId in _playerService.activeDownloadProcesses.keys) {
-        final task = _playerService.queuedDownloadTasks[vodId];
-        if (task != null) {
-          unfinishedList.add({
-            'vod': task.toJson(),
-            'channelName': _selectedChannel?.username ?? 'VOD',
-          });
-        }
-      }
-      
-      for (final vodId in _playerService.downloadQueue) {
-        final task = _playerService.queuedDownloadTasks[vodId];
-        if (task != null) {
-          unfinishedList.add({
-            'vod': task.toJson(),
-            'channelName': _selectedChannel?.username ?? 'VOD',
-          });
-        }
-      }
-
-      setState(() {
-        _settings.unfinishedDownloads = unfinishedList;
-      });
-      await _saveChannels();
+      await _persistUnfinishedDownloadsForRestart();
     }
 
     _playerService.stopAll();
@@ -1640,6 +1664,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       onConnectAccount: _startOAuthServer,
       openExternalLink: _openExternalLink,
       onClearWatchHistory: _clearWatchProgress,
+      onUpdateAvailable: (info) {
+        // Offer the update once the dialog has closed, so the prompt is not
+        // stacked behind the settings modal.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_isUpdatePromptOpen && !_isUpdateInProgress) {
+            _showUpdatePromptDialog(info);
+          }
+        });
+      },
       onSave: (updatedSettings) async {
         setState(() {
           _settings = updatedSettings;
