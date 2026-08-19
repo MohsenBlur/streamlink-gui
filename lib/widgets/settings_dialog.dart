@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
@@ -36,7 +37,7 @@ abstract class ThemeUpdateListener extends ChangeNotifier {
 }
 
 class SettingsDialog {
-  static void show(
+  static Future<void> show(
     BuildContext context, {
     required AppSettings settings,
     required ThemeUpdateListener themeNotifier,
@@ -72,6 +73,49 @@ class SettingsDialog {
     );
     bool tempDisableVodPostProcessing = settings.disableVodPostProcessing;
     final customVodArgsController = TextEditingController(text: settings.customVodArgs);
+    bool tempNotifyWentLive = settings.notifyWentLive;
+    bool tempNotifyAutoPlay = settings.notifyAutoPlay;
+    bool tempNotifyAutoDownloadStart = settings.notifyAutoDownloadStart;
+    bool tempNotifyDownloadComplete = settings.notifyDownloadComplete;
+
+    // One probe per dialog open. This used to run 8x on EVERY rebuild (each
+    // probe shells out / stats the filesystem for four players).
+    final detectedPlayers = PlayerService().detectInstalledPlayers(settings);
+    // The custom-path entry is the exception: it must react to what the user
+    // is typing, not to the last saved settings.
+    bool customPathValid() {
+      final path = playerPathController.text.trim();
+      if (path.isEmpty) return false;
+      try {
+        return File(path).existsSync();
+      } catch (_) {
+        return false;
+      }
+    }
+
+    String? portError;
+    String? maxDownloadsError;
+    String? validatePort(String value) {
+      final t = value.trim();
+      if (t.isEmpty) return 'Required (1-65535)';
+      final n = int.tryParse(t);
+      if (n == null || n < 1 || n > 65535) return 'Must be 1-65535';
+      return null;
+    }
+
+    String? validateMaxDownloads(String value) {
+      final t = value.trim();
+      if (t.isEmpty) return null;
+      final n = int.tryParse(t);
+      if (n == null || n < 0) return 'Whole number, or empty for unlimited';
+      return null;
+    }
+
+    // In-dialog update-check feedback; a SnackBar renders BEHIND the modal
+    // barrier and was easy to miss entirely.
+    String? updateCheckResult;
+    bool updateCheckIsError = false;
+    bool isCheckingUpdates = false;
     bool obscureToken = true;
     bool obscureWebToken = true;
     bool isTestingToken = false;
@@ -91,7 +135,7 @@ class SettingsDialog {
       themeNotifier.setDarkTheme(originalIsDarkTheme);
     }
 
-    showDialog(
+    return showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
@@ -351,6 +395,58 @@ class SettingsDialog {
                             const SizedBox(height: 24),
                             Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                             const SizedBox(height: 12),
+                            Text('Notifications', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Favorite channel goes live', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempNotifyWentLive,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyWentLive = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Auto-play starts a stream', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempNotifyAutoPlay,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyAutoPlay = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Auto-download starts', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempNotifyAutoDownloadStart,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyAutoDownloadStart = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Download completes', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempNotifyDownloadComplete,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyDownloadComplete = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            const SizedBox(height: 12),
                             Text('Watch History', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 8),
                             OutlinedButton.icon(
@@ -425,11 +521,11 @@ class SettingsDialog {
                                       const Text('VLC Media Player'),
                                       const SizedBox(width: 8),
                                       Text(
-                                        PlayerService().detectInstalledPlayers(settings)['vlc'] == true ? '(Detected)' : '(Not Found)',
+                                        detectedPlayers['vlc'] == true ? '(Detected)' : '(Not Found)',
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: PlayerService().detectInstalledPlayers(settings)['vlc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                          color: detectedPlayers['vlc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                         ),
                                       ),
                                     ],
@@ -443,11 +539,11 @@ class SettingsDialog {
                                       const Text('MPV Player'),
                                       const SizedBox(width: 8),
                                       Text(
-                                        PlayerService().detectInstalledPlayers(settings)['mpv'] == true ? '(Detected)' : '(Not Found)',
+                                        detectedPlayers['mpv'] == true ? '(Detected)' : '(Not Found)',
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: PlayerService().detectInstalledPlayers(settings)['mpv'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                          color: detectedPlayers['mpv'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                         ),
                                       ),
                                     ],
@@ -461,11 +557,11 @@ class SettingsDialog {
                                       const Text('MPC-HC Player'),
                                       const SizedBox(width: 8),
                                       Text(
-                                        PlayerService().detectInstalledPlayers(settings)['mpc-hc'] == true ? '(Detected)' : '(Not Found)',
+                                        detectedPlayers['mpc-hc'] == true ? '(Detected)' : '(Not Found)',
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: PlayerService().detectInstalledPlayers(settings)['mpc-hc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                          color: detectedPlayers['mpc-hc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                         ),
                                       ),
                                     ],
@@ -477,14 +573,14 @@ class SettingsDialog {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text('Custom Executable Path'),
-                                      if (settings.customPlayerPath.trim().isNotEmpty) ...[
+                                      if (playerPathController.text.trim().isNotEmpty) ...[
                                         const SizedBox(width: 8),
                                         Text(
-                                          PlayerService().detectInstalledPlayers(settings)['custom'] == true ? '(Valid Path)' : '(File Missing)',
+                                          customPathValid() ? '(Valid Path)' : '(File Missing)',
                                           style: TextStyle(
                                             fontSize: 10,
                                             fontWeight: FontWeight.bold,
-                                            color: PlayerService().detectInstalledPlayers(settings)['custom'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                            color: customPathValid() ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                           ),
                                         ),
                                       ],
@@ -510,6 +606,7 @@ class SettingsDialog {
                                     child: TextField(
                                       controller: playerPathController,
                                       style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                      onChanged: (_) => setDialogState(() {}),
                                       decoration: const InputDecoration(
                                         hintText: 'e.g. C:\\Program Files\\MPV\\mpv.exe',
                                       ),
@@ -537,6 +634,31 @@ class SettingsDialog {
                                   ),
                                 ],
                               ),
+                              if (playerPathController.text.trim().isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      customPathValid() ? Icons.check_circle : Icons.error_outline,
+                                      size: 13,
+                                      color: customPathValid()
+                                          ? NeuTheme.liveText(themeNotifier.isDarkTheme)
+                                          : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      customPathValid() ? 'Executable found' : 'File not found at this path',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: customPathValid()
+                                            ? NeuTheme.liveText(themeNotifier.isDarkTheme)
+                                            : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                             const SizedBox(height: 18),
                             Text('Custom Player Arguments (Optional)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
@@ -624,6 +746,25 @@ class SettingsDialog {
                               decoration: const InputDecoration(
                                 hintText: 'Twitch Client ID',
                                 contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Text('OAuth Callback Port', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Local port the Connect Account flow listens on. Must match the redirect URL registered with the Client ID above.',
+                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10),
+                            ),
+                            const SizedBox(height: 4),
+                            TextField(
+                              controller: portController,
+                              keyboardType: TextInputType.number,
+                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                              onChanged: (val) => setDialogState(() => portError = validatePort(val)),
+                              decoration: InputDecoration(
+                                hintText: 'e.g. 65432',
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                errorText: portError,
                               ),
                             ),
                             const SizedBox(height: 14),
@@ -985,25 +1126,41 @@ class SettingsDialog {
                               controller: maxDownloadsController,
                               keyboardType: TextInputType.number,
                               style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                              decoration: const InputDecoration(
+                              onChanged: (val) => setDialogState(
+                                  () => maxDownloadsError = validateMaxDownloads(val)),
+                              decoration: InputDecoration(
                                 hintText: 'e.g. 5, 10, or leave empty',
+                                errorText: maxDownloadsError,
                               ),
                             ),
                             const SizedBox(height: 18),
-                            SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Fast VOD Downloads (Skip heavy post-processing)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Bypasses slow thumbnail/metadata container rewrites after download completion (prevents multi-gigabyte VODs from taking forever after 100%).',
+                                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                NeuSwitch(
                               activeColor: themeNotifier.primaryColor,
-                              title: Text('Fast VOD Downloads (Skip heavy post-processing)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                              subtitle: Text(
-                                'Bypasses slow thumbnail/metadata container rewrites after download completion (prevents multi-gigabyte VODs from taking forever after 100%).',
-                                style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                              ),
                               value: tempDisableVodPostProcessing,
                               onChanged: (val) {
                                 setDialogState(() {
                                   tempDisableVodPostProcessing = val;
                                 });
                               },
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 12),
                             Text('Custom yt-dlp VOD Download Arguments', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
@@ -1027,7 +1184,8 @@ class SettingsDialog {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
+                      Flexible(
+                        child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
@@ -1060,36 +1218,68 @@ class SettingsDialog {
                           const SizedBox(width: 8),
                           TextButton.icon(
                             style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
-                            onPressed: () async {
-                              final updateInfo = await UpdateService().checkForUpdates();
-                              if (!context.mounted) return;
+                            onPressed: isCheckingUpdates
+                                ? null
+                                : () async {
+                                    setDialogState(() {
+                                      isCheckingUpdates = true;
+                                      updateCheckResult = null;
+                                    });
+                                    final updateInfo = await UpdateService().checkForUpdates();
+                                    if (!context.mounted) return;
 
-                              // checkForUpdates returns a non-null UpdateInfo for
-                              // any successful query and reports availability via
-                              // isUpdateAvailable. Branching on null alone told
-                              // every up-to-date user an update was waiting, and
-                              // told users with no connectivity they were current.
-                              final String message;
-                              if (updateInfo == null) {
-                                message = 'Could not check for updates. Please check your connection.';
-                              } else if (updateInfo.isUpdateAvailable) {
-                                message = 'Update available: v${updateInfo.version}. '
-                                    'Close Settings to install it.';
-                              } else {
-                                message = 'Twitch Streamlink GUI is up to date '
-                                    '(v${UpdateService.currentVersion}).';
-                              }
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(SnackBar(content: Text(message)));
+                                    // checkForUpdates returns a non-null UpdateInfo
+                                    // for any successful query and reports
+                                    // availability via isUpdateAvailable.
+                                    setDialogState(() {
+                                      isCheckingUpdates = false;
+                                      if (updateInfo == null) {
+                                        updateCheckResult = 'Check failed - no connection?';
+                                        updateCheckIsError = true;
+                                      } else if (updateInfo.isUpdateAvailable) {
+                                        updateCheckResult =
+                                            'v${updateInfo.version} available - close Settings to install';
+                                        updateCheckIsError = false;
+                                      } else {
+                                        updateCheckResult = 'Up to date (v${UpdateService.currentVersion})';
+                                        updateCheckIsError = false;
+                                      }
+                                    });
 
-                              if (updateInfo != null && updateInfo.isUpdateAvailable) {
-                                onUpdateAvailable?.call(updateInfo);
-                              }
-                            },
-                            icon: Icon(Icons.refresh, size: 13, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                                    if (updateInfo != null && updateInfo.isUpdateAvailable) {
+                                      onUpdateAvailable?.call(updateInfo);
+                                    }
+                                  },
+                            icon: isCheckingUpdates
+                                ? SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 1.5,
+                                        color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                                  )
+                                : Icon(Icons.refresh, size: 13, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                             label: Text('Check for Updates', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                           ),
+                          if (updateCheckResult != null) ...[
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                updateCheckResult!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: updateCheckIsError
+                                      ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
+                                      : NeuTheme.liveText(themeNotifier.isDarkTheme),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
+                      ),
                       ),
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1104,7 +1294,9 @@ class SettingsDialog {
                           const SizedBox(width: 8),
                           ElevatedButton(
                             style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
-                            onPressed: () {
+                            onPressed: (portError != null || maxDownloadsError != null)
+                                ? null
+                                : () {
                               // copyWith, not a fresh AppSettings: constructing a new
                               // instance from only the fields this dialog knows about
                               // silently reset every other persisted field to its
@@ -1130,6 +1322,10 @@ class SettingsDialog {
                                 launchAtStartup: tempLaunchAtStartup,
                                 startMinimized: tempStartMinimized,
                                 trayLiveMenuEnabled: tempTrayLiveMenu,
+                                notifyWentLive: tempNotifyWentLive,
+                                notifyAutoPlay: tempNotifyAutoPlay,
+                                notifyAutoDownloadStart: tempNotifyAutoDownloadStart,
+                                notifyDownloadComplete: tempNotifyDownloadComplete,
                                 disableVodPostProcessing: tempDisableVodPostProcessing,
                                 customVodArgs: customVodArgsController.text.trim(),
                                 // The Styling tab edits these on the notifier directly;
@@ -1155,7 +1351,18 @@ class SettingsDialog {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      // The dialog is gone; nothing can be typing into these anymore.
+      tokenController.dispose();
+      webTokenController.dispose();
+      playerPathController.dispose();
+      playerArgsController.dispose();
+      clientIdController.dispose();
+      portController.dispose();
+      downloadFolderController.dispose();
+      maxDownloadsController.dispose();
+      customVodArgsController.dispose();
+    });
   }
 
   static void _showBrowserTokenHelp(BuildContext context, ThemeUpdateListener themeNotifier) {

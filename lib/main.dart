@@ -226,14 +226,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   List<TwitchVideo> _channelVods = [];
   bool _isLoadingVods = false;
   String? _vodsError;
-  double _vodScale = 350.0;
-  double _vodTitleFontSize = 14.0;
 
   final TextEditingController _vodSearchController = TextEditingController();
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
   String? _vodPaginationCursor;
-  bool _showGamesOnThumbnails = true;
   final Set<String> _selectedGamesFilter = {};
   bool _isWebTokenExpired = false;
   bool _isMultiSelectMode = false;
@@ -354,15 +351,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _saveChannels();
         if (_showLibraryView) _refreshLibraryEntries();
         _showSnackBar('Download completed: $title', isError: false);
-        try {
-          final notification = LocalNotification(
-            title: 'VOD Download Completed',
-            body: title,
-            silent: false,
-          );
-          notification.show();
-        } catch (e) {
-          print('[Download Notification Error]: $e');
+        if (_settings.notifyDownloadComplete) {
+          try {
+            final notification = LocalNotification(
+              title: 'VOD Download Completed',
+              body: title,
+              silent: false,
+            );
+            notification.show();
+          } catch (e) {
+            print('[Download Notification Error]: $e');
+          }
         }
       }
     };
@@ -1007,7 +1006,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             _sidebarTab = _settings.twitchOauthToken.trim().isEmpty
                 ? 0
                 : _settings.activeSidebarTab;
-            _showGamesOnThumbnails = _settings.showGamesOnThumbnails;
             themeNotifier.setDarkTheme(_settings.isDarkTheme);
              
             if (_settings.unfinishedDownloads.isNotEmpty) {
@@ -1353,14 +1351,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _settings,
     );
 
-    try {
-      await LocalNotification(
-        title: 'Auto-Playing Live Stream',
-        body: '${target.username} is now live\nPlaying ${target.game ?? "Twitch"}',
-        silent: false,
-      ).show();
-    } catch (e) {
-      print('[Auto-Play Notification Error]: $e');
+    if (_settings.notifyAutoPlay) {
+      try {
+        await LocalNotification(
+          title: 'Auto-Playing Live Stream',
+          body: '${target.username} is now live\nPlaying ${target.game ?? "Twitch"}',
+          silent: false,
+        ).show();
+      } catch (e) {
+        print('[Auto-Play Notification Error]: $e');
+      }
     }
   }
 
@@ -1413,14 +1413,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             overrideDisablePostProcessing: channel.autoDownloadFastDownload ? true : null,
           );
 
-          try {
-            await LocalNotification(
-              title: 'Auto-Downloading VOD',
-              body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
-              silent: false,
-            ).show();
-          } catch (e) {
-            print('[Auto-Download Notification Error]: $e');
+          if (_settings.notifyAutoDownloadStart) {
+            try {
+              await LocalNotification(
+                title: 'Auto-Downloading VOD',
+                body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
+                silent: false,
+              ).show();
+            } catch (e) {
+              print('[Auto-Download Notification Error]: $e');
+            }
           }
         }
       } catch (e) {
@@ -1461,7 +1463,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
         if (!_previouslyLiveFavoriteUsernames.contains(cleanName)) {
           _previouslyLiveFavoriteUsernames.add(cleanName);
-          if (!isInitialLoad) {
+          if (!isInitialLoad && _settings.notifyWentLive) {
             try {
               final gameText = channel.game ?? 'Twitch';
               final titleText = channel.streamTitle ?? 'Streaming Live!';
@@ -1766,6 +1768,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
   }
 
+  UpdateInfo? _pendingUpdateInfo;
+
   void _showSettingsDialog() {
     SettingsDialog.show(
       context,
@@ -1775,15 +1779,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       onConnectAccount: _startOAuthServer,
       openExternalLink: _openExternalLink,
       onClearWatchHistory: _clearWatchProgress,
-      onUpdateAvailable: (info) {
-        // Offer the update once the dialog has closed, so the prompt is not
-        // stacked behind the settings modal.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && !_isUpdatePromptOpen && !_isUpdateInProgress) {
-            _showUpdatePromptDialog(info);
-          }
-        });
-      },
+      // Stash it; the prompt is offered AFTER the dialog closes. The old
+      // post-frame callback fired while Settings was still open and stacked
+      // the prompt behind the modal.
+      onUpdateAvailable: (info) => _pendingUpdateInfo = info,
       onSave: (updatedSettings) async {
         final startupChanged =
             _settings.launchAtStartup != updatedSettings.launchAtStartup;
@@ -1813,7 +1812,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
         _showSnackBar('Settings saved successfully!', isError: false);
       },
-    );
+    ).then((_) {
+      final info = _pendingUpdateInfo;
+      _pendingUpdateInfo = null;
+      if (info != null && mounted && !_isUpdatePromptOpen && !_isUpdateInProgress) {
+        _showUpdatePromptDialog(info);
+      }
+    });
   }
 
   @override
@@ -2956,10 +2961,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                         Text('Show All Games', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                                         const SizedBox(width: 8),
                                         NeuSwitch(
-                                          value: _showGamesOnThumbnails,
+                                          value: _settings.showGamesOnThumbnails,
                                           onChanged: (val) {
                                             setState(() {
-                                              _showGamesOnThumbnails = val;
                                               _settings.showGamesOnThumbnails = val;
                                             });
                                             _saveChannels();
@@ -3001,14 +3005,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                     child: SliderTheme(
                                       data: neuSliderTheme(context),
                                       child: Slider(
-                                        value: _vodScale,
+                                        value: _settings.vodCardScale,
                                         min: 200.0,
                                         max: 600.0,
                                         onChanged: (val) {
                                           setState(() {
-                                            _vodScale = val;
+                                            _settings.vodCardScale = val;
                                           });
                                         },
+                                        onChangeEnd: (_) => _saveChannels(),
                                       ),
                                     ),
                                   ),
@@ -3021,14 +3026,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                     child: SliderTheme(
                                       data: neuSliderTheme(context),
                                       child: Slider(
-                                        value: _vodTitleFontSize,
+                                        value: _settings.vodTitleFontSize,
                                         min: 11.0,
                                         max: 20.0,
                                         onChanged: (val) {
                                           setState(() {
-                                            _vodTitleFontSize = val;
+                                            _settings.vodTitleFontSize = val;
                                           });
                                         },
+                                        onChangeEnd: (_) => _saveChannels(),
                                       ),
                                     ),
                                   ),
@@ -3095,9 +3101,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     vods: _channelVods,
                     isLoading: _isLoadingVods,
                     vodsError: _vodsError,
-                    vodScale: _vodScale,
-                    vodTitleFontSize: _vodTitleFontSize,
-                    showGamesOnThumbnails: _showGamesOnThumbnails,
+                    vodScale: _settings.vodCardScale,
+                    vodTitleFontSize: _settings.vodTitleFontSize,
+                    showGamesOnThumbnails: _settings.showGamesOnThumbnails,
                     selectedGamesFilter: _selectedGamesFilter,
                     vodSearchController: _vodSearchController,
                     theme: theme,
@@ -3215,10 +3221,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       ],
                     ),
                     NeuSwitch(
-                      value: _showGamesOnThumbnails,
+                      value: _settings.showGamesOnThumbnails,
                       onChanged: (val) {
                         setState(() {
-                          _showGamesOnThumbnails = val;
                           _settings.showGamesOnThumbnails = val;
                         });
                         _saveChannels();
@@ -3351,14 +3356,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   child: SliderTheme(
                     data: neuSliderTheme(context),
                     child: Slider(
-                      value: _vodScale,
+                      value: _settings.vodCardScale,
                       min: 200.0,
                       max: 600.0,
                       onChanged: (val) {
                         setState(() {
-                          _vodScale = val;
+                          _settings.vodCardScale = val;
                         });
                       },
+                      onChangeEnd: (_) => _saveChannels(),
                     ),
                   ),
                 ),
@@ -3374,14 +3380,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   child: SliderTheme(
                     data: neuSliderTheme(context),
                     child: Slider(
-                      value: _vodTitleFontSize,
+                      value: _settings.vodTitleFontSize,
                       min: 11.0,
                       max: 20.0,
                       onChanged: (val) {
                         setState(() {
-                          _vodTitleFontSize = val;
+                          _settings.vodTitleFontSize = val;
                         });
                       },
+                      onChangeEnd: (_) => _saveChannels(),
                     ),
                   ),
                 ),
