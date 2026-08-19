@@ -28,22 +28,15 @@ class VodsGrid extends StatefulWidget {
   final Color activeProgressColor;
   final Color watchedProgressColor;
 
-  final ValueChanged<double> onScaleChanged;
-  final ValueChanged<double> onFontSizeChanged;
-  final ValueChanged<bool> onShowGamesChanged;
   final ValueChanged<String> onGameFilterSelected;
   final VoidCallback onClearGameFilter;
-  final VoidCallback onToggleMultiSelect;
-  final VoidCallback onSelectAllVisible;
-  final VoidCallback onDeselectAll;
   
   final void Function(TwitchVideo) onPlay;
   final void Function(TwitchVideo) onDownload;
   final void Function(String) onDeleteDownload;
   final void Function(String) onCancelDownload;
   final void Function(String, bool) onVodSelectedChange;
-  final VoidCallback? onBulkDownload;
-  final VoidCallback? onBulkDelete;
+  final void Function(TwitchVideo)? onOpenFolder;
 
   const VodsGrid({
     Key? key,
@@ -66,21 +59,14 @@ class VodsGrid extends StatefulWidget {
     required this.watchedThreshold,
     required this.activeProgressColor,
     required this.watchedProgressColor,
-    required this.onScaleChanged,
-    required this.onFontSizeChanged,
-    required this.onShowGamesChanged,
     required this.onGameFilterSelected,
     required this.onClearGameFilter,
-    required this.onToggleMultiSelect,
-    required this.onSelectAllVisible,
-    required this.onDeselectAll,
     required this.onPlay,
     required this.onDownload,
     required this.onDeleteDownload,
     required this.onCancelDownload,
     required this.onVodSelectedChange,
-    this.onBulkDownload,
-    this.onBulkDelete,
+    this.onOpenFolder,
   }) : super(key: key);
 
   @override
@@ -225,8 +211,11 @@ class _VodsGridState extends State<VodsGrid> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              // Selected chips sit on NeuButton's translucent
+                              // accent TINT, so the readable color is the accent
+                              // itself (NeuButton's own selected text style).
                               if (isSelected) ...[
-                                Icon(Icons.check, size: 13, color: themeNotifier.onPrimaryColor),
+                                Icon(Icons.check, size: 13, color: widget.theme.primaryColor),
                                 const SizedBox(width: 4),
                               ],
                               Text(
@@ -235,7 +224,7 @@ class _VodsGridState extends State<VodsGrid> {
                                   fontSize: 11,
                                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                                   color: isSelected
-                                      ? themeNotifier.onPrimaryColor
+                                      ? widget.theme.primaryColor
                                       : themeNotifier.textColor,
                                 ),
                               ),
@@ -345,6 +334,8 @@ class _VodsGridState extends State<VodsGrid> {
             onDownload: () => widget.onDownload(vod),
             onDeleteDownload: () => widget.onDeleteDownload(vod.id),
             onCancel: () => widget.onCancelDownload(vod.id),
+            onOpenFolder:
+                widget.onOpenFolder == null ? null : () => widget.onOpenFolder!(vod),
           );
         },
       );
@@ -358,77 +349,6 @@ class _VodsGridState extends State<VodsGrid> {
       ],
     );
 
-    return Stack(
-      alignment: Alignment.bottomCenter,
-      clipBehavior: Clip.none,
-      children: [
-        mainColumn,
-        AnimatedPositioned(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          bottom: widget.isMultiSelectMode ? 16 : -70,
-          left: 20,
-          right: 20,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: widget.isMultiSelectMode ? 1.0 : 0.0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: NeuTheme.raisedDecoration(
-                  themeNotifier.isDarkTheme,
-                  radius: 16,
-                  border: Border.all(color: widget.theme.primaryColor.withOpacity(0.4), width: 1.5),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check_box_outlined, color: widget.theme.primaryColor, size: 20),
-                    const SizedBox(width: 10),
-                    Text(
-                      '${widget.selectedVodIds.length} VODs Selected',
-                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                    ),
-                    const SizedBox(width: 20),
-                    Container(width: 1, height: 18, color: NeuTheme.border(themeNotifier.isDarkTheme)),
-                    const SizedBox(width: 20),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: widget.theme.primaryColor,
-                        foregroundColor: themeNotifier.onPrimaryColor,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      onPressed: widget.selectedVodIds.isEmpty ? null : widget.onBulkDownload,
-                      icon: const Icon(Icons.download, size: 16),
-                      label: const Text('Bulk Download', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: NeuTheme.danger.withOpacity(0.15),
-                        foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        side: BorderSide(color: NeuTheme.danger.withOpacity(0.4)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      onPressed: widget.selectedVodIds.isEmpty ? null : widget.onBulkDelete,
-                      icon: const Icon(Icons.delete, size: 16),
-                      label: const Text('Bulk Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 12),
-                    TextButton(
-                      style: TextButton.styleFrom(foregroundColor: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                      onPressed: widget.onDeselectAll,
-                      child: const Text('Deselect All', style: TextStyle(fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
+    return mainColumn;
   }
 }

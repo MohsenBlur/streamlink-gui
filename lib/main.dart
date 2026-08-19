@@ -21,6 +21,8 @@ import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
+import 'state/library_entries.dart';
+import 'widgets/library_view.dart';
 import 'widgets/live_preview_popup.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
 import 'widgets/neumorphic/neu_checkbox.dart';
@@ -193,6 +195,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   final Map<String, TwitchVideo> _activePlayingVideos = {};
   List<TwitchVideo> _recentWatchedVods = [];
 
+  /// Library screen state. Entries are CACHED - built (with file stats) only
+  /// on open/refresh/mutation, never inside build(), because download-progress
+  /// setState storms would otherwise stat every file per frame.
+  bool _showLibraryView = false;
+  List<LibraryEntry> _libraryEntries = [];
+
   bool _consoleCollapsed = true;
   String? _selectedConsoleTabKey = '__downloads_manager__';
 
@@ -294,6 +302,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         });
         _checkDownloadedVods();
         _saveChannels();
+        if (_showLibraryView) _refreshLibraryEntries();
         _showSnackBar('Download completed: $title', isError: false);
         try {
           final notification = LocalNotification(
@@ -1339,6 +1348,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 await windowManager.focus();
                 
                 setState(() {
+                  _showLibraryView = false;
                   _selectedChannel = channel;
                 });
                 _fetchVodsForChannel(channel);
@@ -1695,6 +1705,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       searchController: _searchController,
       onChannelSelected: (channel) {
         setState(() {
+          _showLibraryView = false;
           _selectedChannel = channel;
           _channelVods.clear();
           _selectedGamesFilter.clear();
@@ -1717,6 +1728,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       },
       onGoToDashboard: () {
         setState(() {
+          _showLibraryView = false;
           _selectedChannel = null;
         });
       },
@@ -1747,14 +1759,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
       },
       onShowSettings: _showSettingsDialog,
+      onShowLibrary: _openLibrary,
     );
 
     final contentArea = Expanded(
       child: Container(
         color: themeNotifier.backgroundColor,
-        child: _selectedChannel == null
-            ? _buildWelcomeScreen(theme)
-            : _buildDashboard(theme, _selectedChannel!),
+        child: _showLibraryView
+            ? _buildLibraryView()
+            : _selectedChannel == null
+                ? _buildWelcomeScreen(theme)
+                : _buildDashboard(theme, _selectedChannel!),
       ),
     );
 
@@ -1975,7 +1990,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           child: Tooltip(
                             message: '${video.title}\nResume at $progressPct% (${video.duration})',
                             child: GestureDetector(
-                              onTap: () => _playVod(video, 'VOD'),
+                              onTap: () => _playVod(video, _channelNameForVod(video.id)),
                               child: AnimatedContainer(
                                 duration: const Duration(milliseconds: 180),
                                 child: Container(
@@ -2279,6 +2294,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               _buildQuickActionCard(
                 context: context,
                 theme: theme,
+                icon: Icons.video_library,
+                title: 'Library',
+                subtitle:
+                    '${_downloadedVodsRegistry.length} downloaded VOD${_downloadedVodsRegistry.length == 1 ? '' : 's'} & history',
+                onTap: _openLibrary,
+              ),
+              _buildQuickActionCard(
+                context: context,
+                theme: theme,
                 icon: Icons.account_circle,
                 title: 'Twitch Account',
                 subtitle: _authenticatedUserLogin != null ? 'Logged in as $_authenticatedUserLogin' : 'Connect Account',
@@ -2296,46 +2320,256 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       ),
     ),
   ),
-  ConsolePanel(
-          logNotifier: _logNotifier,
-          playerTabTitles: _playerService.playerTabTitles,
-          playingVodIds: _playerService.playingVodIds,
-          runningChannels: _playerService.runningChannels,
-          selectedConsoleTabKey: _selectedConsoleTabKey,
-          consoleCollapsed: _consoleCollapsed,
-          activeDownloadsProgress: _playerService.activeDownloadsProgress,
-          activeDownloadTasks: _playerService.activeDownloadTasks,
-          downloadQueue: _playerService.downloadQueue,
-          queuedDownloadTasks: _playerService.queuedDownloadTasks,
-          downloadTitles: _playerService.downloadTitles,
-          onCancelDownload: (vodId) {
-            final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
-            _cancelVodDownload(vodId, channel);
-          },
-          onTabSelected: (key) {
-            setState(() {
-              _selectedConsoleTabKey = key;
-              _consoleCollapsed = false;
-            });
-          },
-          onCloseTab: (key) {
-            setState(() {
-              _playerService.playerTabTitles.remove(key);
-              if (_selectedConsoleTabKey == key) {
-                _selectedConsoleTabKey = '__downloads_manager__';
-              }
-            });
-          },
-          onToggleCollapse: () {
-            setState(() {
-              _consoleCollapsed = !_consoleCollapsed;
-            });
-          },
-          onKillProcess: (key) {
-            _playerService.killProcess(key);
-          },
-        ),
+  _buildConsolePanel(),
       ],
+    );
+  }
+
+  /// Opens the Library screen with a fresh scan of the download registry.
+  void _openLibrary() {
+    _checkDownloadedVods();
+    _refreshLibraryEntries();
+    setState(() {
+      _showLibraryView = true;
+    });
+  }
+
+  /// Rebuilds the cached Library rows (the only place file stats happen).
+  void _refreshLibraryEntries() {
+    final entries = buildLibraryEntries(
+      registry: _downloadedVodsRegistry,
+      recents: _recentWatchedVods,
+      localProgress: _localVodsProgress,
+      channelNames: _playerService.downloadChannelNames,
+      downloadRoot: _settings.vodDownloadFolder,
+      statFile: (path) {
+        try {
+          final file = File(path);
+          if (!file.existsSync()) return null;
+          final stat = file.statSync();
+          return (size: stat.size, modified: stat.modified);
+        } catch (_) {
+          return null;
+        }
+      },
+    );
+    if (mounted) {
+      setState(() {
+        _libraryEntries = entries;
+      });
+    }
+  }
+
+  /// Channel a VOD belongs to, best-effort: the registry path's channel
+  /// folder, then this session's download bookkeeping. The recents carousel
+  /// previously hardcoded 'VOD', which made _playVod look for the local file
+  /// under `<root>/VOD/` and re-stream VODs that were sitting on disk.
+  String _channelNameForVod(String vodId) {
+    final path = _downloadedVodsRegistry[vodId];
+    if (path != null) {
+      final parsed = channelFromDownloadPath(path, _settings.vodDownloadFolder);
+      if (parsed != null && parsed.isNotEmpty) return parsed;
+    }
+    return _playerService.downloadChannelNames[vodId] ?? 'VOD';
+  }
+
+  /// Opens Explorer with [filePath] selected. Launched detached via
+  /// explorer.exe so the shell window is not inside our kill-on-close job.
+  Future<void> _revealInExplorer(String filePath) async {
+    try {
+      await Process.start(
+        'explorer.exe',
+        ['/select,${filePath.replaceAll('/', r'\')}'],
+        mode: ProcessStartMode.detached,
+      );
+    } catch (e) {
+      _showSnackBar('Could not open folder: $e', isError: true);
+    }
+  }
+
+  void _playLibraryEntry(LibraryEntry entry) {
+    // Registry-only entries carry no Twitch metadata; a minimal synthesized
+    // video is enough for _playVod's local-file path.
+    final video = entry.video ??
+        TwitchVideo(
+          id: entry.vodId,
+          title: entry.title,
+          duration: '',
+          thumbnailUrl: '',
+          viewCount: '0',
+          publishedAt: entry.modified ?? DateTime.now(),
+        );
+    _playVod(video, entry.channel);
+  }
+
+  Future<void> _deleteLibraryEntry(LibraryEntry entry) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete Download?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+        backgroundColor: themeNotifier.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Text(
+          'Delete the downloaded file for "${entry.title}"? This cannot be undone.',
+          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+          ),
+          ElevatedButton(
+            // White on the fixed danger red, theme-independent.
+            style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _deleteDownloadedVod(entry.vodId, entry.channel);
+    _refreshLibraryEntries();
+  }
+
+  Future<void> _removeLibraryEntryFromHistory(LibraryEntry entry) async {
+    setState(() {
+      _recentWatchedVods.removeWhere((v) => v.id == entry.vodId);
+      _localVodsProgress.remove(entry.vodId);
+    });
+    await _storageService.saveRecentWatchedVods(
+      _recentWatchedVods.map((v) => v.toJson()).toList(),
+    );
+    await _saveChannels();
+    _refreshLibraryEntries();
+  }
+
+  Widget _buildLibraryView() {
+    return Column(
+      children: [
+        Expanded(
+          child: LibraryView(
+            entries: _libraryEntries,
+            onRefresh: () {
+              _checkDownloadedVods();
+              _refreshLibraryEntries();
+            },
+            onPlay: _playLibraryEntry,
+            onOpenFolder: (entry) {
+              if (entry.filePath != null) _revealInExplorer(entry.filePath!);
+            },
+            onDelete: _deleteLibraryEntry,
+            onRemoveFromHistory: _removeLibraryEntryFromHistory,
+          ),
+        ),
+        _buildConsolePanel(),
+      ],
+    );
+  }
+
+  /// True when [key]'s underlying process is still alive or pending
+  /// (a running player, a live stream, or an active/queued download).
+  bool _consoleTabHasRunningProcess(String key) {
+    if (key.startsWith('dl-')) {
+      final vodId = key.substring(3);
+      return _playerService.activeDownloadProcesses.containsKey(vodId) ||
+          _playerService.downloadQueue.contains(vodId);
+    }
+    return _playerService.playingVodIds.contains(key) ||
+        _playerService.runningChannels.contains(key.replaceFirst('stream_', ''));
+  }
+
+  /// The single close-tab path for both the dashboard and welcome screens.
+  ///
+  /// The two screens used to wire divergent inline handlers: the dashboard's
+  /// never called removeKey (leaking the closed tab's log buffer) and neither
+  /// asked before killing a tab whose process was still running.
+  Future<void> _closeConsoleTab(String key) async {
+    if (_consoleTabHasRunningProcess(key)) {
+      final isDownload = key.startsWith('dl-');
+      final bool? stop = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(isDownload ? 'Cancel Download?' : 'Stop Process?',
+              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+          backgroundColor: themeNotifier.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Text(
+            isDownload
+                ? 'This download is still in progress. Closing the tab will cancel it and delete the partial file.'
+                : 'This process is still running. Closing the tab will stop it.',
+            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Keep Running', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+            ),
+            ElevatedButton(
+              // White on the fixed danger red, theme-independent.
+              style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(isDownload ? 'Cancel & Close' : 'Stop & Close'),
+            ),
+          ],
+        ),
+      );
+      if (stop != true) return;
+      if (isDownload) {
+        final vodId = key.substring(3);
+        final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
+        await _cancelVodDownload(vodId, channel);
+      } else {
+        _playerService.killProcess(key);
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _logNotifier.removeKey(key);
+      _playerService.playerTabTitles.remove(key);
+      if (_selectedConsoleTabKey == key) {
+        _selectedConsoleTabKey = _playerService.playerTabTitles.keys.isNotEmpty
+            ? _playerService.playerTabTitles.keys.first
+            : '__downloads_manager__';
+      }
+    });
+  }
+
+  /// The single ConsolePanel construction, shared by the dashboard and the
+  /// welcome screen (they previously carried diverged inline copies).
+  Widget _buildConsolePanel() {
+    return ConsolePanel(
+      logNotifier: _logNotifier,
+      playerTabTitles: _playerService.playerTabTitles,
+      playingVodIds: _playerService.playingVodIds,
+      runningChannels: _playerService.runningChannels,
+      selectedConsoleTabKey: _selectedConsoleTabKey,
+      consoleCollapsed: _consoleCollapsed,
+      activeDownloadsProgress: _playerService.activeDownloadsProgress,
+      activeDownloadTasks: _playerService.activeDownloadTasks,
+      downloadQueue: _playerService.downloadQueue,
+      queuedDownloadTasks: _playerService.queuedDownloadTasks,
+      downloadTitles: _playerService.downloadTitles,
+      activeProcessIds: _playerService.activeDownloadProcesses.keys.toSet(),
+      onCancelDownload: (vodId) {
+        final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
+        _cancelVodDownload(vodId, channel);
+      },
+      onTabSelected: (key) {
+        setState(() {
+          _selectedConsoleTabKey = key;
+          _consoleCollapsed = false;
+        });
+      },
+      onToggleCollapse: () {
+        setState(() {
+          _consoleCollapsed = !_consoleCollapsed;
+        });
+      },
+      onKillProcess: (key) {
+        _playerService.killProcess(key);
+      },
+      onCloseTab: _closeConsoleTab,
     );
   }
 
@@ -2739,9 +2973,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     watchedThreshold: _settings.watchedThreshold,
                     activeProgressColor: themeNotifier.activeProgressColor,
                     watchedProgressColor: themeNotifier.watchedProgressColor,
-                    onScaleChanged: (val) => setState(() => _vodScale = val),
-                    onFontSizeChanged: (val) => setState(() => _vodTitleFontSize = val),
-                    onShowGamesChanged: (val) => setState(() => _showGamesOnThumbnails = val),
                     onGameFilterSelected: (game) {
                       setState(() {
                         if (_selectedGamesFilter.contains(game)) {
@@ -2752,25 +2983,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       });
                     },
                     onClearGameFilter: () => setState(() => _selectedGamesFilter.clear()),
-                    onToggleMultiSelect: () => setState(() {
-                      _isMultiSelectMode = !_isMultiSelectMode;
-                      _selectedVodIds.clear();
-                    }),
-                    onSelectAllVisible: () {
-                      final searchQuery = _vodSearchController.text.trim().toLowerCase();
-                      final visible = _channelVods.where((vod) {
-                        final matchesSearch = searchQuery.isEmpty ||
-                            vod.title.toLowerCase().contains(searchQuery) ||
-                            vod.games.any((game) => game.toLowerCase().contains(searchQuery));
-                        final matchesGameFilter = _selectedGamesFilter.isEmpty ||
-                            vod.games.any((game) => _selectedGamesFilter.contains(game));
-                        return matchesSearch && matchesGameFilter;
-                      });
-                      setState(() {
-                        _selectedVodIds.addAll(visible.map((v) => v.id));
-                      });
-                    },
-                    onDeselectAll: () => setState(() => _selectedVodIds.clear()),
                     onPlay: (vod) => _playVod(vod, _selectedChannel?.username ?? 'VOD'),
                     onDownload: (vod) => _queueVodDownload(vod, _selectedChannel?.username ?? 'VOD'),
                     onDeleteDownload: (id) => _deleteDownloadedVod(id, _selectedChannel?.username ?? 'VOD'),
@@ -2784,8 +2996,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         }
                       });
                     },
-                    onBulkDownload: _bulkDownloadSelectedVods,
-                    onBulkDelete: _bulkDeleteSelectedVods,
+                    onOpenFolder: (vod) {
+                      final path = _downloadedVodsRegistry[vod.id];
+                      if (path != null) _revealInExplorer(path);
+                    },
                   ),
                   
                   if (_vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty && _channelVods.isNotEmpty) ...[
@@ -2832,48 +3046,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         ),
 
         // Modular Terminal Logs Console Panel
-        ConsolePanel(
-          logNotifier: _logNotifier,
-          playerTabTitles: _playerService.playerTabTitles,
-          playingVodIds: _playerService.playingVodIds,
-          runningChannels: _playerService.runningChannels,
-          selectedConsoleTabKey: _selectedConsoleTabKey,
-          consoleCollapsed: _consoleCollapsed,
-          activeDownloadsProgress: _playerService.activeDownloadsProgress,
-          activeDownloadTasks: _playerService.activeDownloadTasks,
-          downloadQueue: _playerService.downloadQueue,
-          queuedDownloadTasks: _playerService.queuedDownloadTasks,
-          downloadTitles: _playerService.downloadTitles,
-          onCancelDownload: (vodId) {
-            final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
-            _cancelVodDownload(vodId, channel);
-          },
-          onTabSelected: (key) {
-            setState(() {
-              _selectedConsoleTabKey = key;
-              _consoleCollapsed = false;
-            });
-          },
-          onToggleCollapse: () {
-            setState(() {
-              _consoleCollapsed = !_consoleCollapsed;
-            });
-          },
-          onKillProcess: (key) {
-            _playerService.killProcess(key);
-          },
-          onCloseTab: (key) {
-            setState(() {
-              _logNotifier.removeKey(key);
-              _playerService.playerTabTitles.remove(key);
-              if (_selectedConsoleTabKey == key) {
-                _selectedConsoleTabKey = _playerService.playerTabTitles.keys.isNotEmpty 
-                    ? _playerService.playerTabTitles.keys.first 
-                    : '__downloads_manager__';
-              }
-            });
-          },
-        ),
+        _buildConsolePanel(),
       ],
     );
   }

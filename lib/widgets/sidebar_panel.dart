@@ -52,6 +52,7 @@ class SidebarPanel extends StatefulWidget {
   final ValueChanged<int> onTabChanged;
   final VoidCallback onRefresh;
   final VoidCallback onShowSettings;
+  final VoidCallback onShowLibrary;
 
   const SidebarPanel({
     Key? key,
@@ -81,6 +82,7 @@ class SidebarPanel extends StatefulWidget {
     required this.onTabChanged,
     required this.onRefresh,
     required this.onShowSettings,
+    required this.onShowLibrary,
   }) : super(key: key);
 
   @override
@@ -494,6 +496,16 @@ class SidebarPanelState extends State<SidebarPanel> {
                         constraints: const BoxConstraints(),
                         padding: EdgeInsets.zero,
                       ),
+                      const SizedBox(width: 16),
+                      IconButton(
+                        icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+                        tooltip: 'Library (downloads & history)',
+                        onPressed: widget.onShowLibrary,
+                        hoverColor: theme.primaryColor.withOpacity(0.2),
+                        splashRadius: 20,
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                      ),
                     ],
                   ),
                 ),
@@ -696,16 +708,28 @@ class SidebarPanelState extends State<SidebarPanel> {
           decoration: BoxDecoration(
             border: Border(top: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1)),
           ),
-          child: Center(
-            child: IconButton(
-              icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
-              tooltip: 'Settings',
-              onPressed: widget.onShowSettings,
-              hoverColor: theme.primaryColor.withOpacity(0.2),
-              splashRadius: 20,
-              constraints: const BoxConstraints(),
-              padding: EdgeInsets.zero,
-            ),
+          child: Column(
+            children: [
+              IconButton(
+                icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+                tooltip: 'Library (downloads & history)',
+                onPressed: widget.onShowLibrary,
+                hoverColor: theme.primaryColor.withOpacity(0.2),
+                splashRadius: 20,
+                constraints: const BoxConstraints(),
+                padding: EdgeInsets.zero,
+              ),
+              const SizedBox(height: 14),
+              IconButton(
+                icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+                tooltip: 'Settings',
+                onPressed: widget.onShowSettings,
+                hoverColor: theme.primaryColor.withOpacity(0.2),
+                splashRadius: 20,
+                constraints: const BoxConstraints(),
+                padding: EdgeInsets.zero,
+              ),
+            ],
           ),
         ),
       ],
@@ -974,6 +998,14 @@ class SidebarPanelState extends State<SidebarPanel> {
           const SizedBox(width: 8),
           Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
           const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+            tooltip: 'Library (downloads & history)',
+            onPressed: widget.onShowLibrary,
+            hoverColor: theme.primaryColor.withOpacity(0.2),
+            splashRadius: 20,
+          ),
+          const SizedBox(width: 4),
           IconButton(
             icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
             tooltip: 'Settings',

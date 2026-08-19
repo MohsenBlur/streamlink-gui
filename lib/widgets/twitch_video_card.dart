@@ -24,6 +24,7 @@ class TwitchVideoCard extends StatefulWidget {
   final VoidCallback onDownload;
   final VoidCallback onDeleteDownload;
   final VoidCallback onCancel;
+  final VoidCallback? onOpenFolder;
   final Color activeProgressColor;
   final Color watchedProgressColor;
 
@@ -50,6 +51,7 @@ class TwitchVideoCard extends StatefulWidget {
     required this.onDownload,
     required this.onDeleteDownload,
     required this.onCancel,
+    this.onOpenFolder,
   }) : super(key: key);
 
   @override
@@ -562,6 +564,15 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                   backgroundColor: NeuTheme.live,
                                                   tooltip: 'Play Local VOD',
                                                 ),
+                                                if (widget.onOpenFolder != null) ...[
+                                                  const SizedBox(width: 6),
+                                                  _buildCardButton(
+                                                    onTap: widget.onOpenFolder!,
+                                                    icon: Icons.folder_open,
+                                                    backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                                    tooltip: 'Show in Explorer',
+                                                  ),
+                                                ],
                                                 const SizedBox(width: 6),
                                                 _buildCardButton(
                                                   onTap: widget.onDeleteDownload,

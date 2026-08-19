@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
+import '../state/download_view_state.dart';
 import 'horizontal_mouse_scrollable.dart';
 import '../theme/neu_theme.dart';
 import '../theme/theme_notifier.dart';
@@ -48,6 +49,10 @@ class ConsolePanel extends StatefulWidget {
   final List<String> downloadQueue;
   final Map<String, TwitchVideo> queuedDownloadTasks;
   final Map<String, String> downloadTitles;
+
+  /// Ids with a live yt-dlp process; the single source of truth that
+  /// separates "Active Downloads" from "Queue List".
+  final Set<String> activeProcessIds;
   final ValueChanged<String> onCancelDownload;
 
   const ConsolePanel({
@@ -67,6 +72,7 @@ class ConsolePanel extends StatefulWidget {
     required this.downloadQueue,
     required this.queuedDownloadTasks,
     required this.downloadTitles,
+    required this.activeProcessIds,
     required this.onCancelDownload,
   }) : super(key: key);
 
@@ -94,6 +100,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
     if (!widget.consoleCollapsed) {
       _hasUnreadLogs = false;
     }
+    _pruneScrollControllers();
   }
 
   @override
@@ -119,7 +126,22 @@ class _ConsolePanelState extends State<ConsolePanel> {
     return _scrollControllers.putIfAbsent(key, () => ScrollController());
   }
 
+  /// The tab the last frame rendered; switching tabs re-pins to the bottom.
+  String? _lastScrolledKey;
+
   void _scrollToBottom(String key) {
+    final controller = _scrollControllers[key];
+    final switchedTab = _lastScrolledKey != key;
+    _lastScrolledKey = key;
+
+    // The extent read here is last frame's layout - i.e. the pin state from
+    // BEFORE the incoming log lines. Only follow the tail when the user was
+    // already near it (or just switched tabs); a reader scrolled up stays put.
+    final wasPinned = controller == null ||
+        !controller.hasClients ||
+        controller.position.maxScrollExtent - controller.offset < 80;
+    if (!switchedTab && !wasPinned) return;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final controller = _scrollControllers[key];
       if (controller != null && controller.hasClients) {
@@ -128,6 +150,26 @@ class _ConsolePanelState extends State<ConsolePanel> {
           duration: const Duration(milliseconds: 100),
           curve: Curves.easeOut,
         );
+      }
+    });
+  }
+
+  /// Drops ScrollControllers for tabs that no longer exist. Runs post-frame
+  /// because the closing tab's ListView may still be attached this frame.
+  void _pruneScrollControllers() {
+    final stale = _scrollControllers.keys
+        .where((k) =>
+            k != '__downloads_manager__' &&
+            !widget.playerTabTitles.containsKey(k))
+        .toList();
+    if (stale.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final k in stale) {
+        if (!widget.playerTabTitles.containsKey(k) &&
+            k != '__downloads_manager__') {
+          _scrollControllers.remove(k)?.dispose();
+        }
       }
     });
   }
@@ -358,6 +400,23 @@ class _ConsolePanelState extends State<ConsolePanel> {
                     ),
                   ),
                 ],
+                if (activeKey.startsWith('dl-') &&
+                    (widget.activeProcessIds.contains(activeKey.substring(3)) ||
+                        widget.downloadQueue.contains(activeKey.substring(3)) ||
+                        widget.activeDownloadTasks.containsKey(activeKey.substring(3)))) ...[
+                  SizedBox(
+                    height: 26,
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      icon: const Icon(Icons.cancel_outlined, size: 14),
+                      label: const Text('Cancel Download', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: () => widget.onCancelDownload(activeKey.substring(3)),
+                    ),
+                  ),
+                ],
                 if (activeKey != '__downloads_manager__') ...[
                   IconButton(
                     icon: Icon(Icons.delete_outline, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
@@ -431,8 +490,13 @@ class _ConsolePanelState extends State<ConsolePanel> {
   }
 
   Widget _buildDownloadsManagerView() {
-    final activeKeys = widget.activeDownloadTasks.keys.toList();
-    final queuedKeys = widget.downloadQueue;
+    final split = splitDownloadIds(
+      taskIds: widget.activeDownloadTasks.keys,
+      queueIds: widget.downloadQueue,
+      startedIds: widget.activeProcessIds,
+    );
+    final activeKeys = split.active;
+    final queuedKeys = split.queued;
 
     if (activeKeys.isEmpty && queuedKeys.isEmpty) {
       return Center(
