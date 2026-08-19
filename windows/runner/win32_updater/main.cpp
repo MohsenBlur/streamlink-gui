@@ -45,9 +45,18 @@ void LogLine(const std::wstring& message) {
     CloseHandle(hFile);
 }
 
+// Returns the value of a "--name value" argument, or an empty string.
+std::wstring ArgValue(int argc, LPWSTR* argv, const wchar_t* name) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (wcscmp(argv[i], name) == 0) return argv[i + 1];
+    }
+    return std::wstring();
+}
+
 // Creates the file the launching app waits on to learn that we are safely
-// outside its job object and it may exit.
-void SignalReady(int argc, LPWSTR* argv) {
+// outside its job object and it may exit. Returns false when there was nothing
+// to signal, so the caller does not claim it signalled when it did not.
+bool SignalReady(int argc, LPWSTR* argv) {
     for (int i = 1; i + 1 < argc; ++i) {
         if (wcscmp(argv[i], L"--ready-file") != 0) continue;
         HANDLE h = CreateFileW(argv[i + 1], GENERIC_WRITE, FILE_SHARE_READ, NULL,
@@ -57,9 +66,11 @@ void SignalReady(int argc, LPWSTR* argv) {
             DWORD written = 0;
             WriteFile(h, ok, sizeof(ok) - 1, &written, NULL);
             CloseHandle(h);
+            return true;
         }
-        return;
+        return false;
     }
+    return false;
 }
 
 // The main app assigns itself to a job object with KILL_ON_JOB_CLOSE so its
@@ -403,8 +414,11 @@ SwapOutcome RunElevatedSwap(const fs::path& targetDir, const fs::path& stagingDi
     while (!targetStr.empty() && (targetStr.back() == L'\\' || targetStr.back() == L'/')) targetStr.pop_back();
     while (!stagingStr.empty() && (stagingStr.back() == L'\\' || stagingStr.back() == L'/')) stagingStr.pop_back();
 
-    const std::wstring params = L"\"" + targetStr + L"\" \"" + stagingStr + L"\" \"" +
-                                exeName + L"\" --elevated " + BREAKAWAY_FLAG;
+    std::wstring params = L"\"" + targetStr + L"\" \"" + stagingStr + L"\" \"" +
+                          exeName + L"\" --elevated " + BREAKAWAY_FLAG;
+    if (!g_logPath.empty()) {
+        params += L" --log-file \"" + g_logPath + L"\"";
+    }
 
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
     sei.cbSize = sizeof(sei);
@@ -463,7 +477,35 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         if (wcscmp(argv[i], L"--elevated") == 0) isElevated = true;
     }
 
-    g_logPath = (targetDir / L"updater.log").wstring();
+    // Log where this instance can actually write.
+    //
+    // updater.log lives next to the app, but for a Program Files install only
+    // the ELEVATED instance can write there - so the non-elevated parent, which
+    // performs the job breakaway, the writability probe, the elevation decision
+    // and the readiness handshake, produced no diagnostics at all. That is
+    // precisely the phase most likely to fail.
+    //
+    // The elevated child is handed the parent's path so the whole sequence ends
+    // up in one file.
+    const std::wstring logOverride = ArgValue(argc, argv, L"--log-file");
+    if (!logOverride.empty()) {
+        g_logPath = logOverride;
+    } else {
+        const fs::path preferred = targetDir / L"updater.log";
+        HANDLE probe = CreateFileW(preferred.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
+                                   NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (probe != INVALID_HANDLE_VALUE) {
+            CloseHandle(probe);
+            g_logPath = preferred.wstring();
+        } else {
+            wchar_t tempDir[MAX_PATH + 1] = {};
+            if (GetTempPathW(MAX_PATH + 1, tempDir) != 0) {
+                g_logPath = (fs::path(tempDir) / L"streamlink_gui_updater.log").wstring();
+            } else {
+                g_logPath = preferred.wstring();
+            }
+        }
+    }
     LogLine(L"--- updater start (elevated=" + std::wstring(isElevated ? L"yes" : L"no") + L") ---");
     LogLine(L"target:  " + targetDir.wstring());
     LogLine(L"staging: " + stagingDir.wstring());
@@ -481,8 +523,9 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     // Safely outside the app's job object (or never in one). Tell the app it
     // may now exit: until this point, its exit would close the job and kill us
     // in the middle of replacing its files.
-    SignalReady(argc, argv);
-    LogLine(L"Signalled ready; the application may now exit.");
+    if (SignalReady(argc, argv)) {
+        LogLine(L"Signalled ready; the application may now exit.");
+    }
 
     // Wait for the app to release its single-instance mutex.
     HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, MUTEX_NAME);
