@@ -66,6 +66,11 @@ class PlayerService {
   final Map<String, int> activePlayerPorts = {};
   final Map<String, Timer> activePlayerTimers = {};
   final Set<String> playingVodIds = {};
+
+  /// vodId -> absolute path of the local file currently open in a player.
+  /// Consulted by retention so it never deletes what the user is watching.
+  final Map<String, String> playingVodFilePaths = {};
+
   final Set<String> runningChannels = {};
   final Map<String, String> playerTabTitles = {};
   
@@ -146,26 +151,86 @@ class PlayerService {
     onPlayerLog?.call(key, line);
   }
 
-  File? getDownloadedVodFile(String vodId, String channelName, String downloadFolder) {
-    if (downloadFolder.trim().isEmpty) return null;
-    final dir = Directory('${downloadFolder.trim()}/$channelName');
+  /// Matches a completed download for [vodId], e.g. `Some Title - 12345.mp4`.
+  ///
+  /// Anchored on the extension so a shorter id cannot match a longer one's
+  /// file. Several deletion paths used to test `path.contains(' - $vodId')`,
+  /// which would happily match `Title - 123456789.mp4` while deleting id
+  /// `12345`.
+  static RegExp _vodFinalFilePattern(String vodId) =>
+      // The negative lookahead keeps a bare `Title - 12345.ytdl` from being
+      // treated as a finished download just because `ytdl` is alphanumeric.
+      RegExp(
+        r' - v?' + RegExp.escape(vodId) + r'\.(?!(?:part|ytdl|tmp|temp)$)[A-Za-z0-9]+$',
+        caseSensitive: false,
+      );
+
+  /// Matches yt-dlp's in-progress artefacts: `Title - 12345.mp4.part`,
+  /// `Title - 12345.f301.mp4.part` and the bare `Title - 12345.ytdl`.
+  static RegExp _vodTempFilePattern(String vodId) =>
+      RegExp(
+        r' - v?' + RegExp.escape(vodId) + r'(\..*)?\.(part|ytdl|tmp|temp)$',
+        caseSensitive: false,
+      );
+
+  Directory? _channelDirectory(String channelName, String downloadFolder) {
+    final folder = downloadFolder.trim();
+    if (folder.isEmpty) return null;
+    final dir = Directory(path.join(folder, channelName));
     if (!dir.existsSync()) return null;
+    return dir;
+  }
+
+  /// Completed files belonging to [vodId] (never partials).
+  List<File> findDownloadedVodFiles(String vodId, String channelName, String downloadFolder) {
+    final dir = _channelDirectory(channelName, downloadFolder);
+    if (dir == null) return const [];
+    final pattern = _vodFinalFilePattern(vodId);
     try {
-      final files = dir.listSync();
-      for (final file in files) {
-        if (file is File) {
-          final name = file.path.toLowerCase();
-          if (RegExp(' - v?$vodId\\.[a-zA-Z0-9]+\$').hasMatch(name) &&
-              !name.endsWith('.part') &&
-              !name.endsWith('.ytdl') &&
-              !name.endsWith('.tmp') &&
-              !name.endsWith('.temp')) {
-            return file;
-          }
+      return dir.listSync().whereType<File>().where((f) => pattern.hasMatch(f.path)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Partial/temporary files belonging to [vodId].
+  List<File> findTemporaryVodFiles(String vodId, String channelName, String downloadFolder) {
+    final dir = _channelDirectory(channelName, downloadFolder);
+    if (dir == null) return const [];
+    final pattern = _vodTempFilePattern(vodId);
+    try {
+      return dir.listSync().whereType<File>().where((f) => pattern.hasMatch(f.path)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  File? getDownloadedVodFile(String vodId, String channelName, String downloadFolder) {
+    final matches = findDownloadedVodFiles(vodId, channelName, downloadFolder);
+    return matches.isEmpty ? null : matches.first;
+  }
+
+  /// Deletes every file belonging to [vodId] and returns how many were removed.
+  ///
+  /// Returns a count rather than assuming success: the delete paths previously
+  /// reported "Deleted download" and dropped the registry entry even when
+  /// nothing was removed, orphaning the file on disk.
+  int deleteVodFiles(String vodId, String channelName, String downloadFolder,
+      {bool includeTemporary = true}) {
+    var deleted = 0;
+    final targets = <File>[
+      ...findDownloadedVodFiles(vodId, channelName, downloadFolder),
+      if (includeTemporary) ...findTemporaryVodFiles(vodId, channelName, downloadFolder),
+    ];
+    for (final file in targets) {
+      try {
+        if (file.existsSync()) {
+          file.deleteSync();
+          deleted++;
         }
-      }
-    } catch (_) {}
-    return null;
+      } catch (_) {}
+    }
+    return deleted;
   }
 
   void removeVodFromArchive(String vodId) {
@@ -192,26 +257,13 @@ class PlayerService {
   }
 
   void deleteTemporaryDownloadFiles(String vodId, String channelName, String downloadFolder) {
-    final folder = downloadFolder.trim();
-    if (folder.isEmpty) return;
-    final dir = Directory('$folder/$channelName');
-    if (!dir.existsSync()) return;
-
-    try {
-      final files = dir.listSync();
-      for (final file in files) {
-        if (file is File) {
-          final pathLower = file.path.toLowerCase();
-          if (pathLower.contains(vodId.toLowerCase())) {
-            if (pathLower.endsWith('.ytdl') || pathLower.endsWith('.part')) {
-              try {
-                file.deleteSync();
-              } catch (_) {}
-            }
-          }
-        }
-      }
-    } catch (_) {}
+    // Previously matched `path.contains(vodId)` anywhere in the name, so a
+    // short id could delete another in-flight download's partial file.
+    for (final file in findTemporaryVodFiles(vodId, channelName, downloadFolder)) {
+      try {
+        file.deleteSync();
+      } catch (_) {}
+    }
   }
 
   Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool isRetryWithFfmpeg = false, bool? overrideDisablePostProcessing}) async {
@@ -454,23 +506,10 @@ class PlayerService {
     onDownloadCancelled?.call(vodId);
     removeVodFromArchive(vodId);
 
-    // Delete temporary incomplete files
-    if (downloadFolder.trim().isNotEmpty) {
-      final dir = Directory('${downloadFolder.trim()}/$channelName');
-      if (dir.existsSync()) {
-        try {
-          final files = dir.listSync();
-          for (final file in files) {
-            if (file is File) {
-              final name = file.path;
-              if (name.contains(' - $vodId')) {
-                await file.delete();
-              }
-            }
-          }
-        } catch (_) {}
-      }
-    }
+    // Remove the partial output. Anchored matching only: this used to delete
+    // anything whose path merely contained " - <vodId>", so cancelling a short
+    // id could destroy an unrelated, fully downloaded VOD in the same folder.
+    deleteVodFiles(vodId, channelName, downloadFolder);
   }
 
   void _cleanupOldestDownloads(AppSettings settings) {
@@ -481,41 +520,52 @@ class PlayerService {
     final mainDir = Directory(downloadFolder);
     if (!mainDir.existsSync()) return;
 
+    final vodIdInName = RegExp(r' - v?(\d+)\.[A-Za-z0-9]+$', caseSensitive: false);
+
     try {
       final allFiles = <File>[];
       final entities = mainDir.listSync(recursive: true);
       for (final entity in entities) {
-        if (entity is File) {
-          final name = entity.path;
-          // Protect active .part/.ytdl downloads
-          if (RegExp(r' - \d+\.[a-zA-Z0-9]+$').hasMatch(name) &&
-              !name.endsWith('.part') &&
-              !name.endsWith('.ytdl')) {
-            allFiles.add(entity);
-          }
+        if (entity is! File) continue;
+        final name = entity.path;
+        // Protect active .part/.ytdl downloads
+        if (!vodIdInName.hasMatch(name) || name.endsWith('.part') || name.endsWith('.ytdl')) {
+          continue;
         }
+        // Never delete a file that is open in a player right now.
+        if (playingVodFilePaths.values.any((p) => _isSamePath(p, name))) continue;
+        allFiles.add(entity);
       }
 
-      if (allFiles.length > settings.maxDownloadsToKeep) {
-        allFiles.sort((a, b) {
-          try {
-            return a.lastModifiedSync().compareTo(b.lastModifiedSync());
-          } catch (_) {
-            return 0;
-          }
-        });
+      if (allFiles.length <= settings.maxDownloadsToKeep) return;
 
-        while (allFiles.length > settings.maxDownloadsToKeep) {
-          final oldestFile = allFiles.removeAt(0);
-          try {
-            if (oldestFile.existsSync()) {
-              oldestFile.deleteSync();
-            }
-          } catch (_) {}
+      allFiles.sort((a, b) {
+        try {
+          return a.lastModifiedSync().compareTo(b.lastModifiedSync());
+        } catch (_) {
+          return 0;
         }
+      });
+
+      while (allFiles.length > settings.maxDownloadsToKeep) {
+        final oldestFile = allFiles.removeAt(0);
+        try {
+          if (!oldestFile.existsSync()) continue;
+          final match = vodIdInName.firstMatch(oldestFile.path);
+          oldestFile.deleteSync();
+          // Keep yt-dlp's download archive in sync. Leaving a deleted VOD in
+          // the archive made a later re-download exit 0 immediately without
+          // producing a file, which surfaced as a bogus "Download completed".
+          if (match != null) {
+            removeVodFromArchive(match.group(1)!);
+          }
+        } catch (_) {}
       }
     } catch (_) {}
   }
+
+  static bool _isSamePath(String a, String b) =>
+      path.normalize(a).toLowerCase() == path.normalize(b).toLowerCase();
 
   Future<void> playDownloadedVod(File file, TwitchVideo vod, AppSettings settings) async {
     final path = file.path;
@@ -608,6 +658,8 @@ class PlayerService {
 
     try {
       playingVodIds.add(vod.id);
+      // Recorded so retention never deletes the file being watched.
+      playingVodFilePaths[vod.id] = file.path;
       activePlayerPorts[vod.id] = port;
       playerTabTitles[key] = title;
 
@@ -636,6 +688,7 @@ class PlayerService {
       proc.exitCode.then((exitCode) {
         log(key, '[System] Local player process exited with code $exitCode');
         playingVodIds.remove(vod.id);
+        playingVodFilePaths.remove(vod.id);
         activePlayerProcesses.remove(vod.id);
         activePlayerPorts.remove(vod.id);
         _stopWindowsIpcBridge(key);
@@ -644,6 +697,7 @@ class PlayerService {
       });
     } catch (e) {
       playingVodIds.remove(vod.id);
+      playingVodFilePaths.remove(vod.id);
       activePlayerPorts.remove(vod.id);
       log(key, '[System Error] Failed to launch local player: $e');
       onPlayerStopped?.call(key, -1);
@@ -1120,6 +1174,9 @@ class PlayerService {
       } catch (_) {}
     }
     activePlayerProcesses.clear();
+
+    playingVodIds.clear();
+    playingVodFilePaths.clear();
 
     for (final timer in activePlayerTimers.values) {
       timer.cancel();

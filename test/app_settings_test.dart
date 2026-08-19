@@ -16,9 +16,6 @@ AppSettings buildNonDefaultSettings() {
     localServerPort: 54321,
     watchedThreshold: 88,
     sidebarCollapsed: true,
-    primaryColorHex: '#112233',
-    backgroundColorHex: '#223344',
-    surfaceColorHex: '#334455',
     activeProgressColorHex: '#445566',
     watchedProgressColorHex: '#80556677',
     lightAccentColorHex: '#10B981',
@@ -113,6 +110,53 @@ void main() {
       expect(restored.windowHeight, 768.0);
       expect(restored.windowX, 10.0);
       expect(restored.windowY, 20.0);
+    });
+
+    test('copyWith preserves every field the caller did not specify', () {
+      // Regression: the settings dialog used to build a brand-new AppSettings
+      // from only the fields it edits, so saving it silently reset the theme
+      // mode, window geometry, VOD watch exclusion threshold and the auto-play
+      // preemption toggle to their defaults. Changing one field must never
+      // disturb another.
+      final original = buildNonDefaultSettings();
+      final updated = original.copyWith(defaultQuality: '480p');
+
+      expect(updated.defaultQuality, '480p');
+
+      final before = original.toJson()..remove('default_quality');
+      final after = updated.toJson()..remove('default_quality');
+      expect(after, equals(before));
+    });
+
+    test('copyWith preserves settings that only other dialogs edit', () {
+      // These four are owned by the automation dialog and the window listener,
+      // never by the settings dialog, and were the ones users actually lost.
+      final original = buildNonDefaultSettings();
+      final updated = original.copyWith(playerType: 'vlc');
+
+      expect(updated.isDarkTheme, original.isDarkTheme);
+      expect(updated.vodWatchExclusionThreshold, original.vodWatchExclusionThreshold);
+      expect(updated.autoPlayPreemptLowerPriority, original.autoPlayPreemptLowerPriority);
+      expect(updated.windowWidth, original.windowWidth);
+      expect(updated.windowHeight, original.windowHeight);
+      expect(updated.windowX, original.windowX);
+      expect(updated.windowY, original.windowY);
+      expect(updated.isWindowMaximized, original.isWindowMaximized);
+      expect(updated.showGamesOnThumbnails, original.showGamesOnThumbnails);
+      expect(updated.sidebarCollapsed, original.sidebarCollapsed);
+      expect(updated.activeSidebarTab, original.activeSidebarTab);
+      expect(updated.unfinishedDownloads, original.unfinishedDownloads);
+    });
+
+    test('copyWith can explicitly clear the window position', () {
+      final original = buildNonDefaultSettings();
+      final cleared = original.copyWith(clearWindowPosition: true);
+
+      expect(cleared.windowX, isNull);
+      expect(cleared.windowY, isNull);
+      // Size is independent of position and must survive.
+      expect(cleared.windowWidth, original.windowWidth);
+      expect(cleared.windowHeight, original.windowHeight);
     });
 
     test('fills a download folder default when none is supplied', () {

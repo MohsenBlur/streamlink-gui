@@ -1,43 +1,45 @@
 import 'dart:io';
 
 class AppSettings {
-  String defaultQuality = 'best';
-  bool twitchLowLatency = true;
-  String twitchOauthToken = '';
-  String twitchWebOauthToken = '';
-  String playerType = 'default'; // 'default', 'vlc', 'mpv', 'mpc-hc', 'custom'
-  String customPlayerPath = '';
-  String customPlayerArgs = '';
-  String twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-  int localServerPort = 65432;
-  int watchedThreshold = 96;
-  bool sidebarCollapsed = false;
-  String primaryColorHex = '#9146FF';
-  String backgroundColorHex = '#0C0F17';
-  String surfaceColorHex = '#161B26';
-  String activeProgressColorHex = '#9146FF';
-  String watchedProgressColorHex = '#804CAF50';
-  String vodDownloadFolder = '';
-  int maxDownloadsToKeep = 0; // 0 = unlimited
-  List<dynamic> unfinishedDownloads = const [];
-  int maxRecentlyWatched = 8;
-  int activeSidebarTab = 0;
+  String defaultQuality;
+  bool twitchLowLatency;
+  String twitchOauthToken;
+  String twitchWebOauthToken;
+  String playerType; // 'default', 'vlc', 'mpv', 'mpc-hc', 'custom'
+  String customPlayerPath;
+  String customPlayerArgs;
+  String twitchClientId;
+  int localServerPort;
+  int watchedThreshold;
+  bool sidebarCollapsed;
+
+  /// VOD progress bar colours. Persisted so they can be tuned by hand in
+  /// channels_config.json; there is deliberately no UI for them yet.
+  String activeProgressColorHex;
+  String watchedProgressColorHex;
+
+  String vodDownloadFolder;
+  int maxDownloadsToKeep; // 0 = unlimited
+  List<dynamic> unfinishedDownloads;
+  int maxRecentlyWatched;
+  int activeSidebarTab;
 
   // Window bounds & UI state persistence
-  double windowWidth = 1280.0;
-  double windowHeight = 720.0;
+  double windowWidth;
+  double windowHeight;
   double? windowX;
   double? windowY;
-  bool isWindowMaximized = false;
-  bool showGamesOnThumbnails = true;
-  int vodWatchExclusionThreshold = 15; // default 15%
-  bool autoPlayPreemptLowerPriority = false;
-  bool isDarkTheme = true;
-  bool disableVodPostProcessing = true;
-  String customVodArgs = '';
+  bool isWindowMaximized;
+  bool showGamesOnThumbnails;
+  int vodWatchExclusionThreshold; // default 15%
+  bool autoPlayPreemptLowerPriority;
+  bool isDarkTheme;
+  bool disableVodPostProcessing;
+  String customVodArgs;
 
-  String lightAccentColorHex = '#FF6584';
-  String darkAccentColorHex = '#FF3B30';
+  /// Accent colour per theme mode. These are the values the Styling tab edits.
+  String lightAccentColorHex;
+  String darkAccentColorHex;
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -51,9 +53,6 @@ class AppSettings {
     this.localServerPort = 65432,
     this.watchedThreshold = 96,
     this.sidebarCollapsed = false,
-    this.primaryColorHex = '#9146FF',
-    this.backgroundColorHex = '#0C0F17',
-    this.surfaceColorHex = '#161B26',
     this.activeProgressColorHex = '#9146FF',
     this.watchedProgressColorHex = '#804CAF50',
     this.lightAccentColorHex = '#FF6584',
@@ -86,6 +85,85 @@ class AppSettings {
     }
   }
 
+  /// Returns a copy with only the supplied fields replaced.
+  ///
+  /// Editors MUST use this rather than constructing a fresh [AppSettings]:
+  /// building a new instance from only the fields a dialog knows about silently
+  /// reset every other persisted field to its default, so saving the settings
+  /// dialog used to wipe the theme mode, window geometry, the VOD watch
+  /// exclusion threshold and the auto-play preemption toggle.
+  ///
+  /// Note: [windowX] and [windowY] are nullable and passing null means "keep the
+  /// current value". Use [clearWindowPosition] to reset them.
+  AppSettings copyWith({
+    String? defaultQuality,
+    bool? twitchLowLatency,
+    String? twitchOauthToken,
+    String? twitchWebOauthToken,
+    String? playerType,
+    String? customPlayerPath,
+    String? customPlayerArgs,
+    String? twitchClientId,
+    int? localServerPort,
+    int? watchedThreshold,
+    bool? sidebarCollapsed,
+    String? activeProgressColorHex,
+    String? watchedProgressColorHex,
+    String? lightAccentColorHex,
+    String? darkAccentColorHex,
+    String? vodDownloadFolder,
+    int? maxDownloadsToKeep,
+    List<dynamic>? unfinishedDownloads,
+    int? maxRecentlyWatched,
+    int? activeSidebarTab,
+    double? windowWidth,
+    double? windowHeight,
+    double? windowX,
+    double? windowY,
+    bool? isWindowMaximized,
+    bool? showGamesOnThumbnails,
+    int? vodWatchExclusionThreshold,
+    bool? autoPlayPreemptLowerPriority,
+    bool? isDarkTheme,
+    bool? disableVodPostProcessing,
+    String? customVodArgs,
+    bool clearWindowPosition = false,
+  }) {
+    return AppSettings(
+      defaultQuality: defaultQuality ?? this.defaultQuality,
+      twitchLowLatency: twitchLowLatency ?? this.twitchLowLatency,
+      twitchOauthToken: twitchOauthToken ?? this.twitchOauthToken,
+      twitchWebOauthToken: twitchWebOauthToken ?? this.twitchWebOauthToken,
+      playerType: playerType ?? this.playerType,
+      customPlayerPath: customPlayerPath ?? this.customPlayerPath,
+      customPlayerArgs: customPlayerArgs ?? this.customPlayerArgs,
+      twitchClientId: twitchClientId ?? this.twitchClientId,
+      localServerPort: localServerPort ?? this.localServerPort,
+      watchedThreshold: watchedThreshold ?? this.watchedThreshold,
+      sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
+      activeProgressColorHex: activeProgressColorHex ?? this.activeProgressColorHex,
+      watchedProgressColorHex: watchedProgressColorHex ?? this.watchedProgressColorHex,
+      lightAccentColorHex: lightAccentColorHex ?? this.lightAccentColorHex,
+      darkAccentColorHex: darkAccentColorHex ?? this.darkAccentColorHex,
+      vodDownloadFolder: vodDownloadFolder ?? this.vodDownloadFolder,
+      maxDownloadsToKeep: maxDownloadsToKeep ?? this.maxDownloadsToKeep,
+      unfinishedDownloads: unfinishedDownloads ?? this.unfinishedDownloads,
+      maxRecentlyWatched: maxRecentlyWatched ?? this.maxRecentlyWatched,
+      activeSidebarTab: activeSidebarTab ?? this.activeSidebarTab,
+      windowWidth: windowWidth ?? this.windowWidth,
+      windowHeight: windowHeight ?? this.windowHeight,
+      windowX: clearWindowPosition ? null : (windowX ?? this.windowX),
+      windowY: clearWindowPosition ? null : (windowY ?? this.windowY),
+      isWindowMaximized: isWindowMaximized ?? this.isWindowMaximized,
+      showGamesOnThumbnails: showGamesOnThumbnails ?? this.showGamesOnThumbnails,
+      vodWatchExclusionThreshold: vodWatchExclusionThreshold ?? this.vodWatchExclusionThreshold,
+      autoPlayPreemptLowerPriority: autoPlayPreemptLowerPriority ?? this.autoPlayPreemptLowerPriority,
+      isDarkTheme: isDarkTheme ?? this.isDarkTheme,
+      disableVodPostProcessing: disableVodPostProcessing ?? this.disableVodPostProcessing,
+      customVodArgs: customVodArgs ?? this.customVodArgs,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
         'default_quality': defaultQuality,
         'twitch_low_latency': twitchLowLatency,
@@ -98,9 +176,6 @@ class AppSettings {
         'local_server_port': localServerPort,
         'watched_threshold': watchedThreshold,
         'sidebar_collapsed': sidebarCollapsed,
-        'primary_color_hex': primaryColorHex,
-        'background_color_hex': backgroundColorHex,
-        'surface_color_hex': surfaceColorHex,
         'active_progress_color_hex': activeProgressColorHex,
         'watched_progress_color_hex': watchedProgressColorHex,
         'light_accent_color_hex': lightAccentColorHex,
@@ -135,9 +210,6 @@ class AppSettings {
         localServerPort: json['local_server_port'] ?? 65432,
         watchedThreshold: json['watched_threshold'] ?? 96,
         sidebarCollapsed: json['sidebar_collapsed'] ?? false,
-        primaryColorHex: json['primary_color_hex'] ?? '#9146FF',
-        backgroundColorHex: json['background_color_hex'] ?? '#0C0F17',
-        surfaceColorHex: json['surface_color_hex'] ?? '#161B26',
         activeProgressColorHex: json['active_progress_color_hex'] ?? '#9146FF',
         watchedProgressColorHex: json['watched_progress_color_hex'] ?? '#804CAF50',
         lightAccentColorHex: json['light_accent_color_hex'] ?? '#FF6584',

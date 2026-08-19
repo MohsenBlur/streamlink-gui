@@ -36,17 +36,33 @@ class TwitchVideo {
   factory TwitchVideo.fromJson(Map<String, dynamic> json) {
     final rawDuration = json['duration'] as String? ?? '0s';
     final rawViewCount = json['view_count'] as int? ?? 0;
-    
+
     return TwitchVideo(
       id: json['id'] as String,
       title: json['title'] as String? ?? 'No Title',
       duration: rawDuration,
       thumbnailUrl: json['thumbnail_url'] as String? ?? '',
       viewCount: rawViewCount.toString(),
-      publishedAt: DateTime.parse(json['published_at'] as String),
+      // A missing or malformed timestamp must not take down the whole load;
+      // the epoch simply sorts such an entry last.
+      publishedAt: DateTime.tryParse(json['published_at'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
       games: List<String>.from(json['games'] ?? const []),
       watchPosition: json['watch_position'] as int?,
       watchProgress: (json['watch_progress'] as num?)?.toDouble(),
     );
+  }
+
+  /// Lenient parser for persisted entries; returns null rather than throwing so
+  /// one bad record cannot abort loading the rest.
+  static TwitchVideo? tryFromJson(dynamic raw) {
+    try {
+      if (raw is Map) {
+        final map = Map<String, dynamic>.from(raw);
+        if (map['id'] is! String || (map['id'] as String).isEmpty) return null;
+        return TwitchVideo.fromJson(map);
+      }
+    } catch (_) {}
+    return null;
   }
 }

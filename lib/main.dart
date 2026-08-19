@@ -83,19 +83,9 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
 
   @override
   void updateTheme({
-    Color? primary,
-    Color? background,
-    Color? surface,
     Color? activeProgress,
     Color? watchedProgress,
   }) {
-    if (primary != null) {
-      if (isDarkTheme) {
-        darkAccentColor = primary;
-      } else {
-        lightAccentColor = primary;
-      }
-    }
     if (activeProgress != null) activeProgressColor = activeProgress;
     if (watchedProgress != null) watchedProgressColor = watchedProgress;
     notifyListeners();
@@ -707,7 +697,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _checkDownloadedVods() {
-    if (_settings.vodDownloadFolder.trim().isEmpty) {
+    final downloadRoot = _settings.vodDownloadFolder.trim();
+    if (downloadRoot.isEmpty) {
       if (mounted) {
         setState(() {
           _downloadedVodIds.clear();
@@ -715,7 +706,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
       return;
     }
-    
+
+    // If the download location is not reachable right now - an external or
+    // network drive that is disconnected - every existsSync() below would
+    // return false and this would prune the entire downloaded-VOD registry and
+    // strip the matching yt-dlp archive entries, permanently forgetting
+    // downloads that are merely offline. Leave all state untouched instead.
+    try {
+      if (!Directory(downloadRoot).existsSync()) return;
+    } catch (_) {
+      return;
+    }
+
     final newDownloaded = <String>{};
     bool registryChanged = false;
 
@@ -865,19 +867,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
       if (config != null) {
         final channelsJson = config['channels'];
+        int skippedChannels = 0;
         if (channelsJson is List) {
           for (final item in channelsJson) {
-            if (item is Map<String, dynamic>) {
-              loadedChannels.add(TwitchChannel.fromJson(item));
-            } else if (item is Map) {
-              loadedChannels.add(TwitchChannel.fromJson(Map<String, dynamic>.from(item)));
+            // Per-item parsing: a single malformed entry previously threw out to
+            // the outer catch before any channel was installed, leaving the list
+            // empty - and the next autosave then wrote that empty list to disk.
+            final channel = TwitchChannel.tryFromJson(item);
+            if (channel != null) {
+              loadedChannels.add(channel);
             } else if (item != null) {
-              final username = item.toString().toLowerCase().trim();
-              if (username.isNotEmpty) {
-                loadedChannels.add(TwitchChannel(username: username));
-              }
+              skippedChannels++;
             }
           }
+        }
+        if (skippedChannels > 0) {
+          print('[Config] Skipped $skippedChannels unreadable channel entries.');
         }
         final settingsJson = config['settings'];
         if (settingsJson is Map<String, dynamic>) {
@@ -894,10 +899,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               });
             }
             
+            // Restore the accent the user actually picked. Previously this read
+            // `primaryColorHex`, a field no code path ever wrote, so it was
+            // always the default purple and silently overwrote the saved accent
+            // on every launch while the real value sat unused in the config.
+            themeNotifier.setLightAccent(
+              parseHexColor(_settings.lightAccentColorHex, NeuTheme.defaultLightAccent),
+            );
+            themeNotifier.setDarkAccent(
+              parseHexColor(_settings.darkAccentColorHex, NeuTheme.defaultDarkAccent),
+            );
             themeNotifier.updateTheme(
-              primary: parseHexColor(_settings.primaryColorHex, const Color(0xFF9146FF)),
-              background: parseHexColor(_settings.backgroundColorHex, const Color(0xFF0C0F17)),
-              surface: parseHexColor(_settings.surfaceColorHex, const Color(0xFF161B26)),
               activeProgress: parseHexColor(_settings.activeProgressColorHex, const Color(0xFF9146FF)),
               watchedProgress: parseHexColor(_settings.watchedProgressColorHex, const Color(0x804CAF50)),
             );
@@ -905,11 +917,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
         final localProgressJson = config['local_vods_progress'];
         if (localProgressJson is Map) {
-          _localVodsProgress = localProgressJson.map((k, v) => MapEntry(k.toString(), v as int));
+          // Skip unusable entries rather than letting one bad value (`v as int`
+          // on a double or string) abort the entire config load.
+          final progress = <String, int>{};
+          localProgressJson.forEach((k, v) {
+            final position = v is int ? v : (v is num ? v.toInt() : int.tryParse('$v'));
+            if (position != null) progress[k.toString()] = position;
+          });
+          _localVodsProgress = progress;
         }
         final downloadedVodsJson = config['downloaded_vods'];
         if (downloadedVodsJson is Map) {
-          _downloadedVodsRegistry = downloadedVodsJson.map((k, v) => MapEntry(k.toString(), v.toString()));
+          final registry = <String, String>{};
+          downloadedVodsJson.forEach((k, v) {
+            if (v != null) registry[k.toString()] = v.toString();
+          });
+          _downloadedVodsRegistry = registry;
         }
       }
 
@@ -931,7 +954,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       final recents = await _storageService.loadRecentWatchedVods();
       if (mounted) {
         setState(() {
-          _recentWatchedVods = recents.map((json) => TwitchVideo.fromJson(json)).toList();
+          _recentWatchedVods =
+              recents.map(TwitchVideo.tryFromJson).whereType<TwitchVideo>().toList();
         });
       }
     } catch (e) {
@@ -1441,10 +1465,51 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Future<void> _toggleFavorite(TwitchChannel channel) async {
     final cleanName = channel.username.toLowerCase().trim();
     final isFavorite = _channels.any((c) => c.username == cleanName);
-    
+
     if (isFavorite) {
+      // Removing a favorite also discards its automation configuration, which
+      // there is no way to undo. Confirm when there is something to lose - a
+      // single mis-click on the star used to silently destroy it.
+      final existing = _channels.firstWhere((c) => c.username == cleanName);
+      if (existing.autoPlayLive || existing.autoDownloadVods) {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text('Remove "${channel.username}"?',
+                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+            content: Text(
+              'This channel has automation configured'
+              '${existing.autoPlayLive ? '\n• Auto-play when live (priority #${existing.autoPlayPriority + 1})' : ''}'
+              '${existing.autoDownloadVods ? '\n• Auto-download VODs (keep ${existing.maxVodKeepCount})' : ''}'
+              '\n\nRemoving it from Favorites discards that configuration. Downloaded files are kept.',
+              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Cancel',
+                    style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Remove',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+      }
+
       setState(() {
         _channels.removeWhere((c) => c.username == cleanName);
+        // Drop tracking state for the removed channel so it cannot resurface as
+        // a stale "went live" notification or auto-play session later.
+        _previouslyLiveFavoriteUsernames.remove(cleanName);
+        _lastAutoPlayedStreamSession.remove(cleanName);
         if (_selectedChannel?.username == cleanName) {
           _selectedChannel = null;
         }
@@ -3167,27 +3232,50 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     setState(() {});
   }
 
-  Future<void> _deleteDownloadedVod(String vodId, String channelName) async {
-    final downloadFolder = _settings.vodDownloadFolder.trim();
-    if (downloadFolder.isNotEmpty) {
-      final dir = Directory('$downloadFolder/$channelName');
-      if (dir.existsSync()) {
-        try {
-          final files = dir.listSync();
-          for (final file in files) {
-            if (file is File && (file.path.contains(' - $vodId') || file.path.contains(' - v$vodId'))) {
-              file.deleteSync();
-            }
-          }
-        } catch (_) {}
-      }
+  /// Deletes the files for [vodId], preferring the path recorded in the
+  /// registry over re-deriving it from the currently selected channel.
+  /// Returns how many files were actually removed.
+  int _deleteVodFilesFor(String vodId, String channelName) {
+    var deleted = 0;
+
+    // The registry holds where the file really landed. Re-deriving
+    // `<folder>/<selectedChannel>` orphaned files whenever the download
+    // belonged to a different channel than the one currently selected.
+    final registeredPath = _downloadedVodsRegistry[vodId];
+    if (registeredPath != null) {
+      try {
+        final file = File(registeredPath);
+        if (file.existsSync()) {
+          file.deleteSync();
+          deleted++;
+        }
+      } catch (_) {}
     }
-    
+
+    deleted += _playerService.deleteVodFiles(
+      vodId,
+      channelName,
+      _settings.vodDownloadFolder,
+    );
+    return deleted;
+  }
+
+  Future<void> _deleteDownloadedVod(String vodId, String channelName) async {
+    final deleted = _deleteVodFilesFor(vodId, channelName);
+
     _playerService.removeVodFromArchive(vodId);
     _downloadedVodsRegistry.remove(vodId);
     await _saveChannels();
     _checkDownloadedVods();
-    _showSnackBar('Deleted download for VOD ID: $vodId', isError: false);
+
+    // Report what actually happened rather than claiming success
+    // unconditionally, which previously hid a failed delete while still
+    // dropping the registry entry and orphaning the file.
+    if (deleted > 0) {
+      _showSnackBar('Deleted $deleted file(s) for VOD $vodId.', isError: false);
+    } else {
+      _showSnackBar('No downloaded files found for VOD $vodId.', isError: true);
+    }
   }
 
   void _bulkDownloadSelectedVods() {
@@ -3296,9 +3384,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final toDelete = <TwitchVideo>[];
     final channelName = _selectedChannel?.username ?? '';
     for (final id in _selectedVodIds) {
-      final vod = _channelVods.firstWhere((v) => v.id == id);
-      if (_playerService.getDownloadedVodFile(id, channelName, _settings.vodDownloadFolder) != null) {
-        toDelete.add(vod);
+      // firstWhere without orElse threw a StateError whenever the selection
+      // referenced a VOD no longer present in the list (after a refresh or a
+      // channel switch).
+      final matches = _channelVods.where((v) => v.id == id);
+      if (matches.isEmpty) continue;
+
+      final hasFile = _downloadedVodsRegistry.containsKey(id) ||
+          _playerService.getDownloadedVodFile(id, channelName, _settings.vodDownloadFolder) != null;
+      if (hasFile) {
+        toDelete.add(matches.first);
       }
     }
     
@@ -3364,22 +3459,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     
     if (confirm != true) return;
     
+    // Counts files actually deleted. This previously incremented once per
+    // existing channel *directory*, so it reported a count even when nothing
+    // was removed.
     int count = 0;
     for (final vod in toDelete) {
       try {
-        final downloadFolder = _settings.vodDownloadFolder.trim();
-        if (downloadFolder.isNotEmpty) {
-          final dir = Directory('$downloadFolder/$channelName');
-          if (dir.existsSync()) {
-            final files = dir.listSync();
-            for (final file in files) {
-              if (file is File && (file.path.contains(' - ${vod.id}') || file.path.contains(' - v${vod.id}'))) {
-                file.deleteSync();
-              }
-            }
-            count++;
-          }
-        }
+        count += _deleteVodFilesFor(vod.id, channelName);
         _playerService.removeVodFromArchive(vod.id);
         _downloadedVodsRegistry.remove(vod.id);
       } catch (_) {}

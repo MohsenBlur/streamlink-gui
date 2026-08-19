@@ -28,9 +28,6 @@ abstract class ThemeUpdateListener extends ChangeNotifier {
   void setDarkAccent(Color color);
 
   void updateTheme({
-    Color? primary,
-    Color? background,
-    Color? surface,
     Color? activeProgress,
     Color? watchedProgress,
   });
@@ -69,6 +66,19 @@ class SettingsDialog {
     bool isTestingToken = false;
     String? tokenTestResult;
     bool isTokenValid = false;
+
+    // The Styling tab edits the theme notifier live so the user sees the change
+    // immediately. Remember the entry state so Cancel can put it back, instead
+    // of leaving the UI on a theme that was never saved.
+    final originalIsDarkTheme = themeNotifier.isDarkTheme;
+    final originalLightAccent = themeNotifier.lightAccentColor;
+    final originalDarkAccent = themeNotifier.darkAccentColor;
+
+    void restoreLiveThemeEdits() {
+      themeNotifier.setLightAccent(originalLightAccent);
+      themeNotifier.setDarkAccent(originalDarkAccent);
+      themeNotifier.setDarkTheme(originalIsDarkTheme);
+    }
 
     showDialog(
       context: context,
@@ -974,6 +984,7 @@ class SettingsDialog {
                         children: [
                           TextButton(
                             onPressed: () {
+                              restoreLiveThemeEdits();
                               Navigator.pop(context);
                             },
                             child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
@@ -982,7 +993,13 @@ class SettingsDialog {
                           ElevatedButton(
                             style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
                             onPressed: () {
-                              final updated = AppSettings(
+                              // copyWith, not a fresh AppSettings: constructing a new
+                              // instance from only the fields this dialog knows about
+                              // silently reset every other persisted field to its
+                              // default, so saving wiped the theme mode, window
+                              // geometry, the VOD watch exclusion threshold and the
+                              // auto-play preemption toggle.
+                              final updated = settings.copyWith(
                                 defaultQuality: tempQuality,
                                 twitchLowLatency: tempLowLatency,
                                 playerType: tempPlayerType,
@@ -992,19 +1009,19 @@ class SettingsDialog {
                                 customPlayerPath: playerPathController.text.trim(),
                                 customPlayerArgs: playerArgsController.text.trim(),
                                 twitchClientId: clientIdController.text.trim(),
-                                localServerPort: int.tryParse(portController.text.trim()) ?? 65432,
+                                localServerPort: int.tryParse(portController.text.trim()) ?? settings.localServerPort,
                                 vodDownloadFolder: downloadFolderController.text.trim(),
                                 maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
-                                unfinishedDownloads: settings.unfinishedDownloads,
                                 maxRecentlyWatched: tempMaxRecentlyWatched,
-                                activeSidebarTab: settings.activeSidebarTab,
-                                sidebarCollapsed: settings.sidebarCollapsed,
                                 disableVodPostProcessing: tempDisableVodPostProcessing,
                                 customVodArgs: customVodArgsController.text.trim(),
+                                // The Styling tab edits these on the notifier directly;
+                                // persist what it currently holds so the choice survives
+                                // a restart instead of reverting to Dark + default accent.
+                                isDarkTheme: themeNotifier.isDarkTheme,
+                                lightAccentColorHex: colorToHex(themeNotifier.lightAccentColor),
+                                darkAccentColorHex: colorToHex(themeNotifier.darkAccentColor),
                               );
-
-                              updated.lightAccentColorHex = colorToHex(themeNotifier.lightAccentColor);
-                              updated.darkAccentColorHex = colorToHex(themeNotifier.darkAccentColor);
 
                               onSave(updated);
                               Navigator.pop(context);
