@@ -2826,13 +2826,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       children: [
         // Main Dashboard Body
         Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(isCompact ? 12 : 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          // CustomScrollView so the VOD grid renders as a real SliverGrid and
+          // off-screen cards are culled; the old SingleChildScrollView +
+          // shrinkWrap GridView materialized every card at once.
+          child: CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.all(isCompact ? 12 : 24),
+                sliver: SliverMainAxisGroup(slivers: [
                 // Real-time Stats Card Widget
-                DashboardHeader(
+                SliverToBoxAdapter(child: DashboardHeader(
                   channel: channel,
                   pulseController: _pulseController!,
                   isPlaying: _playerService.runningChannels.contains(channel.username),
@@ -2849,10 +2852,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     if (mounted) setState(() {});
                   }),
                   openExternalLink: _openExternalLink,
-                ),
-                
+                )),
+
                 // VOD section (if OAuth token present)
                 if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
+                  SliverToBoxAdapter(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                   SizedBox(height: isCompact ? 12 : 32),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3127,7 +3133,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       ),
                     ),
                   ],
-                  
+                  ])),
+
                   // Modular Vods Grid Component
                   VodsGrid(
                     vods: _channelVods,
@@ -3179,6 +3186,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   ),
                   
                   if (_vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty && _channelVods.isNotEmpty) ...[
+                    SliverToBoxAdapter(child: Column(children: [
                     const SizedBox(height: 24),
                     Center(
                       child: SizedBox(
@@ -3214,10 +3222,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         ),
                       ),
                     ),
+                    ])),
                   ],
                 ],
-              ],
-            ),
+                ]),
+              ),
+            ],
           ),
         ),
 

@@ -124,19 +124,25 @@ class _VodsGridState extends State<VodsGrid> {
     }
   }
 
+  /// Builds SLIVERS: this widget must live inside a CustomScrollView. The
+  /// grid used to be a shrinkWrap GridView inside the page's scroll view,
+  /// which materialized every card at once; SliverGrid culls off-screen ones.
   @override
   Widget build(BuildContext context) {
     if (widget.isLoading && widget.vods.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 40),
-          child: CircularProgressIndicator(),
+      return const SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 40),
+            child: CircularProgressIndicator(),
+          ),
         ),
       );
     }
-    
+
     if (widget.vodsError != null) {
-      return Container(
+      return SliverToBoxAdapter(
+        child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: NeuTheme.danger.withOpacity(0.1),
@@ -146,6 +152,7 @@ class _VodsGridState extends State<VodsGrid> {
         child: Text(
           'Error loading VODs: ${widget.vodsError}',
           style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 13),
+        ),
         ),
       );
     }
@@ -286,9 +293,10 @@ class _VodsGridState extends State<VodsGrid> {
 
     final childAspectRatio = 1.0 + ((widget.vodScale - 200) / 400.0) * 0.25;
 
-    Widget contentWidget;
+    Widget contentSliver;
     if (filteredVods.isEmpty) {
-      contentWidget = Padding(
+      contentSliver = SliverToBoxAdapter(
+        child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Center(
           child: Text(
@@ -298,11 +306,10 @@ class _VodsGridState extends State<VodsGrid> {
             style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
           ),
         ),
+        ),
       );
     } else {
-      contentWidget = GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
+      contentSliver = SliverGrid.builder(
         itemCount: filteredVods.length,
         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: widget.vodScale,
@@ -342,14 +349,11 @@ class _VodsGridState extends State<VodsGrid> {
       );
     }
 
-    final mainColumn = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        buildGameChips(),
-        contentWidget,
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(child: buildGameChips()),
+        contentSliver,
       ],
     );
-
-    return mainColumn;
   }
 }
