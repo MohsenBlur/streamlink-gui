@@ -22,76 +22,11 @@ import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
+import 'state/automation_decisions.dart';
 import 'theme/neu_theme.dart';
+import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
 
-class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
-  @override
-  bool isDarkTheme = true;
-
-  @override
-  Color lightAccentColor = const Color(0xFFFF6584);
-
-  @override
-  Color darkAccentColor = const Color(0xFFFF3B30);
-
-  @override
-  Color get primaryColor => isDarkTheme ? darkAccentColor : lightAccentColor;
-
-  @override
-  Color get backgroundColor => isDarkTheme ? const Color(0xFF1D212A) : const Color(0xFFEBECF0);
-
-  @override
-  Color get surfaceColor => isDarkTheme ? const Color(0xFF222632) : const Color(0xFFEBECF0);
-
-  @override
-  Color get lightShadowColor => isDarkTheme ? const Color(0xFF2B303F) : const Color(0xFFFFFFFF);
-
-  @override
-  Color get darkShadowColor => isDarkTheme ? const Color(0xFF12151B) : const Color(0xFFA3B1C6);
-
-  @override
-  Color get textColor => isDarkTheme ? const Color(0xFFE2E8F0) : const Color(0xFF2D3748);
-
-  @override
-  Color get subtextColor => isDarkTheme ? const Color(0xFF94A3B8) : const Color(0xFF718096);
-
-  @override
-  Color activeProgressColor = const Color(0xFFFF3B30);
-
-  @override
-  Color watchedProgressColor = const Color(0x804CAF50);
-
-  @override
-  void setDarkTheme(bool isDark) {
-    isDarkTheme = isDark;
-    notifyListeners();
-  }
-
-  @override
-  void setLightAccent(Color color) {
-    lightAccentColor = color;
-    notifyListeners();
-  }
-
-  @override
-  void setDarkAccent(Color color) {
-    darkAccentColor = color;
-    notifyListeners();
-  }
-
-  @override
-  void updateTheme({
-    Color? activeProgress,
-    Color? watchedProgress,
-  }) {
-    if (activeProgress != null) activeProgressColor = activeProgress;
-    if (watchedProgress != null) watchedProgressColor = watchedProgress;
-    notifyListeners();
-  }
-}
-
-final AppThemeNotifier themeNotifier = AppThemeNotifier();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -284,6 +219,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     };
 
     _playerService.onPlayerStopped = (key, exitCode) {
+      // Release the "user is watching a VOD" marker.
+      //
+      // This map was written when a VOD started and never cleared anywhere, so
+      // the first VOD played in a session made it permanently non-empty - and
+      // the automation guard that consults it then returned early on every
+      // subsequent pass, silently killing BOTH priority auto-play and VOD
+      // auto-download until the app was restarted.
+      _activePlayingVideos.remove(key);
+
       if (mounted) {
         setState(() {});
       }
@@ -1189,164 +1133,144 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
+  /// True while a VOD is being watched, so auto-play stands down.
+  bool get _isWatchingVod =>
+      _playerService.playingVodIds.isNotEmpty || _activePlayingVideos.isNotEmpty;
+
+  bool _automationPassRunning = false;
+
   Future<void> _checkFavoritesAutomation() async {
-    // Cleanup session tracking for channels that went offline
-    final currentLiveUsernames = _channels.where((c) => c.isLive).map((c) => c.username.toLowerCase()).toSet();
-    _lastAutoPlayedStreamSession.removeWhere((username, _) => !currentLiveUsernames.contains(username));
+    // Re-entrancy guard: the 60s timer can fire again while a pass is still
+    // awaiting VOD lists, which produced overlapping passes that each queued
+    // the same downloads.
+    if (_automationPassRunning) return;
+    _automationPassRunning = true;
+    try {
+      await _runAutoPlayPass();
+      await _runAutoDownloadPass();
+    } finally {
+      _automationPassRunning = false;
+    }
+  }
 
-    // Stand down auto-play if user is watching a VOD (downloaded or streaming)
-    if (_playerService.playingVodIds.isNotEmpty || _activePlayingVideos.isNotEmpty) {
-      print('[Auto-Play Manager] Postponing auto-play: user is currently watching a VOD.');
-      return;
+  Future<void> _runAutoPlayPass() async {
+    // Forget sessions for channels that are no longer live, so the next
+    // broadcast is treated as new.
+    final liveNames =
+        _channels.where((c) => c.isLive).map((c) => c.username.toLowerCase().trim()).toSet();
+    _lastAutoPlayedStreamSession.removeWhere((name, _) => !liveNames.contains(name));
+
+    final decision = decideAutoPlay(
+      channels: _channels,
+      runningChannels: _playerService.runningChannels
+          .map((c) => c.toLowerCase().trim())
+          .toSet(),
+      playedSessions: _lastAutoPlayedStreamSession,
+      isWatchingVod: _isWatchingVod,
+      isUpdateActive: _isUpdatePromptOpen || _isUpdateInProgress,
+      preemptLowerPriority: _settings.autoPlayPreemptLowerPriority,
+    );
+
+    if (decision.sessionKeyToRecord != null) {
+      final channelName = decision.sessionKeyToRecord!.split('#').first.split('@').first;
+      _lastAutoPlayedStreamSession[channelName] = decision.sessionKeyToRecord!;
     }
 
-    // Stand down auto-play if app update prompt is visible or update is in progress
-    if (_isUpdatePromptOpen || _isUpdateInProgress) {
-      print('[Auto-Play Manager] Postponing auto-play: app update prompt or update is active.');
-      return;
-    }
-
-    // 1. Priority Live Stream Auto-Play
-    final priorityChannels = _channels.where((c) => c.autoPlayLive).toList()
-      ..sort((a, b) => a.autoPlayPriority.compareTo(b.autoPlayPriority));
-
-    // CRITICAL: Wait until EVERY channel with auto-play enabled has finished checking live status
-    // before making any auto-play decisions, preventing lower priority streams from starting prematurely!
-    if (priorityChannels.any((c) => c.isLoading)) {
-      print('[Auto-Play Manager] Postponing auto-play check: priority channels are still fetching live status.');
-      return;
-    }
-
-    for (int i = 0; i < priorityChannels.length; i++) {
-      final targetChan = priorityChannels[i];
-      if (targetChan.isLive) {
-        final cleanName = targetChan.username.toLowerCase();
-        final sessionKey = '${cleanName}_${targetChan.wentLiveTime?.millisecondsSinceEpoch ?? targetChan.uptime ?? targetChan.streamTitle ?? "live"}';
-
-        // Check if this live stream session has already been auto-played once
-        if (_lastAutoPlayedStreamSession[cleanName] == sessionKey) {
-          print('[Auto-Play Manager] Skipping @${targetChan.username}: live stream session already auto-played.');
-          continue;
-        }
-
-        bool higherIsPlayingOrLive = false;
-        for (int j = 0; j < i; j++) {
-          final higherChan = priorityChannels[j];
-          if (higherChan.isLive || _playerService.runningChannels.contains(higherChan.username.toLowerCase())) {
-            higherIsPlayingOrLive = true;
-            break;
-          }
-        }
-
-        if (!higherIsPlayingOrLive) {
-          // Option: Preempt/kill lower priority auto-played streams if a higher priority channel is live
-          if (_settings.autoPlayPreemptLowerPriority) {
-            for (int k = i + 1; k < priorityChannels.length; k++) {
-              final lowerChan = priorityChannels[k];
-              final lowerCleanName = lowerChan.username.toLowerCase();
-              if (_playerService.runningChannels.contains(lowerCleanName)) {
-                print('[Auto-Play Preemption] Killing lower priority stream @${lowerChan.username} (Priority #${k + 1}) to switch to higher priority stream @${targetChan.username} (Priority #${i + 1})');
-                _playerService.killProcess(lowerCleanName);
-              }
-            }
-          }
-
-          if (!_playerService.runningChannels.contains(cleanName)) {
-            _lastAutoPlayedStreamSession[cleanName] = sessionKey;
-            _playerService.launchStreamlinkForLive(
-              targetChan.username,
-              targetChan.isLive,
-              targetChan.streamTitle,
-              targetChan.game,
-              _settings,
-            );
-
-            try {
-              final gameText = targetChan.game ?? 'Twitch';
-              final notification = LocalNotification(
-                title: 'Auto-Playing Live Stream',
-                body: '${targetChan.username} is now live (Priority #${i + 1})\nPlaying $gameText',
-                silent: false,
-              );
-              await notification.show();
-            } catch (e) {
-              print('[Auto-Play Notification Error]: $e');
-            }
-          } else {
-            // Already running/playing, record session key so closing won't re-trigger later in the same session
-            _lastAutoPlayedStreamSession[cleanName] = sessionKey;
-          }
-        }
-        break; // Stop after evaluating top live priority channel
+    if (!decision.shouldLaunch) {
+      if (decision.reason != AutoPlaySkipReason.none) {
+        print('[Auto-Play] No action: ${decision.reason.name}');
       }
+      return;
     }
 
-    // 2. VOD Auto-Download
-    final autoDownloadChannels = _channels.where((c) => c.autoDownloadVods).toList();
-    if (autoDownloadChannels.isEmpty) return;
+    final target = decision.channelToPlay!;
+    final cleanName = target.username.toLowerCase().trim();
 
-    final thresholdFrac = (_settings.vodWatchExclusionThreshold.clamp(5, 90)) / 100.0;
+    for (final lower in decision.channelsToPreempt) {
+      print('[Auto-Play] Preempting lower priority stream @$lower');
+      _playerService.killLiveStream(lower);
+    }
 
-    for (final channel in autoDownloadChannels) {
+    _lastAutoPlayedStreamSession[cleanName] = decision.sessionKey!;
+    print('[Auto-Play] Launching @${target.username} (session ${decision.sessionKey})');
+
+    _playerService.launchStreamlinkForLive(
+      target.username,
+      target.isLive,
+      target.streamTitle,
+      target.game,
+      _settings,
+    );
+
+    try {
+      await LocalNotification(
+        title: 'Auto-Playing Live Stream',
+        body: '${target.username} is now live\nPlaying ${target.game ?? "Twitch"}',
+        silent: false,
+      ).show();
+    } catch (e) {
+      print('[Auto-Play Notification Error]: $e');
+    }
+  }
+
+  Future<void> _runAutoDownloadPass() async {
+    final channels = _channels.where((c) => c.autoDownloadVods).toList();
+    if (channels.isEmpty) return;
+
+    // Auto-download writes to disk, so a configured folder is required. This
+    // used to be skipped entirely, and startVodDownload then threw on every
+    // single queued item.
+    if (_settings.vodDownloadFolder.trim().isEmpty) {
+      print('[Auto-Download] Skipped: no VOD download folder configured.');
+      return;
+    }
+
+    for (final channel in channels) {
       try {
         final result = await _apiService.fetchVodsForChannel(
           channel: channel,
           settings: _settings,
           localVodsProgress: _localVodsProgress,
         );
-        final vods = result.vods;
-        if (vods.isEmpty) continue;
+        if (result.vods.isEmpty) continue;
 
-        List<TwitchVideo> candidateVods = [];
-        for (final vod in vods) {
-          final watchProgress = _localVodsProgress[vod.id] ?? vod.watchProgress ?? 0.0;
-          
-          if (channel.stopAtLastWatchedVod && watchProgress > 0.05) {
-            print('[VOD Auto-Download] Stopping collection for @${channel.username} at watched VOD ${vod.id} ($watchProgress)');
-            break;
-          }
+        final selected = selectVodsToAutoDownload(
+          channel: channel,
+          vods: result.vods,
+          localProgress: _localVodsProgress,
+          settings: _settings,
+          isAlreadyHandled: (vodId) =>
+              _downloadedVodsRegistry.containsKey(vodId) ||
+              _playerService.activeDownloadTasks.containsKey(vodId) ||
+              _playerService.activeDownloadProcesses.containsKey(vodId) ||
+              _playerService.downloadQueue.contains(vodId),
+        );
 
-          if (watchProgress < thresholdFrac) {
-            candidateVods.add(vod);
-          }
-        }
+        for (final vod in selected) {
+          print('[Auto-Download] Queueing ${vod.id} for @${channel.username}');
+          _playerService.queueVodDownload(
+            vod,
+            channel.username,
+            _settings,
+            // Tri-state: only override when the channel opts in. Passing false
+            // unconditionally made the per-channel default beat the global
+            // "Fast VOD Downloads" setting, so every automatic download ran the
+            // slow post-processing path the Downloads tab promised to skip.
+            overrideDisablePostProcessing: channel.autoDownloadFastDownload ? true : null,
+          );
 
-        if (candidateVods.isEmpty) continue;
-
-        // Sort in order of oldest to latest (chronological order) so the user can watch the oldest first
-        candidateVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
-
-        final toDownload = candidateVods.take(channel.maxVodKeepCount).toList();
-
-        for (final vod in toDownload) {
-          final isAlreadyDownloaded = _downloadedVodsRegistry.containsKey(vod.id);
-          final isDownloading = _playerService.activeDownloadTasks.containsKey(vod.id) ||
-              _playerService.activeDownloadProcesses.containsKey(vod.id) ||
-              _playerService.downloadQueue.contains(vod.id);
-
-          if (!isAlreadyDownloaded && !isDownloading) {
-            print('[VOD Auto-Download] Starting auto-download for @${channel.username} VOD ${vod.id} (${vod.title})');
-            _playerService.queueVodDownload(
-              vod,
-              channel.username,
-              _settings,
-              overrideDisablePostProcessing: channel.autoDownloadFastDownload,
-            );
-
-            try {
-              final notification = LocalNotification(
-                title: 'Auto-Downloading VOD',
-                body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
-                silent: false,
-              );
-              await notification.show();
-            } catch (e) {
-              print('[Auto-Download Notification Error]: $e');
-            }
+          try {
+            await LocalNotification(
+              title: 'Auto-Downloading VOD',
+              body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
+              silent: false,
+            ).show();
+          } catch (e) {
+            print('[Auto-Download Notification Error]: $e');
           }
         }
       } catch (e) {
-        print('[VOD Auto-Download Error] Failed for @${channel.username}: $e');
+        print('[Auto-Download Error] Failed for @${channel.username}: $e');
       }
     }
   }

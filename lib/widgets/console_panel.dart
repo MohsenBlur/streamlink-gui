@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import 'horizontal_mouse_scrollable.dart';
 import '../theme/neu_theme.dart';
-import '../main.dart';
+import '../theme/theme_notifier.dart';
 
 class LogNotifier extends ChangeNotifier {
   final Map<String, List<String>> _logs = {};

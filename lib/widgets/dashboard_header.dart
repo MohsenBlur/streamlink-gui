@@ -6,7 +6,7 @@ import 'neumorphic/neu_avatar_frame.dart';
 import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_card.dart';
 import '../theme/neu_theme.dart';
-import '../main.dart';
+import '../theme/theme_notifier.dart';
 
 class DashboardHeader extends StatefulWidget {
   final TwitchChannel channel;

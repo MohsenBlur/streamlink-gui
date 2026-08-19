@@ -61,6 +61,10 @@ class PlayerService {
   final Map<String, String> downloadTitles = {};
   bool isQueueProcessing = false;
 
+  /// VOD ids whose download the user cancelled, so the exit handler can tell a
+  /// deliberate cancel apart from a genuine failure.
+  final Set<String> _cancelledDownloads = {};
+
   // Active Players
   final Map<String, Process> activePlayerProcesses = {};
   final Map<String, int> activePlayerPorts = {};
@@ -71,7 +75,24 @@ class PlayerService {
   /// Consulted by retention so it never deletes what the user is watching.
   final Map<String, String> playingVodFilePaths = {};
 
+  /// Lowercased names of channels whose live stream is currently playing.
   final Set<String> runningChannels = {};
+
+  /// Process-map key for a live stream.
+  ///
+  /// Callers must never build this by hand. Auto-play preemption used to call
+  /// `killProcess(channelName)` while the process was registered under
+  /// `stream_<channelName>`, so the lookup always missed: the log claimed the
+  /// lower-priority stream had been killed while it kept playing, and the
+  /// preemption feature was entirely dead.
+  static String liveStreamKey(String channelName) =>
+      'stream_' + channelName.toLowerCase().trim();
+
+  /// Stops the live stream for [channelName], if one is running.
+  void killLiveStream(String channelName) {
+    killProcess(liveStreamKey(channelName));
+  }
+
   final Map<String, String> playerTabTitles = {};
   
   // Windows PowerShell bridges
@@ -413,6 +434,16 @@ class PlayerService {
       final exitCode = await proc.exitCode;
       _cleanupDownloadState(vodId);
 
+      // A cancelled download exits non-zero like a failed one. Without this
+      // check the ffmpeg fallback below restarted it - after the user cancelled
+      // and after its partial files had been deleted - and the restarted run was
+      // invisible to the cancel bookkeeping, so it could not be cancelled again.
+      // It also reported "Download failed" on top of "Download cancelled".
+      if (_cancelledDownloads.remove(vodId)) {
+        log(key, '[System] Download cancelled by user.');
+        return;
+      }
+
       if (exitCode == 0) {
         log(key, '[System] Download finished successfully.');
         deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
@@ -421,11 +452,19 @@ class PlayerService {
         onDownloadCompleted?.call(vodId, vod.title, filePath);
         _cleanupOldestDownloads(settings);
       } else {
-        if (!isRetryWithFfmpeg && needsFfmpegFallback) {
+        if (!isRetryWithFfmpeg && needsFfmpegFallback && !_shuttingDown) {
           log(key, '[System Warning] HLS fragment error detected. Automatically retrying download using ffmpeg downloader...');
           deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
           await Future.delayed(const Duration(seconds: 1));
-          await startVodDownload(vod, channelName, settings, isRetryWithFfmpeg: true);
+          await startVodDownload(
+            vod,
+            channelName,
+            settings,
+            isRetryWithFfmpeg: true,
+            // Carry the fast-download choice into the retry; it used to be
+            // dropped, so the retry silently ran the slow post-processing path.
+            overrideDisablePostProcessing: overrideDisablePostProcessing,
+          );
         } else {
           log(key, '[System Error] Download failed with exit code $exitCode');
           onDownloadFailed?.call(vodId, vod.title, exitCode);
@@ -495,6 +534,10 @@ class PlayerService {
   }
 
   Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder) async {
+    // Marked before the kill so the exit handler, which runs as soon as the
+    // process dies, can tell this apart from a real failure.
+    _cancelledDownloads.add(vodId);
+
     final proc = activeDownloadProcesses[vodId];
     if (proc != null) {
       try {
@@ -860,7 +903,8 @@ class PlayerService {
   }
 
   Future<void> launchStreamlinkForLive(String channelName, bool isLive, String? streamTitle, String? game, AppSettings settings) async {
-    if (runningChannels.contains(channelName)) {
+    final cleanChannel = channelName.toLowerCase().trim();
+    if (runningChannels.contains(cleanChannel)) {
       return;
     }
     String titleString = channelName;
@@ -906,10 +950,10 @@ class PlayerService {
     args.add('twitch.tv/$channelName');
     args.add(settings.defaultQuality);
 
-    final key = 'stream_$channelName';
+    final key = liveStreamKey(channelName);
     final title = '$channelName (Live)';
     
-    runningChannels.add(channelName);
+    runningChannels.add(cleanChannel);
     playerTabTitles[key] = title;
 
     onPlayerStarted?.call(key, title);
@@ -944,14 +988,14 @@ class PlayerService {
 
       proc.exitCode.then((exitCode) {
         log(key, '[System] Streamlink process for channel $channelName terminated with exit code $exitCode');
-        runningChannels.remove(channelName);
+        runningChannels.remove(cleanChannel);
         activePlayerProcesses.remove(key);
         onPlayerStopped?.call(key, exitCode);
       });
     } catch (e) {
       log(key, '[System Error] Failed to run streamlink: $e');
       log(key, '[System Error] Ensure Streamlink is installed and available in your environment.');
-      runningChannels.remove(channelName);
+      runningChannels.remove(cleanChannel);
       activePlayerProcesses.remove(key);
       onPlayerStopped?.call(key, -1);
     }

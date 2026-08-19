@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
-import '../../main.dart';
+import '../../theme/theme_notifier.dart';
 
 class NeuCard extends StatelessWidget {
   final Widget child;

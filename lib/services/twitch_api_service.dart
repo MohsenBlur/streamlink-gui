@@ -140,18 +140,25 @@ class TwitchApiService {
           if (streamData['data'] != null && streamData['data'].isNotEmpty) {
             final stream = streamData['data'][0];
             channel.isLive = true;
+            // Stable for the whole broadcast; used to identify a live session.
+            channel.streamId = stream['id']?.toString();
             channel.streamTitle = stream['title'] as String?;
             channel.game = stream['game_name'] as String?;
             channel.viewerCount = stream['viewer_count']?.toString() ?? '0';
-            
+
             final startedAt = stream['started_at'] as String?;
             if (startedAt != null) {
               channel.uptime = _calculateUptime(startedAt);
+              // Derived from the broadcast itself, so it is correct even for a
+              // channel that was already live when the app started - unlike
+              // observing an offline->live edge, which never happens then.
+              channel.wentLiveTime = DateTime.tryParse(startedAt)?.toLocal();
             } else {
               channel.uptime = 'Live';
             }
           } else {
             channel.isLive = false;
+            channel.streamId = null;
             channel.uptime = 'Offline';
             channel.viewerCount = '0';
             channel.game = 'Offline';
@@ -161,17 +168,27 @@ class TwitchApiService {
           throw Exception('Helix Stream API error: status ${streamRes.statusCode}');
         }
 
-        // 3. Fetch Follower count
-        final followsRes = await http.get(
-          Uri.parse('https://api.twitch.tv/helix/channels/followers?broadcaster_id=${channel.id}'),
-          headers: headers,
-        );
-        if (followsRes.statusCode == 200) {
-          final followsData = json.decode(followsRes.body);
-          final totalFollowers = followsData['total'] as int?;
-          if (totalFollowers != null) {
-            channel.followerCount = _formatNumberString(totalFollowers.toString());
+        // 3. Fetch Follower count.
+        //
+        // Guarded separately: this ran inside the same try as the live-status
+        // request, so a failure here (a socket reset, a DNS hiccup - common when
+        // many channels refresh at once) jumped to the catch below and marked a
+        // genuinely live channel offline, discarding the stream data that had
+        // just been fetched successfully.
+        try {
+          final followsRes = await http.get(
+            Uri.parse('https://api.twitch.tv/helix/channels/followers?broadcaster_id=${channel.id}'),
+            headers: headers,
+          );
+          if (followsRes.statusCode == 200) {
+            final followsData = json.decode(followsRes.body);
+            final totalFollowers = followsData['total'] as int?;
+            if (totalFollowers != null) {
+              channel.followerCount = _formatNumberString(totalFollowers.toString());
+            }
           }
+        } catch (_) {
+          // Follower count is cosmetic; keep the live status we already have.
         }
       } else {
         // Unauthenticated: Fallback to DecAPI
@@ -234,14 +251,32 @@ class TwitchApiService {
       }
 
       channel.lastUpdated = DateTime.now();
+      channel.consecutiveFailures = 0;
     } catch (e) {
       channel.errorMessage = e.toString().replaceFirst('Exception: ', '');
-      channel.isLive = false;
-      channel.uptime = 'Offline';
+      channel.consecutiveFailures++;
+
+      // Do NOT flip a live channel to offline on the first failure.
+      //
+      // This catch used to set isLive = false unconditionally, and the caller
+      // reads that as a genuine go-offline: it cleared the channel's
+      // notification and auto-play session tracking, so the next successful
+      // poll looked like a brand-new broadcast and produced a duplicate
+      // "<channel> is now LIVE!" toast plus an auto-play relaunch. A single
+      // flaky request or a brief Wi-Fi drop was enough.
+      if (channel.consecutiveFailures >= _failuresBeforeOffline) {
+        channel.isLive = false;
+        channel.streamId = null;
+        channel.uptime = 'Offline';
+      }
     } finally {
       channel.isLoading = false;
     }
   }
+
+  /// How many consecutive refresh failures before a live channel is treated as
+  /// offline rather than temporarily unreachable.
+  static const int _failuresBeforeOffline = 3;
 
   Future<FollowedChannelsResult> fetchFollowedChannels(AppSettings settings) async {
     final token = _getRawOauthToken(settings.twitchOauthToken);

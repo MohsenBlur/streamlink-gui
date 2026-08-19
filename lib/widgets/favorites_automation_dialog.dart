@@ -3,7 +3,7 @@ import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_checkbox.dart';
-import '../main.dart';
+import '../theme/theme_notifier.dart';
 
 class _ChannelAutomationState {
   final TwitchChannel originalChannel;

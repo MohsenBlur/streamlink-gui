@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/neu_theme.dart';
-import '../main.dart';
+import '../theme/theme_notifier.dart';
 
 class HoverOverlayMenu extends StatefulWidget {
   final Widget trigger;

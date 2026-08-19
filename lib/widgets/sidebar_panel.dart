@@ -9,7 +9,7 @@ import 'neumorphic/neu_text_field.dart';
 import 'neumorphic/neu_segmented_control.dart';
 import 'package:flutter/gestures.dart';
 import '../theme/neu_theme.dart';
-import '../main.dart';
+import '../theme/theme_notifier.dart';
 
 class SidebarPanel extends StatefulWidget {
   final List<TwitchChannel> channels;

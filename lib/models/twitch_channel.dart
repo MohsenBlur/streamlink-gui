@@ -4,12 +4,24 @@ class TwitchChannel {
   String? avatarUrl;
   String? followerCount;
   bool isLive = false;
+
+  /// Helix `stream.id`: stable for the whole broadcast and different for the
+  /// next one. Used to recognise a distinct live session, so "auto-play once
+  /// per session" cannot re-trigger while a stream is still running.
+  /// Null when offline or when running unauthenticated (DecAPI has no equivalent).
+  String? streamId;
+
   String? uptime;
   String? viewerCount;
   String? game;
   String? streamTitle;
   bool isLoading = false;
   String? errorMessage;
+
+  /// Consecutive failed refreshes. A live channel is only treated as offline
+  /// once several in a row fail, so one flaky request cannot fake a go-offline
+  /// (and then a go-live) event.
+  int consecutiveFailures = 0;
   DateTime? lastUpdated;
   DateTime? wentLiveTime;
 

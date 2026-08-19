@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import '../theme/neu_theme.dart';
-import '../main.dart';
+import '../theme/theme_notifier.dart';
 
 class TwitchVideoCard extends StatefulWidget {
   final TwitchVideo vod;
