@@ -6,7 +6,9 @@ import '../models/app_settings.dart';
 import '../services/player_service.dart';
 import '../services/update_service.dart';
 import '../utils/color_utils.dart';
+import '../theme/neu_material_themes.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_switch.dart';
 
 // Abstract theme notifier interface to break dependencies
 abstract class ThemeUpdateListener extends ChangeNotifier {
@@ -183,7 +185,7 @@ class SettingsDialog {
                                     ),
                                   ],
                                 ),
-                                Switch(
+                                NeuSwitch(
                                   value: tempLowLatency,
                                   activeColor: themeNotifier.primaryColor,
                                   onChanged: (val) {
@@ -204,13 +206,7 @@ class SettingsDialog {
                                 Text('50%', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                                 Expanded(
                                   child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 2,
-                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                      activeTrackColor: themeNotifier.primaryColor,
-                                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                      thumbColor: themeNotifier.primaryColor,
-                                    ),
+                                    data: neuSliderTheme(context, accent: themeNotifier.primaryColor),
                                     child: Slider(
                                       value: tempWatchedThreshold.toDouble(),
                                       min: 50,
@@ -236,13 +232,7 @@ class SettingsDialog {
                                 Text('1', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                                 Expanded(
                                   child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 2,
-                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                      activeTrackColor: themeNotifier.primaryColor,
-                                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                      thumbColor: themeNotifier.primaryColor,
-                                    ),
+                                    data: neuSliderTheme(context, accent: themeNotifier.primaryColor),
                                     child: Slider(
                                       value: tempMaxRecentlyWatched.toDouble(),
                                       min: 1,

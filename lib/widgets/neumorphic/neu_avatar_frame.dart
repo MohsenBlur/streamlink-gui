@@ -53,6 +53,11 @@ class NeuAvatarFrame extends StatelessWidget {
                           width: size - 10,
                           height: size - 10,
                           fit: BoxFit.cover,
+                          // Twitch avatars are often 300x300+; decode at the
+                          // displayed size instead of full resolution.
+                          cacheWidth: ((size - 10) *
+                                  MediaQuery.devicePixelRatioOf(context))
+                              .ceil(),
                           errorBuilder: (context, error, stackTrace) =>
                               _buildFallback(theme),
                         )
@@ -71,15 +76,16 @@ class NeuAvatarFrame extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: NeuTheme.surface(isDark),
                     shape: BoxShape.circle,
-                    boxShadow: const [
+                    boxShadow: [
                       BoxShadow(
-                        color: Colors.black38,
+                        color: NeuTheme.shadow(isDark).withValues(alpha: 0.5),
                         blurRadius: 4,
                       )
                     ],
                   ),
-                  child: const NeuLedIndicator(
-                    size: 14.0,
+                  child: NeuLedIndicator(
+                    // Scale with the avatar instead of a fixed 14px badge.
+                    size: (size * 0.25).clamp(10.0, 16.0),
                     isLive: true,
                   ),
                 ),

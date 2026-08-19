@@ -21,8 +21,11 @@ import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
+import 'widgets/neumorphic/neu_checkbox.dart';
+import 'widgets/neumorphic/neu_switch.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
 import 'state/automation_decisions.dart';
+import 'theme/neu_material_themes.dart';
 import 'theme/neu_theme.dart';
 import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
@@ -1823,6 +1826,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       body: Column(
         children: [
           NeuTitleBar(
+            liveCount: _channels.where((c) => c.isLive).length,
             isDarkTheme: themeNotifier.isDarkTheme,
             onThemeToggle: (isDark) {
               setState(() {
@@ -2614,19 +2618,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                         Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                         const SizedBox(width: 4),
                                         Text('Show All Games', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                                        Transform.scale(
-                                          scale: 0.7,
-                                          child: Switch(
-                                            value: _showGamesOnThumbnails,
-                                            activeColor: theme.primaryColor,
-                                            onChanged: (val) {
-                                              setState(() {
-                                                _showGamesOnThumbnails = val;
-                                                _settings.showGamesOnThumbnails = val;
-                                              });
-                                              _saveChannels();
-                                            },
-                                          ),
+                                        const SizedBox(width: 8),
+                                        NeuSwitch(
+                                          value: _showGamesOnThumbnails,
+                                          onChanged: (val) {
+                                            setState(() {
+                                              _showGamesOnThumbnails = val;
+                                              _settings.showGamesOnThumbnails = val;
+                                            });
+                                            _saveChannels();
+                                          },
                                         ),
                                       ],
                                     ),
@@ -2662,15 +2663,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   SizedBox(
                                     width: 110,
                                     child: SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        trackHeight: 2,
-                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                        activeTrackColor: theme.primaryColor,
-                                        inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                        thumbColor: theme.primaryColor,
-                                        overlayColor: theme.primaryColor.withOpacity(0.12),
-                                      ),
+                                      data: neuSliderTheme(context),
                                       child: Slider(
                                         value: _vodScale,
                                         min: 200.0,
@@ -2690,15 +2683,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   SizedBox(
                                     width: 90,
                                     child: SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        trackHeight: 2,
-                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                        activeTrackColor: theme.primaryColor,
-                                        inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                        thumbColor: theme.primaryColor,
-                                        overlayColor: theme.primaryColor.withOpacity(0.12),
-                                      ),
+                                      data: neuSliderTheme(context),
                                       child: Slider(
                                         value: _vodTitleFontSize,
                                         min: 11.0,
@@ -2952,20 +2937,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         Text('Show All Games on Thumbnails', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                       ],
                     ),
-                    Transform.scale(
-                      scale: 0.8,
-                      child: Switch(
-                        value: _showGamesOnThumbnails,
-                        activeColor: theme.primaryColor,
-                        onChanged: (val) {
-                          setState(() {
-                            _showGamesOnThumbnails = val;
-                            _settings.showGamesOnThumbnails = val;
-                          });
-                          _saveChannels();
-                          setMenuState(() {});
-                        },
-                      ),
+                    NeuSwitch(
+                      value: _showGamesOnThumbnails,
+                      onChanged: (val) {
+                        setState(() {
+                          _showGamesOnThumbnails = val;
+                          _settings.showGamesOnThumbnails = val;
+                        });
+                        _saveChannels();
+                        setMenuState(() {});
+                      },
                     ),
                   ],
                 );
@@ -3050,24 +3031,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               child: Row(
                                 children: [
-                                  SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: Checkbox(
-                                      value: isChecked,
-                                      activeColor: theme.primaryColor,
-                                      checkColor: Colors.white,
-                                      onChanged: (val) {
-                                        setState(() {
-                                          if (isChecked) {
-                                            _selectedGamesFilter.remove(game);
-                                          } else {
-                                            _selectedGamesFilter.add(game);
-                                          }
-                                        });
-                                        setMenuState(() {});
-                                      },
-                                    ),
+                                  NeuCheckbox(
+                                    value: isChecked,
+                                    activeColor: theme.primaryColor,
+                                    size: 16,
+                                    onChanged: (val) {
+                                      setState(() {
+                                        if (isChecked) {
+                                          _selectedGamesFilter.remove(game);
+                                        } else {
+                                          _selectedGamesFilter.add(game);
+                                        }
+                                      });
+                                      setMenuState(() {});
+                                    },
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
@@ -3095,15 +3072,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 Text('Card Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                 Expanded(
                   child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 2,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                      activeTrackColor: theme.primaryColor,
-                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                      thumbColor: theme.primaryColor,
-                      overlayColor: theme.primaryColor.withOpacity(0.12),
-                    ),
+                    data: neuSliderTheme(context),
                     child: Slider(
                       value: _vodScale,
                       min: 200.0,
@@ -3126,15 +3095,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 Text('Font Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                 Expanded(
                   child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 2,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                      activeTrackColor: theme.primaryColor,
-                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                      thumbColor: theme.primaryColor,
-                      overlayColor: theme.primaryColor.withOpacity(0.12),
-                    ),
+                    data: neuSliderTheme(context),
                     child: Slider(
                       value: _vodTitleFontSize,
                       min: 11.0,

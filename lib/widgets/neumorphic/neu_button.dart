@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
 import '../../theme/theme_notifier.dart';
+import '../../theme/neu_theme.dart';
 
 class NeuButton extends StatefulWidget {
   final Widget child;
@@ -40,6 +41,8 @@ class _NeuButtonState extends State<NeuButton> {
   bool _isPressed = false;
   bool _isHovered = false;
 
+  bool get _enabled => widget.onPressed != null;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -49,22 +52,46 @@ class _NeuButtonState extends State<NeuButton> {
         ? NeuStyle.sunken
         : NeuStyle.raised;
 
+    // A disabled button gives no interaction feedback: it previously showed
+    // the pressed/sunken state on tap-down even with onPressed == null.
+    final double scale = !_enabled
+        ? 1.0
+        : _isPressed
+            ? 0.96
+            : (_isHovered ? 1.025 : 1.0);
+
+    Widget content = DefaultTextStyle(
+      style: TextStyle(
+        color: !_enabled
+            ? NeuTheme.disabledText(themeNotifier.isDarkTheme)
+            : widget.isSelected
+                ? accentColor
+                : themeNotifier.textColor,
+        fontWeight: widget.isSelected ? FontWeight.bold : FontWeight.w600,
+      ),
+      child: widget.child,
+    );
+    if (!_enabled) {
+      content = Opacity(opacity: 0.45, child: content);
+    }
+
     Widget buttonCore = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
-      cursor: widget.onPressed != null
-          ? SystemMouseCursors.click
-          : SystemMouseCursors.basic,
+      cursor: _enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: GestureDetector(
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) => setState(() => _isPressed = false),
-        onTapCancel: () => setState(() => _isPressed = false),
+        onTapDown: _enabled ? (_) => setState(() => _isPressed = true) : null,
+        onTapUp: _enabled ? (_) => setState(() => _isPressed = false) : null,
+        onTapCancel: _enabled ? () => setState(() => _isPressed = false) : null,
         onTap: widget.onPressed,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           curve: Curves.easeOutCubic,
-          transform: Matrix4.identity()
-            ..scale(_isPressed ? 0.96 : (_isHovered ? 1.025 : 1.0)),
+          // Without this the transform origin is the top-left corner, so every
+          // button in the app grew down-right on hover and collapsed toward
+          // its corner on press instead of scaling in place.
+          transformAlignment: Alignment.center,
+          transform: Matrix4.identity()..scale(scale),
           child: NeuContainer(
             width: widget.width,
             height: widget.height,
@@ -73,26 +100,20 @@ class _NeuButtonState extends State<NeuButton> {
             isCircle: widget.isCircle,
             style: effectiveStyle,
             color: widget.isSelected
-                ? accentColor.withOpacity(0.15)
+                ? accentColor.withValues(alpha: 0.15)
                 : widget.baseColor,
-            depth: _isPressed
-                ? (widget.depth * 0.35).clamp(1.0, 3.0)
-                : (_isHovered ? widget.depth + 2.0 : widget.depth),
+            depth: !_enabled
+                ? widget.depth
+                : _isPressed
+                    ? (widget.depth * 0.35).clamp(1.0, 3.0)
+                    : (_isHovered ? widget.depth + 2.0 : widget.depth),
             border: widget.isSelected
-                ? Border.all(color: accentColor.withOpacity(0.8), width: 1.5)
+                ? Border.all(color: accentColor.withValues(alpha: 0.8), width: 1.5)
                 : null,
             child: Center(
               widthFactor: 1.0,
               heightFactor: 1.0,
-              child: DefaultTextStyle(
-                style: TextStyle(
-                  color: widget.isSelected
-                      ? accentColor
-                      : themeNotifier.textColor,
-                  fontWeight: widget.isSelected ? FontWeight.bold : FontWeight.w600,
-                ),
-                child: widget.child,
-              ),
+              child: content,
             ),
           ),
         ),
@@ -119,7 +140,6 @@ class NeuIconButton extends StatelessWidget {
   final Color? activeColor;
   final bool isSelected;
   final String? tooltip;
-  final bool inWell;
 
   const NeuIconButton({
     Key? key,
@@ -131,7 +151,6 @@ class NeuIconButton extends StatelessWidget {
     this.activeColor,
     this.isSelected = false,
     this.tooltip,
-    this.inWell = false,
   }) : super(key: key);
 
   @override
@@ -141,7 +160,7 @@ class NeuIconButton extends StatelessWidget {
         ? (activeColor ?? theme.primaryColor)
         : (iconColor ?? themeNotifier.textColor);
 
-    Widget btn = NeuButton(
+    return NeuButton(
       width: size,
       height: size,
       padding: EdgeInsets.zero,
@@ -156,18 +175,5 @@ class NeuIconButton extends StatelessWidget {
         color: effectiveIconColor,
       ),
     );
-
-    if (inWell) {
-      return NeuContainer(
-        width: size + 8,
-        height: size + 8,
-        padding: const EdgeInsets.all(4),
-        isCircle: true,
-        style: NeuStyle.well,
-        child: btn,
-      );
-    }
-
-    return btn;
   }
 }

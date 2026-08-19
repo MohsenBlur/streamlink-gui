@@ -3,6 +3,7 @@ import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_checkbox.dart';
+import 'neumorphic/neu_switch.dart';
 import '../theme/theme_notifier.dart';
 
 class _ChannelAutomationState {
@@ -228,7 +229,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                       ],
                     ),
                   ),
-                  Switch(
+                  NeuSwitch(
                     value: widget.settings.autoPlayPreemptLowerPriority,
                     activeColor: theme.primaryColor,
                     onChanged: (val) {

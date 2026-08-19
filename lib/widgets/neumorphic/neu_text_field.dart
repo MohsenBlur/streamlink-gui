@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
+import '../../theme/neu_theme.dart';
 
 class NeuTextField extends StatefulWidget {
   final TextEditingController? controller;
@@ -13,6 +14,11 @@ class NeuTextField extends StatefulWidget {
   final double height;
   final VoidCallback? onClear;
 
+  /// Externally owned focus node, so the app can focus this field (e.g. the
+  /// Ctrl+F shortcut targeting the sidebar search). When omitted the field
+  /// owns and disposes its own node.
+  final FocusNode? focusNode;
+
   const NeuTextField({
     Key? key,
     this.controller,
@@ -25,6 +31,7 @@ class NeuTextField extends StatefulWidget {
     this.isPassword = false,
     this.height = 44.0,
     this.onClear,
+    this.focusNode,
   }) : super(key: key);
 
   @override
@@ -32,22 +39,48 @@ class NeuTextField extends StatefulWidget {
 }
 
 class _NeuTextFieldState extends State<NeuTextField> {
-  final FocusNode _focusNode = FocusNode();
+  FocusNode? _ownedFocusNode;
   bool _isFocused = false;
+
+  FocusNode get _focusNode =>
+      widget.focusNode ?? (_ownedFocusNode ??= FocusNode());
 
   @override
   void initState() {
     super.initState();
-    _focusNode.addListener(() {
-      setState(() {
-        _isFocused = _focusNode.hasFocus;
-      });
-    });
+    _focusNode.addListener(_onFocusChanged);
+    // The clear button's visibility depends on the text; listen directly so it
+    // updates even when the parent never rebuilds (it previously worked only
+    // because some parents happened to call setState from onChanged).
+    widget.controller?.addListener(_onTextChanged);
+  }
+
+  @override
+  void didUpdateWidget(NeuTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?.removeListener(_onTextChanged);
+      widget.controller?.addListener(_onTextChanged);
+    }
+    if (oldWidget.focusNode != widget.focusNode) {
+      (oldWidget.focusNode ?? _ownedFocusNode)?.removeListener(_onFocusChanged);
+      _focusNode.addListener(_onFocusChanged);
+    }
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() => _isFocused = _focusNode.hasFocus);
+  }
+
+  void _onTextChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _focusNode.dispose();
+    widget.controller?.removeListener(_onTextChanged);
+    _focusNode.removeListener(_onFocusChanged);
+    _ownedFocusNode?.dispose();
     super.dispose();
   }
 
@@ -64,11 +97,11 @@ class _NeuTextFieldState extends State<NeuTextField> {
         style: NeuStyle.sunken,
         borderRadius: BorderRadius.circular(22),
         depth: 4.0,
-        color: isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB),
+        color: NeuTheme.wellSurface(isDark),
         border: Border.all(
           color: _isFocused
-              ? primaryColor.withOpacity(0.9)
-              : (isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.08)),
+              ? primaryColor.withValues(alpha: 0.9)
+              : NeuTheme.border(isDark),
           width: _isFocused ? 1.8 : 1.0,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -78,9 +111,7 @@ class _NeuTextFieldState extends State<NeuTextField> {
               Icon(
                 widget.prefixIcon,
                 size: 18,
-                color: _isFocused
-                    ? primaryColor
-                    : (isDark ? Colors.white38 : Colors.black38),
+                color: _isFocused ? primaryColor : NeuTheme.subtext(isDark),
               ),
               const SizedBox(width: 8),
             ],
@@ -93,14 +124,14 @@ class _NeuTextFieldState extends State<NeuTextField> {
                 onChanged: widget.onChanged,
                 onSubmitted: widget.onSubmitted,
                 style: TextStyle(
-                  color: isDark ? const Color(0xFFF0F4F8) : const Color(0xFF2D3748),
+                  color: NeuTheme.text(isDark),
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                 ),
                 decoration: InputDecoration(
                   hintText: widget.hintText,
                   hintStyle: TextStyle(
-                    color: isDark ? Colors.white38 : Colors.black38,
+                    color: NeuTheme.subtext(isDark),
                     fontSize: 13,
                   ),
                   border: InputBorder.none,
@@ -124,7 +155,7 @@ class _NeuTextFieldState extends State<NeuTextField> {
                   child: Icon(
                     Icons.cancel,
                     size: 16,
-                    color: isDark ? Colors.white38 : Colors.black38,
+                    color: NeuTheme.subtext(isDark),
                   ),
                 ),
               ),

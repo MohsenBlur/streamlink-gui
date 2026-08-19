@@ -11,6 +11,11 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget? leading;
   final List<Widget>? actions;
 
+  /// Number of favorite channels currently live. The badge renders only when
+  /// this is greater than zero — it previously showed a permanent, decorative
+  /// "LIVE" chip unrelated to any actual stream state.
+  final int liveCount;
+
   const NeuTitleBar({
     Key? key,
     this.title = 'TWITCH STREAMLINK GUI',
@@ -18,6 +23,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
     required this.onThemeToggle,
     this.leading,
     this.actions,
+    this.liveCount = 0,
   }) : super(key: key);
 
   @override
@@ -25,15 +31,13 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Container(
       height: 40.0,
       decoration: BoxDecoration(
         color: NeuTheme.background(isDarkTheme),
         border: Border(
           bottom: BorderSide(
-            color: NeuTheme.shadow(isDarkTheme).withOpacity(0.3),
+            color: NeuTheme.shadow(isDarkTheme).withValues(alpha: 0.3),
             width: 1.0,
           ),
         ),
@@ -59,27 +63,34 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                   children: [
                     ?leading,
                     const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: theme.primaryColor.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: theme.primaryColor.withOpacity(0.4),
-                          width: 1,
+                    if (liveCount > 0) ...[
+                      Tooltip(
+                        message:
+                            '$liveCount favorite channel${liveCount == 1 ? '' : 's'} live',
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: NeuTheme.live.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: NeuTheme.live.withValues(alpha: 0.4),
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            '$liveCount LIVE',
+                            style: const TextStyle(
+                              color: NeuTheme.live,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
                         ),
                       ),
-                      child: Text(
-                        'LIVE',
-                        style: TextStyle(
-                          color: theme.primaryColor,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
+                      const SizedBox(width: 10),
+                    ],
                     Text(
                       title.toUpperCase(),
                       style: TextStyle(
@@ -98,50 +109,91 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
           // Custom Actions
           ...?actions,
 
-
           // Theme Toggle Button
           NeuIconButton(
             icon: isDarkTheme ? Icons.wb_sunny_rounded : Icons.nightlight_round,
-            iconColor: isDarkTheme ? const Color(0xFFFFB74D) : const Color(0xFF5C6BC0),
+            iconColor:
+                isDarkTheme ? const Color(0xFFFFB74D) : const Color(0xFF5C6BC0),
             size: 28,
             iconSize: 14,
-            tooltip: isDarkTheme ? 'Switch to Light Neumorphic' : 'Switch to Dark Neumorphic',
+            tooltip: isDarkTheme
+                ? 'Switch to Light Neumorphic'
+                : 'Switch to Dark Neumorphic',
             onPressed: () => onThemeToggle(!isDarkTheme),
           ),
           const SizedBox(width: 12),
 
           // Frameless Window Controls
-          Row(
-            children: [
-              _WindowControlButton(
-                icon: Icons.remove_rounded,
-                tooltip: 'Minimize',
-                onPressed: () => windowManager.minimize(),
-              ),
-              const SizedBox(width: 6),
-              _WindowControlButton(
-                icon: Icons.crop_square_rounded,
-                tooltip: 'Maximize',
-                onPressed: () async {
-                  if (await windowManager.isMaximized()) {
-                    windowManager.unmaximize();
-                  } else {
-                    windowManager.maximize();
-                  }
-                },
-              ),
-              const SizedBox(width: 6),
-              _WindowControlButton(
-                icon: Icons.close_rounded,
-                tooltip: 'Close',
-                isClose: true,
-                onPressed: () => windowManager.close(),
-              ),
-              const SizedBox(width: 10),
-            ],
-          ),
+          const _WindowControls(),
         ],
       ),
+    );
+  }
+}
+
+/// Minimize / maximize / close, with the maximize button tracking the actual
+/// window state (its icon and tooltip previously never changed).
+class _WindowControls extends StatefulWidget {
+  const _WindowControls();
+
+  @override
+  State<_WindowControls> createState() => _WindowControlsState();
+}
+
+class _WindowControlsState extends State<_WindowControls> with WindowListener {
+  bool _isMaximized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    windowManager.isMaximized().then((value) {
+      if (mounted) setState(() => _isMaximized = value);
+    });
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowMaximize() => setState(() => _isMaximized = true);
+
+  @override
+  void onWindowUnmaximize() => setState(() => _isMaximized = false);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _WindowControlButton(
+          icon: Icons.remove_rounded,
+          tooltip: 'Minimize',
+          onPressed: () => windowManager.minimize(),
+        ),
+        const SizedBox(width: 6),
+        _WindowControlButton(
+          icon: _isMaximized ? Icons.filter_none_rounded : Icons.crop_square_rounded,
+          tooltip: _isMaximized ? 'Restore' : 'Maximize',
+          onPressed: () async {
+            if (await windowManager.isMaximized()) {
+              windowManager.unmaximize();
+            } else {
+              windowManager.maximize();
+            }
+          },
+        ),
+        const SizedBox(width: 6),
+        _WindowControlButton(
+          icon: Icons.close_rounded,
+          tooltip: 'Close',
+          isClose: true,
+          onPressed: () => windowManager.close(),
+        ),
+        const SizedBox(width: 10),
+      ],
     );
   }
 }
@@ -164,19 +216,20 @@ class _WindowControlButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // The socket needs breathing room around the button or its recessed ring
+    // is entirely covered by the button surface.
     return NeuContainer(
       width: 26,
       height: 26,
       isCircle: true,
       style: NeuStyle.well,
+      padding: const EdgeInsets.all(3),
       child: NeuIconButton(
         icon: icon,
-        size: 22,
-        iconSize: 12,
-        iconColor: isClose
-            ? const Color(0xFFFF4565)
-            : NeuTheme.text(isDark),
-        activeColor: isClose ? const Color(0xFFFF4565) : null,
+        size: 20,
+        iconSize: 11,
+        iconColor: isClose ? NeuTheme.danger : NeuTheme.text(isDark),
+        activeColor: isClose ? NeuTheme.danger : null,
         tooltip: tooltip,
         onPressed: onPressed,
       ),

@@ -18,6 +18,45 @@ class NeuTheme {
   static const Color darkShadow = Color(0xFF12151B);
   static const Color defaultDarkAccent = Color(0xFFFF3B30); // Vibrant Red
 
+  // Semantic status colors, previously scattered as inline hexes across the
+  // LED indicator, card border and title bar.
+  static const Color live = Color(0xFF00E6A5);
+  static const Color danger = Color(0xFFFF4565);
+
+  /// Readable foreground for content rendered ON the accent color.
+  ///
+  /// The accent is user-selectable, so this must be computed: white text was
+  /// hardcoded everywhere and became invisible on bright accents such as Cyan,
+  /// Gold, Sky and Emerald.
+  static Color onAccent(Color accent) =>
+      ThemeData.estimateBrightnessForColor(accent) == Brightness.dark
+          ? Colors.white
+          : const Color(0xFF1A202C);
+
+  /// Recessed "well" surface (track slots, sockets, sunken fields).
+  ///
+  /// Canonicalized on the value most widgets already used; NeuContainer's
+  /// slightly different light well was the outlier.
+  static Color wellSurface(bool isDark) =>
+      isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB);
+
+  /// Keyboard-focus visual consistent with the neumorphic style: an accent
+  /// border with a soft outer glow, readable on both themes' low-contrast
+  /// surfaces.
+  static BoxDecoration focusRing(bool isDark, Color accent, {double radius = 16}) {
+    return BoxDecoration(
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: accent, width: 2),
+      boxShadow: [
+        BoxShadow(
+          color: accent.withValues(alpha: 0.35),
+          blurRadius: 6,
+          spreadRadius: 1,
+        ),
+      ],
+    );
+  }
+
   // Dynamic Color Token Getters
   static Color background(bool isDark) => isDark ? darkBg : lightBg;
   static Color surface(bool isDark) => isDark ? darkSurface : lightSurface;
