@@ -15,7 +15,9 @@ namespace fs = std::filesystem;
 const wchar_t* MUTEX_NAME = L"Local\\TwitchStreamlinkGUIUniqueMutexName";
 const wchar_t* BREAKAWAY_FLAG = L"--no-job";
 
-static std::wstring g_logPath;
+static std::wstring g_logPath;// Set when an install failed AND its rollback could not fully restore the
+// previous files, so the installation is left in a mixed state.
+static bool g_installInconsistent = false;
 
 // Appends a line to updater.log next to the target application.
 //
@@ -41,6 +43,23 @@ void LogLine(const std::wstring& message) {
         WriteFile(hFile, utf8.data(), static_cast<DWORD>(bytes - 1), &written, NULL);
     }
     CloseHandle(hFile);
+}
+
+// Creates the file the launching app waits on to learn that we are safely
+// outside its job object and it may exit.
+void SignalReady(int argc, LPWSTR* argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (wcscmp(argv[i], L"--ready-file") != 0) continue;
+        HANDLE h = CreateFileW(argv[i + 1], GENERIC_WRITE, FILE_SHARE_READ, NULL,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            const char ok[] = "ready";
+            DWORD written = 0;
+            WriteFile(h, ok, sizeof(ok) - 1, &written, NULL);
+            CloseHandle(h);
+        }
+        return;
+    }
 }
 
 // The main app assigns itself to a job object with KILL_ON_JOB_CLOSE so its
@@ -321,6 +340,7 @@ bool PerformSwap(const fs::path& targetDir, const fs::path& stagingDir) {
             // The rollback result used to be discarded, so a partially restored
             // installation was still reported as "safely restored". Keep the
             // backup in place so it can be recovered by hand.
+            g_installInconsistent = true;
             LogLine(L"ROLLBACK INCOMPLETE - installation may be inconsistent. "
                     L"Previous files kept at: " + backupDir.wstring());
         }
@@ -452,9 +472,17 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     // KILL_ON_JOB_CLOSE will take us down the moment the app exits - in the
     // middle of replacing its files.
     if (EnsureOutsideJob(argc, argv)) {
+        // The relaunched instance signals readiness; this one is still inside
+        // the job and is about to exit.
         LocalFree(argv);
         return 0;
     }
+
+    // Safely outside the app's job object (or never in one). Tell the app it
+    // may now exit: until this point, its exit would close the job and kill us
+    // in the middle of replacing its files.
+    SignalReady(argc, argv);
+    LogLine(L"Signalled ready; the application may now exit.");
 
     // Wait for the app to release its single-instance mutex.
     HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, MUTEX_NAME);
@@ -493,6 +521,15 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     if (outcome == kSwapCancelled) {
         ShowError(L"The update was cancelled because administrator permission was not granted.\n\n"
                   L"Your current version has been restarted and is unchanged.");
+    } else if (outcome == kSwapFailed && g_installInconsistent) {
+        // Do not claim the previous version was restored when it demonstrably
+        // was not: some files are from the new version and some from the old,
+        // and the app has just been relaunched in that state.
+        ShowError(L"The update failed and the previous version could NOT be fully restored, "
+                  L"so this installation is now in a mixed state.\n\n"
+                  L"A copy of your previous files is kept in your TEMP folder under "
+                  L"streamlink_gui_backup. Reinstalling the latest version from GitHub is the "
+                  L"safest way to recover.\n\nSee updater.log for details.");
     } else if (outcome == kSwapFailed) {
         ShowError(L"The update could not be completed and your previous version has been restarted.\n\n"
                   L"See updater.log in the application folder for details.");

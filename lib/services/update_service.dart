@@ -301,16 +301,52 @@ class UpdateService {
     final tempRunner = File(path.join(Directory.systemTemp.path, 'streamlink_updater_runner.exe'));
     await helperExe.copy(tempRunner.path);
 
-    // 3. Spawn detached native helper executable
-    // Arguments: [TargetAppDir, SourceStagingDir, ExeName]
+    // 3. Spawn the native helper.
+    //
+    // ProcessStartMode.detached passes DETACHED_PROCESS but NOT
+    // CREATE_BREAKAWAY_FROM_JOB, so the updater starts INSIDE this app's job
+    // object (KILL_ON_JOB_CLOSE). It only escapes once its own EnsureOutsideJob
+    // re-launches it. If this process exited first, closing the job would kill
+    // the updater mid-update and leave the user with neither the update nor a
+    // running app.
+    //
+    // A fixed sleep was a guess. Instead the updater touches a sentinel file
+    // once it is safely outside the job, and we wait for that before exiting.
+    final sentinel = File(path.join(
+      Directory.systemTemp.path,
+      'streamlink_updater_ready_${DateTime.now().microsecondsSinceEpoch}',
+    ));
+    if (sentinel.existsSync()) {
+      try {
+        sentinel.deleteSync();
+      } catch (_) {}
+    }
+
     await Process.start(
       tempRunner.path,
-      [targetPath, sourcePath, exeName],
+      [targetPath, sourcePath, exeName, '--ready-file', sentinel.path],
       mode: ProcessStartMode.detached,
     );
 
-    // 4. Gracefully terminate main application process
-    await Future.delayed(const Duration(milliseconds: 200));
+    // 4. Wait for the updater to confirm it has broken out of our job.
+    const timeout = Duration(seconds: 15);
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (sentinel.existsSync()) break;
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+
+    // If the handshake never arrived the updater could not break away and would
+    // die with us, so leave the installation untouched and let the caller
+    // report the failure rather than killing the app for nothing.
+    if (!sentinel.existsSync()) {
+      throw Exception(
+        'The updater did not start correctly, so the update was not applied. '
+        'Your current version is unchanged.',
+      );
+    }
+
+    // 5. Gracefully terminate the main application process.
     exit(0);
   }
 }

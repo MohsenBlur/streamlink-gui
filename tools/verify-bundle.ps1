@@ -40,6 +40,17 @@ if ($BinOnly) {
     $requirements = $requirements | Where-Object { $_.path -like "bin/*" }
 }
 
+# Fail closed. A missing or renamed 'bundleRequirements' key yields $null, and
+# `foreach` over $null iterates zero times - so without this the script would
+# report "passed (0 required paths present)" and exit 0. This is the only gate
+# between a runtime-less bundle and a published release; it must never pass by
+# checking nothing.
+if (-not $requirements -or @($requirements).Count -eq 0) {
+    Write-Host "Bundle verification FAILED: no requirements found in $ManifestPath" -ForegroundColor Red
+    Write-Host "Expected a non-empty 'bundleRequirements' array." -ForegroundColor Yellow
+    exit 1
+}
+
 $failures = New-Object System.Collections.Generic.List[string]
 $checked = 0
 

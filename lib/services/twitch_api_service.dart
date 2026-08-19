@@ -19,6 +19,21 @@ class VodsFetchResult {
 }
 
 class TwitchApiService {
+  /// Every Twitch/DecAPI request goes through these wrappers.
+  ///
+  /// None of the calls in this file had a timeout: a request that never
+  /// completes stalled the whole refresh, and because the favourites poll had
+  /// no re-entrancy guard the stalled passes accumulated.
+  static const Duration _requestTimeout = Duration(seconds: 12);
+
+  Future<http.Response> _get(Uri url, {Map<String, String>? headers}) {
+    return http.get(url, headers: headers).timeout(_requestTimeout);
+  }
+
+  Future<http.Response> _post(Uri url, {Map<String, String>? headers, Object? body}) {
+    return http.post(url, headers: headers, body: body).timeout(_requestTimeout);
+  }
+
   String _getRawOauthToken(String token) {
     String cleanToken = token.trim();
     if (cleanToken.startsWith('oauth:')) {
@@ -113,7 +128,7 @@ class TwitchApiService {
 
         // 1. Resolve ID & Profile Avatar if not cached
         if (channel.id == null || channel.id!.isEmpty || channel.avatarUrl == null || channel.avatarUrl!.isEmpty) {
-          final userRes = await http.get(
+          final userRes = await _get(
             Uri.parse('https://api.twitch.tv/helix/users?login=$username'),
             headers: headers,
           );
@@ -131,7 +146,7 @@ class TwitchApiService {
         }
 
         // 2. Fetch Stream status
-        final streamRes = await http.get(
+        final streamRes = await _get(
           Uri.parse('https://api.twitch.tv/helix/streams?user_id=${channel.id}'),
           headers: headers,
         );
@@ -176,7 +191,7 @@ class TwitchApiService {
         // genuinely live channel offline, discarding the stream data that had
         // just been fetched successfully.
         try {
-          final followsRes = await http.get(
+          final followsRes = await _get(
             Uri.parse('https://api.twitch.tv/helix/channels/followers?broadcaster_id=${channel.id}'),
             headers: headers,
           );
@@ -193,7 +208,7 @@ class TwitchApiService {
       } else {
         // Unauthenticated: Fallback to DecAPI
         // 1. Verify/Fetch User ID
-        final idResponse = await http.get(Uri.parse('https://decapi.me/twitch/id/$username'));
+        final idResponse = await _get(Uri.parse('https://decapi.me/twitch/id/$username'));
         if (idResponse.statusCode == 200) {
           final resText = idResponse.body.trim();
           if (resText.toLowerCase().contains('user not found')) {
@@ -206,12 +221,12 @@ class TwitchApiService {
 
         // 2. Fetch Uptime, Avatar, Followers, Viewers, Game, and Title in parallel
         final futures = await Future.wait([
-          http.get(Uri.parse('https://decapi.me/twitch/avatar/$username')),
-          http.get(Uri.parse('https://decapi.me/twitch/uptime/$username')),
-          http.get(Uri.parse('https://decapi.me/twitch/followcount/$username')),
-          http.get(Uri.parse('https://decapi.me/twitch/viewercount/$username')),
-          http.get(Uri.parse('https://decapi.me/twitch/game/$username')),
-          http.get(Uri.parse('https://decapi.me/twitch/title/$username')),
+          _get(Uri.parse('https://decapi.me/twitch/avatar/$username')),
+          _get(Uri.parse('https://decapi.me/twitch/uptime/$username')),
+          _get(Uri.parse('https://decapi.me/twitch/followcount/$username')),
+          _get(Uri.parse('https://decapi.me/twitch/viewercount/$username')),
+          _get(Uri.parse('https://decapi.me/twitch/game/$username')),
+          _get(Uri.parse('https://decapi.me/twitch/title/$username')),
         ]);
 
         if (futures[0].statusCode == 200) {
@@ -293,7 +308,7 @@ class TwitchApiService {
       'Authorization': 'Bearer $token',
     };
 
-    final userRes = await http.get(
+    final userRes = await _get(
       Uri.parse('https://api.twitch.tv/helix/users'),
       headers: headers,
     );
@@ -311,25 +326,46 @@ class TwitchApiService {
     final userLogin = userData['data'][0]['login'] as String;
     final userAvatar = userData['data'][0]['profile_image_url'] as String?;
 
-    final followsRes = await http.get(
-      Uri.parse('https://api.twitch.tv/helix/channels/followed?user_id=$userId&first=100'),
-      headers: headers,
-    );
-
-    if (followsRes.statusCode != 200) {
-      throw Exception('Failed to get followed channels: ${followsRes.body}');
-    }
-
-    final followsData = json.decode(followsRes.body);
-    final List<dynamic> data = followsData['data'] ?? [];
-
+    // Helix returns at most 100 per page. Only the first page used to be
+    // requested, so anyone following more than 100 channels silently lost the
+    // rest from the Followed tab.
     final List<TwitchChannel> tempFollowed = [];
-    for (var item in data) {
-      final name = item['broadcaster_login'] as String;
-      final channel = TwitchChannel(username: name.toLowerCase().trim());
-      channel.id = item['broadcaster_id'] as String;
-      channel.game = item['game_name'] as String?;
-      tempFollowed.add(channel);
+    final seen = <String>{};
+    String? cursor;
+    // Bounded so a malformed cursor cannot spin forever.
+    const maxPages = 20;
+
+    for (var page = 0; page < maxPages; page++) {
+      final url = StringBuffer('https://api.twitch.tv/helix/channels/followed'
+          '?user_id=$userId&first=100');
+      if (cursor != null && cursor.isNotEmpty) {
+        url.write('&after=${Uri.encodeQueryComponent(cursor)}');
+      }
+
+      final followsRes = await _get(Uri.parse(url.toString()), headers: headers);
+      if (followsRes.statusCode != 200) {
+        // Keep whatever was already collected rather than losing every page to
+        // a failure on the last one.
+        if (tempFollowed.isNotEmpty) break;
+        throw Exception('Failed to get followed channels: ${followsRes.body}');
+      }
+
+      final followsData = json.decode(followsRes.body);
+      final List<dynamic> data = followsData['data'] ?? [];
+
+      for (final item in data) {
+        final name = item['broadcaster_login'] as String?;
+        if (name == null || name.trim().isEmpty) continue;
+        final clean = name.toLowerCase().trim();
+        if (!seen.add(clean)) continue;
+        final channel = TwitchChannel(username: clean);
+        channel.id = item['broadcaster_id'] as String?;
+        channel.game = item['game_name'] as String?;
+        tempFollowed.add(channel);
+      }
+
+      cursor = followsData['pagination']?['cursor'] as String?;
+      if (data.isEmpty || cursor == null || cursor.isEmpty) break;
     }
 
     return FollowedChannelsResult(
@@ -339,11 +375,20 @@ class TwitchApiService {
     );
   }
 
+  /// Games per VOD id. A past broadcast's chapter list never changes, so this
+  /// is cached for the process lifetime: the enrichment below previously re-ran
+  /// for every VOD on every fetch, and the automation pass fetches every
+  /// auto-download channel's VOD list once a minute.
+  static final Map<String, List<String>> _vodGamesCache = {};
+
   Future<VodsFetchResult> fetchVodsForChannel({
     required TwitchChannel channel,
     required AppSettings settings,
     required Map<String, int> localVodsProgress,
     String? afterCursor,
+    /// Games are display-only. The automation pass does not render anything,
+    /// so it skips them and halves the request count.
+    bool fetchGames = true,
   }) async {
     final token = _getRawOauthToken(settings.twitchOauthToken);
     if (token.isEmpty) {
@@ -361,7 +406,7 @@ class TwitchApiService {
 
     // Resolve channel ID via Helix if missing (instead of falling back directly to DecAPI)
     if (channel.id == null || channel.id!.isEmpty) {
-      final userRes = await http.get(
+      final userRes = await _get(
         Uri.parse('https://api.twitch.tv/helix/users?login=${channel.username}'),
         headers: headers,
       );
@@ -376,7 +421,7 @@ class TwitchApiService {
 
     // Secondary fallback to DecAPI if Helix resolution failed
     if (channel.id == null || channel.id!.isEmpty) {
-      final idResponse = await http.get(Uri.parse('https://decapi.me/twitch/id/${channel.username}'));
+      final idResponse = await _get(Uri.parse('https://decapi.me/twitch/id/${channel.username}'));
       if (idResponse.statusCode == 200) {
         final resText = idResponse.body.trim();
         if (!resText.toLowerCase().contains('user not found')) {
@@ -394,7 +439,7 @@ class TwitchApiService {
       url += '&after=$afterCursor';
     }
 
-    final response = await http.get(Uri.parse(url), headers: headers);
+    final response = await _get(Uri.parse(url), headers: headers);
 
     if (response.statusCode != 200) {
       throw Exception('Twitch API error: ${response.statusCode} - ${response.body}');
@@ -407,10 +452,17 @@ class TwitchApiService {
     final newVods = videosList.map((item) => TwitchVideo.fromJson(item)).toList();
     bool isWebTokenExpired = false;
 
-    // Fetch games and watch progress in parallel for each VOD using GQL queries
-    await Future.wait(newVods.map((vod) async {
-      // 1. Fetch games via persisted GQL query
-      try {
+    // Enrich in small batches rather than firing one request per VOD at once.
+    // A 20-VOD page previously issued up to 40 simultaneous GQL requests, with
+    // no concurrency limit and no 429 handling.
+    Future<void> enrich(TwitchVideo vod) async {
+      // 1. Games: served from cache when known, and skipped entirely when the
+      //    caller does not display them.
+      final cachedGames = _vodGamesCache[vod.id];
+      if (cachedGames != null) {
+        vod.games = cachedGames;
+      } else if (fetchGames) {
+        try {
         final body = json.encode({
           'operationName': 'VideoPlayer_ChapterSelectButtonVideo',
           'variables': {
@@ -424,7 +476,7 @@ class TwitchApiService {
           },
         });
 
-        final gResponse = await http.post(
+        final gResponse = await _post(
           Uri.parse('https://gql.twitch.tv/gql'),
           headers: {
             'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
@@ -445,9 +497,11 @@ class TwitchApiService {
               }
             }
             vod.games = fetchedGames.toSet().toList();
+            _vodGamesCache[vod.id] = vod.games;
           }
         }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
       // 2. Fetch watch progress via GQL viewingHistory query if web token is present
       String webToken = settings.twitchWebOauthToken.trim();
@@ -473,7 +527,7 @@ class TwitchApiService {
             },
           });
 
-          final progressResponse = await http.post(
+          final progressResponse = await _post(
             Uri.parse('https://gql.twitch.tv/gql'),
             headers: {
               'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
@@ -513,7 +567,13 @@ class TwitchApiService {
       if (vod.watchPosition != null && vod.watchPosition! > 0) {
         localVodsProgress[vod.id] = vod.watchPosition!;
       }
-    }));
+    }
+
+    const batchSize = 5;
+    for (var i = 0; i < newVods.length; i += batchSize) {
+      final end = (i + batchSize) > newVods.length ? newVods.length : i + batchSize;
+      await Future.wait(newVods.sublist(i, end).map(enrich));
+    }
 
     return VodsFetchResult(
       vods: newVods,
@@ -544,7 +604,7 @@ class TwitchApiService {
       },
     });
 
-    final response = await http.post(
+    final response = await _post(
       Uri.parse('https://gql.twitch.tv/gql'),
       headers: {
         'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',

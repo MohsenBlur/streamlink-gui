@@ -1171,9 +1171,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       preemptLowerPriority: _settings.autoPlayPreemptLowerPriority,
     );
 
-    if (decision.sessionKeyToRecord != null) {
-      final channelName = decision.sessionKeyToRecord!.split('#').first.split('@').first;
-      _lastAutoPlayedStreamSession[channelName] = decision.sessionKeyToRecord!;
+    if (decision.sessionChannel != null && decision.sessionKeyToRecord != null) {
+      _lastAutoPlayedStreamSession[decision.sessionChannel!] = decision.sessionKeyToRecord!;
+    }
+
+    // Applied before the early return: the highest-priority stream may already
+    // be running, and lower-priority ones still need stopping in that case.
+    for (final lower in decision.channelsToPreempt) {
+      print('[Auto-Play] Preempting lower priority stream @$lower');
+      _playerService.killLiveStream(lower);
     }
 
     if (!decision.shouldLaunch) {
@@ -1185,11 +1191,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     final target = decision.channelToPlay!;
     final cleanName = target.username.toLowerCase().trim();
-
-    for (final lower in decision.channelsToPreempt) {
-      print('[Auto-Play] Preempting lower priority stream @$lower');
-      _playerService.killLiveStream(lower);
-    }
 
     _lastAutoPlayedStreamSession[cleanName] = decision.sessionKey!;
     print('[Auto-Play] Launching @${target.username} (session ${decision.sessionKey})');
@@ -1231,6 +1232,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           channel: channel,
           settings: _settings,
           localVodsProgress: _localVodsProgress,
+          // This pass renders nothing, so the per-VOD game lookup is pure
+          // overhead. It runs for every auto-download channel every minute.
+          fetchGames: false,
         );
         if (result.vods.isEmpty) continue;
 
@@ -1542,12 +1546,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Future<void> _openExternalLink(String url) async {
     try {
-      if (Platform.isWindows) {
-        final escapedUrl = url.replaceAll('&', '^&');
-        await Process.run('cmd', ['/c', 'start', '""', escapedUrl], runInShell: false);
-      } else {
+      if (!Platform.isWindows) {
         _showSnackBar('Unsupported platform for launching external link', isError: true);
+        return;
       }
+
+      // Launched via Explorer, NOT `cmd /c start`.
+      //
+      // The app now runs inside a job object with KILL_ON_JOB_CLOSE so its
+      // helper processes cannot outlive it. Anything the app spawns inherits
+      // that job - so a browser started through cmd became a job member and was
+      // killed the moment the app closed. Explorer is already running outside
+      // our job, so handing the URL to it launches the browser out of reach.
+      // This also drops the `&` -> `^&` shell escaping the cmd form needed.
+      await Process.start('explorer.exe', [url], mode: ProcessStartMode.detached);
     } catch (e) {
       _showSnackBar('Failed to open link: $e', isError: true);
     }

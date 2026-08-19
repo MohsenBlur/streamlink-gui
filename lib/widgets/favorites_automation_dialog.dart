@@ -535,7 +535,14 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                             ),
                                             const SizedBox(width: 8),
                                             Text(
-                                              'Stop at last watched (> 5%)',
+                                              // The cutoff is the exclusion
+                                              // threshold above, not a fixed 5%:
+                                              // the two rules share one number so
+                                              // that the slider actually governs
+                                              // both. Labelling it "5%" while the
+                                              // slider drove the behaviour would
+                                              // be a lie.
+                                              'Stop at last watched (over $_threshold%)',
                                               style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                             ),
                                           ],

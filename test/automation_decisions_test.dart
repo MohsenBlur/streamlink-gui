@@ -169,6 +169,23 @@ void main() {
       expect(d.shouldLaunch, isFalse);
       expect(d.reason, AutoPlaySkipReason.alreadyRunning);
       expect(d.sessionKeyToRecord, isNotNull);
+      // Carried explicitly so the caller never has to parse it out of the key.
+      expect(d.sessionChannel, 'a');
+    });
+
+    test('still preempts when the top priority stream is already running', () {
+      // Regression: the alreadyRunning branch returned before computing the
+      // preemption list, so whenever the highest-priority stream happened to
+      // start first, lower-priority streams were left playing alongside it -
+      // exactly what preemption exists to prevent.
+      final d = decide([
+        channel('high', priority: 0, live: true, streamId: 's1'),
+        channel('low', priority: 1, live: true, streamId: 's2'),
+      ], running: {'high', 'low'}, preempt: true);
+
+      expect(d.shouldLaunch, isFalse);
+      expect(d.reason, AutoPlaySkipReason.alreadyRunning);
+      expect(d.channelsToPreempt, ['low']);
     });
 
     test('yields to a higher priority channel that is already playing', () {
@@ -293,6 +310,30 @@ void main() {
         isAlreadyHandled: (id) => id == 'done',
       );
       expect(selected.map((v) => v.id), ['todo']);
+    });
+
+    test('keep count caps the retained window, not the per-pass download count', () {
+      // Regression: filling the quota with only *unhandled* VODs turned it into
+      // a per-pass download quota. Once the oldest N were on disk, the next pass
+      // reached further down the list for N more, and so on until the entire
+      // channel history had been downloaded.
+      final vods = [
+        vod('v1', daysAgo: 1),
+        vod('v2', daysAgo: 2),
+        vod('v3', daysAgo: 3),
+        vod('v4', daysAgo: 4),
+        vod('v5', daysAgo: 5),
+      ];
+      // Oldest two (v5, v4) are the keep-window and are already downloaded.
+      final selected = selectVodsToAutoDownload(
+        channel: channel('a', autoDownload: true, keep: 2),
+        vods: vods,
+        localProgress: const {},
+        settings: settingsWith(15),
+        isAlreadyHandled: (id) => id == 'v5' || id == 'v4',
+      );
+      expect(selected, isEmpty,
+          reason: 'the window is satisfied; nothing new should be pulled in');
     });
 
     test('returns nothing for an empty VOD list', () {

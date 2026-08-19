@@ -21,10 +21,17 @@ if ($PubspecRaw -notmatch '(?m)^version:\s*(\S+)\s*$') {
 $AppVersion = $Matches[1].Trim()
 
 # The bundled runtime (streamlink, python, ffmpeg, yt-dlp) is not committed to
-# git. Fetch it if it is missing, otherwise the build produces an app that
-# cannot play streams or download VODs.
-if (-not (Test-Path (Join-Path $PSScriptRoot "bin\yt-dlp.exe"))) {
-    Write-Host "Bundled runtime missing - fetching it first..." -ForegroundColor Yellow
+# git. Verify the WHOLE bundle and re-fetch if anything is missing, otherwise
+# the build produces an app that cannot play streams or download VODs.
+#
+# Checking a single sentinel file is not enough: bin/ can be left partially
+# populated by an interrupted fetch, or by a git operation that deletes the
+# tracked files while leaving the git-ignored executables behind (switching to
+# or merging a branch that untracks them does exactly this). The surviving
+# sentinel then hides a broken bundle.
+& (Join-Path $PSScriptRoot "tools\verify-bundle.ps1") -Root $PSScriptRoot -BinOnly | Out-Null
+if ($LastExitCode -ne 0) {
+    Write-Host "Bundled runtime is missing or incomplete - fetching it..." -ForegroundColor Yellow
     & (Join-Path $PSScriptRoot "tools\fetch-deps.ps1")
     if ($LastExitCode -ne 0) {
         Write-Host "Failed to fetch the bundled runtime." -ForegroundColor Red

@@ -13,8 +13,10 @@ if (-not (Test-Path $FlutterExe)) {
 
 # The bundled runtime (streamlink, python, ffmpeg, yt-dlp) is not committed to
 # git. Without it the app launches but cannot play streams or download VODs.
-if (-not (Test-Path (Join-Path $PSScriptRoot "bin\yt-dlp.exe"))) {
-    Write-Host "Bundled runtime missing - fetching it first..." -ForegroundColor Yellow
+# Verifies the whole bundle rather than one sentinel file - see build.ps1.
+& (Join-Path $PSScriptRoot "tools\verify-bundle.ps1") -Root $PSScriptRoot -BinOnly | Out-Null
+if ($LastExitCode -ne 0) {
+    Write-Host "Bundled runtime is missing or incomplete - fetching it..." -ForegroundColor Yellow
     & (Join-Path $PSScriptRoot "tools\fetch-deps.ps1")
     if ($LastExitCode -ne 0) {
         Write-Host "Failed to fetch the bundled runtime." -ForegroundColor Red

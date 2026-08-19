@@ -29,6 +29,7 @@ class AutoPlayDecision {
     this.channelsToPreempt = const [],
     this.reason = AutoPlaySkipReason.none,
     this.sessionKeyToRecord,
+    this.sessionChannel,
   });
 
   /// The channel to launch, or null when nothing should start.
@@ -46,6 +47,14 @@ class AutoPlayDecision {
   /// Session key to remember even though nothing was launched (the stream is
   /// already running, so it must not be treated as new next tick).
   final String? sessionKeyToRecord;
+
+  /// Lowercased channel the recorded session belongs to.
+  ///
+  /// Carried explicitly rather than letting the caller recover it by splitting
+  /// the session key: that only round-trips for names free of the key's
+  /// separators, and a name containing one would be recorded under a key the
+  /// lookup can never match.
+  final String? sessionChannel;
 
   bool get shouldLaunch => channelToPlay != null;
 }
@@ -132,22 +141,27 @@ AutoPlayDecision decideAutoPlay({
       );
     }
 
-    if (runningChannels.contains(cleanName)) {
-      // Already playing: remember the session so closing the player does not
-      // cause a relaunch on the next tick.
-      return AutoPlayDecision(
-        reason: AutoPlaySkipReason.alreadyRunning,
-        sessionKey: sessionKey,
-        sessionKeyToRecord: sessionKey,
-      );
-    }
-
     final toPreempt = <String>[];
     if (preemptLowerPriority) {
       for (var k = i + 1; k < priority.length; k++) {
         final lower = priority[k].username.toLowerCase().trim();
         if (runningChannels.contains(lower)) toPreempt.add(lower);
       }
+    }
+
+    if (runningChannels.contains(cleanName)) {
+      // Already playing: remember the session so closing the player does not
+      // cause a relaunch on the next tick. Preemption still applies - the
+      // whole point is that only the highest-priority stream should be
+      // playing, and returning early here left lower-priority streams running
+      // whenever the top one happened to start first.
+      return AutoPlayDecision(
+        reason: AutoPlaySkipReason.alreadyRunning,
+        sessionKey: sessionKey,
+        sessionKeyToRecord: sessionKey,
+        sessionChannel: cleanName,
+        channelsToPreempt: toPreempt,
+      );
     }
 
     return AutoPlayDecision(
@@ -205,14 +219,17 @@ List<TwitchVideo> selectVodsToAutoDownload({
 
   candidates.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
 
+  // "Keep Max VODs" caps the WINDOW of VODs this channel maintains, not how
+  // many are fetched per pass.
+  //
+  // Take the oldest N first and only then drop the ones already downloaded or
+  // in flight. Filling the quota with unhandled VODs instead would make it a
+  // per-pass download quota: once the oldest N were on disk the pass would keep
+  // walking further down the list and pull in N more, and so on until the whole
+  // channel history had been downloaded.
   final keep = channel.maxVodKeepCount.clamp(1, 5);
-  final selected = <TwitchVideo>[];
-  for (final vod in candidates) {
-    if (selected.length >= keep) break;
-    if (isAlreadyHandled(vod.id)) continue;
-    selected.add(vod);
-  }
-  return selected;
+  final window = candidates.take(keep);
+  return window.where((vod) => !isAlreadyHandled(vod.id)).toList();
 }
 
 /// Parses Twitch's duration format ("1h2m3s") into seconds.

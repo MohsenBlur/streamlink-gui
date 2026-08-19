@@ -173,6 +173,22 @@ class PlayerService {
   /// minimal hides them, which makes seeking in a VOD awkward.
   static const List<String> _mpcViewPresetCompact = ['/viewpreset', '2'];
 
+  /// Resolves the configured player to a concrete one.
+  ///
+  /// 'default' means "whatever is installed"; it must be turned into a real
+  /// player before building arguments. Only local playback did this, so the
+  /// two streamlink paths fell through every branch and passed no --player at
+  /// all - leaving Streamlink to guess, and skipping the player-specific
+  /// arguments (VLC's HTTP interface, MPV's IPC socket, MPC-HC's web port)
+  /// that watch-progress tracking depends on.
+  String resolveEffectivePlayerType(AppSettings settings) {
+    if (settings.playerType != 'default') return settings.playerType;
+    if (findVlcPath() != null) return 'vlc';
+    if (findMpvPath() != null) return 'mpv';
+    if (findMpcHcPath() != null) return 'mpc-hc';
+    return 'default';
+  }
+
   void log(String key, String line) {
     onPlayerLog?.call(key, line);
   }
@@ -493,6 +509,14 @@ class PlayerService {
   final Map<String, bool> downloadTaskFastDownloadOverrides = {};
 
   void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool? overrideDisablePostProcessing}) {
+    // Queueing a download means we are not shutting down after all.
+    //
+    // stopAll() latches _shuttingDown, and it is not only called on exit: the
+    // update flow calls it before handing over to the updater. If that handover
+    // then fails the app keeps running with the latch stuck on, and every
+    // subsequent download - manual or automatic - would sit in the queue
+    // forever, showing "Queued" and never starting.
+    _shuttingDown = false;
     final vodId = vod.id;
     if (queuedDownloadTasks.containsKey(vodId) || activeDownloadProcesses.containsKey(vodId)) {
       return;
@@ -539,12 +563,19 @@ class PlayerService {
   }
 
   Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder) async {
-    // Marked before the kill so the exit handler, which runs as soon as the
-    // process dies, can tell this apart from a real failure.
-    _cancelledDownloads.add(vodId);
-
     final proc = activeDownloadProcesses[vodId];
+
+    // Only mark when a process actually exists to consume the marker.
+    //
+    // The exit handler in startVodDownload is the sole consumer. Cancelling a
+    // download that is merely QUEUED (a first-class action - the Downloads
+    // panel renders a cancel button for the queue) spawns no process, so the
+    // marker would linger and then swallow the NEXT successful download of the
+    // same VOD: it returns before the exitCode == 0 branch, so the completion
+    // callback never fires, the file is never registered, and retention never
+    // sees it.
     if (proc != null) {
+      _cancelledDownloads.add(vodId);
       try {
         if (Platform.isWindows) {
           await Process.run('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
@@ -635,16 +666,7 @@ class PlayerService {
     final key = vod.id;
     final title = 'Local: ${vod.title}';
 
-    String effectivePlayerType = settings.playerType;
-    if (effectivePlayerType == 'default') {
-      if (findVlcPath() != null) {
-        effectivePlayerType = 'vlc';
-      } else if (findMpvPath() != null) {
-        effectivePlayerType = 'mpv';
-      } else if (findMpcHcPath() != null) {
-        effectivePlayerType = 'mpc-hc';
-      }
-    }
+    final String effectivePlayerType = resolveEffectivePlayerType(settings);
 
     if (effectivePlayerType == 'vlc') {
       exe = findVlcPath() ?? 'vlc';
@@ -763,6 +785,8 @@ class PlayerService {
   Future<void> launchStreamlinkForVod(TwitchVideo vod, String channelName, AppSettings settings) async {
     String titleString = '$channelName - ${vod.title}';
     final args = <String>[];
+    // Resolve "default" to a real player before building arguments.
+    final playerType = resolveEffectivePlayerType(settings);
     args.addAll(['--title', titleString]);
 
     final token = settings.twitchOauthToken.trim().startsWith('oauth:') 
@@ -783,7 +807,7 @@ class PlayerService {
     final key = vod.id;
     final title = 'VOD: ${vod.title}';
 
-    if (settings.playerType == 'vlc') {
+    if (playerType == 'vlc') {
       args.addAll(['--player', findVlcPath() ?? 'vlc']);
       extraArgsList.addAll([
         '--extraintf=http',
@@ -791,18 +815,18 @@ class PlayerService {
         '--http-password=streamlink',
         '--http-host=127.0.0.1'
       ]);
-    } else if (settings.playerType == 'mpv') {
+    } else if (playerType == 'mpv') {
       args.addAll(['--player', findMpvPath() ?? 'mpv']);
       if (Platform.isWindows) {
         extraArgsList.add('--input-ipc-server=\\\\.\\pipe\\mpv-socket-$key');
       } else {
         extraArgsList.add('--input-ipc-server=/tmp/mpv-socket-$key');
       }
-    } else if (settings.playerType == 'mpc-hc') {
+    } else if (playerType == 'mpc-hc') {
       args.addAll(['--player', findMpcHcPath() ?? 'mpc-hc64']);
       extraArgsList.addAll(['/webport', '$port']);
       extraArgsList.addAll(_mpcViewPresetCompact);
-    } else if (settings.playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
+    } else if (playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
       args.addAll(['--player', settings.customPlayerPath.trim()]);
       final lowerPath = settings.customPlayerPath.toLowerCase();
       if (lowerPath.contains('vlc')) {
@@ -868,8 +892,8 @@ class PlayerService {
       activePlayerProcesses[vod.id] = proc;
       
       // Spawn Windows Named Pipe to TCP Bridge for MPV players
-      final usesMpv = settings.playerType == 'mpv' || 
-          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('mpv'));
+      final usesMpv = playerType == 'mpv' || 
+          (playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('mpv'));
       if (usesMpv) {
         if (Platform.isWindows) {
           await _startWindowsIpcBridge(key, port);
@@ -926,6 +950,8 @@ class PlayerService {
     }
 
     final args = <String>[];
+    // Resolve "default" to a real player before building arguments.
+    final playerType = resolveEffectivePlayerType(settings);
     args.addAll(['--title', titleString]);
 
     final token = settings.twitchOauthToken.trim().startsWith('oauth:') 
@@ -942,13 +968,13 @@ class PlayerService {
 
     // Note: --twitch-low-latency is deprecated/unrecognized in modern Streamlink versions
 
-    if (settings.playerType == 'vlc') {
+    if (playerType == 'vlc') {
       args.addAll(['--player', findVlcPath() ?? 'vlc']);
-    } else if (settings.playerType == 'mpv') {
+    } else if (playerType == 'mpv') {
       args.addAll(['--player', findMpvPath() ?? 'mpv']);
-    } else if (settings.playerType == 'mpc-hc') {
+    } else if (playerType == 'mpc-hc') {
       args.addAll(['--player', findMpcHcPath() ?? 'mpc-hc64']);
-    } else if (settings.playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
+    } else if (playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
       args.addAll(['--player', settings.customPlayerPath.trim()]);
     }
 
@@ -1017,16 +1043,19 @@ class PlayerService {
       webToken = webToken.substring(6);
     }
 
+    // Resolved once, not per tick: this used to call findVlcPath() /
+    // findMpvPath() / findMpcHcPath() inside the callback, hitting the
+    // filesystem several times every two seconds for the whole playback.
+    final resolvedPlayer = resolveEffectivePlayerType(settings);
+    final customPath = settings.customPlayerPath.toLowerCase();
+    final isVlc = resolvedPlayer == 'vlc' ||
+        (resolvedPlayer == 'custom' && customPath.contains('vlc'));
+    final isMpv = resolvedPlayer == 'mpv' ||
+        (resolvedPlayer == 'custom' && customPath.contains('mpv'));
+    final isMpc = resolvedPlayer == 'mpc-hc' ||
+        (resolvedPlayer == 'custom' && customPath.contains('mpc'));
+
     final timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      final isVlc = settings.playerType == 'vlc' || 
-          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('vlc')) ||
-          (settings.playerType == 'default' && findVlcPath() != null);
-      final isMpv = settings.playerType == 'mpv' || 
-          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('mpv')) ||
-          (settings.playerType == 'default' && findVlcPath() == null && findMpvPath() != null);
-      final isMpc = settings.playerType == 'mpc-hc' || 
-          (settings.playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('mpc')) ||
-          (settings.playerType == 'default' && findVlcPath() == null && findMpvPath() == null && findMpcHcPath() != null);
 
       if (isVlc) {
         try {
@@ -1146,26 +1175,49 @@ class PlayerService {
     }
   }
 
-  // Windows Named Pipe to TCP loopback bridge script execution
+  // Windows Named Pipe to TCP loopback bridge script execution.
+  //
+  // MPV exposes its JSON IPC on a Windows named pipe, which dart:io cannot open
+  // directly, so a small PowerShell relay fronts it with a loopback TCP socket.
+  //
+  // The relay must serve MANY connections: the progress tracker opens a fresh
+  // socket every two seconds and closes it as soon as a reply arrives. The
+  // previous script accepted exactly ONE client and exited when either copy
+  // completed - which the tracker's own close triggered - so every later poll
+  // got connection-refused (swallowed by a bare catch) and the watch position
+  // froze at the first sample. Worse, it connected to the pipe BEFORE starting
+  // the listener, so the first polls were refused while it waited on MPV.
   Future<void> _startWindowsIpcBridge(String vodId, int port) async {
     final pipeName = 'mpv-socket-$vodId';
     final bridgeScript = '''
       \$ErrorActionPreference = 'Stop'
       try {
-        \$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '$pipeName', [System.IO.Pipes.PipeDirection]::InOut)
-        \$pipe.Connect(8000) # wait up to 8s for MPV to initialize the pipe
+        # Listen first, so a poll arriving before MPV has created its pipe is
+        # accepted and simply fails fast rather than being refused outright.
         \$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
         \$listener.Start()
-        \$tcpClient = \$listener.AcceptTcpClient()
-        \$tcpStream = \$tcpClient.GetStream()
-        
-        \$pTask = \$pipe.CopyToAsync(\$tcpStream)
-        \$tTask = \$tcpStream.CopyToAsync(\$pipe)
-        [System.Threading.Tasks.Task]::WaitAny(@(\$pTask, \$tTask))
-        
-        \$tcpClient.Close()
-        \$listener.Stop()
-        \$pipe.Close()
+
+        while (\$true) {
+          \$tcpClient = \$listener.AcceptTcpClient()
+          try {
+            # A fresh pipe connection per request. MPV's IPC server accepts
+            # sequential clients, and this keeps each poll independent: a
+            # half-finished exchange cannot wedge the next one.
+            \$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '$pipeName', [System.IO.Pipes.PipeDirection]::InOut)
+            \$pipe.Connect(2000)
+
+            \$tcpStream = \$tcpClient.GetStream()
+            \$pTask = \$pipe.CopyToAsync(\$tcpStream)
+            \$tTask = \$tcpStream.CopyToAsync(\$pipe)
+            [System.Threading.Tasks.Task]::WaitAny(@(\$pTask, \$tTask), 5000)
+          } catch {
+            # MPV not ready yet, or the client vanished: drop this exchange and
+            # keep serving.
+          } finally {
+            if (\$pipe) { \$pipe.Dispose(); \$pipe = \$null }
+            if (\$tcpClient) { \$tcpClient.Close() }
+          }
+        }
       } catch {
         exit 1
       }
