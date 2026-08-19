@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
+import '../state/channel_search.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
+import 'interactive_popover.dart';
+import 'sidebar_search_popover.dart';
 import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
 import 'neumorphic/neu_segmented_control.dart';
@@ -28,8 +31,19 @@ class SidebarPanel extends StatefulWidget {
   final TextEditingController searchController;
   
   final ValueChanged<TwitchChannel> onChannelSelected;
-  final ValueChanged<String> onChannelDoubleTapped;
+
+  /// Carries the tapped row's own channel. The old String signature forced
+  /// main.dart to look the metadata up on _selectedChannel, so double-tapping
+  /// a non-selected row launched with another channel's title/game/live state.
+  final ValueChanged<TwitchChannel> onChannelDoubleTapped;
+
+  /// Explicit play affordance (hover play button, search popover, Enter).
+  final ValueChanged<TwitchChannel> onChannelPlayPressed;
+
   final ValueChanged<String> onAddChannel;
+
+  /// Externally owned focus node for the search field (Ctrl+F).
+  final FocusNode? searchFocusNode;
   final ValueChanged<TwitchChannel> onToggleFavorite;
   final ValueChanged<bool> onToggleCollapse;
   final VoidCallback? onGoToDashboard;
@@ -57,7 +71,9 @@ class SidebarPanel extends StatefulWidget {
     required this.searchController,
     required this.onChannelSelected,
     required this.onChannelDoubleTapped,
+    required this.onChannelPlayPressed,
     required this.onAddChannel,
+    this.searchFocusNode,
     required this.onToggleFavorite,
     required this.onToggleCollapse,
     this.onGoToDashboard,
@@ -69,10 +85,10 @@ class SidebarPanel extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<SidebarPanel> createState() => _SidebarPanelState();
+  State<SidebarPanel> createState() => SidebarPanelState();
 }
 
-class _SidebarPanelState extends State<SidebarPanel> {
+class SidebarPanelState extends State<SidebarPanel> {
   late ScrollController _horizontalScrollController;
 
   @override
@@ -258,10 +274,11 @@ class _SidebarPanelState extends State<SidebarPanel> {
                       Expanded(
                         child: NeuTextField(
                           controller: widget.searchController,
+                          focusNode: widget.searchFocusNode,
                           hintText: 'Search or add username...',
                           prefixIcon: Icons.search,
                           onChanged: (val) => setState(() {}),
-                          onSubmitted: (val) => widget.onAddChannel(val),
+                          onSubmitted: (val) => _handleSearchSubmit(),
                           onClear: () => setState(() {}),
                         ),
                       ),
@@ -362,12 +379,15 @@ class _SidebarPanelState extends State<SidebarPanel> {
                       if (listToDisplay.isEmpty && !showAddPrompt) {
                         return Center(
                           child: Text(
-                            widget.sidebarTab == 0
-                                ? 'No favorites saved.\nAdd one above.'
-                                : (widget.sidebarTab == 1
-                                    ? 'No followed channels found.\nMake sure your account is connected.'
-                                    : 'No live channels found.'),
+                            query.isNotEmpty
+                                ? "No channels match '$query'."
+                                : widget.sidebarTab == 0
+                                    ? 'No favorites saved.\nAdd one above.'
+                                    : (widget.sidebarTab == 1
+                                        ? 'No followed channels found.\nMake sure your account is connected.'
+                                        : 'No live channels found.'),
                             textAlign: TextAlign.center,
+                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
                           ),
                         );
                       }
@@ -416,150 +436,42 @@ class _SidebarPanelState extends State<SidebarPanel> {
                           final isSelected = widget.selectedChannel?.username == channel.username;
                           final cleanUsername = channel.username.toLowerCase().trim();
                           final isFavorite = widget.channels.any((c) => c.username == cleanUsername);
-                          bool isRowHovered = false;
 
-                          return StatefulBuilder(
-                            builder: (context, setRowState) {
-                              final itemWidget = MouseRegion(
-                                onEnter: (_) => setRowState(() => isRowHovered = true),
-                                onExit: (_) => setRowState(() => isRowHovered = false),
-                                cursor: SystemMouseCursors.click,
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: isSelected
-                                      ? NeuTheme.raisedDecoration(
-                                          themeNotifier.isDarkTheme,
-                                          radius: 10,
-                                          border: Border.all(color: theme.primaryColor, width: 1.5),
-                                        )
-                                      : (isRowHovered
-                                          ? NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 10)
-                                          : BoxDecoration(
-                                              color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                              borderRadius: BorderRadius.circular(10),
-                                            )),
-                                  child: GestureDetector(
-                                    onDoubleTap: channel.isLive
-                                        ? () => widget.onChannelDoubleTapped(channel.username)
-                                        : null,
-                                    child: ListTile(
-                                      contentPadding: const EdgeInsets.only(left: 12, right: 4),
-                                      leading: Stack(
-                                        children: [
-                                          _buildAvatarBorder(
-                                            channel: channel,
-                                            isSelected: isSelected,
-                                            theme: theme,
-                                            child: CircleAvatar(
-                                              radius: 18,
-                                              backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                              backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
-                                              child: channel.avatarUrl == null
-                                                  ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
-                                                  : null,
-                                            ),
-                                          ),
-                                          Positioned(
-                                            bottom: 0,
-                                            right: 0,
-                                            child: Container(
-                                              width: 10,
-                                              height: 10,
-                                              decoration: BoxDecoration(
-                                                color: channel.isLive ? Colors.green : Colors.grey,
-                                                shape: BoxShape.circle,
-                                                border: Border.all(color: themeNotifier.surfaceColor, width: 1.5),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      title: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              channel.username,
-                                              style: TextStyle(
-                                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                                                color: themeNotifier.textColor,
-                                                fontSize: 14,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          if (channel.isLive)
-                                            AnimatedBuilder(
-                                              animation: widget.pulseController,
-                                              builder: (context, child) {
-                                                return Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.red.withOpacity(0.7 + 0.3 * widget.pulseController.value),
-                                                    borderRadius: BorderRadius.circular(4),
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: Colors.red.withOpacity(0.4 * widget.pulseController.value),
-                                                        blurRadius: 4,
-                                                      )
-                                                    ],
-                                                  ),
-                                                  child: const Text(
-                                                    'LIVE',
-                                                    style: TextStyle(
-                                                      fontSize: 8,
-                                                      fontWeight: FontWeight.bold,
-                                                      color: Colors.white,
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                        ],
-                                      ),
-                                      subtitle: channel.isLoading
-                                          ? const Padding(
-                                              padding: EdgeInsets.only(top: 4),
-                                              child: LinearProgressIndicator(minHeight: 1.5),
-                                            )
-                                          : Text(
-                                              channel.isLive ? (channel.game ?? 'Playing...') : 'Offline',
-                                              style: const TextStyle(fontSize: 11),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                      trailing: widget.sidebarTab == 0
-                                          ? IconButton(
-                                              icon: const Icon(Icons.star, color: Colors.amber, size: 18),
-                                              onPressed: () => widget.onToggleFavorite(channel),
-                                              tooltip: 'Remove from Favorites',
-                                              splashRadius: 18,
-                                            )
-                                          : (isFavorite
-                                              ? IconButton(
-                                                  icon: const Icon(Icons.star, color: Colors.amber, size: 18),
-                                                  onPressed: () => widget.onToggleFavorite(channel),
-                                                  tooltip: 'Remove from Favorites',
-                                                  splashRadius: 18,
-                                                )
-                                              : (isRowHovered
-                                                  ? HoverStarIcon(
-                                                      isFavorite: false,
-                                                      onTap: () => widget.onToggleFavorite(channel),
-                                                    )
-                                                  : const SizedBox(width: 48))),
-                                      onTap: () => widget.onChannelSelected(channel),
-                                    ),
-                                  ),
-                                ),
-                              );
-
-                              return channel.isLive
-                                  ? HoverOverlayMenu(
-                                      trigger: itemWidget,
-                                      menu: widget.buildLivePreviewPopup(channel),
-                                    )
-                                  : itemWidget;
-                            },
+                          final row = _SidebarChannelRow(
+                            // Keyed by identity so hover state survives the
+                            // 60s poll rebuild (it previously lived in a
+                            // per-item closure and reset on every poll).
+                            key: ValueKey('row_$cleanUsername'),
+                            channel: channel,
+                            isSelected: isSelected,
+                            isFavorite: isFavorite,
+                            showFavoriteStarAlways: widget.sidebarTab == 0,
+                            leading: _buildAvatarBorder(
+                              channel: channel,
+                              isSelected: isSelected,
+                              theme: theme,
+                              child: CircleAvatar(
+                                radius: 18,
+                                backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
+                                child: channel.avatarUrl == null
+                                    ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
+                                    : null,
+                              ),
+                            ),
+                            pulseController: widget.pulseController,
+                            onSelected: widget.onChannelSelected,
+                            onDoubleTapped: widget.onChannelDoubleTapped,
+                            onPlayPressed: widget.onChannelPlayPressed,
+                            onToggleFavorite: widget.onToggleFavorite,
                           );
+
+                          return channel.isLive
+                              ? HoverOverlayMenu(
+                                  trigger: row,
+                                  menu: widget.buildLivePreviewPopup(channel),
+                                )
+                              : row;
                         },
                       );
                     },
@@ -679,8 +591,20 @@ class _SidebarPanelState extends State<SidebarPanel> {
           );
         })(),
         
-        const SizedBox(height: 16),
-        
+        const SizedBox(height: 12),
+
+        // Compact layouts previously had no way to search/add channels or to
+        // reach the automation manager at all.
+        _buildSearchPopoverTrigger(theme),
+        const SizedBox(height: 12),
+        if (widget.sidebarTab == 0) ...[
+          _PinnedFavoritesAutomationButton(
+            theme: theme,
+            onPressed: _openFavoritesAutomationDialog,
+          ),
+          const SizedBox(height: 12),
+        ],
+
         Tooltip(
           message: widget.sidebarTab == 0
               ? 'Refresh Favorites'
@@ -719,7 +643,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                     message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
                     child: GestureDetector(
                     onTap: () => widget.onChannelSelected(ch),
-                    onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch.username) : null,
+                    onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch) : null,
                     child: _buildAvatarBorder(
                       channel: ch,
                       isSelected: isSelected,
@@ -790,7 +714,8 @@ class _SidebarPanelState extends State<SidebarPanel> {
   }
 
 
-  List<TwitchChannel> _getListToDisplay() {
+  /// The current tab's full list, before search filtering.
+  List<TwitchChannel> _getBaseList() {
     if (widget.sidebarTab == 0) return widget.channels;
     if (widget.sidebarTab == 1) return widget.followedChannels;
     
@@ -816,6 +741,67 @@ class _SidebarPanelState extends State<SidebarPanel> {
     }
     liveList.sort((a, b) => a.username.toLowerCase().compareTo(b.username.toLowerCase()));
     return liveList;
+  }
+
+  /// What the list actually renders: the base list narrowed by the search box.
+  /// All three layouts route through this, so filtering works everywhere.
+  List<TwitchChannel> _getListToDisplay() {
+    return filterChannels(_getBaseList(), widget.searchController.text);
+  }
+
+  /// Dispatches Enter in the search field. On Favorites an unmatched query
+  /// falls back to adding; on Followed/Live it never adds (it used to,
+  /// silently).
+  void _handleSearchSubmit() {
+    final action = resolveSearchSubmit(
+      tab: widget.sidebarTab,
+      query: widget.searchController.text,
+      visible: _getBaseList(),
+    );
+    switch (action.type) {
+      case SubmitActionType.launchLive:
+        widget.onChannelSelected(action.channel!);
+        widget.onChannelPlayPressed(action.channel!);
+      case SubmitActionType.selectOnly:
+        widget.onChannelSelected(action.channel!);
+      case SubmitActionType.addFavorite:
+        widget.onAddChannel(action.query);
+      case SubmitActionType.none:
+        break;
+    }
+  }
+
+  /// Ctrl+F entry point. In the expanded layout it focuses the inline field;
+  /// compact layouts have no inline field, so the caller opens the popover by
+  /// clicking its trigger - here we just request focus when we can.
+  void focusSearch() {
+    widget.searchFocusNode?.requestFocus();
+  }
+
+  Widget _buildSearchPopoverTrigger(ThemeData theme, {double size = 36}) {
+    return InteractivePopover(
+      targetAnchor: Alignment.bottomLeft,
+      followerAnchor: Alignment.topLeft,
+      offset: const Offset(0, 6),
+      popoverBuilder: (context, close) => SidebarSearchPopover(
+        controller: widget.searchController,
+        channels: _getBaseList(),
+        tab: widget.sidebarTab,
+        onSelect: widget.onChannelSelected,
+        onPlay: widget.onChannelPlayPressed,
+        onAdd: widget.onAddChannel,
+        close: close,
+      ),
+      child: Tooltip(
+        message: 'Search channels',
+        child: Container(
+          width: size,
+          height: size,
+          decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
+          child: Icon(Icons.search, size: size * 0.5, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+        ),
+      ),
+    );
   }
 
   Widget _buildHorizontalTopBar(ThemeData theme) {
@@ -873,6 +859,8 @@ class _SidebarPanelState extends State<SidebarPanel> {
             );
           })(),
           const SizedBox(width: 8),
+          _buildSearchPopoverTrigger(theme, size: 32),
+          const SizedBox(width: 8),
           Tooltip(
             message: widget.sidebarTab == 0
                 ? 'Refresh Favorites'
@@ -929,7 +917,7 @@ class _SidebarPanelState extends State<SidebarPanel> {
                         message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
                         child: GestureDetector(
                           onTap: () => widget.onChannelSelected(ch),
-                          onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch.username) : null,
+                          onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch) : null,
                           child: _buildAvatarBorder(
                             channel: ch,
                             isSelected: isSelected,
@@ -1064,6 +1052,196 @@ class _PinnedFavoritesAutomationButtonState extends State<_PinnedFavoritesAutoma
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+/// One channel row in the expanded sidebar list.
+///
+/// A real StatefulWidget keyed by channel: the hover state previously lived in
+/// a per-item closure + StatefulBuilder, so every 60-second poll rebuild
+/// destroyed it mid-hover. Also hosts the hover play affordance - the row's
+/// only launch gesture used to be an undiscoverable double-click.
+class _SidebarChannelRow extends StatefulWidget {
+  const _SidebarChannelRow({
+    Key? key,
+    required this.channel,
+    required this.isSelected,
+    required this.isFavorite,
+    required this.showFavoriteStarAlways,
+    required this.leading,
+    required this.pulseController,
+    required this.onSelected,
+    required this.onDoubleTapped,
+    required this.onPlayPressed,
+    required this.onToggleFavorite,
+  }) : super(key: key);
+
+  final TwitchChannel channel;
+  final bool isSelected;
+  final bool isFavorite;
+  final bool showFavoriteStarAlways;
+  final Widget leading;
+  final AnimationController pulseController;
+  final ValueChanged<TwitchChannel> onSelected;
+  final ValueChanged<TwitchChannel> onDoubleTapped;
+  final ValueChanged<TwitchChannel> onPlayPressed;
+  final ValueChanged<TwitchChannel> onToggleFavorite;
+
+  @override
+  State<_SidebarChannelRow> createState() => _SidebarChannelRowState();
+}
+
+class _SidebarChannelRowState extends State<_SidebarChannelRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = themeNotifier.isDarkTheme;
+    final channel = widget.channel;
+
+    // Fixed-width slot so the play button appearing on hover cannot shift the
+    // row's layout.
+    final Widget playSlot = SizedBox(
+      width: 32,
+      height: 32,
+      child: (_hovered && channel.isLive)
+          ? IconButton(
+              icon: Icon(Icons.play_arrow, size: 20, color: theme.primaryColor),
+              tooltip: 'Watch now',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+              splashRadius: 16,
+              onPressed: () => widget.onPlayPressed(channel),
+            )
+          : null,
+    );
+
+    final Widget starSlot;
+    if (widget.showFavoriteStarAlways || widget.isFavorite) {
+      starSlot = IconButton(
+        icon: const Icon(Icons.star, color: Colors.amber, size: 18),
+        onPressed: () => widget.onToggleFavorite(channel),
+        tooltip: 'Remove from Favorites',
+        splashRadius: 18,
+      );
+    } else if (_hovered) {
+      starSlot = HoverStarIcon(
+        isFavorite: false,
+        onTap: () => widget.onToggleFavorite(channel),
+      );
+    } else {
+      starSlot = const SizedBox(width: 40);
+    }
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: widget.isSelected
+            ? NeuTheme.raisedDecoration(
+                isDark,
+                radius: 10,
+                border: Border.all(color: theme.primaryColor, width: 1.5),
+              )
+            : (_hovered
+                ? NeuTheme.raisedDecoration(isDark, radius: 10)
+                : BoxDecoration(
+                    color: NeuTheme.surface(isDark),
+                    borderRadius: BorderRadius.circular(10),
+                  )),
+        child: GestureDetector(
+          onDoubleTap:
+              channel.isLive ? () => widget.onDoubleTapped(channel) : null,
+          child: ListTile(
+            contentPadding: const EdgeInsets.only(left: 12, right: 4),
+            leading: Stack(
+              children: [
+                widget.leading,
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: channel.isLive ? Colors.green : Colors.grey,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: themeNotifier.surfaceColor, width: 1.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    channel.username,
+                    style: TextStyle(
+                      fontWeight:
+                          widget.isSelected ? FontWeight.bold : FontWeight.w600,
+                      color: themeNotifier.textColor,
+                      fontSize: 14,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (channel.isLive)
+                  AnimatedBuilder(
+                    animation: widget.pulseController,
+                    builder: (context, child) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red
+                              .withOpacity(0.7 + 0.3 * widget.pulseController.value),
+                          borderRadius: BorderRadius.circular(4),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.red
+                                  .withOpacity(0.4 * widget.pulseController.value),
+                              blurRadius: 4,
+                            )
+                          ],
+                        ),
+                        child: child,
+                      );
+                    },
+                    // Intentional: white on the solid red LIVE pill, theme-independent.
+                    child: const Text(
+                      'LIVE',
+                      style: TextStyle(
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            subtitle: channel.isLoading
+                ? const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: LinearProgressIndicator(minHeight: 1.5),
+                  )
+                : Text(
+                    channel.isLive ? (channel.game ?? 'Playing...') : 'Offline',
+                    style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [playSlot, starSlot],
+            ),
+            onTap: () => widget.onSelected(channel),
           ),
         ),
       ),

@@ -2,7 +2,14 @@ import 'package:flutter/material.dart';
 
 class InteractivePopover extends StatefulWidget {
   final Widget child;
-  final Widget popover;
+  final Widget? popover;
+
+  /// Alternative to [popover] for content that needs to close itself (e.g. a
+  /// result list where picking an item should dismiss the popover). The
+  /// callback closes this popover.
+  final Widget Function(BuildContext context, VoidCallback close)?
+      popoverBuilder;
+
   final Alignment targetAnchor;
   final Alignment followerAnchor;
   final Offset offset;
@@ -10,11 +17,13 @@ class InteractivePopover extends StatefulWidget {
   const InteractivePopover({
     Key? key,
     required this.child,
-    required this.popover,
+    this.popover,
+    this.popoverBuilder,
     this.targetAnchor = Alignment.bottomRight,
     this.followerAnchor = Alignment.topRight,
     this.offset = const Offset(0, 6),
-  }) : super(key: key);
+  })  : assert(popover != null || popoverBuilder != null),
+        super(key: key);
 
   @override
   State<InteractivePopover> createState() => _InteractivePopoverState();
@@ -24,6 +33,16 @@ class _InteractivePopoverState extends State<InteractivePopover> {
   final LayerLink _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
   bool _isOpen = false;
+
+  // The overlay builder reads widget.* through this State, so rebuilding the
+  // entry on prop changes keeps an open popover's content live. Without this
+  // the content was frozen at open time (the header stats popover never
+  // refreshed while open).
+  @override
+  void didUpdateWidget(InteractivePopover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _overlayEntry?.markNeedsBuild();
+  }
 
   void _togglePopover() {
     if (_isOpen) {
@@ -55,7 +74,9 @@ class _InteractivePopoverState extends State<InteractivePopover> {
               offset: widget.offset,
               child: Material(
                 color: Colors.transparent,
-                child: widget.popover,
+                child: widget.popoverBuilder != null
+                    ? widget.popoverBuilder!(context, _closePopover)
+                    : widget.popover!,
               ),
             ),
           ],

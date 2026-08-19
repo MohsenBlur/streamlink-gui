@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:system_tray/system_tray.dart';
 import 'package:local_notifier/local_notifier.dart';
@@ -151,6 +152,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   TwitchChannel? _selectedChannel;
   bool _isGlobalLoading = false;
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _sidebarSearchFocus = FocusNode();
+  final GlobalKey<SidebarPanelState> _sidebarKey = GlobalKey<SidebarPanelState>();
   bool _isAdding = false;
   
   AppSettings _settings = AppSettings();
@@ -536,6 +539,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _pulseController?.dispose();
     _playerService.stopAll();
     _searchController.dispose();
+    _sidebarSearchFocus.dispose();
     _oauthServer?.close(force: true);
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
@@ -860,7 +864,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           setState(() {
             _settings = AppSettings.fromJson(settingsJson);
             _sidebarCollapsed = _settings.sidebarCollapsed;
-            _sidebarTab = _settings.activeSidebarTab;
+            // The Followed/Live tabs are hidden without a token; restoring a
+            // persisted tab index would strand the user on an invisible tab.
+            _sidebarTab = _settings.twitchOauthToken.trim().isEmpty
+                ? 0
+                : _settings.activeSidebarTab;
             _showGamesOnThumbnails = _settings.showGamesOnThumbnails;
             themeNotifier.setDarkTheme(_settings.isDarkTheme);
              
@@ -1594,6 +1602,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _showSnackBar('Local watch progress history cleared!', isError: false);
   }
 
+  /// Launches [channel]'s live stream using ITS OWN metadata. The old
+  /// double-tap path received only a username and looked title/game/live up on
+  /// _selectedChannel, so double-tapping a non-selected row launched with a
+  /// different channel's metadata.
+  void _launchChannelStream(TwitchChannel channel) {
+    if (_playerService.runningChannels
+        .contains(channel.username.toLowerCase().trim())) {
+      return;
+    }
+    _playerService.launchStreamlinkForLive(
+      channel.username,
+      channel.isLive,
+      channel.streamTitle,
+      channel.game,
+      _settings,
+    );
+  }
+
   void _showSettingsDialog() {
     SettingsDialog.show(
       context,
@@ -1734,6 +1760,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final effectiveSidebarCollapsed = (isNarrow || isVertical) ? true : _sidebarCollapsed;
     
     final sidebar = SidebarPanel(
+      key: _sidebarKey,
+      searchFocusNode: _sidebarSearchFocus,
       channels: _channels,
       followedChannels: _followedChannels,
       selectedChannel: _selectedChannel,
@@ -1759,16 +1787,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           _fetchVodsForChannel(channel);
         }
       },
-      onChannelDoubleTapped: (username) {
-        if (_playerService.runningChannels.contains(username)) return;
-        _playerService.launchStreamlinkForLive(
-          username,
-          _selectedChannel?.isLive ?? false,
-          _selectedChannel?.streamTitle,
-          _selectedChannel?.game,
-          _settings
-        );
-      },
+      onChannelDoubleTapped: _launchChannelStream,
+      onChannelPlayPressed: _launchChannelStream,
       onAddChannel: _addChannel,
       onToggleFavorite: _toggleFavorite,
       onToggleCollapse: (collapsed) {
@@ -1823,7 +1843,30 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
 
     return Scaffold(
-      body: Column(
+      body: CallbackShortcuts(
+        bindings: {
+          // Focus the sidebar search from anywhere. In layouts without the
+          // inline field the search popover is the affordance instead.
+          const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
+            if (_sidebarCollapsed || isNarrow || isVertical) {
+              // Expand first on wide layouts where the user collapsed it.
+              if (!isNarrow && !isVertical && _sidebarCollapsed) {
+                setState(() {
+                  _sidebarCollapsed = false;
+                  _settings.sidebarCollapsed = false;
+                });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _sidebarKey.currentState?.focusSearch();
+                });
+                return;
+              }
+            }
+            _sidebarKey.currentState?.focusSearch();
+          },
+        },
+        child: Focus(
+          autofocus: true,
+          child: Column(
         children: [
           NeuTitleBar(
             liveCount: _channels.where((c) => c.isLive).length,
@@ -1852,6 +1895,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   ),
           ),
         ],
+          ),
+        ),
       ),
     );
   }
