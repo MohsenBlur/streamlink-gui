@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
 import '../../theme/neu_theme.dart';
+import 'neu_focusable.dart';
 
 class NeuTextField extends StatefulWidget {
   final TextEditingController? controller;
@@ -145,17 +146,25 @@ class _NeuTextFieldState extends State<NeuTextField> {
             if (widget.controller != null &&
                 widget.controller!.text.isNotEmpty &&
                 widget.onClear != null)
-              GestureDetector(
-                onTap: () {
+              NeuFocusable(
+                onActivate: () {
                   widget.controller?.clear();
                   widget.onClear?.call();
                 },
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: Icon(
-                    Icons.cancel,
-                    size: 16,
-                    color: NeuTheme.subtext(isDark),
+                semanticLabel: 'Clear text',
+                focusRadius: 10,
+                child: GestureDetector(
+                  onTap: () {
+                    widget.controller?.clear();
+                    widget.onClear?.call();
+                  },
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Icon(
+                      Icons.cancel,
+                      size: 16,
+                      color: NeuTheme.subtext(isDark),
+                    ),
                   ),
                 ),
               ),

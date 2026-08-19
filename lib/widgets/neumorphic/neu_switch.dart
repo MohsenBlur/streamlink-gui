@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
 import '../../theme/neu_theme.dart';
+import 'neu_focusable.dart';
 
 /// Neumorphic toggle switch.
 ///
@@ -43,7 +44,11 @@ class NeuSwitch extends StatelessWidget {
             ? accent.withValues(alpha: isDark ? 0.35 : 0.25)
             : NeuTheme.wellSurface(isDark);
 
-    return GestureDetector(
+    return NeuFocusable(
+      onActivate: enabled ? () => onChanged!(!value) : null,
+      toggled: value,
+      focusRadius: height / 2,
+      child: GestureDetector(
       onTap: enabled ? () => onChanged!(!value) : null,
       behavior: HitTestBehavior.opaque,
       child: MouseRegion(
@@ -92,6 +97,7 @@ class NeuSwitch extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }

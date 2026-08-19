@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/neu_theme.dart';
+import 'neu_focusable.dart';
 
 class NeuSegmentedControl<T> extends StatelessWidget {
   final Map<T, Widget> children;
@@ -73,7 +74,10 @@ class NeuSegmentedControl<T> extends StatelessWidget {
                   children: keys.map((key) {
                     final isSelected = key == selectedValue;
                     return Expanded(
-                      child: GestureDetector(
+                      child: NeuFocusable(
+                        onActivate: () => onValueChanged(key),
+                        focusRadius: 10,
+                        child: GestureDetector(
                         onTap: () => onValueChanged(key),
                         child: MouseRegion(
                           cursor: SystemMouseCursors.click,
@@ -95,6 +99,7 @@ class NeuSegmentedControl<T> extends StatelessWidget {
                               ),
                             ),
                           ),
+                        ),
                         ),
                       ),
                     );

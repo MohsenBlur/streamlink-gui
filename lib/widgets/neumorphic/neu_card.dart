@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
+import 'neu_focusable.dart';
 import '../../theme/theme_notifier.dart';
 
 class NeuCard extends StatelessWidget {
@@ -58,11 +59,15 @@ class NeuCard extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return GestureDetector(
-        onTap: onTap,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: cardCore,
+      return NeuFocusable(
+        onActivate: onTap,
+        focusRadius: (borderRadius ?? BorderRadius.circular(20)).topLeft.x,
+        child: GestureDetector(
+          onTap: onTap,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: cardCore,
+          ),
         ),
       );
     }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
+import 'neu_focusable.dart';
 import '../../theme/theme_notifier.dart';
 import '../../theme/neu_theme.dart';
 
@@ -118,6 +119,14 @@ class _NeuButtonState extends State<NeuButton> {
           ),
         ),
       ),
+    );
+
+    buttonCore = NeuFocusable(
+      onActivate: widget.onPressed,
+      semanticLabel: widget.tooltip,
+      focusRadius:
+          widget.isCircle ? 100 : (widget.borderRadius?.topLeft.x ?? 20),
+      child: buttonCore,
     );
 
     if (widget.tooltip != null && widget.tooltip!.isNotEmpty) {

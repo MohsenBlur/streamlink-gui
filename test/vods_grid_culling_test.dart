@@ -45,7 +45,7 @@ Widget harness(List<TwitchVideo> vods, TextEditingController search) {
               onDownload: (_) {},
               onDeleteDownload: (_) {},
               onCancelDownload: (_) {},
-              onVodSelectedChange: (_, __) {},
+              onVodSelectedChange: (_, _) {},
             ),
           ],
         );

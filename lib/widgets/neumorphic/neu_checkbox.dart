@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/neu_theme.dart';
+import 'neu_focusable.dart';
 
 class NeuCheckbox extends StatelessWidget {
   final bool value;
@@ -48,7 +49,11 @@ class NeuCheckbox extends StatelessWidget {
           : null,
     );
 
-    return GestureDetector(
+    return NeuFocusable(
+      onActivate: enabled ? () => onChanged!(!value) : null,
+      toggled: value,
+      focusRadius: 8,
+      child: GestureDetector(
       onTap: enabled ? () => onChanged!(!value) : null,
       // The visual box stays small, but the interactive target must not: an
       // 18px hit area is well below a comfortable click/touch minimum.
@@ -60,6 +65,7 @@ class NeuCheckbox extends StatelessWidget {
           height: 28,
           child: Center(child: box),
         ),
+      ),
       ),
     );
   }

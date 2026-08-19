@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_button.dart';
@@ -183,6 +184,33 @@ void main() {
         expect(NeuTheme.onAccent(accent), Colors.white,
             reason: 'dark accent $accent needs white');
       }
+    });
+  });
+  group('NeuFocusable', () {
+    testWidgets('keyboard reaches and activates neumorphic controls',
+        (tester) async {
+      var pressed = 0;
+      var switched = false;
+      await tester.pumpWidget(host(Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          NeuButton(onPressed: () => pressed++, child: const Text('Go')),
+          const SizedBox(height: 8),
+          NeuSwitch(value: false, onChanged: (v) => switched = v),
+        ],
+      )));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(pressed, 1, reason: 'Tab+Enter must press the button');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(switched, isTrue, reason: 'Tab+Space must flip the switch');
     });
   });
 }
