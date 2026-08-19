@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/twitch_channel.dart';
 import '../state/channel_search.dart';
 import '../theme/neu_theme.dart';
+import '../utils/image_utils.dart';
 import '../theme/theme_notifier.dart';
 import 'neumorphic/neu_text_field.dart';
 
@@ -129,7 +130,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                           radius: 12,
                           backgroundColor: NeuTheme.surface(isDark),
                           backgroundImage: channel.avatarUrl != null
-                              ? NetworkImage(channel.avatarUrl!)
+                              ? resizedAvatar(channel.avatarUrl!)
                               : null,
                           child: channel.avatarUrl == null
                               ? Icon(Icons.person,

@@ -313,10 +313,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       Flexible(
                         child: Text(
                           widget.channel.username,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 15),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -441,7 +438,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               children: [
                 Text(
                   widget.channel.username,
-                  style: theme.textTheme.titleLarge?.copyWith(fontSize: 22),
+                  style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

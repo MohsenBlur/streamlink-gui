@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../theme/neu_theme.dart';
+import '../utils/image_utils.dart';
 import 'neumorphic/neu_checkbox.dart';
 import 'neumorphic/neu_switch.dart';
 import '../theme/theme_notifier.dart';
@@ -329,7 +330,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         CircleAvatar(
                                           radius: 14,
                                           backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                          backgroundImage: NetworkImage(ch.originalChannel.avatarUrl!),
+                                          backgroundImage: resizedAvatar(ch.originalChannel.avatarUrl!),
                                         )
                                       else
                                         CircleAvatar(
@@ -399,7 +400,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       CircleAvatar(
                                         radius: 16,
                                         backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                        backgroundImage: NetworkImage(ch.originalChannel.avatarUrl!),
+                                        backgroundImage: resizedAvatar(ch.originalChannel.avatarUrl!),
                                       )
                                     else
                                       CircleAvatar(

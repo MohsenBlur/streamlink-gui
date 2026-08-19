@@ -313,6 +313,7 @@ class _VodsGridState extends State<VodsGrid> {
         itemBuilder: (context, index) {
           final vod = filteredVods[index];
           return TwitchVideoCard(
+            key: ValueKey(vod.id),
             vod: vod,
             scale: widget.vodScale,
             theme: widget.theme,

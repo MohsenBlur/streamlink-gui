@@ -184,9 +184,21 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
     );
   }
 
+  /// Quantized CDN thumbnail width. Deriving the URL from the raw slider
+  /// value minted a fresh URL for every pixel of a card-size drag - hundreds
+  /// of image downloads per drag. Four buckets cover the whole scale x DPR
+  /// range; a bucket change swaps gaplessly instead of flashing blank.
+  static int _thumbBucket(double logicalWidth) {
+    if (logicalWidth <= 320) return 320;
+    if (logicalWidth <= 480) return 480;
+    if (logicalWidth <= 640) return 640;
+    return 960;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final w = widget.scale.round().clamp(200, 1280);
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final w = _thumbBucket(widget.scale * dpr);
     final h = (w * 9 / 16).round();
     final thumbnailUrl = widget.vod.thumbnailUrl.isNotEmpty
         ? widget.vod.thumbnailUrl.replaceAll('%{width}', w.toString()).replaceAll('%{height}', h.toString())
@@ -238,6 +250,16 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                               ? Image.network(
                                   thumbnailUrl,
                                   fit: BoxFit.cover,
+                                  gaplessPlayback: true,
+                                  frameBuilder: (context, child, frame, wasSyncLoaded) {
+                                    if (wasSyncLoaded) return child;
+                                    return AnimatedOpacity(
+                                      opacity: frame == null ? 0 : 1,
+                                      duration: const Duration(milliseconds: 180),
+                                      curve: Curves.easeOut,
+                                      child: child,
+                                    );
+                                  },
                                   errorBuilder: (context, error, stackTrace) => Container(
                                     color: NeuTheme.surface(themeNotifier.isDarkTheme),
                                     child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 32),
@@ -395,7 +417,8 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       const SizedBox(width: 8),
                                     ],
                                     if (widget.isPlaying && widget.pulseController != null)
-                                      AnimatedBuilder(
+                                      RepaintBoundary(
+                                          child: AnimatedBuilder(
                                         animation: widget.pulseController!,
                                         builder: (context, child) {
                                           return Container(
@@ -410,20 +433,21 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                 )
                                               ]
                                             ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.play_arrow, size: 10, color: themeNotifier.onPrimaryColor),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  'NOW PLAYING',
-                                                  style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: themeNotifier.onPrimaryColor, letterSpacing: 0.5),
-                                                ),
-                                              ],
-                                            ),
+                                            child: child,
                                           );
                                         },
-                                      ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.play_arrow, size: 10, color: themeNotifier.onPrimaryColor),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'NOW PLAYING',
+                                              style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: themeNotifier.onPrimaryColor, letterSpacing: 0.5),
+                                            ),
+                                          ],
+                                        ),
+                                      )),
                                   ],
                                 ),
                         ),
@@ -638,13 +662,6 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
             ),
           ),
         ),
-      );
-    }
-
-    if (widget.isPlaying && widget.pulseController != null) {
-      return AnimatedBuilder(
-        animation: widget.pulseController!,
-        builder: (context, child) => buildCardContent(),
       );
     }
 

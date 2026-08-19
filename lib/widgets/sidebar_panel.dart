@@ -13,6 +13,7 @@ import 'neumorphic/neu_text_field.dart';
 import 'neumorphic/neu_segmented_control.dart';
 import 'package:flutter/gestures.dart';
 import '../theme/neu_theme.dart';
+import '../utils/image_utils.dart';
 import '../theme/theme_notifier.dart';
 
 class SidebarPanel extends StatefulWidget {
@@ -130,9 +131,14 @@ class SidebarPanelState extends State<SidebarPanel> {
     required Widget child,
   }) {
     if (_isNewlyLive(channel)) {
+      // Freeze the ring exactly when the 60s newly-live window ends instead
+      // of waiting for the next unrelated rebuild.
+      final elapsed = DateTime.now().difference(channel.wentLiveTime!);
+      final remaining = const Duration(seconds: 60) - elapsed;
       return LiveRainbowBorder(
         borderRadius: 100,
         strokeWidth: 2.5,
+        stopAfter: remaining.isNegative ? Duration.zero : remaining,
         child: child,
       );
     }
@@ -200,7 +206,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                          ? CircleAvatar(
                                              radius: 18,
                                              backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                             backgroundImage: NetworkImage(widget.authenticatedUserAvatar!),
+                                             backgroundImage: resizedAvatar(widget.authenticatedUserAvatar!),
                                            )
                                         : Container(
                                             padding: const EdgeInsets.all(6),
@@ -454,7 +460,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                               child: CircleAvatar(
                                 radius: 18,
                                 backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                backgroundImage: channel.avatarUrl != null ? NetworkImage(channel.avatarUrl!) : null,
+                                backgroundImage: channel.avatarUrl != null ? resizedAvatar(channel.avatarUrl!) : null,
                                 child: channel.avatarUrl == null
                                     ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
                                     : null,
@@ -530,7 +536,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                   ? CircleAvatar(
                       radius: 16,
                       backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                      backgroundImage: NetworkImage(widget.authenticatedUserAvatar!),
+                      backgroundImage: resizedAvatar(widget.authenticatedUserAvatar!),
                     )
                   : Container(
                       padding: const EdgeInsets.all(6),
@@ -665,7 +671,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                           CircleAvatar(
                             radius: 18,
                             backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                            backgroundImage: ch.avatarUrl != null ? NetworkImage(ch.avatarUrl!) : null,
+                            backgroundImage: ch.avatarUrl != null ? resizedAvatar(ch.avatarUrl!) : null,
                             child: ch.avatarUrl == null
                                 ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
                                 : null,
@@ -951,7 +957,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                 CircleAvatar(
                                   radius: 18,
                                   backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                  backgroundImage: ch.avatarUrl != null ? NetworkImage(ch.avatarUrl!) : null,
+                                  backgroundImage: ch.avatarUrl != null ? resizedAvatar(ch.avatarUrl!) : null,
                                   child: ch.avatarUrl == null
                                       ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
                                       : null,

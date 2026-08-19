@@ -25,6 +25,7 @@ import 'package:screen_retriever/screen_retriever.dart';
 
 import 'services/startup_service.dart';
 import 'state/library_entries.dart';
+import 'utils/image_utils.dart';
 import 'utils/window_bounds.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
@@ -2379,7 +2380,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             CircleAvatar(
                               radius: 18,
                               backgroundImage: channel.avatarUrl != null && channel.avatarUrl!.isNotEmpty
-                                  ? NetworkImage(channel.avatarUrl!)
+                                  ? resizedAvatar(channel.avatarUrl!)
                                   : null,
                               backgroundColor: Colors.transparent,
                               child: channel.avatarUrl == null || channel.avatarUrl!.isEmpty
