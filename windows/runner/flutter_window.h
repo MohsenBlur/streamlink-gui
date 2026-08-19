@@ -15,6 +15,10 @@ class FlutterWindow : public Win32Window {
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
+  // When set (from --start-minimized), the first-frame callback skips Show()
+  // so the app can boot straight to the tray without the window flashing.
+  void SetStartHidden(bool start_hidden) { start_hidden_ = start_hidden; }
+
  protected:
   // Win32Window:
   bool OnCreate() override;
@@ -28,6 +32,8 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  bool start_hidden_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

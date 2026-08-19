@@ -55,6 +55,11 @@ class SettingsDialog {
     String tempPlayerType = settings.playerType;
     int tempWatchedThreshold = settings.watchedThreshold;
     int tempMaxRecentlyWatched = settings.maxRecentlyWatched;
+    String tempCloseAction = settings.closeAction;
+    String tempMinimizeAction = settings.minimizeAction;
+    bool tempLaunchAtStartup = settings.launchAtStartup;
+    bool tempStartMinimized = settings.startMinimized;
+    bool tempTrayLiveMenu = settings.trayLiveMenuEnabled;
     final tokenController = TextEditingController(text: settings.twitchOauthToken);
     final webTokenController = TextEditingController(text: settings.twitchWebOauthToken);
     final playerPathController = TextEditingController(text: settings.customPlayerPath);
@@ -246,6 +251,101 @@ class SettingsDialog {
                                   ),
                                 ),
                                 Text('20', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            const SizedBox(height: 12),
+                            Text('Window & Tray', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Close button', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                DropdownButton<String>(
+                                  value: tempCloseAction,
+                                  underline: const SizedBox.shrink(),
+                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                  dropdownColor: themeNotifier.surfaceColor,
+                                  items: const [
+                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
+                                    DropdownMenuItem(value: 'exit', child: Text('Exit the app')),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) setDialogState(() => tempCloseAction = val);
+                                  },
+                                ),
+                              ],
+                            ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Minimize button', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                DropdownButton<String>(
+                                  value: tempMinimizeAction,
+                                  underline: const SizedBox.shrink(),
+                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                  dropdownColor: themeNotifier.surfaceColor,
+                                  items: const [
+                                    DropdownMenuItem(value: 'taskbar', child: Text('Minimize to taskbar')),
+                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) setDialogState(() => tempMinimizeAction = val);
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Launch at Windows startup', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                      Text('Starts minimized to the tray.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10)),
+                                    ],
+                                  ),
+                                ),
+                                NeuSwitch(
+                                  value: tempLaunchAtStartup,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempLaunchAtStartup = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Start minimized to tray', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempStartMinimized,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempStartMinimized = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Live favorites in tray menu', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                      Text('Right-click the tray icon to launch a live favorite directly.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10)),
+                                    ],
+                                  ),
+                                ),
+                                NeuSwitch(
+                                  value: tempTrayLiveMenu,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempTrayLiveMenu = val),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 24),
@@ -1025,6 +1125,11 @@ class SettingsDialog {
                                 vodDownloadFolder: downloadFolderController.text.trim(),
                                 maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
                                 maxRecentlyWatched: tempMaxRecentlyWatched,
+                                closeAction: tempCloseAction,
+                                minimizeAction: tempMinimizeAction,
+                                launchAtStartup: tempLaunchAtStartup,
+                                startMinimized: tempStartMinimized,
+                                trayLiveMenuEnabled: tempTrayLiveMenu,
                                 disableVodPostProcessing: tempDisableVodPostProcessing,
                                 customVodArgs: customVodArgsController.text.trim(),
                                 // The Styling tab edits these on the notifier directly;

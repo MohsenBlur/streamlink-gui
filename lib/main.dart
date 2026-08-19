@@ -21,7 +21,11 @@ import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
+import 'package:screen_retriever/screen_retriever.dart';
+
+import 'services/startup_service.dart';
 import 'state/library_entries.dart';
+import 'utils/window_bounds.dart';
 import 'widgets/library_view.dart';
 import 'widgets/live_preview_popup.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
@@ -35,7 +39,7 @@ import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
 
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await localNotifier.setup(
     appName: 'Twitch Streamlink GUI',
@@ -50,10 +54,50 @@ void main() async {
     settings = AppSettings.fromJson(config['settings']);
   }
 
-  final bool shouldCenter = settings.windowX == null || settings.windowY == null;
+  // Autostart launches pass --start-minimized; the manual-launch preference
+  // does the same thing without the flag.
+  final bool startMinimized =
+      args.contains('--start-minimized') || settings.startMinimized;
+
+  // Re-writing the Run value at every launch silently heals a moved install.
+  if (settings.launchAtStartup) {
+    StartupService().sync(true);
+  }
+
+  // Saved geometry may reference a monitor that no longer exists (undocked
+  // laptop) or carry hand-edited garbage; restore only bounds that are
+  // actually reachable. The native runner applies the same guard to its
+  // pre-Flutter registry positioning.
+  Rect? restoredBounds;
+  try {
+    final displays = await screenRetriever.getAllDisplays();
+    final displayRects = <Rect>[
+      for (final d in displays)
+        Rect.fromLTWH(
+          d.visiblePosition?.dx ?? 0,
+          d.visiblePosition?.dy ?? 0,
+          d.size.width,
+          d.size.height,
+        ),
+    ];
+    if (displayRects.isNotEmpty) {
+      restoredBounds = sanitizeWindowBounds(
+        x: settings.windowX,
+        y: settings.windowY,
+        width: settings.windowWidth,
+        height: settings.windowHeight,
+        displays: displayRects,
+      );
+    }
+  } catch (_) {
+    // Fall back to the raw saved values below.
+  }
+
+  final bool shouldCenter = restoredBounds == null &&
+      (settings.windowX == null || settings.windowY == null);
 
   WindowOptions windowOptions = WindowOptions(
-    size: Size(settings.windowWidth, settings.windowHeight),
+    size: restoredBounds?.size ?? Size(settings.windowWidth, settings.windowHeight),
     center: shouldCenter,
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
@@ -61,14 +105,20 @@ void main() async {
   );
 
   windowManager.waitUntilReadyToShow(windowOptions, () async {
-    if (!shouldCenter) {
+    if (restoredBounds != null) {
+      await windowManager.setBounds(restoredBounds);
+    } else if (settings.windowX != null && settings.windowY != null) {
       await windowManager.setPosition(Offset(settings.windowX!, settings.windowY!));
     }
-    if (settings.isWindowMaximized) {
+    if (settings.isWindowMaximized && !startMinimized) {
       await windowManager.maximize();
     }
-    await windowManager.show();
-    await windowManager.focus();
+    if (!startMinimized) {
+      // When starting minimized the native runner also suppressed its
+      // first-frame Show(), so not calling show() here means no flash at all.
+      await windowManager.show();
+      await windowManager.focus();
+    }
     await windowManager.setPreventClose(true);
     await windowManager.setMinimumSize(const Size(380, 500));
   });
@@ -556,21 +606,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     super.dispose();
   }
 
-  Future<void> _initSystemTray() async {
-    final menu = Menu();
-    await menu.buildFrom([
-      MenuItemLabel(label: 'Show App', onClicked: (menuItem) => windowManager.show()),
-      MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => windowManager.hide()),
-      MenuSeparator(),
-      MenuItemLabel(label: 'Exit', onClicked: (menuItem) => _handleAppExitRequest()),
-    ]);
+  /// Signature of the last-built tray menu. system_tray 2.0.3 leaks the
+  /// native HMENU on every setContextMenu, so the menu is only rebuilt when
+  /// the live-favorites set actually changes - never per poll.
+  String? _traySignature;
 
+  Future<void> _initSystemTray() async {
     await _systemTray.initSystemTray(
       title: "Twitch Streamlink GUI",
       iconPath: 'assets/app_icon.ico',
       toolTip: "Twitch Streamlink GUI",
     );
-    await _systemTray.setContextMenu(menu);
+    await _rebuildTrayMenu();
 
     _systemTray.registerSystemTrayEventHandler((eventName) {
       if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
@@ -580,6 +627,62 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _systemTray.popUpContextMenu();
       }
     });
+  }
+
+  Future<void> _rebuildTrayMenu() async {
+    final liveNames = _settings.trayLiveMenuEnabled
+        ? _channels.where((c) => c.isLive).map((c) => c.username).take(5).toList()
+        : <String>[];
+    final signature = liveNames.join('|');
+    if (signature == _traySignature) return;
+    _traySignature = signature;
+
+    try {
+      final menu = Menu();
+      await menu.buildFrom([
+        for (final name in liveNames)
+          MenuItemLabel(
+            label: 'Watch $name',
+            onClicked: (menuItem) => _launchTrayChannel(name),
+          ),
+        if (liveNames.isNotEmpty) MenuSeparator(),
+        MenuItemLabel(label: 'Show App', onClicked: (menuItem) => windowManager.show()),
+        MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => windowManager.hide()),
+        MenuItemLabel(
+          label: 'Open Library',
+          onClicked: (menuItem) async {
+            await windowManager.show();
+            await windowManager.focus();
+            _openLibrary();
+          },
+        ),
+        MenuSeparator(),
+        MenuItemLabel(label: 'Exit', onClicked: (menuItem) => _handleAppExitRequest()),
+      ]);
+      await _systemTray.setContextMenu(menu);
+      await _systemTray.setToolTip(
+        liveNames.isEmpty
+            ? 'Twitch Streamlink GUI'
+            : 'Twitch Streamlink GUI - ${liveNames.length} favorite${liveNames.length == 1 ? '' : 's'} live',
+      );
+      await _systemTray.setImage(
+        liveNames.isEmpty ? 'assets/app_icon.ico' : 'assets/app_icon_live.ico',
+      );
+    } catch (_) {
+      // A failed tray refresh must never break polling; retry on next change.
+      _traySignature = null;
+    }
+  }
+
+  /// Resolves the channel by name AT CLICK TIME: menu items can outlive a
+  /// poll cycle, and capturing the channel object would launch with stale
+  /// title/game metadata (or a channel that just went offline).
+  void _launchTrayChannel(String username) {
+    final index = _channels.indexWhere((c) => c.username == username);
+    if (index == -1) return;
+    final channel = _channels[index];
+    if (!channel.isLive) return;
+    _launchChannelStream(channel);
   }
 
   Future<void> _handleAppExitRequest() async {
@@ -672,14 +775,38 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   void onWindowClose() async {
     final isPreventClose = await windowManager.isPreventClose();
-    if (isPreventClose) {
-      await windowManager.hide();
+    if (!isPreventClose) return;
+    if (_settings.closeAction == 'exit') {
+      await _handleAppExitRequest();
+      return;
     }
+    await windowManager.hide();
+    _maybeShowTrayNotice();
   }
 
   @override
   void onWindowMinimize() async {
-    await windowManager.hide();
+    // Default is the Windows convention (taskbar); 'tray' preserves the old
+    // behavior for users who want it.
+    if (_settings.minimizeAction == 'tray') {
+      await windowManager.hide();
+    }
+  }
+
+  /// One-time heads-up that closing the window left the app running.
+  Future<void> _maybeShowTrayNotice() async {
+    if (_settings.trayNoticeShown) return;
+    _settings.trayNoticeShown = true;
+    await _saveChannels();
+    try {
+      final notification = LocalNotification(
+        title: 'Still running in the tray',
+        body:
+            'Twitch Streamlink GUI keeps monitoring your favorites. Right-click the tray icon and choose Exit to quit for real. You can change the close behavior in Settings.',
+        silent: true,
+      );
+      await notification.show();
+    } catch (_) {}
   }
 
   void _checkDownloadedVods() {
@@ -1405,6 +1532,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
 
     _prefetchVodsInBackground(_channels);
+    _rebuildTrayMenu();
   }
 
   Future<void> _addChannel(String name) async {
@@ -1657,11 +1785,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         });
       },
       onSave: (updatedSettings) async {
+        final startupChanged =
+            _settings.launchAtStartup != updatedSettings.launchAtStartup;
         setState(() {
           _settings = updatedSettings;
           _isWebTokenExpired = false;
         });
         await _saveChannels();
+
+        if (startupChanged) {
+          StartupService().sync(_settings.launchAtStartup);
+        }
+        // The tray menu preference may have flipped; the signature gate makes
+        // this a no-op otherwise.
+        _traySignature = null;
+        _rebuildTrayMenu();
 
         if (_settings.twitchOauthToken.trim().isNotEmpty) {
           _loadFollowedChannels();

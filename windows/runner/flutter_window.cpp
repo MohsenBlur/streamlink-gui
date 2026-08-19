@@ -28,7 +28,12 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    // --start-minimized: stay hidden; the Dart side also skips its show(), so
+    // the window only appears when summoned from the tray (or by a second
+    // instance's FindWindow+ShowWindow).
+    if (!start_hidden_) {
+      this->Show();
+    }
   });
 
   // Flutter can complete the first frame before the "show window" callback is

@@ -79,6 +79,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 
+  // Autostart passes --start-minimized: suppress the first-frame Show() so
+  // the app boots straight to the tray without the window flashing.
+  bool start_hidden = false;
+  for (const std::string& arg : command_line_arguments) {
+    if (arg == "--start-minimized") {
+      start_hidden = true;
+      break;
+    }
+  }
+
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   int x = 10;
@@ -108,7 +118,18 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     RegCloseKey(hKey);
   }
 
+  // This pre-Flutter positioning happens before the Dart-side geometry
+  // sanitizer can run, so apply the same guard here: if the saved rectangle
+  // touches no live monitor (undocked laptop, changed layout), fall back to
+  // the defaults instead of materializing the window off-screen.
+  RECT probe = {x, y, x + width, y + height};
+  if (::MonitorFromRect(&probe, MONITOR_DEFAULTTONULL) == nullptr) {
+    x = 10;
+    y = 10;
+  }
+
   FlutterWindow window(project);
+  window.SetStartHidden(start_hidden);
   Win32Window::Point origin(x, y);
   Win32Window::Size size(width, height);
   if (!window.Create(L"streamlink_gui", origin, size)) {
