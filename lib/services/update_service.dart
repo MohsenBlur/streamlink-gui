@@ -282,14 +282,15 @@ class UpdateService {
     final targetPath = path.normalize(appDir).replaceAll(RegExp(r'[/\\]+$'), '');
     final sourcePath = path.normalize(sourceDir.path).replaceAll(RegExp(r'[/\\]+$'), '');
 
-    // 1. Locate updater.exe helper binary
-    File helperExe = File(path.join(targetPath, 'updater.exe'));
+    // 1. Locate the updater, preferring the one shipped WITH the update.
+    //
+    // The incoming updater is the one written to install this payload, so it is
+    // the correct choice; the installed copy can be arbitrarily old. This order
+    // used to be reversed, which meant a released fix to the updater only took
+    // effect one version after it shipped.
+    File helperExe = File(path.join(sourcePath, 'updater.exe'));
     if (!helperExe.existsSync()) {
-      // Check in extracted source directory if missing from local app directory
-      final extractedHelper = File(path.join(sourcePath, 'updater.exe'));
-      if (extractedHelper.existsSync()) {
-        helperExe = extractedHelper;
-      }
+      helperExe = File(path.join(targetPath, 'updater.exe'));
     }
 
     if (!helperExe.existsSync()) {

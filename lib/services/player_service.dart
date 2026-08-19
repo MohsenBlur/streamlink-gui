@@ -168,6 +168,11 @@ class PlayerService {
     };
   }
 
+  /// MPC-HC view preset, passed as `/viewpreset N`: 1 = minimal, 2 = compact,
+  /// 3 = normal. Compact keeps the seek bar and transport controls visible;
+  /// minimal hides them, which makes seeking in a VOD awkward.
+  static const List<String> _mpcViewPresetCompact = ['/viewpreset', '2'];
+
   void log(String key, String line) {
     onPlayerLog?.call(key, line);
   }
@@ -670,6 +675,7 @@ class PlayerService {
         args.addAll(['/start', '${finalSeek * 1000}']);
       }
       args.addAll(['/webport', '$port']);
+      args.addAll(_mpcViewPresetCompact);
       args.add(path);
     } else if (effectivePlayerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
       exe = settings.customPlayerPath.trim().replaceAll('"', '');
@@ -698,6 +704,7 @@ class PlayerService {
           args.addAll(['/start', '${finalSeek * 1000}']);
         }
         args.addAll(['/webport', '$port']);
+        args.addAll(_mpcViewPresetCompact);
       }
       args.add(path);
     } else {
@@ -794,6 +801,7 @@ class PlayerService {
     } else if (settings.playerType == 'mpc-hc') {
       args.addAll(['--player', findMpcHcPath() ?? 'mpc-hc64']);
       extraArgsList.addAll(['/webport', '$port']);
+      extraArgsList.addAll(_mpcViewPresetCompact);
     } else if (settings.playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
       args.addAll(['--player', settings.customPlayerPath.trim()]);
       final lowerPath = settings.customPlayerPath.toLowerCase();
@@ -812,6 +820,7 @@ class PlayerService {
         }
       } else if (lowerPath.contains('mpc')) {
         extraArgsList.addAll(['/webport', '$port']);
+        extraArgsList.addAll(_mpcViewPresetCompact);
       }
     }
 
