@@ -72,7 +72,7 @@ class NeuTheme {
   static Color disabledText(bool isDark) => isDark ? const Color(0xFF64748B) : const Color(0xFFA0AEC0);
   static Color highlight(bool isDark) => isDark ? darkHighlight : lightHighlight;
   static Color shadow(bool isDark) => isDark ? darkShadow : lightShadow;
-  static Color border(bool isDark) => isDark ? const Color(0xFF334155).withOpacity(0.4) : const Color(0xFFA3B1C6).withOpacity(0.5);
+  static Color border(bool isDark) => isDark ? const Color(0xFF334155).withValues(alpha: 0.4) : const Color(0xFFA3B1C6).withValues(alpha: 0.5);
   static Color terminalBg(bool isDark) => isDark ? const Color(0xFF0F131E) : const Color(0xFFF8FAFC);
 
   // Unified Typography Tokens
@@ -109,12 +109,12 @@ class NeuTheme {
       border: border,
       boxShadow: [
         BoxShadow(
-          color: highlight(isDark).withOpacity(isDark ? 0.5 : 0.9),
+          color: highlight(isDark).withValues(alpha: isDark ? 0.5 : 0.9),
           offset: const Offset(-5, -5),
           blurRadius: 10,
         ),
         BoxShadow(
-          color: shadow(isDark).withOpacity(isDark ? 0.7 : 0.8),
+          color: shadow(isDark).withValues(alpha: isDark ? 0.7 : 0.8),
           offset: const Offset(5, 5),
           blurRadius: 10,
         ),
@@ -128,18 +128,18 @@ class NeuTheme {
       color: base,
       borderRadius: BorderRadius.circular(radius),
       border: border ?? Border.all(
-        color: isDark ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.04),
+        color: isDark ? Colors.black.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.04),
         width: 1.0,
       ),
       boxShadow: [
         BoxShadow(
-          color: shadow(isDark).withOpacity(isDark ? 0.6 : 0.6),
+          color: shadow(isDark).withValues(alpha: isDark ? 0.6 : 0.6),
           offset: const Offset(3, 3),
           blurRadius: 6,
           spreadRadius: -1,
         ),
         BoxShadow(
-          color: highlight(isDark).withOpacity(isDark ? 0.4 : 0.8),
+          color: highlight(isDark).withValues(alpha: isDark ? 0.4 : 0.8),
           offset: const Offset(-3, -3),
           blurRadius: 6,
           spreadRadius: -1,

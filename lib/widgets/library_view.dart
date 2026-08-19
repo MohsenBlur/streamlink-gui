@@ -248,7 +248,7 @@ class _LibraryRowState extends State<_LibraryRow> {
           isDark,
           radius: 10,
           border: _hovered
-              ? Border.all(color: theme.primaryColor.withOpacity(0.5))
+              ? Border.all(color: theme.primaryColor.withValues(alpha: 0.5))
               : null,
         ),
         child: Row(
@@ -326,13 +326,13 @@ class _LibraryRowState extends State<_LibraryRow> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: entry.isDownloaded
-                    ? NeuTheme.live.withOpacity(0.12)
-                    : NeuTheme.subtext(isDark).withOpacity(0.12),
+                    ? NeuTheme.live.withValues(alpha: 0.12)
+                    : NeuTheme.subtext(isDark).withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: entry.isDownloaded
-                      ? NeuTheme.live.withOpacity(0.4)
-                      : NeuTheme.subtext(isDark).withOpacity(0.4),
+                      ? NeuTheme.live.withValues(alpha: 0.4)
+                      : NeuTheme.subtext(isDark).withValues(alpha: 0.4),
                 ),
               ),
               child: Text(

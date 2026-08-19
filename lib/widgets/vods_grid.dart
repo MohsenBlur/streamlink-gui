@@ -145,9 +145,9 @@ class _VodsGridState extends State<VodsGrid> {
         child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: NeuTheme.danger.withOpacity(0.1),
+          color: NeuTheme.danger.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: NeuTheme.danger.withOpacity(0.3)),
+          border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.3)),
         ),
         child: Text(
           'Error loading VODs: ${widget.vodsError}',
@@ -255,7 +255,7 @@ class _VodsGridState extends State<VodsGrid> {
                         gradient: LinearGradient(
                           colors: [
                             themeNotifier.backgroundColor,
-                            themeNotifier.backgroundColor.withOpacity(0.0),
+                            themeNotifier.backgroundColor.withValues(alpha: 0.0),
                           ],
                           begin: Alignment.centerLeft,
                           end: Alignment.centerRight,
@@ -275,7 +275,7 @@ class _VodsGridState extends State<VodsGrid> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            themeNotifier.backgroundColor.withOpacity(0.0),
+                            themeNotifier.backgroundColor.withValues(alpha: 0.0),
                             themeNotifier.backgroundColor,
                           ],
                           begin: Alignment.centerLeft,

@@ -195,7 +195,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
         color: themeNotifier.backgroundColor,
         boxShadow: [
           BoxShadow(
-            color: NeuTheme.shadow(themeNotifier.isDarkTheme).withOpacity(0.5),
+            color: NeuTheme.shadow(themeNotifier.isDarkTheme).withValues(alpha: 0.5),
             offset: const Offset(0, -3),
             blurRadius: 6,
           ),
@@ -238,7 +238,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: NeuTheme.live.withOpacity(0.5),
+                            color: NeuTheme.live.withValues(alpha: 0.5),
                             blurRadius: 4,
                           ),
                         ],
@@ -254,7 +254,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: theme.primaryColor.withOpacity(0.5),
+                            color: theme.primaryColor.withValues(alpha: 0.5),
                             blurRadius: 4,
                           ),
                         ],
@@ -286,7 +286,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                                     ? NeuTheme.sunkenDecoration(
                                         themeNotifier.isDarkTheme,
                                         radius: 6,
-                                        border: Border.all(color: NeuTheme.live.withOpacity(0.6), width: 1.5),
+                                        border: Border.all(color: NeuTheme.live.withValues(alpha: 0.6), width: 1.5),
                                       )
                                     : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
                                 child: Row(
@@ -611,7 +611,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.amber.withOpacity(0.15),
+                        color: Colors.amber.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(

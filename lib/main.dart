@@ -156,7 +156,6 @@ class TwitchStreamlinkApp extends StatelessWidget {
               primary: themeNotifier.primaryColor,
               secondary: NeuTheme.live,
               surface: themeNotifier.surfaceColor,
-              background: themeNotifier.backgroundColor,
               error: NeuTheme.danger,
             ),
             textTheme: const TextTheme(
@@ -175,7 +174,6 @@ class TwitchStreamlinkApp extends StatelessWidget {
               primary: themeNotifier.primaryColor,
               secondary: NeuTheme.live,
               surface: themeNotifier.surfaceColor,
-              background: themeNotifier.backgroundColor,
               error: NeuTheme.danger,
             ),
             textTheme: const TextTheme(
@@ -2042,17 +2040,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    theme.primaryColor.withOpacity(0.15),
+                    theme.primaryColor.withValues(alpha: 0.15),
                     themeNotifier.surfaceColor,
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.primaryColor.withOpacity(0.3), width: 1.5),
+                border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3), width: 1.5),
                 boxShadow: [
                   BoxShadow(
-                    color: theme.primaryColor.withOpacity(0.05),
+                    color: theme.primaryColor.withValues(alpha: 0.05),
                     blurRadius: 12,
                     spreadRadius: 2,
                   ),
@@ -2213,7 +2211,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                           shape: BoxShape.circle,
                                                           boxShadow: [
                                                             BoxShadow(
-                                                              color: theme.primaryColor.withOpacity(0.5),
+                                                              color: theme.primaryColor.withValues(alpha: 0.5),
                                                               blurRadius: 10,
                                                             )
                                                           ],
@@ -2230,7 +2228,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                 child: Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                                   decoration: BoxDecoration(
-                                                    color: Colors.black.withOpacity(0.75),
+                                                    color: Colors.black.withValues(alpha: 0.75),
                                                     borderRadius: BorderRadius.circular(4),
                                                   ),
                                                   child: Text(
@@ -2370,7 +2368,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     decoration: NeuTheme.raisedDecoration(
                       themeNotifier.isDarkTheme,
                       radius: 12,
-                      border: Border.all(color: theme.primaryColor.withOpacity(0.25)),
+                      border: Border.all(color: theme.primaryColor.withValues(alpha: 0.25)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2783,7 +2781,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: theme.primaryColor.withOpacity(0.12),
+                      color: theme.primaryColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(icon, size: 20, color: theme.primaryColor),
@@ -2901,7 +2899,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.check_circle_outline, size: 16),
                                 label: const Text('Mark Watched', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: theme.primaryColor.withOpacity(0.2),
+                                  backgroundColor: theme.primaryColor.withValues(alpha: 0.2),
                                   foregroundColor: theme.primaryColor,
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
@@ -2923,7 +2921,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.download, size: 16),
                                 label: const Text('Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: NeuTheme.live.withOpacity(0.15),
+                                  backgroundColor: NeuTheme.live.withValues(alpha: 0.15),
                                   foregroundColor: NeuTheme.liveText(themeNotifier.isDarkTheme),
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
@@ -2934,7 +2932,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.delete_outline, size: 16),
                                 label: const Text('Delete Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: NeuTheme.danger.withOpacity(0.15),
+                                  backgroundColor: NeuTheme.danger.withValues(alpha: 0.15),
                                   foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
@@ -3095,9 +3093,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       // Intentional: translucent warning tint, readable over both themes.
                       decoration: BoxDecoration(
-                        color: Colors.orangeAccent.withOpacity(0.1),
+                        color: Colors.orangeAccent.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                        border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.3)),
                       ),
                       child: Row(
                         children: [
@@ -3113,7 +3111,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           const SizedBox(width: 12),
                           TextButton(
                             style: TextButton.styleFrom(
-                              backgroundColor: Colors.orangeAccent.withOpacity(0.2),
+                              backgroundColor: Colors.orangeAccent.withValues(alpha: 0.2),
                               foregroundColor: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800,
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),

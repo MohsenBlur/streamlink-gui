@@ -100,7 +100,7 @@ class NeuAvatarFrame extends StatelessWidget {
 
   Widget _buildFallback(ThemeData theme) {
     return Container(
-      color: theme.primaryColor.withOpacity(0.2),
+      color: theme.primaryColor.withValues(alpha: 0.2),
       child: Center(
         child: Text(
           fallbackText.isNotEmpty ? fallbackText[0].toUpperCase() : '?',

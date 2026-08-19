@@ -150,13 +150,13 @@ class SidebarPanelState extends State<SidebarPanel> {
         border: Border.all(
           color: isSelected
               ? theme.primaryColor
-              : (channel.isLive ? NeuTheme.live.withOpacity(0.8) : Colors.transparent),
+              : (channel.isLive ? NeuTheme.live.withValues(alpha: 0.8) : Colors.transparent),
           width: 2.0,
         ),
         boxShadow: [
           if (channel.isLive)
             BoxShadow(
-              color: (isSelected ? theme.primaryColor : NeuTheme.live).withOpacity(0.4),
+              color: (isSelected ? theme.primaryColor : NeuTheme.live).withValues(alpha: 0.4),
               blurRadius: 6,
               spreadRadius: 1,
             ),
@@ -211,9 +211,9 @@ class SidebarPanelState extends State<SidebarPanel> {
                                         : Container(
                                             padding: const EdgeInsets.all(6),
                                             decoration: BoxDecoration(
-                                              color: theme.primaryColor.withOpacity(0.15),
+                                              color: theme.primaryColor.withValues(alpha: 0.15),
                                               borderRadius: BorderRadius.circular(8),
-                                              border: Border.all(color: theme.primaryColor.withOpacity(0.4), width: 1),
+                                              border: Border.all(color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
                                             ),
                                             child: Icon(Icons.dashboard_outlined, color: theme.primaryColor, size: 20),
                                           ),
@@ -266,7 +266,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         icon: Icon(Icons.keyboard_double_arrow_left, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 20),
                         tooltip: 'Collapse Sidebar',
                         onPressed: () => widget.onToggleCollapse(true),
-                        hoverColor: theme.primaryColor.withOpacity(0.2),
+                        hoverColor: theme.primaryColor.withValues(alpha: 0.2),
                         splashRadius: 20,
                       ),
                     ],
@@ -408,10 +408,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                             return Container(
                               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                               decoration: BoxDecoration(
-                                color: theme.primaryColor.withOpacity(0.08),
+                                color: theme.primaryColor.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: theme.primaryColor.withOpacity(0.25),
+                                  color: theme.primaryColor.withValues(alpha: 0.25),
                                   width: 1,
                                 ),
                               ),
@@ -497,7 +497,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
                         tooltip: 'Settings',
                         onPressed: widget.onShowSettings,
-                        hoverColor: theme.primaryColor.withOpacity(0.2),
+                        hoverColor: theme.primaryColor.withValues(alpha: 0.2),
                         splashRadius: 20,
                         constraints: const BoxConstraints(),
                         padding: EdgeInsets.zero,
@@ -507,7 +507,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
                         tooltip: 'Library (downloads & history)',
                         onPressed: widget.onShowLibrary,
-                        hoverColor: theme.primaryColor.withOpacity(0.2),
+                        hoverColor: theme.primaryColor.withValues(alpha: 0.2),
                         splashRadius: 20,
                         constraints: const BoxConstraints(),
                         padding: EdgeInsets.zero,
@@ -541,9 +541,9 @@ class SidebarPanelState extends State<SidebarPanel> {
                   : Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: theme.primaryColor.withOpacity(0.15),
+                        color: theme.primaryColor.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: theme.primaryColor.withOpacity(0.4), width: 1),
+                        border: Border.all(color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
                       ),
                       child: Icon(Icons.dashboard_outlined, color: theme.primaryColor, size: 18),
                     ),
@@ -555,7 +555,7 @@ class SidebarPanelState extends State<SidebarPanel> {
           icon: Icon(Icons.keyboard_double_arrow_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 20),
           tooltip: 'Expand sidebar',
           onPressed: () => widget.onToggleCollapse(false),
-          hoverColor: theme.primaryColor.withOpacity(0.2),
+          hoverColor: theme.primaryColor.withValues(alpha: 0.2),
           splashRadius: 20,
         ),
         const SizedBox(height: 10),
@@ -586,7 +586,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: theme.primaryColor.withOpacity(0.15),
+                          color: theme.primaryColor.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: theme.primaryColor, width: 1.5),
                         ),
@@ -635,7 +635,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                   )
                 : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
             onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
-            hoverColor: theme.primaryColor.withOpacity(0.2),
+            hoverColor: theme.primaryColor.withValues(alpha: 0.2),
             splashRadius: 20,
           ),
         ),
@@ -720,7 +720,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
                 tooltip: 'Library (downloads & history)',
                 onPressed: widget.onShowLibrary,
-                hoverColor: theme.primaryColor.withOpacity(0.2),
+                hoverColor: theme.primaryColor.withValues(alpha: 0.2),
                 splashRadius: 20,
                 constraints: const BoxConstraints(),
                 padding: EdgeInsets.zero,
@@ -730,7 +730,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
                 tooltip: 'Settings',
                 onPressed: widget.onShowSettings,
-                hoverColor: theme.primaryColor.withOpacity(0.2),
+                hoverColor: theme.primaryColor.withValues(alpha: 0.2),
                 splashRadius: 20,
                 constraints: const BoxConstraints(),
                 padding: EdgeInsets.zero,
@@ -866,7 +866,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                           width: 36,
                           height: 36,
                           decoration: BoxDecoration(
-                            color: theme.primaryColor.withOpacity(0.15),
+                            color: theme.primaryColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: theme.primaryColor, width: 1.5),
                           ),
@@ -903,7 +903,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                     )
                   : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
               onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
-              hoverColor: theme.primaryColor.withOpacity(0.2),
+              hoverColor: theme.primaryColor.withValues(alpha: 0.2),
               splashRadius: 20,
             ),
           ),
@@ -1008,7 +1008,7 @@ class SidebarPanelState extends State<SidebarPanel> {
             icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
             tooltip: 'Library (downloads & history)',
             onPressed: widget.onShowLibrary,
-            hoverColor: theme.primaryColor.withOpacity(0.2),
+            hoverColor: theme.primaryColor.withValues(alpha: 0.2),
             splashRadius: 20,
           ),
           const SizedBox(width: 4),
@@ -1016,7 +1016,7 @@ class SidebarPanelState extends State<SidebarPanel> {
             icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
             tooltip: 'Settings',
             onPressed: widget.onShowSettings,
-            hoverColor: theme.primaryColor.withOpacity(0.2),
+            hoverColor: theme.primaryColor.withValues(alpha: 0.2),
             splashRadius: 20,
           ),
         ],
@@ -1239,12 +1239,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: NeuTheme.live
-                              .withOpacity(0.7 + 0.3 * widget.pulseController.value),
+                              .withValues(alpha: 0.7 + 0.3 * widget.pulseController.value),
                           borderRadius: BorderRadius.circular(4),
                           boxShadow: [
                             BoxShadow(
                               color: NeuTheme.live
-                                  .withOpacity(0.4 * widget.pulseController.value),
+                                  .withValues(alpha: 0.4 * widget.pulseController.value),
                               blurRadius: 4,
                             )
                           ],

@@ -58,7 +58,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       return Container(
         padding: padding,
         decoration: BoxDecoration(
-          color: subtext.withOpacity(0.12),
+          color: subtext.withValues(alpha: 0.12),
           border: Border.all(color: subtext, width: 1),
           borderRadius: radius,
         ),
@@ -81,10 +81,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           padding: padding,
           decoration: BoxDecoration(
             color: NeuTheme.live
-                .withOpacity(0.10 + 0.08 * widget.pulseController.value),
+                .withValues(alpha: 0.10 + 0.08 * widget.pulseController.value),
             border: Border.all(
               color: NeuTheme.live
-                  .withOpacity(0.4 + 0.6 * widget.pulseController.value),
+                  .withValues(alpha: 0.4 + 0.6 * widget.pulseController.value),
               width: 1,
             ),
             borderRadius: radius,
@@ -400,9 +400,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: NeuTheme.danger.withOpacity(0.1),
+                  color: NeuTheme.danger.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: NeuTheme.danger.withOpacity(0.2)),
+                  border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   children: [
@@ -603,9 +603,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: NeuTheme.danger.withOpacity(0.1),
+                          color: NeuTheme.danger.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: NeuTheme.danger.withOpacity(0.2)),
+                          border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.2)),
                         ),
                         child: Row(
                           children: [

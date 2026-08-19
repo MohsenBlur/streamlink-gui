@@ -78,8 +78,8 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(16),
-          hoverColor: Colors.white.withOpacity(0.2),
-          splashColor: Colors.white.withOpacity(0.3),
+          hoverColor: Colors.white.withValues(alpha: 0.2),
+          splashColor: Colors.white.withValues(alpha: 0.3),
           child: Container(
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
@@ -87,7 +87,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
               color: backgroundColor,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   blurRadius: 4,
                   offset: const Offset(0, 2),
                 ),
@@ -134,7 +134,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
     final mainBadge = Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.75),
+        color: Colors.black.withValues(alpha: 0.75),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -162,7 +162,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           bottom: -4,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.4),
+              color: Colors.black.withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -174,7 +174,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           bottom: -2,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.6),
+              color: Colors.black.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -226,7 +226,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                       width: widget.isSelected ? 2.5 : 2.0,
                     )
                   : (_isHovered
-                      ? Border.all(color: widget.theme.primaryColor.withOpacity(0.6), width: 1.5)
+                      ? Border.all(color: widget.theme.primaryColor.withValues(alpha: 0.6), width: 1.5)
                       : null),
             ),
             child: Column(
@@ -292,12 +292,12 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       gradient: LinearGradient(
                                         colors: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
                                             ? [
-                                                widget.watchedProgressColor.withOpacity(0.8),
+                                                widget.watchedProgressColor.withValues(alpha: 0.8),
                                                 widget.watchedProgressColor,
                                               ]
                                             : [
                                                 widget.activeProgressColor,
-                                                widget.activeProgressColor.withOpacity(0.8),
+                                                widget.activeProgressColor.withValues(alpha: 0.8),
                                               ],
                                         begin: Alignment.centerLeft,
                                         end: Alignment.centerRight,
@@ -305,8 +305,8 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       boxShadow: [
                                         BoxShadow(
                                           color: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
-                                              ? widget.watchedProgressColor.withOpacity(0.6)
-                                              : widget.activeProgressColor.withOpacity(0.6),
+                                              ? widget.watchedProgressColor.withValues(alpha: 0.6)
+                                              : widget.activeProgressColor.withValues(alpha: 0.6),
                                           blurRadius: _isHovered ? 8.0 : 2.0,
                                           spreadRadius: _isHovered ? 1.0 : 0.0,
                                         ),
@@ -327,7 +327,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.75),
+                                  color: Colors.black.withValues(alpha: 0.75),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
@@ -377,7 +377,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               return Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.black.withOpacity(0.75),
+                                                  color: Colors.black.withValues(alpha: 0.75),
                                                   borderRadius: BorderRadius.circular(4),
                                                 ),
                                                 child: Row(
@@ -404,7 +404,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             border: Border.all(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                                             boxShadow: [
                                               BoxShadow(
-                                                color: Colors.black.withOpacity(0.2),
+                                                color: Colors.black.withValues(alpha: 0.2),
                                                 blurRadius: 6,
                                               ),
                                             ],
@@ -424,11 +424,11 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                           return Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                             decoration: BoxDecoration(
-                                              color: widget.theme.primaryColor.withOpacity(0.85 + 0.15 * widget.pulseController!.value),
+                                              color: widget.theme.primaryColor.withValues(alpha: 0.85 + 0.15 * widget.pulseController!.value),
                                               borderRadius: BorderRadius.circular(4),
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: widget.theme.primaryColor.withOpacity(0.5 * widget.pulseController!.value),
+                                                  color: widget.theme.primaryColor.withValues(alpha: 0.5 * widget.pulseController!.value),
                                                   blurRadius: 4,
                                                 )
                                               ]
@@ -458,7 +458,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                               duration: const Duration(milliseconds: 150),
                               opacity: (_isHovered && !widget.isPlaying) ? 1.0 : 0.0,
                               child: Container(
-                                color: Colors.black.withOpacity(0.4),
+                                color: Colors.black.withValues(alpha: 0.4),
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
@@ -466,8 +466,8 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       padding: const EdgeInsets.all(10),
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
-                                        color: Colors.black.withOpacity(0.6),
-                                        border: Border.all(color: Colors.white.withOpacity(0.8), width: 2.0),
+                                        color: Colors.black.withValues(alpha: 0.6),
+                                        border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 2.0),
                                       ),
                                       child: const Icon(
                                         Icons.play_arrow,
@@ -482,7 +482,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                           decoration: BoxDecoration(
-                                            color: Colors.black.withOpacity(0.85),
+                                            color: Colors.black.withValues(alpha: 0.85),
                                             borderRadius: BorderRadius.circular(6),
                                             border: Border.all(color: Colors.white24, width: 0.5),
                                           ),
@@ -513,7 +513,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.75),
+                              color: Colors.black.withValues(alpha: 0.75),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
@@ -535,9 +535,9 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                                           decoration: BoxDecoration(
-                                            color: Colors.black.withOpacity(0.9),
+                                            color: Colors.black.withValues(alpha: 0.9),
                                             borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: NeuTheme.live.withOpacity(0.5), width: 1.0),
+                                            border: Border.all(color: NeuTheme.live.withValues(alpha: 0.5), width: 1.0),
                                           ),
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,

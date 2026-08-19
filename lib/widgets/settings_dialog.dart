@@ -177,7 +177,7 @@ class SettingsDialog {
                 backgroundColor: themeNotifier.surfaceColor,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: themeNotifier.primaryColor.withOpacity(0.3), width: 1.5),
+                  side: BorderSide(color: themeNotifier.primaryColor.withValues(alpha: 0.3), width: 1.5),
                 ),
                 content: SizedBox(
                   width: 520,
@@ -196,7 +196,7 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              value: tempQuality,
+                              initialValue: tempQuality,
                               decoration: const InputDecoration(
                                 contentPadding: EdgeInsets.symmetric(horizontal: 12),
                               ),
@@ -496,7 +496,7 @@ class SettingsDialog {
                             Text('Player Type', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
-                              value: tempPlayerType,
+                              initialValue: tempPlayerType,
                               decoration: const InputDecoration(
                                 contentPadding: EdgeInsets.symmetric(horizontal: 12),
                               ),

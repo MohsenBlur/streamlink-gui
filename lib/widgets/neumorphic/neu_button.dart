@@ -92,7 +92,7 @@ class _NeuButtonState extends State<NeuButton> {
           // button in the app grew down-right on hover and collapsed toward
           // its corner on press instead of scaling in place.
           transformAlignment: Alignment.center,
-          transform: Matrix4.identity()..scale(scale),
+          transform: Matrix4.identity()..scaleByDouble(scale, scale, 1.0, 1.0),
           child: NeuContainer(
             width: widget.width,
             height: widget.height,

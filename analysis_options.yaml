@@ -11,7 +11,6 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   errors:
-    deprecated_member_use: ignore
     use_super_parameters: ignore
     avoid_print: ignore
     prefer_interpolation_to_compose_strings: ignore

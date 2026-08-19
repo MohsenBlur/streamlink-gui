@@ -107,7 +107,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
       backgroundColor: themeNotifier.backgroundColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.primaryColor.withOpacity(0.4), width: 1.5),
+        side: BorderSide(color: theme.primaryColor.withValues(alpha: 0.4), width: 1.5),
       ),
       child: Container(
         width: 720,
@@ -271,7 +271,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                             decoration: BoxDecoration(
                               color: themeNotifier.surfaceColor,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                              border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
                             ),
                             child: ReorderableListView(
                               shrinkWrap: true,
@@ -285,7 +285,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       elevation: 8,
                                       color: themeNotifier.surfaceColor,
                                       borderRadius: BorderRadius.circular(8),
-                                      shadowColor: Colors.black.withOpacity(0.5),
+                                      shadowColor: Colors.black.withValues(alpha: 0.5),
                                       child: child,
                                     );
                                   },
@@ -348,7 +348,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: theme.primaryColor.withOpacity(0.2),
+                                          color: theme.primaryColor.withValues(alpha: 0.2),
                                           borderRadius: BorderRadius.circular(12),
                                           border: Border.all(color: theme.primaryColor, width: 1),
                                         ),
@@ -387,7 +387,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                               radius: 12,
                               border: Border.all(
                                 color: (ch.autoPlayLive || ch.autoDownloadVods)
-                                    ? theme.primaryColor.withOpacity(0.4)
+                                    ? theme.primaryColor.withValues(alpha: 0.4)
                                     : NeuTheme.border(themeNotifier.isDarkTheme),
                               ),
                             ),
