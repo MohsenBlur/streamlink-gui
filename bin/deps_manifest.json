@@ -1,6 +1,98 @@
 {
-  "yt-dlp": "2026.07.04",
-  "atomicparsley": "20240608.083822.1ed9031",
-  "ffmpeg": "gyan-release-essentials",
-  "streamlink": "8.4.0-1"
+  "comment": [
+    "Single source of truth for the bundled runtime that ships inside bin/.",
+    "These executables are NOT committed to git (see .gitignore): tools/fetch-deps.ps1",
+    "downloads and verifies them, and the release workflow runs it before packaging.",
+    "Run 'pwsh tools/fetch-deps.ps1' to rebuild bin/ locally.",
+    "Sizes and sha256 were captured from the upstream release assets on 2026-08-19."
+  ],
+  "components": {
+    "streamlink": {
+      "version": "8.4.0-1",
+      "type": "zip",
+      "url": "https://github.com/streamlink/windows-builds/releases/download/8.4.0-1/streamlink-8.4.0-1-py314-x86_64.zip",
+      "sha256": "a8d3bd2b409e6d1b1f7a0e2a5c0cbfba619775e475da3f31285af08d680fb71c",
+      "size": 99718934,
+      "stripPrefix": "streamlink-8.4.0-1-py314-x86_64",
+      "dest": "bin",
+      "provides": {
+        "python": "3.14",
+        "abi": "cp314",
+        "note": "Ships the embedded CPython runtime used by bin/pkgs. The packages under pkgs/ contain ABI-specific cp314 .pyd files, so python and pkgs must always be updated together."
+      },
+      "map": [
+        { "from": "LICENSE.txt", "to": "LICENSE.txt" },
+        { "from": "Python", "to": "Python" },
+        { "from": "bin", "to": "bin" },
+        { "from": "pkgs", "to": "pkgs" }
+      ],
+      "excluded": {
+        "ffmpeg": "Deliberately not extracted (~192 MB). Streamlink resolves ffmpeg via shutil.which() i.e. PATH only, and PlayerService._getEnvironmentWithBin puts bin/ on PATH, so the ffmpeg supplied below is what actually gets used. The bundled copy is unreachable dead payload and also exceeds GitHub's 100 MB per-file limit."
+      }
+    },
+    "ffmpeg": {
+      "version": "8.1.2-essentials_build",
+      "type": "zip",
+      "url": "https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip",
+      "sha256": "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec",
+      "size": 109728040,
+      "stripPrefix": "ffmpeg-8.1.2-essentials_build",
+      "dest": "bin",
+      "provides": {
+        "note": "Supplies BOTH ffmpeg.exe (streamlink muxing, yt-dlp --downloader ffmpeg) and ffprobe.exe (yt-dlp format probing). ffplay.exe is skipped: unused by this app."
+      },
+      "map": [
+        { "from": "bin/ffmpeg.exe", "to": "ffmpeg.exe" },
+        { "from": "bin/ffprobe.exe", "to": "ffprobe.exe" },
+        { "from": "LICENSE", "to": "FFMPEG-LICENSE.txt" }
+      ]
+    },
+    "yt-dlp": {
+      "version": "2026.07.04",
+      "type": "file",
+      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.exe",
+      "sha256": "52fe3c26dcf71fbdc85b528589020bb0b8e383155cfa81b64dd447bbe35e24b8",
+      "size": 18226085,
+      "dest": "bin/yt-dlp.exe"
+    },
+    "atomicparsley": {
+      "version": "20240608.083822.1ed9031",
+      "type": "zip",
+      "url": "https://github.com/wez/atomicparsley/releases/download/20240608.083822.1ed9031/AtomicParsleyWindows.zip",
+      "sha256": "cc7c5a7dcaba28869f3819e4a57f382dc0ff307b7b013f9bffd028605ae6f52d",
+      "size": 123911,
+      "stripPrefix": "",
+      "dest": "bin",
+      "provides": {
+        "note": "Used by yt-dlp for --embed-thumbnail on mp4/m4a. Only exercised when VOD post-processing is enabled."
+      },
+      "map": [
+        { "from": "AtomicParsley.exe", "to": "AtomicParsley.exe" }
+      ]
+    }
+  },
+  "bundleRequirementsComment": [
+    "Every path a working install needs, checked by tools/verify-bundle.ps1 against",
+    "both the staged directory and the packaged zip before anything is published.",
+    "minBytes is a truncation/placeholder floor set to roughly half the real size -",
+    "it is not a version assertion. Note streamlink_gui.exe is only ~92 KB because",
+    "the Flutter runner is a thin launcher; the Dart code lives in data/app.so."
+  ],
+  "bundleRequirements": [
+    { "path": "streamlink_gui.exe", "minBytes": 50000 },
+    { "path": "updater.exe", "minBytes": 30000 },
+    { "path": "flutter_windows.dll", "minBytes": 10000000 },
+    { "path": "data/app.so", "minBytes": 3000000 },
+    { "path": "data/icudtl.dat", "minBytes": 400000 },
+    { "path": "bin/bin/streamlink.exe", "minBytes": 50000 },
+    { "path": "bin/Python/python.exe", "minBytes": 40000 },
+    { "path": "bin/Python/python314.dll", "minBytes": 3000000 },
+    { "path": "bin/Python/python314.zip", "minBytes": 1000000 },
+    { "path": "bin/pkgs/streamlink/__init__.py", "minBytes": 100 },
+    { "path": "bin/pkgs/streamlink/plugins/twitch.py", "minBytes": 10000 },
+    { "path": "bin/ffmpeg.exe", "minBytes": 50000000 },
+    { "path": "bin/ffprobe.exe", "minBytes": 50000000 },
+    { "path": "bin/yt-dlp.exe", "minBytes": 10000000 },
+    { "path": "bin/AtomicParsley.exe", "minBytes": 100000 }
+  ]
 }

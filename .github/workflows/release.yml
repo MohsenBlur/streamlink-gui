@@ -1,9 +1,20 @@
 name: Automated Release & Build Pipeline
 
+# Triggered by pushing a version tag, e.g. `git tag v1.0.61 && git push origin v1.0.61`.
+#
+# The tag is the authority for what gets published (previously the tag name was
+# re-derived from pubspec.yaml, so a tag/pubspec desync would silently republish
+# onto the OLDER release and destroy its already-published asset).
+
 on:
   push:
     tags:
       - 'v*'
+
+# Third-party actions are pinned to commit SHAs: this workflow holds `contents: write`,
+# so a compromised mutable tag would be a publish-capable supply-chain hole.
+env:
+  FLUTTER_VERSION: '3.44.2'
 
 jobs:
   build-release:
@@ -13,62 +24,128 @@ jobs:
       contents: write
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - name: Set up Java JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+      - name: Verify tag matches pubspec version
+        id: version
+        shell: pwsh
+        run: |
+          $raw = Get-Content pubspec.yaml -Raw
+          if ($raw -notmatch '(?m)^version:\s*(\S+)\s*$') {
+            throw "Could not find a 'version:' line in pubspec.yaml"
+          }
+          $version = $Matches[1].Trim()
+
+          # A build-number suffix (1.2.3+4) would poison the tag and, because the
+          # client compares numerically, could freeze updates for every user.
+          if ($version -match '\+') {
+            throw "pubspec version '$version' has a build-number suffix. Use a plain x.y.z version."
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "pubspec version '$version' is not a plain x.y.z version."
+          }
+
+          $tag = "${{ github.ref_name }}"
+          if ($tag -ne "v$version") {
+            throw @"
+          Tag / pubspec mismatch.
+            pushed tag:      $tag
+            pubspec version: $version  (expected tag 'v$version')
+          Publishing would overwrite the wrong release. Bump pubspec.yaml and re-tag.
+          "@
+          }
+
+          Write-Host "Publishing $tag (pubspec $version)"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "stage=streamlink-gui-$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Set up Flutter SDK
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: 'stable'
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
-
-      - name: Extract Version from pubspec.yaml
-        id: get_version
-        shell: powershell
-        run: |
-          $pubspec = Get-Content pubspec.yaml
-          $versionLine = $pubspec | Select-String -Pattern '^version:\s*(.+)'
-          $version = $versionLine.Matches.Groups[1].Value.Trim()
-          Write-Host "Detected app version: $version"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
 
       - name: Install Dependencies
         run: flutter pub get
 
       - name: Analyze Project Code
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze
+
+      - name: Run Tests
+        run: flutter test
+
+      - name: Cache bundled runtime downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .deps-cache
+          key: deps-${{ hashFiles('bin/deps_manifest.json') }}
+
+      # The bundled executables are not committed to git. Without this step the
+      # release ships a bin/ with no interpreter, no streamlink, no ffmpeg and no
+      # yt-dlp - which is exactly how 18 consecutive releases shipped broken.
+      - name: Fetch and verify bundled runtime
+        shell: pwsh
+        run: ./tools/fetch-deps.ps1
 
       - name: Build Windows Application
-        run: flutter build windows --release
+        run: flutter build windows --release --dart-define=APP_VERSION=${{ steps.version.outputs.version }}
 
-      - name: Package Release Zip
-        shell: powershell
+      - name: Stage release bundle
+        shell: pwsh
         run: |
           $ReleaseDir = "build/windows/x64/runner/Release"
-          $ZipName = "streamlink-gui-windows.zip"
-          if (Test-Path $ZipName) { Remove-Item $ZipName -Force }
-          
-          # Include bundled dependencies if bin directory exists
-          if (Test-Path "bin") {
-              Copy-Item -Path "bin" -Destination "$ReleaseDir/bin" -Recurse -Force
-          }
-          
-          Compress-Archive -Path "$ReleaseDir/*" -DestinationPath $ZipName -Force
-          Write-Host "Successfully created $ZipName"
+          if (-not (Test-Path $ReleaseDir)) { throw "Build output not found at $ReleaseDir" }
+
+          $stage = "dist/${{ steps.version.outputs.stage }}"
+          if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+          Copy-Item -Path "$ReleaseDir/*" -Destination $stage -Recurse -Force
+
+          # The build output can carry a stale bin/ from an earlier local packaging
+          # run. Copying the fresh bin/ on top of an existing directory makes
+          # PowerShell nest it as bin/bin/, which silently produces a bundle whose
+          # runtime is one level too deep and therefore unreachable at runtime.
+          if (Test-Path "$stage/bin") { Remove-Item "$stage/bin" -Recurse -Force }
+          Copy-Item -Path "bin" -Destination "$stage/bin" -Recurse -Force
+
+      - name: Verify staged bundle
+        shell: pwsh
+        run: ./tools/verify-bundle.ps1 -Root "dist/${{ steps.version.outputs.stage }}"
+
+      - name: Package Release Zip
+        shell: pwsh
+        run: |
+          $zip = "streamlink-gui-windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          # 7z rather than Compress-Archive: ~2300 files / ~280 MB is painfully slow
+          # and memory-hungry through Windows PowerShell's archive cmdlets.
+          & 7z a -tzip -mx=5 -bso0 -bsp0 $zip "./dist/${{ steps.version.outputs.stage }}" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z failed with exit code $LASTEXITCODE" }
+          Write-Host ("Packaged {0:N1} MB" -f ((Get-Item $zip).Length / 1MB))
+
+      - name: Verify packaged zip
+        shell: pwsh
+        run: ./tools/verify-bundle.ps1 -Zip "streamlink-gui-windows.zip" -Prefix "${{ steps.version.outputs.stage }}"
+
+      - name: Generate checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Path "streamlink-gui-windows.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  streamlink-gui-windows.zip" | Out-File -FilePath "SHA256SUMS" -Encoding ascii
+          Get-Content "SHA256SUMS"
 
       - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: v${{ steps.get_version.outputs.version }}
-          name: Release v${{ steps.get_version.outputs.version }}
-          files: streamlink-gui-windows.zip
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          files: |
+            streamlink-gui-windows.zip
+            SHA256SUMS
           generate_release_notes: true
           draft: false
           prerelease: false

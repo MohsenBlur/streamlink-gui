@@ -11,6 +11,17 @@ if (-not (Test-Path $FlutterExe)) {
     exit 1
 }
 
+# The bundled runtime (streamlink, python, ffmpeg, yt-dlp) is not committed to
+# git. Without it the app launches but cannot play streams or download VODs.
+if (-not (Test-Path (Join-Path $PSScriptRoot "bin\yt-dlp.exe"))) {
+    Write-Host "Bundled runtime missing - fetching it first..." -ForegroundColor Yellow
+    & (Join-Path $PSScriptRoot "tools\fetch-deps.ps1")
+    if ($LastExitCode -ne 0) {
+        Write-Host "Failed to fetch the bundled runtime." -ForegroundColor Red
+        exit 1
+    }
+}
+
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host " Launching Twitch Streamlink GUI..." -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan

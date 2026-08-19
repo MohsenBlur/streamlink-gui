@@ -22,22 +22,62 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.60';
+  /// Sentinel used when the app is built without `--dart-define=APP_VERSION`,
+  /// i.e. `flutter run` during development.
+  static const String devVersion = '0.0.0-dev';
 
+  /// Injected at build time from `pubspec.yaml` so this can never drift from
+  /// the published release tag. See `build.ps1` and `.github/workflows/release.yml`.
+  static const String currentVersion = String.fromEnvironment(
+    'APP_VERSION',
+    defaultValue: devVersion,
+  );
+
+  /// Development builds must never self-update: doing so would replace the
+  /// developer's working tree with a released build.
+  static bool get isDevBuild => currentVersion == devVersion;
 
   static const String githubRepoUrl = 'https://github.com/MohsenBlur/streamlink-gui';
   static const String githubApiReleaseUrl = 'https://api.github.com/repos/MohsenBlur/streamlink-gui/releases/latest';
 
-  int _versionToComparableInt(String version) {
+  /// Parses a version like `v1.2.3` / `1.2.3` into its numeric components.
+  static List<int> parseVersion(String version) {
     final clean = version.replaceAll(RegExp(r'[^0-9.]'), '');
-    final parts = clean.split('.').map((p) => int.tryParse(p) ?? 0).toList();
+    final parts = clean
+        .split('.')
+        .where((p) => p.isNotEmpty)
+        .map((p) => int.tryParse(p) ?? 0)
+        .toList();
     while (parts.length < 3) {
       parts.add(0);
     }
-    return (parts[0] * 1000000) + (parts[1] * 1000) + parts[2];
+    return parts;
+  }
+
+  /// Compares two versions component by component.
+  /// Returns <0 if [a] is older than [b], 0 if equal, >0 if newer.
+  ///
+  /// Compared per component rather than packed into a single int: the previous
+  /// implementation computed `major*1000000 + minor*1000 + patch`, so any
+  /// component reaching 1000 carried into the next field and made, for example,
+  /// 1.0.1000 compare equal to 1.1.0.
+  static int compareVersions(String a, String b) {
+    final pa = parseVersion(a);
+    final pb = parseVersion(b);
+    final len = pa.length > pb.length ? pa.length : pb.length;
+    for (var i = 0; i < len; i++) {
+      final va = i < pa.length ? pa[i] : 0;
+      final vb = i < pb.length ? pb[i] : 0;
+      if (va != vb) return va < vb ? -1 : 1;
+    }
+    return 0;
   }
 
   Future<UpdateInfo?> checkForUpdates() async {
+    // A development build has no meaningful version to compare against, and
+    // self-updating would replace the developer's working tree with a release.
+    if (isDevBuild) return null;
+
     try {
       final response = await http.get(
         Uri.parse(githubApiReleaseUrl),
@@ -70,10 +110,9 @@ class UpdateService {
         }
       }
 
-      final latestVerInt = _versionToComparableInt(tagName);
-      final currentVerInt = _versionToComparableInt(currentVersion);
+      final isNewer = compareVersions(tagName, currentVersion) > 0;
 
-      final isAvailable = (latestVerInt > currentVerInt) && zipUrl.isNotEmpty && zipUrl.startsWith('http');
+      final isAvailable = isNewer && zipUrl.isNotEmpty && zipUrl.startsWith('http');
 
       return UpdateInfo(
         version: tagName.startsWith('v') ? tagName.substring(1) : tagName,

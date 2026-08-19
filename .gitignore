@@ -51,8 +51,25 @@ app.*.map.json
 
 # Local zip packages and binaries
 /*.zip
-*.exe
 .write_test
+
+# The entire bundled runtime (streamlink, embedded CPython, its site-packages,
+# ffmpeg/ffprobe, yt-dlp, AtomicParsley) is deliberately NOT committed. It is
+# fetched and hash-verified from the versions pinned in bin/deps_manifest.json
+# by tools/fetch-deps.ps1, which the release workflow, CI and build.ps1 all run.
+# Do not "fix" a missing binary by committing it - update the manifest instead.
+*.exe
+/bin/Python/
+/bin/pkgs/
+/bin/bin/
+/bin/ffmpeg/
+/bin/LICENSE.txt
+/bin/FFMPEG-LICENSE.txt
+
+# Download cache and packaging staging area used by tools/fetch-deps.ps1
+# and the release workflow.
+/.deps-cache/
+/dist/
 
 # Environment / Secret configs
 .env

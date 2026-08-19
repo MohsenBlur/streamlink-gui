@@ -11,18 +11,40 @@ if (-not (Test-Path $FlutterExe)) {
     exit 1
 }
 
+# The app version is injected at build time from pubspec.yaml so that
+# UpdateService.currentVersion can never drift from the published release tag.
+$PubspecRaw = Get-Content (Join-Path $PSScriptRoot "pubspec.yaml") -Raw
+if ($PubspecRaw -notmatch '(?m)^version:\s*(\S+)\s*$') {
+    Write-Host "Could not read 'version:' from pubspec.yaml" -ForegroundColor Red
+    exit 1
+}
+$AppVersion = $Matches[1].Trim()
+
+# The bundled runtime (streamlink, python, ffmpeg, yt-dlp) is not committed to
+# git. Fetch it if it is missing, otherwise the build produces an app that
+# cannot play streams or download VODs.
+if (-not (Test-Path (Join-Path $PSScriptRoot "bin\yt-dlp.exe"))) {
+    Write-Host "Bundled runtime missing - fetching it first..." -ForegroundColor Yellow
+    & (Join-Path $PSScriptRoot "tools\fetch-deps.ps1")
+    if ($LastExitCode -ne 0) {
+        Write-Host "Failed to fetch the bundled runtime." -ForegroundColor Red
+        exit 1
+    }
+}
+
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host " Compiling Standalone Windows Executable..." -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Using Local SDK: $FlutterExe" -ForegroundColor Gray
+Write-Host "App version:     $AppVersion" -ForegroundColor Gray
 Write-Host "Compiling..." -ForegroundColor Yellow
 
 try {
-    & "$FlutterExe" build windows --release
+    & "$FlutterExe" build windows --release --dart-define=APP_VERSION=$AppVersion
     if ($LastExitCode -ne 0) {
         throw "Flutter compiler exited with code $LastExitCode"
     }
-    
+
     $ReleaseFolder = Join-Path $PSScriptRoot "build\windows\x64\runner\Release"
     Write-Host "`n==========================================================" -ForegroundColor Green
     Write-Host " Build Successful!" -ForegroundColor Green
