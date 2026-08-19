@@ -292,6 +292,11 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                   child: child,
                                 );
                               },
+                              // The replacement (onReorderItem, which pre-adjusts
+                              // newIndex) only exists from Flutter 3.44; the
+                              // local toolchain is 3.41.9 while CI builds 3.44.2.
+                              // Migrate once the floor moves past 3.44.
+                              // ignore: deprecated_member_use
                               onReorder: (oldIndex, newIndex) {
                                 setState(() {
                                   if (newIndex > oldIndex) newIndex -= 1;
