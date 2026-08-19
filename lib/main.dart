@@ -27,6 +27,7 @@ import 'services/startup_service.dart';
 import 'state/library_entries.dart';
 import 'utils/window_bounds.dart';
 import 'widgets/library_view.dart';
+import 'widgets/onboarding_wizard.dart';
 import 'widgets/live_preview_popup.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
 import 'widgets/neumorphic/neu_checkbox.dart';
@@ -49,6 +50,9 @@ void main(List<String> args) async {
   await windowManager.ensureInitialized();
 
   final config = await StorageService().loadConfig();
+  // First run = no config file at all. Computed once here so a returning user
+  // (config exists, even a partial one) can never see the wizard.
+  final bool isFirstRun = config == null;
   AppSettings settings = AppSettings();
   if (config != null && config['settings'] is Map<String, dynamic>) {
     settings = AppSettings.fromJson(config['settings']);
@@ -123,11 +127,13 @@ void main(List<String> args) async {
     await windowManager.setMinimumSize(const Size(380, 500));
   });
 
-  runApp(const TwitchStreamlinkApp());
+  runApp(TwitchStreamlinkApp(isFirstRun: isFirstRun));
 }
 
 class TwitchStreamlinkApp extends StatelessWidget {
-  const TwitchStreamlinkApp({super.key});
+  const TwitchStreamlinkApp({super.key, this.isFirstRun = false});
+
+  final bool isFirstRun;
 
   @override
   Widget build(BuildContext context) {
@@ -177,7 +183,7 @@ class TwitchStreamlinkApp extends StatelessWidget {
               bodyMedium: TextStyle(color: NeuTheme.darkSubtext),
             ),
           ),
-          home: const MainScreen(),
+          home: MainScreen(isFirstRun: isFirstRun),
         );
       },
     );
@@ -185,7 +191,9 @@ class TwitchStreamlinkApp extends StatelessWidget {
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  const MainScreen({super.key, this.isFirstRun = false});
+
+  final bool isFirstRun;
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -383,10 +391,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _refreshAllChannels();
     });
 
-    // Automated update check on startup
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // First-run wizard fully resolves BEFORE the update check, so the
+      // update prompt can never stack under (or over) the wizard dialog.
+      await _runOnboarding();
       _checkForAppUpdates();
     });
+  }
+
+  Future<void> _runOnboarding() async {
+    if (!widget.isFirstRun || _settings.onboardingCompleted) return;
+    if (!mounted) return;
+    final AppSettings? configured =
+        await OnboardingWizard.show(context, settings: _settings);
+    if (!mounted) return;
+    setState(() {
+      // Skipped/dismissed still marks completion - the wizard never returns.
+      _settings = configured ?? _settings.copyWith(onboardingCompleted: true);
+    });
+    await _saveChannels();
+    if (configured != null) {
+      if (_settings.launchAtStartup) {
+        StartupService().sync(true);
+      }
+      if (_settings.twitchOauthToken.trim().isNotEmpty) {
+        _loadFollowedChannels();
+      }
+    }
   }
 
   Future<void> _checkForAppUpdates() async {
@@ -1053,14 +1084,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
 
       _channels.clear();
+      // No seeded starter channel: a stranger's channel confused new users
+      // and fired unsolicited API calls and go-live notifications on first
+      // launch. The welcome screen points at the sidebar search instead.
       if (loadedChannels.isNotEmpty) {
         _channels.addAll(loadedChannels);
-      } else {
-        final defaults = ['limmy'];
-        for (var name in defaults) {
-          _channels.add(TwitchChannel(username: name));
-        }
-        await _saveChannels();
       }
 
       await _refreshAllChannels(isInitialLoad: true);
@@ -2297,8 +2325,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   Icon(Icons.portable_wifi_off, size: 36, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                   const SizedBox(height: 10),
                   Text(
-                    'No favorite channels are currently live.',
+                    _channels.isEmpty
+                        ? 'Add your first channel: open the sidebar search (Ctrl+F), type a name, press Enter.'
+                        : 'No favorite channels are currently live.',
                     style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),

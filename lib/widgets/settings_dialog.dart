@@ -1,10 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import '../models/app_settings.dart';
 import '../services/player_service.dart';
+import '../services/twitch_api_service.dart';
 import '../services/update_service.dart';
 import '../utils/color_utils.dart';
 import '../theme/neu_material_themes.dart';
@@ -842,52 +841,17 @@ class SettingsDialog {
                                     onPressed: isTestingToken
                                         ? null
                                         : () async {
-                                            final rawInput = webTokenController.text.trim();
-                                            if (rawInput.isEmpty) {
-                                              setDialogState(() {
-                                                tokenTestResult = 'Please enter a token first.';
-                                                isTokenValid = false;
-                                              });
-                                              return;
-                                            }
                                             setDialogState(() {
                                               isTestingToken = true;
                                               tokenTestResult = null;
                                             });
-
-                                            String testToken = rawInput;
-                                            if (testToken.startsWith('oauth:')) {
-                                              testToken = testToken.substring(6);
-                                            }
-
-                                            try {
-                                              final valUrl = Uri.parse('https://id.twitch.tv/oauth2/validate');
-                                              final valRes = await http.get(valUrl, headers: {
-                                                'Authorization': 'OAuth $testToken',
-                                              }).timeout(const Duration(seconds: 5));
-
-                                              if (valRes.statusCode == 200) {
-                                                final decoded = json.decode(valRes.body);
-                                                final login = decoded['login'] as String?;
-                                                setDialogState(() {
-                                                  isTestingToken = false;
-                                                  isTokenValid = true;
-                                                  tokenTestResult = 'Success! Connected as: $login';
-                                                });
-                                              } else {
-                                                setDialogState(() {
-                                                  isTestingToken = false;
-                                                  isTokenValid = false;
-                                                  tokenTestResult = 'Invalid token (Status ${valRes.statusCode})';
-                                                });
-                                              }
-                                            } catch (e) {
-                                              setDialogState(() {
-                                                isTestingToken = false;
-                                                isTokenValid = false;
-                                                tokenTestResult = 'Connection error: $e';
-                                              });
-                                            }
+                                            final result = await TwitchApiService()
+                                                .validateOAuthToken(webTokenController.text);
+                                            setDialogState(() {
+                                              isTestingToken = false;
+                                              isTokenValid = result.isValid;
+                                              tokenTestResult = result.message;
+                                            });
                                           },
                                     child: isTestingToken
                                         ? SizedBox(
