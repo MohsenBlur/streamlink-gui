@@ -153,13 +153,13 @@ class _VodsGridState extends State<VodsGrid> {
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.redAccent.withOpacity(0.1),
+          color: NeuTheme.danger.withOpacity(0.1),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+          border: Border.all(color: NeuTheme.danger.withOpacity(0.3)),
         ),
         child: Text(
           'Error loading VODs: ${widget.vodsError}',
-          style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+          style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 13),
         ),
       );
     }
@@ -226,7 +226,7 @@ class _VodsGridState extends State<VodsGrid> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (isSelected) ...[
-                                const Icon(Icons.check, size: 13, color: Colors.white),
+                                Icon(Icons.check, size: 13, color: themeNotifier.onPrimaryColor),
                                 const SizedBox(width: 4),
                               ],
                               Text(
@@ -234,8 +234,8 @@ class _VodsGridState extends State<VodsGrid> {
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                                  color: isSelected 
-                                      ? Colors.white 
+                                  color: isSelected
+                                      ? themeNotifier.onPrimaryColor
                                       : themeNotifier.textColor,
                                 ),
                               ),
@@ -395,7 +395,7 @@ class _VodsGridState extends State<VodsGrid> {
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: widget.theme.primaryColor,
-                        foregroundColor: Colors.white,
+                        foregroundColor: themeNotifier.onPrimaryColor,
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
@@ -406,10 +406,10 @@ class _VodsGridState extends State<VodsGrid> {
                     const SizedBox(width: 12),
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.redAccent.withOpacity(0.15),
-                        foregroundColor: Colors.redAccent,
+                        backgroundColor: NeuTheme.danger.withOpacity(0.15),
+                        foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        side: BorderSide(color: Colors.redAccent.withOpacity(0.4)),
+                        side: BorderSide(color: NeuTheme.danger.withOpacity(0.4)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                       onPressed: widget.selectedVodIds.isEmpty ? null : widget.onBulkDelete,

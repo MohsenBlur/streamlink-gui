@@ -6,6 +6,7 @@ import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
 import 'interactive_popover.dart';
+import 'live_preview_popup.dart';
 import 'sidebar_search_popover.dart';
 import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
@@ -51,7 +52,6 @@ class SidebarPanel extends StatefulWidget {
   final ValueChanged<int> onTabChanged;
   final VoidCallback onRefresh;
   final VoidCallback onShowSettings;
-  final Widget Function(TwitchChannel) buildLivePreviewPopup;
 
   const SidebarPanel({
     Key? key,
@@ -81,7 +81,6 @@ class SidebarPanel extends StatefulWidget {
     required this.onTabChanged,
     required this.onRefresh,
     required this.onShowSettings,
-    required this.buildLivePreviewPopup,
   }) : super(key: key);
 
   @override
@@ -143,13 +142,13 @@ class SidebarPanelState extends State<SidebarPanel> {
         border: Border.all(
           color: isSelected
               ? theme.primaryColor
-              : (channel.isLive ? Colors.redAccent.withOpacity(0.8) : Colors.transparent),
+              : (channel.isLive ? NeuTheme.live.withOpacity(0.8) : Colors.transparent),
           width: 2.0,
         ),
         boxShadow: [
           if (channel.isLive)
             BoxShadow(
-              color: (isSelected ? theme.primaryColor : Colors.redAccent).withOpacity(0.4),
+              color: (isSelected ? theme.primaryColor : NeuTheme.live).withOpacity(0.4),
               blurRadius: 6,
               spreadRadius: 1,
             ),
@@ -228,7 +227,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                                 width: 6,
                                                 height: 6,
                                                 decoration: BoxDecoration(
-                                                  color: widget.authenticatedUserLogin != null ? Colors.greenAccent : NeuTheme.subtext(themeNotifier.isDarkTheme),
+                                                  color: widget.authenticatedUserLogin != null ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.subtext(themeNotifier.isDarkTheme),
                                                   shape: BoxShape.circle,
                                                 ),
                                               ),
@@ -421,10 +420,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                                   ),
                                 ),
                                 trailing: widget.isAdding
-                                    ? const SizedBox(
+                                    ? SizedBox(
                                         width: 16,
                                         height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
                                       )
                                      : Icon(Icons.chevron_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
                                 onTap: widget.isAdding ? null : () => widget.onAddChannel(query),
@@ -469,7 +468,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                           return channel.isLive
                               ? HoverOverlayMenu(
                                   trigger: row,
-                                  menu: widget.buildLivePreviewPopup(channel),
+                                  menu: LivePreviewPopup(channel: channel),
                                 )
                               : row;
                         },
@@ -579,7 +578,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                               : (widget.sidebarTab == 0
                                   ? Icons.star
                                   : (widget.sidebarTab == 1 ? Icons.people : Icons.live_tv)),
-                          color: Colors.white,
+                          color: theme.primaryColor,
                           size: 20,
                         ),
                       ),
@@ -667,7 +666,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                 width: 8,
                                 height: 8,
                                 decoration: BoxDecoration(
-                                  color: Colors.redAccent,
+                                  color: NeuTheme.live,
                                   shape: BoxShape.circle,
                                   border: Border.all(color: themeNotifier.surfaceColor, width: 1),
                                 ),
@@ -684,7 +683,7 @@ class SidebarPanelState extends State<SidebarPanel> {
               return ch.isLive
                   ? HoverOverlayMenu(
                       trigger: itemWidget,
-                      menu: widget.buildLivePreviewPopup(ch),
+                      menu: LivePreviewPopup(channel: ch),
                     )
                   : itemWidget;
             },
@@ -847,7 +846,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                 : (widget.sidebarTab == 0
                                     ? Icons.star
                                     : (widget.sidebarTab == 1 ? Icons.people : Icons.live_tv)),
-                            color: Colors.white,
+                            color: theme.primaryColor,
                             size: 18,
                           ),
                         ),
@@ -941,7 +940,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                       width: 8,
                                       height: 8,
                                       decoration: BoxDecoration(
-                                        color: Colors.redAccent,
+                                        color: NeuTheme.live,
                                         shape: BoxShape.circle,
                                         border: Border.all(color: themeNotifier.surfaceColor, width: 1),
                                       ),
@@ -958,7 +957,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                   return ch.isLive
                       ? HoverOverlayMenu(
                           trigger: itemWidget,
-                          menu: widget.buildLivePreviewPopup(ch),
+                          menu: LivePreviewPopup(channel: ch),
                         )
                       : itemWidget;
                 },
@@ -1172,7 +1171,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                     width: 10,
                     height: 10,
                     decoration: BoxDecoration(
-                      color: channel.isLive ? Colors.green : Colors.grey,
+                      color: channel.isLive ? NeuTheme.live : NeuTheme.disabledText(themeNotifier.isDarkTheme),
                       shape: BoxShape.circle,
                       border: Border.all(color: themeNotifier.surfaceColor, width: 1.5),
                     ),
@@ -1201,12 +1200,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.red
+                          color: NeuTheme.live
                               .withOpacity(0.7 + 0.3 * widget.pulseController.value),
                           borderRadius: BorderRadius.circular(4),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.red
+                              color: NeuTheme.live
                                   .withOpacity(0.4 * widget.pulseController.value),
                               blurRadius: 4,
                             )
@@ -1215,13 +1214,13 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                         child: child,
                       );
                     },
-                    // Intentional: white on the solid red LIVE pill, theme-independent.
-                    child: const Text(
+                    child: Text(
                       'LIVE',
                       style: TextStyle(
                         fontSize: 8,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        // Computed ink on the solid mint pill.
+                        color: NeuTheme.onAccent(NeuTheme.live),
                       ),
                     ),
                   ),

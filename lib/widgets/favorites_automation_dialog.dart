@@ -209,7 +209,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
               decoration: BoxDecoration(
                 color: themeNotifier.surfaceColor,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: NeuTheme.border(themeNotifier.isDarkTheme)),
               ),
               child: Row(
                 children: [
@@ -217,14 +217,14 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Preempt Lower Priority Streams',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                         ),
                         const SizedBox(height: 2),
-                        const Text(
+                        Text(
                           'If a lower priority stream is playing and a higher priority channel goes live, switch automatically.',
-                          style: TextStyle(fontSize: 11, color: Colors.white54),
+                          style: TextStyle(fontSize: 11, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                         ),
                       ],
                     ),
@@ -246,23 +246,23 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
             // Content List
             Expanded(
               child: _favChannels.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
                         'No Favorite channels added yet.',
-                        style: TextStyle(color: Colors.white38),
+                        style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                       ),
                     )
                   : ListView(
                       children: [
                         if (priorityChannels.isNotEmpty) ...[
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 8),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
                             child: Text(
                               'Priority Live Auto-Play Order (Drag to Reorder)',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.amberAccent,
+                                color: themeNotifier.isDarkTheme ? Colors.amberAccent : Colors.amber.shade800,
                               ),
                             ),
                           ),
@@ -602,10 +602,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                icon: const Icon(Icons.check, color: Colors.white, size: 18),
-                label: const Text(
+                icon: Icon(Icons.check, color: themeNotifier.onPrimaryColor, size: 18),
+                label: Text(
                   'Save & Apply',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: themeNotifier.onPrimaryColor),
                 ),
                 onPressed: () {
                   widget.settings.vodWatchExclusionThreshold = _threshold;

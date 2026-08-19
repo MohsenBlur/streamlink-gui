@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_channel.dart';
+import '../utils/time_utils.dart';
 import 'hover_overlay_menu.dart';
+import 'live_preview_popup.dart';
 import 'interactive_popover.dart';
 import 'neumorphic/neu_avatar_frame.dart';
 import 'neumorphic/neu_container.dart';
@@ -32,117 +34,150 @@ class DashboardHeader extends StatefulWidget {
 
 class _DashboardHeaderState extends State<DashboardHeader> {
 
-  String _timeAgo(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-    
-    if (difference.inDays >= 365) {
-      final years = (difference.inDays / 365).floor();
-      return '$years year${years > 1 ? "s" : ""} ago';
-    } else if (difference.inDays >= 30) {
-      final months = (difference.inDays / 30).floor();
-      return '$months month${months > 1 ? "s" : ""} ago';
-    } else if (difference.inDays >= 7) {
-      final weeks = (difference.inDays / 7).floor();
-      return '$weeks week${weeks > 1 ? "s" : ""} ago';
-    } else if (difference.inDays >= 1) {
-      return '${difference.inDays} day${difference.inDays > 1 ? "s" : ""} ago';
-    } else if (difference.inHours >= 1) {
-      return '${difference.inHours} hour${difference.inHours > 1 ? "s" : ""} ago';
-    } else if (difference.inMinutes >= 1) {
-      return '${difference.inMinutes} minute${difference.inMinutes > 1 ? "s" : ""} ago';
-    } else {
-      return 'just now';
-    }
+  /// Wraps [child] with the hover live-preview card when the channel is live.
+  Widget _withLivePreview(Widget child) {
+    if (!widget.channel.isLive) return child;
+    return HoverOverlayMenu(
+      estimatedMenuSize: LivePreviewPopup.estimatedSize,
+      trigger: child,
+      menu: LivePreviewPopup(channel: widget.channel),
+    );
   }
 
-  Widget _buildLivePreviewPopup(TwitchChannel channel) {
-    final cleanName = channel.username.toLowerCase().trim();
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch ~/ 10000;
-    final thumbUrl = 'https://static-cdn.jtvnw.net/previews-ttv/live_user_$cleanName-320x180.jpg?t=$cacheBuster';
-    
-    return Container(
-      width: 260,
-      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Image.network(
-                thumbUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                    child: Center(
-                      child: Icon(Icons.live_tv, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
-                    ),
-                  );
-                },
-              ),
-            ),
+  /// LIVE (pulsing) / OFFLINE status pill, shared by both header layouts.
+  Widget _buildStatusBadge({required bool compact}) {
+    final fontSize = compact ? 9.0 : 10.0;
+    final padding = compact
+        ? const EdgeInsets.symmetric(horizontal: 8, vertical: 3)
+        : const EdgeInsets.symmetric(horizontal: 10, vertical: 4);
+    final radius = BorderRadius.circular(compact ? 10 : 12);
+    final isDark = themeNotifier.isDarkTheme;
+
+    if (!widget.channel.isLive) {
+      final subtext = NeuTheme.subtext(isDark);
+      return Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: subtext.withOpacity(0.12),
+          border: Border.all(color: subtext, width: 1),
+          borderRadius: radius,
+        ),
+        child: Text(
+          'OFFLINE',
+          style: TextStyle(
+            color: subtext,
+            fontSize: fontSize,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
           ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Colors.redAccent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        channel.username,
-                        style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (channel.viewerCount != null && channel.viewerCount != '0') ...[
-                      Icon(Icons.remove_red_eye, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 12),
-                      const SizedBox(width: 4),
-                      Text(
-                        channel.viewerCount!,
-                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  channel.streamTitle ?? 'Streaming Live!',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                ),
-                if (channel.game != null && channel.game != 'Offline') ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    channel.game!,
-                    style: const TextStyle(
-                      color: Color(0xFF9146FF),
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
+        ),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: widget.pulseController,
+      builder: (context, child) {
+        return Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: NeuTheme.live
+                .withOpacity(0.10 + 0.08 * widget.pulseController.value),
+            border: Border.all(
+              color: NeuTheme.live
+                  .withOpacity(0.4 + 0.6 * widget.pulseController.value),
+              width: 1,
             ),
+            borderRadius: radius,
           ),
-        ],
+          child: child,
+        );
+      },
+      child: Text(
+        'LIVE',
+        style: TextStyle(
+          color: NeuTheme.liveText(isDark),
+          fontSize: fontSize,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  /// The 3-state PLAY / OPEN / OFFLINE launch button (was three diverged
+  /// copies with hardcoded whites that vanished on the light theme).
+  Widget _buildPlayButton({required bool compact}) {
+    final isDark = themeNotifier.isDarkTheme;
+    final live = widget.channel.isLive;
+    final playing = widget.isPlaying;
+    final subtext = NeuTheme.subtext(isDark);
+
+    final List<Widget> content;
+    if (playing) {
+      content = [
+        SizedBox(
+          width: compact ? 10 : 12,
+          height: compact ? 10 : 12,
+          child: CircularProgressIndicator(strokeWidth: 1.5, color: subtext),
+        ),
+        SizedBox(width: compact ? 4 : 6),
+        Text(
+          'OPEN',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: compact ? 10 : 11,
+            color: subtext,
+          ),
+        ),
+      ];
+    } else if (!live) {
+      final disabled = NeuTheme.disabledText(isDark);
+      content = [
+        Icon(Icons.videocam_off, size: compact ? 12 : 14, color: disabled),
+        const SizedBox(width: 4),
+        Text(
+          'OFFLINE',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: compact ? 10 : 11,
+            color: disabled,
+          ),
+        ),
+      ];
+    } else {
+      content = [
+        Icon(Icons.play_arrow, size: compact ? 14 : 16),
+        SizedBox(width: compact ? 2 : 4),
+        Text(
+          'PLAY',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: compact ? 11 : 12,
+          ),
+        ),
+      ];
+    }
+
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: (live && !playing)
+            ? Theme.of(context).primaryColor
+            : NeuTheme.surface(isDark),
+        disabledBackgroundColor: NeuTheme.surface(isDark),
+        // Computed ink/white so PLAY stays readable on bright accents.
+        foregroundColor:
+            (live && !playing) ? themeNotifier.onPrimaryColor : subtext,
+        padding: compact
+            ? const EdgeInsets.symmetric(horizontal: 10)
+            : EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        elevation: (live && !playing) ? (compact ? 2 : 4) : 0,
+      ),
+      onPressed: (playing || !live) ? null : widget.onPlay,
+      child: Row(
+        mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: content,
       ),
     );
   }
@@ -235,12 +270,12 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       if (widget.channel.isLive) ...[
         _buildHeaderChip(
           icon: Icons.visibility,
-          color: Colors.redAccent,
+          color: NeuTheme.liveText(themeNotifier.isDarkTheme),
           label: '${widget.channel.viewerCount ?? "0"} viewers',
         ),
         _buildHeaderChip(
           icon: Icons.schedule,
-          color: Colors.orangeAccent,
+          color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800,
           label: widget.channel.uptime ?? 'Live',
         ),
       ],
@@ -253,7 +288,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         icon: Icons.update,
         color: NeuTheme.subtext(themeNotifier.isDarkTheme),
         label: widget.channel.lastUpdated != null
-            ? 'Updated: ${_timeAgo(widget.channel.lastUpdated!)}'
+            ? 'Updated: ${timeAgo(widget.channel.lastUpdated!)}'
             : 'Not updated',
       ),
     ];
@@ -270,12 +305,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           children: [
             Row(
               children: [
-                widget.channel.isLive
-                    ? HoverOverlayMenu(
-                        trigger: _buildAvatar(radius: 18, strokeWidth: 2.0),
-                        menu: _buildLivePreviewPopup(widget.channel),
-                      )
-                    : _buildAvatar(radius: 18, strokeWidth: 2.0),
+                _withLivePreview(_buildAvatar(radius: 18, strokeWidth: 2.0)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Row(
@@ -292,53 +322,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      if (widget.channel.isLive)
-                        AnimatedBuilder(
-                          animation: widget.pulseController,
-                          builder: (context, child) {
-                            return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withOpacity(0.15 + 0.1 * widget.pulseController.value),
-                                border: Border.all(
-                                  color: Colors.redAccent.withOpacity(0.4 + 0.6 * widget.pulseController.value),
-                                  width: 1,
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Text(
-                                'LIVE',
-                                style: TextStyle(
-                                  color: Colors.redAccent,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            );
-                          },
-                        )
-                      else
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.15),
-                            border: Border.all(
-                              color: Colors.grey,
-                              width: 1,
-                            ),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'OFFLINE',
-                            style: TextStyle(
-                              color: Colors.grey,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
+                      _buildStatusBadge(compact: true),
                     ],
                   ),
                 ),
@@ -397,137 +381,40 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     ),
 
                     const SizedBox(width: 6),
-                    widget.channel.isLive
-                        ? HoverOverlayMenu(
-                            trigger: SizedBox(
-                              height: 28,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: widget.isPlaying
-                                      ? NeuTheme.surface(themeNotifier.isDarkTheme)
-                                      : (widget.channel.isLive ? theme.primaryColor : NeuTheme.surface(themeNotifier.isDarkTheme)),
-                                  foregroundColor: widget.channel.isLive && !widget.isPlaying
-                                      ? Colors.white
-                                      : NeuTheme.subtext(themeNotifier.isDarkTheme),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                  elevation: (widget.channel.isLive && !widget.isPlaying) ? 2 : 0,
-                                ),
-                                onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
-                                child: widget.isPlaying
-                                    ? const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          SizedBox(
-                                            width: 10,
-                                            height: 10,
-                                            child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
-                                          ),
-                                          SizedBox(width: 4),
-                                          Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white54)),
-                                        ],
-                                      )
-                                    : (!widget.channel.isLive
-                                        ? const Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons.videocam_off, size: 12, color: Colors.white30),
-                                              SizedBox(width: 4),
-                                              Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white30)),
-                                            ],
-                                          )
-                                        : const Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons.play_arrow, size: 14),
-                                              SizedBox(width: 2),
-                                              Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                                            ],
-                                          )),
-                              ),
-                            ),
-                            menu: _buildLivePreviewPopup(widget.channel),
-                          )
-                        : SizedBox(
-                            height: 28,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: widget.isPlaying
-                                    ? NeuTheme.surface(themeNotifier.isDarkTheme)
-                                    : (widget.channel.isLive ? theme.primaryColor : NeuTheme.surface(themeNotifier.isDarkTheme)),
-                                foregroundColor: widget.channel.isLive && !widget.isPlaying
-                                    ? Colors.white
-                                    : NeuTheme.subtext(themeNotifier.isDarkTheme),
-                                padding: const EdgeInsets.symmetric(horizontal: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                elevation: (widget.channel.isLive && !widget.isPlaying) ? 2 : 0,
-                              ),
-                              onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
-                              child: widget.isPlaying
-                                  ? const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        SizedBox(
-                                          width: 10,
-                                          height: 10,
-                                          child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
-                                        ),
-                                        SizedBox(width: 4),
-                                        Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white54)),
-                                      ],
-                                    )
-                                  : (!widget.channel.isLive
-                                      ? const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.videocam_off, size: 12, color: Colors.white30),
-                                            SizedBox(width: 4),
-                                            Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.white30)),
-                                          ],
-                                        )
-                                      : const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.play_arrow, size: 14),
-                                            SizedBox(width: 2),
-                                            Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                                          ],
-                                        )),
-                            ),
-                          ),
+                    _withLivePreview(SizedBox(
+                      height: 28,
+                      child: _buildPlayButton(compact: true),
+                    )),
                   ],
                 ),
               ],
             ),
             if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
               const SizedBox(height: 6),
-              HoverOverlayMenu(
-                trigger: Text(
-                  '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
-                  style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w500),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                menu: _buildLivePreviewPopup(widget.channel),
-              ),
+              _withLivePreview(Text(
+                '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
+                style: TextStyle(fontSize: 12, color: NeuTheme.subtext(themeNotifier.isDarkTheme), fontWeight: FontWeight.w500),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              )),
             ],
             if (widget.channel.errorMessage != null) ...[
               const SizedBox(height: 6),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.1),
+                  color: NeuTheme.danger.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
+                  border: Border.all(color: NeuTheme.danger.withOpacity(0.2)),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.error_outline, size: 12, color: Colors.redAccent),
+                    Icon(Icons.error_outline, size: 12, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         widget.channel.errorMessage!,
-                        style: const TextStyle(color: Colors.redAccent, fontSize: 10),
+                        style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 10),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -559,53 +446,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(width: 10),
-                if (widget.channel.isLive)
-                  AnimatedBuilder(
-                    animation: widget.pulseController,
-                    builder: (context, child) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.15 + 0.1 * widget.pulseController.value),
-                          border: Border.all(
-                            color: Colors.redAccent.withOpacity(0.4 + 0.6 * widget.pulseController.value),
-                            width: 1,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'LIVE',
-                          style: TextStyle(
-                            color: Colors.redAccent,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      );
-                    },
-                  )
-                else
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withOpacity(0.15),
-                      border: Border.all(
-                        color: Colors.grey,
-                        width: 1,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'OFFLINE',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
+                _buildStatusBadge(compact: false),
               ],
             ),
             isSmall
@@ -707,44 +548,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       ],
     );
 
-    final playButton = ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: widget.isPlaying
-            ? NeuTheme.surface(themeNotifier.isDarkTheme)
-            : (widget.channel.isLive ? theme.primaryColor : NeuTheme.surface(themeNotifier.isDarkTheme)),
-        foregroundColor: widget.channel.isLive && !widget.isPlaying
-            ? Colors.white
-            : NeuTheme.disabledText(themeNotifier.isDarkTheme),
-        padding: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        elevation: (widget.channel.isLive && !widget.isPlaying) ? 4 : 0,
-      ),
-      onPressed: (widget.isPlaying || !widget.channel.isLive) ? null : widget.onPlay,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: widget.isPlaying
-            ? const [
-                SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white60),
-                ),
-                SizedBox(width: 6),
-                Text('OPEN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white54)),
-              ]
-            : (!widget.channel.isLive
-                ? const [
-                    Icon(Icons.videocam_off, size: 14, color: Colors.white30),
-                    SizedBox(width: 4),
-                    Text('OFFLINE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white30)),
-                  ]
-                : const [
-                    Icon(Icons.play_arrow, size: 16),
-                    SizedBox(width: 4),
-                    Text('PLAY', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                  ]),
-      ),
-    );
+    final playButton = _buildPlayButton(compact: false);
 
     final cardWidget = GestureDetector(
       onTap: (widget.channel.isLive && !widget.isPlaying) ? widget.onPlay : null,
@@ -763,22 +567,12 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   SizedBox(
                     width: 90,
                     child: Center(
-                      child: widget.channel.isLive
-                          ? HoverOverlayMenu(
-                              trigger: avatarContainer,
-                              menu: _buildLivePreviewPopup(widget.channel),
-                            )
-                          : avatarContainer,
+                      child: _withLivePreview(avatarContainer),
                     ),
                   ),
                   const SizedBox(width: 20),
                   Expanded(
-                    child: widget.channel.isLive
-                        ? HoverOverlayMenu(
-                            trigger: profileDetails,
-                            menu: _buildLivePreviewPopup(widget.channel),
-                          )
-                        : profileDetails,
+                    child: _withLivePreview(profileDetails),
                   ),
                 ],
               ),
@@ -789,12 +583,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   SizedBox(
                     width: 90,
                     height: 32,
-                    child: widget.channel.isLive
-                        ? HoverOverlayMenu(
-                            trigger: playButton,
-                            menu: _buildLivePreviewPopup(widget.channel),
-                          )
-                        : playButton,
+                    child: _withLivePreview(playButton),
                   ),
                   const SizedBox(width: 20),
                   Expanded(
@@ -817,18 +606,18 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.redAccent.withOpacity(0.1),
+                          color: NeuTheme.danger.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.redAccent.withOpacity(0.2)),
+                          border: Border.all(color: NeuTheme.danger.withOpacity(0.2)),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.error_outline, size: 14, color: Colors.redAccent),
+                            Icon(Icons.error_outline, size: 14, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 widget.channel.errorMessage!,
-                                style: const TextStyle(color: Colors.redAccent, fontSize: 11),
+                                style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 11),
                               ),
                             ),
                           ],

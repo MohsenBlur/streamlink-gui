@@ -255,8 +255,8 @@ class SettingsDialog {
                             const SizedBox(height: 8),
                             OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.redAccent,
-                                side: const BorderSide(color: Colors.redAccent, width: 1),
+                                foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                side: BorderSide(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), width: 1),
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                               ),
@@ -274,7 +274,7 @@ class SettingsDialog {
                                         child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
                                       ),
                                       TextButton(
-                                        style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                                        style: TextButton.styleFrom(foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                                         onPressed: () {
                                           Navigator.pop(context);
                                           onClearWatchHistory();
@@ -313,7 +313,7 @@ class SettingsDialog {
                                     children: [
                                       const Text('Default System Player'),
                                       const SizedBox(width: 8),
-                                      Text('(Available)', style: TextStyle(fontSize: 10, color: Colors.greenAccent.shade200, fontWeight: FontWeight.bold)),
+                                      Text('(Available)', style: TextStyle(fontSize: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme), fontWeight: FontWeight.bold)),
                                     ],
                                   ),
                                 ),
@@ -329,7 +329,7 @@ class SettingsDialog {
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: PlayerService().detectInstalledPlayers(settings)['vlc'] == true ? Colors.greenAccent : Colors.redAccent.shade100,
+                                          color: PlayerService().detectInstalledPlayers(settings)['vlc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                         ),
                                       ),
                                     ],
@@ -347,7 +347,7 @@ class SettingsDialog {
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: PlayerService().detectInstalledPlayers(settings)['mpv'] == true ? Colors.greenAccent : Colors.redAccent.shade100,
+                                          color: PlayerService().detectInstalledPlayers(settings)['mpv'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                         ),
                                       ),
                                     ],
@@ -365,7 +365,7 @@ class SettingsDialog {
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: PlayerService().detectInstalledPlayers(settings)['mpc-hc'] == true ? Colors.greenAccent : Colors.redAccent.shade100,
+                                          color: PlayerService().detectInstalledPlayers(settings)['mpc-hc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                         ),
                                       ),
                                     ],
@@ -384,7 +384,7 @@ class SettingsDialog {
                                           style: TextStyle(
                                             fontSize: 10,
                                             fontWeight: FontWeight.bold,
-                                            color: PlayerService().detectInstalledPlayers(settings)['custom'] == true ? Colors.greenAccent : Colors.redAccent.shade100,
+                                            color: PlayerService().detectInstalledPlayers(settings)['custom'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                           ),
                                         ),
                                       ],
@@ -432,8 +432,8 @@ class SettingsDialog {
                                         });
                                       }
                                     },
-                                    icon: const Icon(Icons.file_open, color: Colors.white, size: 16),
-                                    label: const Text('Browse', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    icon: Icon(Icons.file_open, color: NeuTheme.onAccent(themeNotifier.primaryColor), size: 16),
+                                    label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               ),
@@ -473,7 +473,7 @@ class SettingsDialog {
                                         children: [
                                           Icon(
                                             settings.twitchOauthToken.trim().isNotEmpty ? Icons.check_circle : Icons.error_outline,
-                                            color: settings.twitchOauthToken.trim().isNotEmpty ? Colors.green : Colors.orange,
+                                            color: settings.twitchOauthToken.trim().isNotEmpty ? NeuTheme.liveText(themeNotifier.isDarkTheme) : (themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
                                             size: 16,
                                           ),
                                           const SizedBox(width: 8),
@@ -484,7 +484,7 @@ class SettingsDialog {
                                             style: TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.bold,
-                                              color: settings.twitchOauthToken.trim().isNotEmpty ? Colors.green : Colors.orange,
+                                              color: settings.twitchOauthToken.trim().isNotEmpty ? NeuTheme.liveText(themeNotifier.isDarkTheme) : (themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
                                             ),
                                           ),
                                         ],
@@ -500,8 +500,8 @@ class SettingsDialog {
                                           onConnectAccount();
                                           Navigator.pop(context);
                                         },
-                                        icon: const Icon(Icons.login, size: 12, color: Colors.white),
-                                        label: const Text('Connect Account', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                        icon: Icon(Icons.login, size: 12, color: NeuTheme.onAccent(themeNotifier.primaryColor)),
+                                        label: Text('Connect Account', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: NeuTheme.onAccent(themeNotifier.primaryColor))),
                                       ),
                                     ],
                                   ),
@@ -649,12 +649,12 @@ class SettingsDialog {
                                             }
                                           },
                                     child: isTestingToken
-                                        ? const SizedBox(
+                                        ? SizedBox(
                                             width: 14,
                                             height: 14,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white60),
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.onAccent(themeNotifier.primaryColor)),
                                           )
-                                        : const Text('Test', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                        : Text('Test', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontSize: 11, fontWeight: FontWeight.bold)),
                                   ),
                                 ),
                               ],
@@ -666,7 +666,7 @@ class SettingsDialog {
                                   Icon(
                                     isTokenValid ? Icons.check_circle : Icons.error,
                                     size: 14,
-                                    color: isTokenValid ? Colors.green : Colors.redAccent,
+                                    color: isTokenValid ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                   ),
                                   const SizedBox(width: 6),
                                   Expanded(
@@ -675,7 +675,7 @@ class SettingsDialog {
                                       style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.bold,
-                                        color: isTokenValid ? Colors.green : Colors.redAccent,
+                                        color: isTokenValid ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                       ),
                                     ),
                                   ),
@@ -715,6 +715,8 @@ class SettingsDialog {
                                           width: 2,
                                         ),
                                       ),
+                                      // Intentional: the preview card renders the LIGHT theme's own
+                                      // colors regardless of the active theme.
                                       child: Column(
                                         children: const [
                                           Icon(Icons.light_mode, color: Color(0xFFFF6584), size: 24),
@@ -742,6 +744,8 @@ class SettingsDialog {
                                           width: 2,
                                         ),
                                       ),
+                                      // Intentional: the preview card renders the DARK theme's own
+                                      // colors regardless of the active theme.
                                       child: Column(
                                         children: const [
                                           Icon(Icons.dark_mode, color: Color(0xFFFF3B30), size: 24),
@@ -762,6 +766,7 @@ class SettingsDialog {
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
+                              // Intentional: these hexes ARE the selectable accent swatches.
                               children: [
                                 const Color(0xFFFF6584), // Soft Pink
                                 const Color(0xFF7C3AED), // Twitch Purple
@@ -770,7 +775,7 @@ class SettingsDialog {
                                 const Color(0xFFFF7A00), // Orange
                                 const Color(0xFFF43F5E), // Rose
                               ].map((color) {
-                                final isSelected = themeNotifier.lightAccentColor.value == color.value;
+                                final isSelected = themeNotifier.lightAccentColor.toARGB32() == color.toARGB32();
                                 return GestureDetector(
                                   onTap: () {
                                     themeNotifier.setLightAccent(color);
@@ -799,6 +804,7 @@ class SettingsDialog {
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
+                              // Intentional: these hexes ARE the selectable accent swatches.
                               children: [
                                 const Color(0xFFFF3B30), // Vibrant Red
                                 const Color(0xFF8B5CF6), // Electric Purple
@@ -807,7 +813,7 @@ class SettingsDialog {
                                 const Color(0xFFF59E0B), // Gold
                                 const Color(0xFF10B981), // Emerald
                               ].map((color) {
-                                final isSelected = themeNotifier.darkAccentColor.value == color.value;
+                                final isSelected = themeNotifier.darkAccentColor.toARGB32() == color.toARGB32();
                                 return GestureDetector(
                                   onTap: () {
                                     themeNotifier.setDarkAccent(color);
@@ -865,8 +871,8 @@ class SettingsDialog {
                                       });
                                     }
                                   },
-                                  icon: const Icon(Icons.folder_open, color: Colors.white, size: 16),
-                                  label: const Text('Browse', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                  icon: Icon(Icons.folder_open, color: NeuTheme.onAccent(themeNotifier.primaryColor), size: 16),
+                                  label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontWeight: FontWeight.bold)),
                                 ),
                               ],
                             ),
@@ -1032,7 +1038,7 @@ class SettingsDialog {
                               onSave(updated);
                               Navigator.pop(context);
                             },
-                            child: const Text('Save Changes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            child: Text('Save Changes', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontWeight: FontWeight.bold)),
                           ),
                         ],
                       ),
@@ -1103,7 +1109,7 @@ class SettingsDialog {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
               onPressed: () => Navigator.pop(context),
-              child: const Text('Got it!', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              child: Text('Got it!', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -1122,7 +1128,7 @@ class SettingsDialog {
           decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 10),
           child: Text(
             number,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.orangeAccent),
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
           ),
         ),
         const SizedBox(width: 12),

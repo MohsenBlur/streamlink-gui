@@ -23,6 +23,13 @@ class NeuTheme {
   static const Color live = Color(0xFF00E6A5);
   static const Color danger = Color(0xFFFF4565);
 
+  /// Text/icon variant of [live]: the base mint washes out on the light
+  /// surface, so light mode gets a darkened shade.
+  static Color liveText(bool isDark) => isDark ? live : const Color(0xFF008F66);
+
+  /// Text/icon variant of [danger], darkened for light-surface contrast.
+  static Color dangerText(bool isDark) => isDark ? danger : const Color(0xFFD92645);
+
   /// Readable foreground for content rendered ON the accent color.
   ///
   /// The accent is user-selectable, so this must be computed: white text was

@@ -21,6 +21,7 @@ import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
+import 'widgets/live_preview_popup.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
 import 'widgets/neumorphic/neu_checkbox.dart';
 import 'widgets/neumorphic/neu_switch.dart';
@@ -94,15 +95,15 @@ class TwitchStreamlinkApp extends StatelessWidget {
             cardColor: themeNotifier.surfaceColor,
             colorScheme: ColorScheme.light(
               primary: themeNotifier.primaryColor,
-              secondary: const Color(0xFF00C853),
+              secondary: NeuTheme.live,
               surface: themeNotifier.surfaceColor,
               background: themeNotifier.backgroundColor,
-              error: const Color(0xFFFF4D4D),
+              error: NeuTheme.danger,
             ),
             textTheme: const TextTheme(
-              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
-              bodyLarge: TextStyle(color: Color(0xFF2D3748)),
-              bodyMedium: TextStyle(color: Color(0xFF718096)),
+              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: NeuTheme.lightText),
+              bodyLarge: TextStyle(color: NeuTheme.lightText),
+              bodyMedium: TextStyle(color: NeuTheme.lightSubtext),
             ),
           ),
           darkTheme: ThemeData(
@@ -113,15 +114,15 @@ class TwitchStreamlinkApp extends StatelessWidget {
             cardColor: themeNotifier.surfaceColor,
             colorScheme: ColorScheme.dark(
               primary: themeNotifier.primaryColor,
-              secondary: const Color(0xFF00E6A5),
+              secondary: NeuTheme.live,
               surface: themeNotifier.surfaceColor,
               background: themeNotifier.backgroundColor,
-              error: const Color(0xFFFF4D4D),
+              error: NeuTheme.danger,
             ),
             textTheme: const TextTheme(
-              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFF0F4F8)),
-              bodyLarge: TextStyle(color: Color(0xFFF0F4F8)),
-              bodyMedium: TextStyle(color: Color(0xFF8A96A6)),
+              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: NeuTheme.darkText),
+              bodyLarge: TextStyle(color: NeuTheme.darkText),
+              bodyMedium: TextStyle(color: NeuTheme.darkSubtext),
             ),
           ),
           home: const MainScreen(),
@@ -398,8 +399,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 Navigator.pop(context);
                 _performAppUpdate(info);
               },
-              icon: const Icon(Icons.download, size: 16, color: Colors.white),
-              label: const Text('Update Now & Restart', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              icon: Icon(Icons.download, size: 16, color: themeNotifier.onPrimaryColor),
+              label: Text('Update Now & Restart', style: TextStyle(color: themeNotifier.onPrimaryColor, fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -598,7 +599,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
               ),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                // White on the fixed danger red, theme-independent.
+                style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
                 onPressed: () => Navigator.pop(context, true),
                 child: const Text('Exit & Save Queue'),
               ),
@@ -761,7 +763,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         return AlertDialog(
           title: Row(
             children: [
-              const Icon(Icons.folder_copy, color: Colors.orangeAccent),
+              Icon(Icons.folder_copy, color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
               const SizedBox(width: 10),
               Text('Configure Download Folder', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
@@ -793,7 +795,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   }
                 }
               },
-              child: const Text('Browse & Set Folder', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              child: Text('Browse & Set Folder', style: TextStyle(color: themeNotifier.onPrimaryColor, fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -889,6 +891,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               parseHexColor(_settings.darkAccentColorHex, NeuTheme.defaultDarkAccent),
             );
             themeNotifier.updateTheme(
+              // User-configurable hex settings; these are their defaults, not theme colors.
               activeProgress: parseHexColor(_settings.activeProgressColorHex, const Color(0xFF9146FF)),
               watchedProgress: parseHexColor(_settings.watchedProgressColorHex, const Color(0x804CAF50)),
             );
@@ -1456,8 +1459,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
               ),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger),
                 onPressed: () => Navigator.pop(context, true),
+                // White on the fixed danger red, theme-independent.
                 child: const Text('Remove',
                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
@@ -1577,13 +1581,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _showSnackBar(String message, {required bool isError}) {
+    // Errors use the fixed danger red (white text); info follows the accent.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           message,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+          style: TextStyle(
+            color: isError ? Colors.white : themeNotifier.onPrimaryColor,
+            fontWeight: FontWeight.w500,
+          ),
         ),
-        backgroundColor: isError ? Colors.redAccent : const Color(0xFF9146FF),
+        backgroundColor: isError ? NeuTheme.danger : themeNotifier.primaryColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         margin: const EdgeInsets.all(12),
@@ -1657,97 +1665,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
         _showSnackBar('Settings saved successfully!', isError: false);
       },
-    );
-  }
-
-  Widget _buildLivePreviewPopup(TwitchChannel channel) {
-    final cleanName = channel.username.toLowerCase().trim();
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch ~/ 10000;
-    final thumbUrl = 'https://static-cdn.jtvnw.net/previews-ttv/live_user_$cleanName-320x180.jpg?t=$cacheBuster';
-    
-    return Container(
-      width: 260,
-      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Image.network(
-                thumbUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                    child: Center(
-                      child: Icon(Icons.live_tv, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Colors.redAccent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        channel.username,
-                        style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (channel.viewerCount != null && channel.viewerCount != '0') ...[
-                      Icon(Icons.remove_red_eye, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 12),
-                      const SizedBox(width: 4),
-                      Text(
-                        channel.viewerCount!,
-                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  channel.streamTitle ?? 'Streaming Live!',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                ),
-                if (channel.game != null && channel.game != 'Offline') ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    channel.game!,
-                    style: TextStyle(
-                      color: themeNotifier.primaryColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1830,7 +1747,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
       },
       onShowSettings: _showSettingsDialog,
-      buildLivePreviewPopup: _buildLivePreviewPopup,
     );
 
     final contentArea = Expanded(
@@ -2100,6 +2016,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                               if (isHovered)
                                                 Positioned.fill(
                                                   child: Container(
+                                                    // Intentional: scrim over video artwork, theme-independent.
                                                     color: Colors.black45,
                                                     child: Center(
                                                       child: Container(
@@ -2114,7 +2031,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                             )
                                                           ],
                                                         ),
-                                                        child: const Icon(Icons.play_arrow, color: Colors.white, size: 24),
+                                                        child: Icon(Icons.play_arrow, color: themeNotifier.onPrimaryColor, size: 24),
                                                       ),
                                                     ),
                                                   ),
@@ -2122,6 +2039,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                               Positioned(
                                                 bottom: 4,
                                                 right: 6,
+                                                // Intentional: white-on-black pill over video artwork, theme-independent.
                                                 child: Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                                   decoration: BoxDecoration(
@@ -2141,6 +2059,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                   right: 0,
                                                   child: Container(
                                                     height: 3,
+                                                    // Intentional: track scrim over video artwork.
                                                     color: Colors.black45,
                                                     child: Align(
                                                       alignment: Alignment.centerLeft,
@@ -2310,7 +2229,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             ),
                             Row(
                               children: [
-                                const Icon(Icons.remove_red_eye, size: 10, color: Colors.redAccent),
+                                Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
                                 const SizedBox(width: 4),
                                 Text(
                                   channel.viewerCount != null ? '${channel.viewerCount}' : '0',
@@ -2327,7 +2246,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
                 return HoverOverlayMenu(
                   trigger: itemCard,
-                  menu: _buildLivePreviewPopup(channel),
+                  menu: LivePreviewPopup(channel: channel),
                 );
               },
             ),
@@ -2589,8 +2508,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.download, size: 16),
                                 label: const Text('Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: Colors.green.withOpacity(0.2),
-                                  foregroundColor: Colors.greenAccent,
+                                  backgroundColor: NeuTheme.live.withOpacity(0.15),
+                                  foregroundColor: NeuTheme.liveText(themeNotifier.isDarkTheme),
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
                                 onPressed: _selectedVodIds.isEmpty ? null : _bulkDownloadSelectedVods,
@@ -2600,8 +2519,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.delete_outline, size: 16),
                                 label: const Text('Delete Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: Colors.red.withOpacity(0.2),
-                                  foregroundColor: Colors.redAccent,
+                                  backgroundColor: NeuTheme.danger.withOpacity(0.15),
+                                  foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
                                 onPressed: _selectedVodIds.isEmpty ? null : _bulkDeleteSelectedVods,
@@ -2758,6 +2677,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     Container(
                       margin: const EdgeInsets.only(bottom: 16),
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      // Intentional: translucent warning tint, readable over both themes.
                       decoration: BoxDecoration(
                         color: Colors.orangeAccent.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -2765,19 +2685,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+                          Icon(Icons.warning_amber_rounded,
+                              color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800, size: 20),
                           const SizedBox(width: 12),
-                          const Expanded(
+                          Expanded(
                             child: Text(
                               'Your Twitch Browser OAuth Token has expired. VOD watch progress tracking is currently paused.',
-                              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 13, fontWeight: FontWeight.bold),
                             ),
                           ),
                           const SizedBox(width: 12),
                           TextButton(
                             style: TextButton.styleFrom(
                               backgroundColor: Colors.orangeAccent.withOpacity(0.2),
-                              foregroundColor: Colors.orangeAccent,
+                              foregroundColor: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800,
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                             onPressed: _showSettingsDialog,
@@ -2785,7 +2706,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           ),
                           const SizedBox(width: 8),
                           IconButton(
-                            icon: const Icon(Icons.close, color: Colors.white60, size: 16),
+                            icon: Icon(Icons.close, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 16),
                             onPressed: () {
                               setState(() {
                                 _isWebTokenExpired = false;
@@ -3281,11 +3202,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.download_for_offline, color: Colors.greenAccent),
-              SizedBox(width: 10),
-              Text('Download Queue Order'),
+              Icon(Icons.download_for_offline, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
+              const SizedBox(width: 10),
+              const Text('Download Queue Order'),
             ],
           ),
           backgroundColor: themeNotifier.surfaceColor,
@@ -3423,8 +3344,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger),
               onPressed: () => Navigator.pop(context, true),
+              // White on the fixed danger red, theme-independent.
               child: const Text('Delete Files', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ],

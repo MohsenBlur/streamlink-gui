@@ -192,11 +192,11 @@ class _ConsolePanelState extends State<ConsolePanel> {
                       width: 5,
                       height: 5,
                       decoration: BoxDecoration(
-                        color: Colors.greenAccent,
+                        color: NeuTheme.live,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.greenAccent.withOpacity(0.5),
+                            color: NeuTheme.live.withOpacity(0.5),
                             blurRadius: 4,
                           ),
                         ],
@@ -244,13 +244,13 @@ class _ConsolePanelState extends State<ConsolePanel> {
                                     ? NeuTheme.sunkenDecoration(
                                         themeNotifier.isDarkTheme,
                                         radius: 6,
-                                        border: Border.all(color: Colors.greenAccent.withOpacity(0.6), width: 1.5),
+                                        border: Border.all(color: NeuTheme.live.withOpacity(0.6), width: 1.5),
                                       )
                                     : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.download, size: 12, color: isTabRunning ? Colors.greenAccent : NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                                    Icon(Icons.download, size: 12, color: isTabRunning ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                     const SizedBox(width: 6),
                                     Text(
                                       'Downloads Manager',
@@ -267,7 +267,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                                         width: 6,
                                         height: 6,
                                         decoration: const BoxDecoration(
-                                          color: Colors.greenAccent,
+                                          color: NeuTheme.live,
                                           shape: BoxShape.circle,
                                         ),
                                       ),
@@ -327,10 +327,10 @@ class _ConsolePanelState extends State<ConsolePanel> {
                                         widget.onCloseTab(key);
                                       },
                                       borderRadius: BorderRadius.circular(10),
-                                      child: const Icon(
+                                      child: Icon(
                                         Icons.close,
                                         size: 12,
-                                        color: Colors.white30,
+                                        color: NeuTheme.disabledText(themeNotifier.isDarkTheme),
                                       ),
                                     ),
                                   ],
@@ -349,7 +349,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                     height: 26,
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
-                        foregroundColor: Colors.redAccent,
+                        foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
                       icon: const Icon(Icons.stop, size: 14),
@@ -394,16 +394,17 @@ class _ConsolePanelState extends State<ConsolePanel> {
                             itemBuilder: (context, index) {
                               final log = activeLogs[index];
                               Color logColor = NeuTheme.text(themeNotifier.isDarkTheme);
+                              final logIsDark = themeNotifier.isDarkTheme;
                               if (log.contains('[Error]') || log.contains('[Streamlink Err]') || log.contains('error:') || log.contains('failed')) {
-                                logColor = const Color(0xFFF43F5E);
+                                logColor = NeuTheme.dangerText(logIsDark);
                               } else if (log.startsWith('[System]')) {
-                                logColor = const Color(0xFF38BDF8);
+                                logColor = logIsDark ? const Color(0xFF38BDF8) : const Color(0xFF0369A1);
                               } else if (log.startsWith('[Streamlink]')) {
                                 logColor = theme.primaryColor;
                               } else if (log.contains('[cli][info]') || log.contains('Available streams:')) {
-                                logColor = const Color(0xFF10B981);
+                                logColor = logIsDark ? const Color(0xFF10B981) : const Color(0xFF047857);
                               } else if (log.contains('[Download]')) {
-                                logColor = const Color(0xFF34D399);
+                                logColor = NeuTheme.liveText(logIsDark);
                               }
 
                               return Padding(
@@ -447,11 +448,11 @@ class _ConsolePanelState extends State<ConsolePanel> {
         padding: const EdgeInsets.all(12),
         children: [
           if (activeKeys.isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
               child: Text(
                 'Active Downloads',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.greenAccent, fontFamily: 'Consolas'),
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: NeuTheme.liveText(themeNotifier.isDarkTheme), fontFamily: 'Consolas'),
               ),
             ),
             ...activeKeys.map((vodId) {
@@ -502,8 +503,8 @@ class _ConsolePanelState extends State<ConsolePanel> {
                     const SizedBox(width: 12),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.redAccent,
-                        side: const BorderSide(color: Colors.redAccent, width: 1),
+                        foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                        side: BorderSide(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), width: 1),
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                         minimumSize: Size.zero,
                       ),
@@ -518,11 +519,11 @@ class _ConsolePanelState extends State<ConsolePanel> {
           ],
           if (queuedKeys.isNotEmpty) ...[
             const SizedBox(height: 10),
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
               child: Text(
                 'Queue List',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.amberAccent, fontFamily: 'Consolas'),
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: themeNotifier.isDarkTheme ? Colors.amberAccent : Colors.amber.shade800, fontFamily: 'Consolas'),
               ),
             ),
             ...queuedKeys.map((vodId) {
@@ -549,14 +550,14 @@ class _ConsolePanelState extends State<ConsolePanel> {
                         color: Colors.amber.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Queued',
-                        style: TextStyle(fontSize: 10, color: Colors.amberAccent, fontWeight: FontWeight.bold),
+                        style: TextStyle(fontSize: 10, color: themeNotifier.isDarkTheme ? Colors.amberAccent : Colors.amber.shade800, fontWeight: FontWeight.bold),
                       ),
                     ),
                     const SizedBox(width: 12),
                     IconButton(
-                      icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.redAccent),
+                      icon: Icon(Icons.cancel_outlined, size: 16, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                       onPressed: () => widget.onCancelDownload(vodId),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),

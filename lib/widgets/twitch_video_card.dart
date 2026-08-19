@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
+import '../utils/time_utils.dart';
 import '../theme/neu_theme.dart';
 import '../theme/theme_notifier.dart';
 
@@ -55,6 +56,8 @@ class TwitchVideoCard extends StatefulWidget {
   State<TwitchVideoCard> createState() => _TwitchVideoCardState();
 }
 
+// Intentional: the white-on-black pills/scrims in this file sit over video
+// artwork, not app surfaces, and stay theme-independent by design.
 class _TwitchVideoCardState extends State<TwitchVideoCard> {
   bool _isHovered = false;
   List<String>? get _games => widget.vod.games;
@@ -91,7 +94,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
             child: Icon(
               icon,
               size: 15,
-              color: Colors.white,
+              color: NeuTheme.onAccent(backgroundColor),
             ),
           ),
         ),
@@ -121,29 +124,6 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
     }
   }
 
-  String _timeAgo(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-    
-    if (difference.inDays >= 365) {
-      final years = (difference.inDays / 365).floor();
-      return '$years year${years > 1 ? "s" : ""} ago';
-    } else if (difference.inDays >= 30) {
-      final months = (difference.inDays / 30).floor();
-      return '$months month${months > 1 ? "s" : ""} ago';
-    } else if (difference.inDays >= 7) {
-      final weeks = (difference.inDays / 7).floor();
-      return '$weeks week${weeks > 1 ? "s" : ""} ago';
-    } else if (difference.inDays >= 1) {
-      return '${difference.inDays} day${difference.inDays > 1 ? "s" : ""} ago';
-    } else if (difference.inHours >= 1) {
-      return '${difference.inHours} hour${difference.inHours > 1 ? "s" : ""} ago';
-    } else if (difference.inMinutes >= 1) {
-      return '${difference.inMinutes} minute${difference.inMinutes > 1 ? "s" : ""} ago';
-    } else {
-      return 'just now';
-    }
-  }
 
   Widget _buildGameBadge(ThemeData theme) {
     final firstGame = _games![0];
@@ -428,14 +408,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                 )
                                               ]
                                             ),
-                                            child: const Row(
+                                            child: Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
-                                                Icon(Icons.play_arrow, size: 10, color: Colors.white),
-                                                SizedBox(width: 4),
+                                                Icon(Icons.play_arrow, size: 10, color: themeNotifier.onPrimaryColor),
+                                                const SizedBox(width: 4),
                                                 Text(
                                                   'NOW PLAYING',
-                                                  style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                                                  style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: themeNotifier.onPrimaryColor, letterSpacing: 0.5),
                                                 ),
                                               ],
                                             ),
@@ -531,7 +511,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                           decoration: BoxDecoration(
                                             color: Colors.black.withOpacity(0.9),
                                             borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 1.0),
+                                            border: Border.all(color: NeuTheme.live.withOpacity(0.5), width: 1.0),
                                           ),
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
@@ -543,7 +523,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                   child: CircularProgressIndicator(
                                                     strokeWidth: 2,
                                                     value: widget.downloadProgress,
-                                                    valueColor: const AlwaysStoppedAnimation(Colors.greenAccent),
+                                                    valueColor: const AlwaysStoppedAnimation(NeuTheme.live),
                                                     backgroundColor: Colors.white10,
                                                   ),
                                                 ),
@@ -554,7 +534,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                 style: const TextStyle(
                                                   fontSize: 10,
                                                   fontWeight: FontWeight.bold,
-                                                  color: Colors.greenAccent,
+                                                  color: NeuTheme.live,
                                                 ),
                                               ),
                                             ],
@@ -565,7 +545,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                           _buildCardButton(
                                             onTap: widget.onCancel,
                                             icon: Icons.close,
-                                            backgroundColor: Colors.redAccent,
+                                            backgroundColor: NeuTheme.danger,
                                             tooltip: 'Cancel Download',
                                           ),
                                         ],
@@ -579,14 +559,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                 _buildCardButton(
                                                   onTap: widget.onPlay,
                                                   icon: Icons.play_arrow,
-                                                  backgroundColor: Colors.green,
+                                                  backgroundColor: NeuTheme.live,
                                                   tooltip: 'Play Local VOD',
                                                 ),
                                                 const SizedBox(width: 6),
                                                 _buildCardButton(
                                                   onTap: widget.onDeleteDownload,
                                                   icon: Icons.delete,
-                                                  backgroundColor: Colors.redAccent,
+                                                  backgroundColor: NeuTheme.danger,
                                                   tooltip: 'Delete Download',
                                                 ),
                                               ],
@@ -596,12 +576,12 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               decoration: NeuTheme.raisedDecoration(
                                                 themeNotifier.isDarkTheme,
                                                 radius: 12,
-                                                border: Border.all(color: Colors.green, width: 1.5),
+                                                border: Border.all(color: NeuTheme.liveText(themeNotifier.isDarkTheme), width: 1.5),
                                               ),
-                                              child: const Icon(
+                                              child: Icon(
                                                 Icons.check_rounded,
                                                 size: 14,
-                                                color: Colors.green,
+                                                color: NeuTheme.liveText(themeNotifier.isDarkTheme),
                                               ),
                                             ))
                                       : (_isHovered
@@ -615,7 +595,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                               decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 4),
                                               child: Text(
-                                                _timeAgo(widget.vod.publishedAt),
+                                                timeAgo(widget.vod.publishedAt),
                                                 style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold),
                                               ),
                                             )))),

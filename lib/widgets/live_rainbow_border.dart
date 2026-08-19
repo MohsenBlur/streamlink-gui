@@ -101,6 +101,7 @@ class _RainbowBorderPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
 
     final colors = <Color>[
+      // Intentional: the decorative rainbow palette itself.
       const Color(0xFFFF007F), // Hot pink
       const Color(0xFF9146FF), // Purple
       const Color(0xFF00F2FE), // Cyan

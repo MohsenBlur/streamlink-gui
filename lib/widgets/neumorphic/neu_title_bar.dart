@@ -80,8 +80,8 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                           ),
                           child: Text(
                             '$liveCount LIVE',
-                            style: const TextStyle(
-                              color: NeuTheme.live,
+                            style: TextStyle(
+                              color: NeuTheme.liveText(isDarkTheme),
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1.2,
