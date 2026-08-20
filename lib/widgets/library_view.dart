@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../state/activity_state.dart';
 
 import '../state/library_entries.dart';
 import '../theme/neu_theme.dart';
@@ -22,6 +25,8 @@ class LibraryView extends StatefulWidget {
     required this.onOpenFolder,
     required this.onDelete,
     required this.onRemoveFromHistory,
+    this.activity,
+    this.onStopActivity,
   }) : super(key: key);
 
   final List<LibraryEntry> entries;
@@ -30,6 +35,14 @@ class LibraryView extends StatefulWidget {
   final void Function(LibraryEntry) onOpenFolder;
   final void Function(LibraryEntry) onDelete;
   final void Function(LibraryEntry) onRemoveFromHistory;
+
+  /// In-flight downloads, rendered as a pinned section above the cached rows.
+  ///
+  /// Deliberately separate from [entries]: those are built from disk state and
+  /// rebuilt with a stat pass, which must not happen on every progress tick.
+  /// Nullable so existing call sites and tests keep working.
+  final ValueListenable<ActivitySnapshot>? activity;
+  final void Function(ActivityItem)? onStopActivity;
 
   @override
   State<LibraryView> createState() => _LibraryViewState();
@@ -143,6 +156,31 @@ class _LibraryViewState extends State<LibraryView> {
             ],
           ),
         ),
+        if (widget.activity != null)
+          ValueListenableBuilder<ActivitySnapshot>(
+            valueListenable: widget.activity!,
+            builder: (context, snapshot, _) {
+              final live = [...snapshot.downloading, ...snapshot.queued];
+              if (live.isEmpty) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('IN PROGRESS',
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                          color: NeuTheme.subtext(isDark),
+                        )),
+                    const SizedBox(height: 6),
+                    for (final item in live) _liveRow(item, theme, isDark),
+                  ],
+                ),
+              );
+            },
+          ),
         const SizedBox(height: 12),
         Expanded(
           child: visible.isEmpty
@@ -170,6 +208,103 @@ class _LibraryViewState extends State<LibraryView> {
                 ),
         ),
       ],
+    );
+  }
+
+  /// A download that is running or queued. Intentionally NOT passed through
+  /// the search/sort/channel filters - an active download must never be hidden
+  /// by a filter the user forgot they set.
+  Widget _liveRow(ActivityItem item, ThemeData theme, bool isDark) {
+    final queued = item.kind == ActivityKind.queued;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: NeuTheme.raisedDecoration(
+        isDark,
+        radius: 10,
+        border: Border.all(color: theme.primaryColor.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(queued ? Icons.schedule : Icons.downloading,
+              size: 16, color: theme.primaryColor),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: NeuTheme.bodyStyle(isDark,
+                        fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                if (queued)
+                  Text('Waiting to start',
+                      style: NeuTheme.subtextStyle(isDark, fontSize: 11))
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: item.progress,
+                            minHeight: 3,
+                            backgroundColor: NeuTheme.border(isDark),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                                theme.primaryColor),
+                          ),
+                        ),
+                      ),
+                      if (item.status != null) ...[
+                        const SizedBox(width: 10),
+                        Text(item.status!,
+                            style:
+                                NeuTheme.subtextStyle(isDark, fontSize: 10)),
+                      ],
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: theme.primaryColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: theme.primaryColor.withValues(alpha: 0.4)),
+            ),
+            child: Text(queued ? 'QUEUED' : 'DOWNLOADING',
+                style: TextStyle(
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                  color: theme.primaryColor,
+                )),
+          ),
+          if (widget.onStopActivity != null) ...[
+            const SizedBox(width: 10),
+            Tooltip(
+              message: 'Cancel download',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => widget.onStopActivity!(item),
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  decoration: NeuTheme.raisedDecoration(isDark, radius: 8),
+                  child: Icon(Icons.close,
+                      size: 15, color: NeuTheme.dangerText(isDark)),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

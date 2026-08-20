@@ -45,6 +45,7 @@ class SettingsDialog {
     required void Function(AppSettings) onSave,
     required void Function(String) openExternalLink,
     required VoidCallback onClearWatchHistory,
+    required VoidCallback onOpenLogs,
     /// Invoked when the in-dialog update check finds a newer release, so the
     /// app can offer to install it. Without this the dialog told the user to
     /// "check the main window prompt", which only ever appears at startup.
@@ -483,6 +484,27 @@ class SettingsDialog {
                               },
                               icon: const Icon(Icons.delete_forever, size: 18),
                               label: const Text('Clear Local Watch History', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(height: 24),
+                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            const SizedBox(height: 12),
+                            Text('Diagnostics', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Output from downloads, streams and players. Useful when something fails.',
+                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                            ),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
+                                side: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              onPressed: onOpenLogs,
+                              icon: const Icon(Icons.terminal, size: 18),
+                              label: const Text('View Logs', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                             ),
                           ],
                         ),
