@@ -1,5 +1,22 @@
 import 'dart:ui';
 
+/// One display's usable rectangle, in logical pixels.
+///
+/// screen_retriever reports the work area as a separate position/size pair
+/// ([visiblePosition]/[visibleSize], taskbar excluded) alongside the full
+/// display [size]. Mixing the visible ORIGIN with the full SIZE describes a
+/// rectangle that exists on neither, so the pair is kept consistent here:
+/// visible origin with visible size, otherwise the full display at its origin.
+Rect displayRect({
+  required Size size,
+  Offset? visiblePosition,
+  Size? visibleSize,
+}) {
+  final origin = visiblePosition ?? Offset.zero;
+  final extent = visiblePosition != null ? (visibleSize ?? size) : size;
+  return Rect.fromLTWH(origin.dx, origin.dy, extent.width, extent.height);
+}
+
 /// Pure window-geometry sanity: given saved bounds and the current display
 /// rectangles, return bounds that are guaranteed usable.
 ///

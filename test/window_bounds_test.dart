@@ -64,4 +64,61 @@ void main() {
       expect(r.width, 1280);
     });
   });
+  group('displayRect', () {
+    test('pairs the visible origin with the visible size, not the full size', () {
+      // Regression: the visible ORIGIN was combined with the FULL display
+      // size, describing a rectangle that exists on neither. With a 40px
+      // taskbar at the top, that rect ran 40px past the bottom of the screen.
+      final r = displayRect(
+        size: const Size(1920, 1080),
+        visiblePosition: const Offset(0, 40),
+        visibleSize: const Size(1920, 1040),
+      );
+      expect(r, const Rect.fromLTWH(0, 40, 1920, 1040));
+      expect(r.bottom, 1080);
+    });
+
+    test('falls back to the full size when no visible size is reported', () {
+      final r = displayRect(
+        size: const Size(1920, 1080),
+        visiblePosition: const Offset(1920, 0),
+      );
+      expect(r, const Rect.fromLTWH(1920, 0, 1920, 1080));
+    });
+
+    test('no visible position at all anchors the full display at the origin', () {
+      final r = displayRect(size: const Size(1280, 720));
+      expect(r, const Rect.fromLTWH(0, 0, 1280, 720));
+    });
+  });
+
+  group('startup geometry contract', () {
+    test('sanitized bounds carry a position usable on its own', () {
+      // main() applies the SIZE through WindowOptions and only the POSITION in
+      // the ready callback: a second sizing call there converts logical to
+      // physical with a devicePixelRatio that may have changed since the
+      // first, leaving the window at a size the engine never laid out for.
+      final bounds = sanitizeWindowBounds(
+        x: 100,
+        y: 80,
+        width: 1280,
+        height: 720,
+        displays: [primary],
+      );
+      expect(bounds.topLeft, const Offset(100, 80));
+      expect(bounds.size, const Size(1280, 720));
+    });
+
+    test('a rescued window reports a centered position too', () {
+      final bounds = sanitizeWindowBounds(
+        x: -20000,
+        y: -20000,
+        width: 1280,
+        height: 720,
+        displays: [primary],
+      );
+      expect(bounds.topLeft.dx, (1920 - 1280) / 2);
+      expect(bounds.topLeft.dy, (1080 - 720) / 2);
+    });
+  });
 }

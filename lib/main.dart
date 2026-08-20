@@ -78,11 +78,10 @@ void main(List<String> args) async {
     final displays = await screenRetriever.getAllDisplays();
     final displayRects = <Rect>[
       for (final d in displays)
-        Rect.fromLTWH(
-          d.visiblePosition?.dx ?? 0,
-          d.visiblePosition?.dy ?? 0,
-          d.size.width,
-          d.size.height,
+        displayRect(
+          size: d.size,
+          visiblePosition: d.visiblePosition,
+          visibleSize: d.visibleSize,
         ),
     ];
     if (displayRects.isNotEmpty) {
@@ -110,10 +109,24 @@ void main(List<String> args) async {
   );
 
   windowManager.waitUntilReadyToShow(windowOptions, () async {
-    if (restoredBounds != null) {
-      await windowManager.setBounds(restoredBounds);
-    } else if (settings.windowX != null && settings.windowY != null) {
-      await windowManager.setPosition(Offset(settings.windowX!, settings.windowY!));
+    // MOVE ONLY - never resize here.
+    //
+    // waitUntilReadyToShow has already applied WindowOptions.size, and both
+    // that call and anything in this callback convert logical -> physical
+    // using window.devicePixelRatio, which this early in startup may not yet
+    // reflect the display's real ratio. A second sizing call (this used to be
+    // setBounds, which sets size AND position) can therefore land on a
+    // different ratio than the first and leave the native window at a
+    // physical size the engine never laid out for: content squeezed into part
+    // of the frame, unpainted regions beside it, and the sidebar dropped
+    // because the reported width fell under the narrow breakpoint. Racy by
+    // nature, so it cleared on the next launch.
+    final restoredPosition = restoredBounds?.topLeft ??
+        (settings.windowX != null && settings.windowY != null
+            ? Offset(settings.windowX!, settings.windowY!)
+            : null);
+    if (restoredPosition != null) {
+      await windowManager.setPosition(restoredPosition);
     }
     if (settings.isWindowMaximized && !startMinimized) {
       await windowManager.maximize();
