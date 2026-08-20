@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/neu_theme.dart';
 
 class NeuLedIndicator extends StatefulWidget {
   final double size;
@@ -25,17 +26,37 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
   AnimationController? _controller;
   Animation<double>? _pulseAnimation;
 
+  bool get _shouldPulse => widget.isLive && widget.isPulsing;
+
   @override
   void initState() {
     super.initState();
-    if (widget.isLive && widget.isPulsing) {
-      _controller = AnimationController(
+    _syncAnimation();
+  }
+
+  // React to prop changes. Without this, a LED whose channel went live after
+  // first build never started pulsing, and one whose channel went offline kept
+  // pulsing forever.
+  @override
+  void didUpdateWidget(NeuLedIndicator oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_shouldPulse != (oldWidget.isLive && oldWidget.isPulsing)) {
+      _syncAnimation();
+    }
+  }
+
+  void _syncAnimation() {
+    if (_shouldPulse) {
+      _controller ??= AnimationController(
         vsync: this,
         duration: const Duration(milliseconds: 1200),
-      )..repeat(reverse: true);
-      _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      );
+      _pulseAnimation ??= Tween<double>(begin: 0.4, end: 1.0).animate(
         CurvedAnimation(parent: _controller!, curve: Curves.easeInOut),
       );
+      _controller!.repeat(reverse: true);
+    } else {
+      _controller?.stop();
     }
   }
 
@@ -51,8 +72,9 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
     final isDark = theme.brightness == Brightness.dark;
 
     final color = widget.isLive
-        ? (widget.activeColor ?? const Color(0xFF00E6A5)) // Neon Mint-Cyan
-        : (widget.inactiveColor ?? (isDark ? const Color(0xFF4A5568) : const Color(0xFFA0AEC0)));
+        ? (widget.activeColor ?? NeuTheme.live)
+        : (widget.inactiveColor ??
+            (isDark ? const Color(0xFF4A5568) : const Color(0xFFA0AEC0)));
 
     Widget ledContent = Container(
       width: widget.size,
@@ -63,27 +85,27 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
           center: const Alignment(-0.3, -0.3),
           radius: 0.8,
           colors: [
-            Colors.white.withOpacity(widget.isLive ? 0.9 : 0.4),
+            Colors.white.withValues(alpha: widget.isLive ? 0.9 : 0.4),
             color,
-            color.withOpacity(0.8),
+            color.withValues(alpha: 0.8),
           ],
         ),
         boxShadow: widget.isLive
             ? [
                 BoxShadow(
-                  color: color.withOpacity(0.8),
+                  color: color.withValues(alpha: 0.8),
                   blurRadius: widget.size * 0.8,
                   spreadRadius: widget.size * 0.2,
                 ),
                 BoxShadow(
-                  color: color.withOpacity(0.4),
+                  color: color.withValues(alpha: 0.4),
                   blurRadius: widget.size * 1.5,
                   spreadRadius: widget.size * 0.5,
                 ),
               ]
             : [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
+                  color: NeuTheme.shadow(isDark).withValues(alpha: 0.5),
                   blurRadius: 2,
                   offset: const Offset(1, 1),
                 ),
@@ -91,15 +113,15 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
       ),
     );
 
-    if (widget.isLive && widget.isPulsing && _pulseAnimation != null) {
-      return AnimatedBuilder(
-        animation: _pulseAnimation!,
-        builder: (context, child) {
-          return Opacity(
-            opacity: _pulseAnimation!.value,
-            child: ledContent,
-          );
-        },
+    if (_shouldPulse && _pulseAnimation != null) {
+      // FadeTransition + RepaintBoundary keep the large glow shadows
+      // repainting inside an isolated layer instead of rebuilding the widget
+      // every frame.
+      return RepaintBoundary(
+        child: FadeTransition(
+          opacity: _pulseAnimation!,
+          child: ledContent,
+        ),
       );
     }
 

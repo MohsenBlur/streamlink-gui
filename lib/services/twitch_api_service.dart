@@ -18,7 +18,44 @@ class VodsFetchResult {
   VodsFetchResult({required this.vods, this.nextCursor, this.isWebTokenExpired = false});
 }
 
+class TokenValidationResult {
+  final bool isValid;
+  final String message;
+  final String? login;
+  const TokenValidationResult({required this.isValid, required this.message, this.login});
+}
+
 class TwitchApiService {
+  /// Validates an OAuth token against id.twitch.tv, accepting the `oauth:`
+  /// prefix users paste from various tools. Shared by the Settings token
+  /// tester and the onboarding wizard.
+  Future<TokenValidationResult> validateOAuthToken(String rawToken) async {
+    var token = rawToken.trim();
+    if (token.isEmpty) {
+      return const TokenValidationResult(
+          isValid: false, message: 'Please enter a token first.');
+    }
+    if (token.startsWith('oauth:')) {
+      token = token.substring(6);
+    }
+    try {
+      final response = await http.get(
+        Uri.parse('https://id.twitch.tv/oauth2/validate'),
+        headers: {'Authorization': 'OAuth $token'},
+      ).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        final login = decoded['login'] as String?;
+        return TokenValidationResult(
+            isValid: true, message: 'Success! Connected as: $login', login: login);
+      }
+      return TokenValidationResult(
+          isValid: false, message: 'Invalid token (Status ${response.statusCode})');
+    } catch (e) {
+      return TokenValidationResult(isValid: false, message: 'Connection error: $e');
+    }
+  }
+
   /// Every Twitch/DecAPI request goes through these wrappers.
   ///
   /// None of the calls in this file had a timeout: a request that never

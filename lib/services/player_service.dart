@@ -1247,20 +1247,10 @@ class PlayerService {
   }
 
   void killProcess(String key) {
-    if (key.startsWith('dl-')) {
-      final vodId = key.substring(3);
-      final proc = activeDownloadProcesses[vodId];
-      if (proc != null) {
-        try {
-          if (Platform.isWindows) {
-            Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-          } else {
-            proc.kill();
-          }
-        } catch (_) {}
-      }
-      return;
-    }
+    // Download tabs never route here: cancelling a download must go through
+    // cancelVodDownload so the _cancelledDownloads marker and partial-file
+    // cleanup happen. A raw taskkill on yt-dlp would leave both dangling.
+    assert(!key.startsWith('dl-'), 'downloads are cancelled, not killed');
 
     final proc = activePlayerProcesses[key];
     if (proc != null) {

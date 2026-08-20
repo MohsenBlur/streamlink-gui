@@ -18,6 +18,52 @@ class NeuTheme {
   static const Color darkShadow = Color(0xFF12151B);
   static const Color defaultDarkAccent = Color(0xFFFF3B30); // Vibrant Red
 
+  // Semantic status colors, previously scattered as inline hexes across the
+  // LED indicator, card border and title bar.
+  static const Color live = Color(0xFF00E6A5);
+  static const Color danger = Color(0xFFFF4565);
+
+  /// Text/icon variant of [live]: the base mint washes out on the light
+  /// surface, so light mode gets a darkened shade.
+  static Color liveText(bool isDark) => isDark ? live : const Color(0xFF008F66);
+
+  /// Text/icon variant of [danger], darkened for light-surface contrast.
+  static Color dangerText(bool isDark) => isDark ? danger : const Color(0xFFD92645);
+
+  /// Readable foreground for content rendered ON the accent color.
+  ///
+  /// The accent is user-selectable, so this must be computed: white text was
+  /// hardcoded everywhere and became invisible on bright accents such as Cyan,
+  /// Gold, Sky and Emerald.
+  static Color onAccent(Color accent) =>
+      ThemeData.estimateBrightnessForColor(accent) == Brightness.dark
+          ? Colors.white
+          : const Color(0xFF1A202C);
+
+  /// Recessed "well" surface (track slots, sockets, sunken fields).
+  ///
+  /// Canonicalized on the value most widgets already used; NeuContainer's
+  /// slightly different light well was the outlier.
+  static Color wellSurface(bool isDark) =>
+      isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB);
+
+  /// Keyboard-focus visual consistent with the neumorphic style: an accent
+  /// border with a soft outer glow, readable on both themes' low-contrast
+  /// surfaces.
+  static BoxDecoration focusRing(bool isDark, Color accent, {double radius = 16}) {
+    return BoxDecoration(
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: accent, width: 2),
+      boxShadow: [
+        BoxShadow(
+          color: accent.withValues(alpha: 0.35),
+          blurRadius: 6,
+          spreadRadius: 1,
+        ),
+      ],
+    );
+  }
+
   // Dynamic Color Token Getters
   static Color background(bool isDark) => isDark ? darkBg : lightBg;
   static Color surface(bool isDark) => isDark ? darkSurface : lightSurface;
@@ -26,7 +72,7 @@ class NeuTheme {
   static Color disabledText(bool isDark) => isDark ? const Color(0xFF64748B) : const Color(0xFFA0AEC0);
   static Color highlight(bool isDark) => isDark ? darkHighlight : lightHighlight;
   static Color shadow(bool isDark) => isDark ? darkShadow : lightShadow;
-  static Color border(bool isDark) => isDark ? const Color(0xFF334155).withOpacity(0.4) : const Color(0xFFA3B1C6).withOpacity(0.5);
+  static Color border(bool isDark) => isDark ? const Color(0xFF334155).withValues(alpha: 0.4) : const Color(0xFFA3B1C6).withValues(alpha: 0.5);
   static Color terminalBg(bool isDark) => isDark ? const Color(0xFF0F131E) : const Color(0xFFF8FAFC);
 
   // Unified Typography Tokens
@@ -63,12 +109,12 @@ class NeuTheme {
       border: border,
       boxShadow: [
         BoxShadow(
-          color: highlight(isDark).withOpacity(isDark ? 0.5 : 0.9),
+          color: highlight(isDark).withValues(alpha: isDark ? 0.5 : 0.9),
           offset: const Offset(-5, -5),
           blurRadius: 10,
         ),
         BoxShadow(
-          color: shadow(isDark).withOpacity(isDark ? 0.7 : 0.8),
+          color: shadow(isDark).withValues(alpha: isDark ? 0.7 : 0.8),
           offset: const Offset(5, 5),
           blurRadius: 10,
         ),
@@ -82,18 +128,18 @@ class NeuTheme {
       color: base,
       borderRadius: BorderRadius.circular(radius),
       border: border ?? Border.all(
-        color: isDark ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.04),
+        color: isDark ? Colors.black.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.04),
         width: 1.0,
       ),
       boxShadow: [
         BoxShadow(
-          color: shadow(isDark).withOpacity(isDark ? 0.6 : 0.6),
+          color: shadow(isDark).withValues(alpha: isDark ? 0.6 : 0.6),
           offset: const Offset(3, 3),
           blurRadius: 6,
           spreadRadius: -1,
         ),
         BoxShadow(
-          color: highlight(isDark).withOpacity(isDark ? 0.4 : 0.8),
+          color: highlight(isDark).withValues(alpha: isDark ? 0.4 : 0.8),
           offset: const Offset(-3, -3),
           blurRadius: 6,
           spreadRadius: -1,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/neu_theme.dart';
+
 enum NeuStyle {
   raised,
   sunken,
@@ -7,6 +9,12 @@ enum NeuStyle {
   well, // Button inside recessed socket
 }
 
+/// The base neumorphic surface.
+///
+/// Reads its palette from [NeuTheme] so every widget built on it shares one
+/// source of truth. It previously hardcoded its own highlight/shadow/well
+/// colors, which had silently diverged from the tokens the rest of the app
+/// used.
 class NeuContainer extends StatelessWidget {
   final Widget? child;
   final double? width;
@@ -14,7 +22,6 @@ class NeuContainer extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry margin;
   final BorderRadius? borderRadius;
-  final ShapeBorder? shape;
   final NeuStyle style;
   final Color? color;
   final Color? highlightColor;
@@ -33,7 +40,6 @@ class NeuContainer extends StatelessWidget {
     this.padding = EdgeInsets.zero,
     this.margin = EdgeInsets.zero,
     this.borderRadius,
-    this.shape,
     this.style = NeuStyle.raised,
     this.color,
     this.highlightColor,
@@ -51,15 +57,16 @@ class NeuContainer extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     final baseColor = color ?? theme.cardColor;
-    
-    // Light source from Top-Left (-1, -1)
-    final defaultHighlight = highlightColor ?? 
-        (isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.9));
-    final defaultShadow = shadowColor ?? 
-        (isDark ? const Color(0xFF0D0E12) : const Color(0xFFA3B1C6).withOpacity(0.8));
 
-    final effectiveRadius = isCircle 
-        ? null 
+    // Light source from Top-Left (-1, -1). Same recipe as
+    // NeuTheme.raisedDecoration so surfaces built from either path match.
+    final defaultHighlight = highlightColor ??
+        NeuTheme.highlight(isDark).withValues(alpha: isDark ? 0.5 : 0.9);
+    final defaultShadow = shadowColor ??
+        NeuTheme.shadow(isDark).withValues(alpha: isDark ? 0.7 : 0.8);
+
+    final effectiveRadius = isCircle
+        ? null
         : (borderRadius ?? BorderRadius.circular(16));
 
     Decoration decoration;
@@ -70,10 +77,11 @@ class NeuContainer extends StatelessWidget {
         color: baseColor,
         shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
         borderRadius: effectiveRadius,
-        border: border ?? Border.all(
-          color: isDark ? Colors.black.withOpacity(0.4) : Colors.black.withOpacity(0.05),
-          width: 1.0,
-        ),
+        border: border ??
+            Border.all(
+              color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.05),
+              width: 1.0,
+            ),
         boxShadow: [
           // Top-Left inner shadow effect (simulated via dark outer border and subtle inset glow)
           BoxShadow(
@@ -93,18 +101,22 @@ class NeuContainer extends StatelessWidget {
     } else if (style == NeuStyle.well) {
       // Double-layered well (Recessed socket)
       decoration = BoxDecoration(
-        color: isDark ? const Color(0xFF13151A) : const Color(0xFFD1D9E6),
+        color: color ?? NeuTheme.wellSurface(isDark),
         shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
         borderRadius: effectiveRadius,
+        border: border,
         boxShadow: [
           BoxShadow(
-            color: isDark ? Colors.black.withOpacity(0.7) : const Color(0xFFA3B1C6).withOpacity(0.9),
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.7)
+                : NeuTheme.shadow(isDark).withValues(alpha: 0.9),
             offset: const Offset(2, 2),
             blurRadius: 4,
             spreadRadius: 0,
           ),
           BoxShadow(
-            color: isDark ? Colors.white.withOpacity(0.05) : Colors.white.withOpacity(0.9),
+            color: NeuTheme.highlight(isDark)
+                .withValues(alpha: isDark ? 0.05 : 0.9),
             offset: const Offset(-2, -2),
             blurRadius: 4,
             spreadRadius: 0,
@@ -120,23 +132,26 @@ class NeuContainer extends StatelessWidget {
       );
     } else {
       // Raised Convex / Soft Extrusion style
-      final effectiveGradient = gradient ?? LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          baseColor.withOpacity(isDark ? 1.0 : 1.0),
-          _adjustColor(baseColor, isDark ? -10 : -8),
-        ],
-      );
+      final effectiveGradient = gradient ??
+          LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              baseColor,
+              _adjustColor(baseColor, isDark ? -10 : -8),
+            ],
+          );
 
       decoration = BoxDecoration(
         gradient: effectiveGradient,
         shape: isCircle ? BoxShape.circle : BoxShape.rectangle,
         borderRadius: effectiveRadius,
-        border: border ?? Border.all(
-          color: isDark ? Colors.white.withOpacity(0.06) : Colors.white.withOpacity(0.6),
-          width: 1.0,
-        ),
+        border: border ??
+            Border.all(
+              color: NeuTheme.highlight(isDark)
+                  .withValues(alpha: isDark ? 0.06 : 0.6),
+              width: 1.0,
+            ),
         boxShadow: [
           BoxShadow(
             color: defaultHighlight,
@@ -165,9 +180,11 @@ class NeuContainer extends StatelessWidget {
   }
 
   static Color _adjustColor(Color color, int amount) {
-    final r = (color.red + amount).clamp(0, 255);
-    final g = (color.green + amount).clamp(0, 255);
-    final b = (color.blue + amount).clamp(0, 255);
-    return Color.fromARGB(color.alpha, r, g, b);
+    final argb = color.toARGB32();
+    final a = (argb >> 24) & 0xFF;
+    final r = (((argb >> 16) & 0xFF) + amount).clamp(0, 255);
+    final g = (((argb >> 8) & 0xFF) + amount).clamp(0, 255);
+    final b = ((argb & 0xFF) + amount).clamp(0, 255);
+    return Color.fromARGB(a, r, g, b);
   }
 }

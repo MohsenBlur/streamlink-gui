@@ -159,6 +159,77 @@ void main() {
       expect(cleared.windowHeight, original.windowHeight);
     });
 
+    test('round-trips the v1.1.0 fields', () {
+      final original = AppSettings(
+        vodCardScale: 480,
+        vodTitleFontSize: 17,
+        closeAction: 'exit',
+        minimizeAction: 'tray',
+        launchAtStartup: true,
+        startMinimized: true,
+        trayNoticeShown: true,
+        trayLiveMenuEnabled: false,
+        notifyWentLive: false,
+        notifyAutoPlay: false,
+        notifyAutoDownloadStart: false,
+        notifyDownloadComplete: false,
+        onboardingCompleted: true,
+      );
+      final restored = AppSettings.fromJson(original.toJson());
+
+      expect(restored.vodCardScale, 480);
+      expect(restored.vodTitleFontSize, 17);
+      expect(restored.closeAction, 'exit');
+      expect(restored.minimizeAction, 'tray');
+      expect(restored.launchAtStartup, isTrue);
+      expect(restored.startMinimized, isTrue);
+      expect(restored.trayNoticeShown, isTrue);
+      expect(restored.trayLiveMenuEnabled, isFalse);
+      expect(restored.notifyWentLive, isFalse);
+      expect(restored.notifyAutoPlay, isFalse);
+      expect(restored.notifyAutoDownloadStart, isFalse);
+      expect(restored.notifyDownloadComplete, isFalse);
+      expect(restored.onboardingCompleted, isTrue);
+    });
+
+    test('clamps persisted out-of-range values on load', () {
+      // A hand-edited or corrupted config must not feed a Slider an
+      // out-of-range value, which asserts in debug builds on dialog open.
+      final restored = AppSettings.fromJson(<String, dynamic>{
+        'watched_threshold': 30,
+        'max_recently_watched': 99,
+        'vod_watch_exclusion_threshold': 200,
+        'local_server_port': 0,
+        'max_downloads_to_keep': -5,
+        'vod_card_scale': 5000,
+        'vod_title_font_size': 2,
+        'close_action': 'explode',
+        'minimize_action': 42,
+      });
+
+      expect(restored.watchedThreshold, 50);
+      expect(restored.maxRecentlyWatched, 20);
+      expect(restored.vodWatchExclusionThreshold, 90);
+      expect(restored.localServerPort, 1);
+      expect(restored.maxDownloadsToKeep, 0);
+      expect(restored.vodCardScale, 600.0);
+      expect(restored.vodTitleFontSize, 11.0);
+      expect(restored.closeAction, 'tray');
+      expect(restored.minimizeAction, 'taskbar');
+    });
+
+    test('v1.1.0 fields default sensibly for a pre-1.1 config', () {
+      final restored = AppSettings.fromJson(<String, dynamic>{});
+      expect(restored.vodCardScale, 350.0);
+      expect(restored.vodTitleFontSize, 14.0);
+      expect(restored.closeAction, 'tray');
+      expect(restored.minimizeAction, 'taskbar');
+      expect(restored.launchAtStartup, isFalse);
+      expect(restored.trayLiveMenuEnabled, isTrue);
+      expect(restored.notifyWentLive, isTrue);
+      expect(restored.onboardingCompleted, isFalse);
+    });
+
     test('fills a download folder default when none is supplied', () {
       final settings = AppSettings(vodDownloadFolder: '');
       // The constructor derives a per-user default; the exact path is platform

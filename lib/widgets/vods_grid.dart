@@ -28,22 +28,15 @@ class VodsGrid extends StatefulWidget {
   final Color activeProgressColor;
   final Color watchedProgressColor;
 
-  final ValueChanged<double> onScaleChanged;
-  final ValueChanged<double> onFontSizeChanged;
-  final ValueChanged<bool> onShowGamesChanged;
   final ValueChanged<String> onGameFilterSelected;
   final VoidCallback onClearGameFilter;
-  final VoidCallback onToggleMultiSelect;
-  final VoidCallback onSelectAllVisible;
-  final VoidCallback onDeselectAll;
   
   final void Function(TwitchVideo) onPlay;
   final void Function(TwitchVideo) onDownload;
   final void Function(String) onDeleteDownload;
   final void Function(String) onCancelDownload;
   final void Function(String, bool) onVodSelectedChange;
-  final VoidCallback? onBulkDownload;
-  final VoidCallback? onBulkDelete;
+  final void Function(TwitchVideo)? onOpenFolder;
 
   const VodsGrid({
     Key? key,
@@ -66,21 +59,14 @@ class VodsGrid extends StatefulWidget {
     required this.watchedThreshold,
     required this.activeProgressColor,
     required this.watchedProgressColor,
-    required this.onScaleChanged,
-    required this.onFontSizeChanged,
-    required this.onShowGamesChanged,
     required this.onGameFilterSelected,
     required this.onClearGameFilter,
-    required this.onToggleMultiSelect,
-    required this.onSelectAllVisible,
-    required this.onDeselectAll,
     required this.onPlay,
     required this.onDownload,
     required this.onDeleteDownload,
     required this.onCancelDownload,
     required this.onVodSelectedChange,
-    this.onBulkDownload,
-    this.onBulkDelete,
+    this.onOpenFolder,
   }) : super(key: key);
 
   @override
@@ -138,28 +124,35 @@ class _VodsGridState extends State<VodsGrid> {
     }
   }
 
+  /// Builds SLIVERS: this widget must live inside a CustomScrollView. The
+  /// grid used to be a shrinkWrap GridView inside the page's scroll view,
+  /// which materialized every card at once; SliverGrid culls off-screen ones.
   @override
   Widget build(BuildContext context) {
     if (widget.isLoading && widget.vods.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 40),
-          child: CircularProgressIndicator(),
+      return const SliverToBoxAdapter(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 40),
+            child: CircularProgressIndicator(),
+          ),
         ),
       );
     }
-    
+
     if (widget.vodsError != null) {
-      return Container(
+      return SliverToBoxAdapter(
+        child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.redAccent.withOpacity(0.1),
+          color: NeuTheme.danger.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+          border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.3)),
         ),
         child: Text(
           'Error loading VODs: ${widget.vodsError}',
-          style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+          style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 13),
+        ),
         ),
       );
     }
@@ -225,8 +218,11 @@ class _VodsGridState extends State<VodsGrid> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              // Selected chips sit on NeuButton's translucent
+                              // accent TINT, so the readable color is the accent
+                              // itself (NeuButton's own selected text style).
                               if (isSelected) ...[
-                                const Icon(Icons.check, size: 13, color: Colors.white),
+                                Icon(Icons.check, size: 13, color: widget.theme.primaryColor),
                                 const SizedBox(width: 4),
                               ],
                               Text(
@@ -234,8 +230,8 @@ class _VodsGridState extends State<VodsGrid> {
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                                  color: isSelected 
-                                      ? Colors.white 
+                                  color: isSelected
+                                      ? widget.theme.primaryColor
                                       : themeNotifier.textColor,
                                 ),
                               ),
@@ -259,7 +255,7 @@ class _VodsGridState extends State<VodsGrid> {
                         gradient: LinearGradient(
                           colors: [
                             themeNotifier.backgroundColor,
-                            themeNotifier.backgroundColor.withOpacity(0.0),
+                            themeNotifier.backgroundColor.withValues(alpha: 0.0),
                           ],
                           begin: Alignment.centerLeft,
                           end: Alignment.centerRight,
@@ -279,7 +275,7 @@ class _VodsGridState extends State<VodsGrid> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            themeNotifier.backgroundColor.withOpacity(0.0),
+                            themeNotifier.backgroundColor.withValues(alpha: 0.0),
                             themeNotifier.backgroundColor,
                           ],
                           begin: Alignment.centerLeft,
@@ -297,9 +293,10 @@ class _VodsGridState extends State<VodsGrid> {
 
     final childAspectRatio = 1.0 + ((widget.vodScale - 200) / 400.0) * 0.25;
 
-    Widget contentWidget;
+    Widget contentSliver;
     if (filteredVods.isEmpty) {
-      contentWidget = Padding(
+      contentSliver = SliverToBoxAdapter(
+        child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Center(
           child: Text(
@@ -309,11 +306,10 @@ class _VodsGridState extends State<VodsGrid> {
             style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
           ),
         ),
+        ),
       );
     } else {
-      contentWidget = GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
+      contentSliver = SliverGrid.builder(
         itemCount: filteredVods.length,
         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: widget.vodScale,
@@ -324,6 +320,7 @@ class _VodsGridState extends State<VodsGrid> {
         itemBuilder: (context, index) {
           final vod = filteredVods[index];
           return TwitchVideoCard(
+            key: ValueKey(vod.id),
             vod: vod,
             scale: widget.vodScale,
             theme: widget.theme,
@@ -345,89 +342,17 @@ class _VodsGridState extends State<VodsGrid> {
             onDownload: () => widget.onDownload(vod),
             onDeleteDownload: () => widget.onDeleteDownload(vod.id),
             onCancel: () => widget.onCancelDownload(vod.id),
+            onOpenFolder:
+                widget.onOpenFolder == null ? null : () => widget.onOpenFolder!(vod),
           );
         },
       );
     }
 
-    final mainColumn = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        buildGameChips(),
-        contentWidget,
-      ],
-    );
-
-    return Stack(
-      alignment: Alignment.bottomCenter,
-      clipBehavior: Clip.none,
-      children: [
-        mainColumn,
-        AnimatedPositioned(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          bottom: widget.isMultiSelectMode ? 16 : -70,
-          left: 20,
-          right: 20,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: widget.isMultiSelectMode ? 1.0 : 0.0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: NeuTheme.raisedDecoration(
-                  themeNotifier.isDarkTheme,
-                  radius: 16,
-                  border: Border.all(color: widget.theme.primaryColor.withOpacity(0.4), width: 1.5),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check_box_outlined, color: widget.theme.primaryColor, size: 20),
-                    const SizedBox(width: 10),
-                    Text(
-                      '${widget.selectedVodIds.length} VODs Selected',
-                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                    ),
-                    const SizedBox(width: 20),
-                    Container(width: 1, height: 18, color: NeuTheme.border(themeNotifier.isDarkTheme)),
-                    const SizedBox(width: 20),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: widget.theme.primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      onPressed: widget.selectedVodIds.isEmpty ? null : widget.onBulkDownload,
-                      icon: const Icon(Icons.download, size: 16),
-                      label: const Text('Bulk Download', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.redAccent.withOpacity(0.15),
-                        foregroundColor: Colors.redAccent,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        side: BorderSide(color: Colors.redAccent.withOpacity(0.4)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      onPressed: widget.selectedVodIds.isEmpty ? null : widget.onBulkDelete,
-                      icon: const Icon(Icons.delete, size: 16),
-                      label: const Text('Bulk Delete', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 12),
-                    TextButton(
-                      style: TextButton.styleFrom(foregroundColor: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                      onPressed: widget.onDeselectAll,
-                      child: const Text('Deselect All', style: TextStyle(fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(child: buildGameChips()),
+        contentSliver,
       ],
     );
   }

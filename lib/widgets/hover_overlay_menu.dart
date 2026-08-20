@@ -6,12 +6,17 @@ class HoverOverlayMenu extends StatefulWidget {
   final Widget trigger;
   final Widget menu;
   final bool enabled;
-  
+
+  /// Approximate menu size used to flip the overlay away from screen edges
+  /// before it has laid out.
+  final Size estimatedMenuSize;
+
   const HoverOverlayMenu({
     Key? key,
     required this.trigger,
     required this.menu,
     this.enabled = true,
+    this.estimatedMenuSize = const Size(260, 220),
   }) : super(key: key);
 
   @override
@@ -39,12 +44,12 @@ class _HoverOverlayMenuState extends State<HoverOverlayMenu> {
         double left = _mousePos.dx + 16;
         double top = _mousePos.dy + 16;
         
-        // Menu width is 260, height is approx 220
-        if (left + 260 > size.width) {
-          left = _mousePos.dx - 260 - 16;
+        final est = widget.estimatedMenuSize;
+        if (left + est.width > size.width) {
+          left = _mousePos.dx - est.width - 16;
         }
-        if (top + 220 > size.height) {
-          top = _mousePos.dy - 220 - 16;
+        if (top + est.height > size.height) {
+          top = _mousePos.dy - est.height - 16;
         }
         if (left < 0) left = 0;
         if (top < 0) top = 0;

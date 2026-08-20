@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:system_tray/system_tray.dart';
 import 'package:local_notifier/local_notifier.dart';
@@ -20,15 +21,27 @@ import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
+import 'package:screen_retriever/screen_retriever.dart';
+
+import 'services/startup_service.dart';
+import 'state/library_entries.dart';
+import 'utils/image_utils.dart';
+import 'utils/window_bounds.dart';
+import 'widgets/library_view.dart';
+import 'widgets/onboarding_wizard.dart';
+import 'widgets/live_preview_popup.dart';
 import 'widgets/horizontal_mouse_scrollable.dart';
+import 'widgets/neumorphic/neu_checkbox.dart';
+import 'widgets/neumorphic/neu_switch.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
 import 'state/automation_decisions.dart';
+import 'theme/neu_material_themes.dart';
 import 'theme/neu_theme.dart';
 import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
 
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await localNotifier.setup(
     appName: 'Twitch Streamlink GUI',
@@ -38,15 +51,58 @@ void main() async {
   await windowManager.ensureInitialized();
 
   final config = await StorageService().loadConfig();
+  // First run = no config file at all. Computed once here so a returning user
+  // (config exists, even a partial one) can never see the wizard.
+  final bool isFirstRun = config == null;
   AppSettings settings = AppSettings();
   if (config != null && config['settings'] is Map<String, dynamic>) {
     settings = AppSettings.fromJson(config['settings']);
   }
 
-  final bool shouldCenter = settings.windowX == null || settings.windowY == null;
+  // Autostart launches pass --start-minimized; the manual-launch preference
+  // does the same thing without the flag.
+  final bool startMinimized =
+      args.contains('--start-minimized') || settings.startMinimized;
+
+  // Re-writing the Run value at every launch silently heals a moved install.
+  if (settings.launchAtStartup) {
+    StartupService().sync(true);
+  }
+
+  // Saved geometry may reference a monitor that no longer exists (undocked
+  // laptop) or carry hand-edited garbage; restore only bounds that are
+  // actually reachable. The native runner applies the same guard to its
+  // pre-Flutter registry positioning.
+  Rect? restoredBounds;
+  try {
+    final displays = await screenRetriever.getAllDisplays();
+    final displayRects = <Rect>[
+      for (final d in displays)
+        Rect.fromLTWH(
+          d.visiblePosition?.dx ?? 0,
+          d.visiblePosition?.dy ?? 0,
+          d.size.width,
+          d.size.height,
+        ),
+    ];
+    if (displayRects.isNotEmpty) {
+      restoredBounds = sanitizeWindowBounds(
+        x: settings.windowX,
+        y: settings.windowY,
+        width: settings.windowWidth,
+        height: settings.windowHeight,
+        displays: displayRects,
+      );
+    }
+  } catch (_) {
+    // Fall back to the raw saved values below.
+  }
+
+  final bool shouldCenter = restoredBounds == null &&
+      (settings.windowX == null || settings.windowY == null);
 
   WindowOptions windowOptions = WindowOptions(
-    size: Size(settings.windowWidth, settings.windowHeight),
+    size: restoredBounds?.size ?? Size(settings.windowWidth, settings.windowHeight),
     center: shouldCenter,
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
@@ -54,23 +110,31 @@ void main() async {
   );
 
   windowManager.waitUntilReadyToShow(windowOptions, () async {
-    if (!shouldCenter) {
+    if (restoredBounds != null) {
+      await windowManager.setBounds(restoredBounds);
+    } else if (settings.windowX != null && settings.windowY != null) {
       await windowManager.setPosition(Offset(settings.windowX!, settings.windowY!));
     }
-    if (settings.isWindowMaximized) {
+    if (settings.isWindowMaximized && !startMinimized) {
       await windowManager.maximize();
     }
-    await windowManager.show();
-    await windowManager.focus();
+    if (!startMinimized) {
+      // When starting minimized the native runner also suppressed its
+      // first-frame Show(), so not calling show() here means no flash at all.
+      await windowManager.show();
+      await windowManager.focus();
+    }
     await windowManager.setPreventClose(true);
     await windowManager.setMinimumSize(const Size(380, 500));
   });
 
-  runApp(const TwitchStreamlinkApp());
+  runApp(TwitchStreamlinkApp(isFirstRun: isFirstRun));
 }
 
 class TwitchStreamlinkApp extends StatelessWidget {
-  const TwitchStreamlinkApp({super.key});
+  const TwitchStreamlinkApp({super.key, this.isFirstRun = false});
+
+  final bool isFirstRun;
 
   @override
   Widget build(BuildContext context) {
@@ -90,15 +154,14 @@ class TwitchStreamlinkApp extends StatelessWidget {
             cardColor: themeNotifier.surfaceColor,
             colorScheme: ColorScheme.light(
               primary: themeNotifier.primaryColor,
-              secondary: const Color(0xFF00C853),
+              secondary: NeuTheme.live,
               surface: themeNotifier.surfaceColor,
-              background: themeNotifier.backgroundColor,
-              error: const Color(0xFFFF4D4D),
+              error: NeuTheme.danger,
             ),
             textTheme: const TextTheme(
-              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
-              bodyLarge: TextStyle(color: Color(0xFF2D3748)),
-              bodyMedium: TextStyle(color: Color(0xFF718096)),
+              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: NeuTheme.lightText),
+              bodyLarge: TextStyle(color: NeuTheme.lightText),
+              bodyMedium: TextStyle(color: NeuTheme.lightSubtext),
             ),
           ),
           darkTheme: ThemeData(
@@ -109,18 +172,17 @@ class TwitchStreamlinkApp extends StatelessWidget {
             cardColor: themeNotifier.surfaceColor,
             colorScheme: ColorScheme.dark(
               primary: themeNotifier.primaryColor,
-              secondary: const Color(0xFF00E6A5),
+              secondary: NeuTheme.live,
               surface: themeNotifier.surfaceColor,
-              background: themeNotifier.backgroundColor,
-              error: const Color(0xFFFF4D4D),
+              error: NeuTheme.danger,
             ),
             textTheme: const TextTheme(
-              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFF0F4F8)),
-              bodyLarge: TextStyle(color: Color(0xFFF0F4F8)),
-              bodyMedium: TextStyle(color: Color(0xFF8A96A6)),
+              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: NeuTheme.darkText),
+              bodyLarge: TextStyle(color: NeuTheme.darkText),
+              bodyMedium: TextStyle(color: NeuTheme.darkSubtext),
             ),
           ),
-          home: const MainScreen(),
+          home: MainScreen(isFirstRun: isFirstRun),
         );
       },
     );
@@ -128,7 +190,9 @@ class TwitchStreamlinkApp extends StatelessWidget {
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  const MainScreen({super.key, this.isFirstRun = false});
+
+  final bool isFirstRun;
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -148,6 +212,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   TwitchChannel? _selectedChannel;
   bool _isGlobalLoading = false;
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _sidebarSearchFocus = FocusNode();
+  final GlobalKey<SidebarPanelState> _sidebarKey = GlobalKey<SidebarPanelState>();
   bool _isAdding = false;
   
   AppSettings _settings = AppSettings();
@@ -167,14 +233,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   List<TwitchVideo> _channelVods = [];
   bool _isLoadingVods = false;
   String? _vodsError;
-  double _vodScale = 350.0;
-  double _vodTitleFontSize = 14.0;
 
   final TextEditingController _vodSearchController = TextEditingController();
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
   String? _vodPaginationCursor;
-  bool _showGamesOnThumbnails = true;
   final Set<String> _selectedGamesFilter = {};
   bool _isWebTokenExpired = false;
   bool _isMultiSelectMode = false;
@@ -185,6 +248,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Map<String, String> _downloadedVodsRegistry = {};
   final Map<String, TwitchVideo> _activePlayingVideos = {};
   List<TwitchVideo> _recentWatchedVods = [];
+
+  /// Library screen state. Entries are CACHED - built (with file stats) only
+  /// on open/refresh/mutation, never inside build(), because download-progress
+  /// setState storms would otherwise stat every file per frame.
+  bool _showLibraryView = false;
+  List<LibraryEntry> _libraryEntries = [];
 
   bool _consoleCollapsed = true;
   String? _selectedConsoleTabKey = '__downloads_manager__';
@@ -287,16 +356,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         });
         _checkDownloadedVods();
         _saveChannels();
+        if (_showLibraryView) _refreshLibraryEntries();
         _showSnackBar('Download completed: $title', isError: false);
-        try {
-          final notification = LocalNotification(
-            title: 'VOD Download Completed',
-            body: title,
-            silent: false,
-          );
-          notification.show();
-        } catch (e) {
-          print('[Download Notification Error]: $e');
+        if (_settings.notifyDownloadComplete) {
+          try {
+            final notification = LocalNotification(
+              title: 'VOD Download Completed',
+              body: title,
+              silent: false,
+            );
+            notification.show();
+          } catch (e) {
+            print('[Download Notification Error]: $e');
+          }
         }
       }
     };
@@ -318,10 +390,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _refreshAllChannels();
     });
 
-    // Automated update check on startup
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // First-run wizard fully resolves BEFORE the update check, so the
+      // update prompt can never stack under (or over) the wizard dialog.
+      await _runOnboarding();
       _checkForAppUpdates();
     });
+  }
+
+  Future<void> _runOnboarding() async {
+    if (!widget.isFirstRun || _settings.onboardingCompleted) return;
+    if (!mounted) return;
+    final AppSettings? configured =
+        await OnboardingWizard.show(context, settings: _settings);
+    if (!mounted) return;
+    setState(() {
+      // Skipped/dismissed still marks completion - the wizard never returns.
+      _settings = configured ?? _settings.copyWith(onboardingCompleted: true);
+    });
+    await _saveChannels();
+    if (configured != null) {
+      if (_settings.launchAtStartup) {
+        StartupService().sync(true);
+      }
+      if (_settings.twitchOauthToken.trim().isNotEmpty) {
+        _loadFollowedChannels();
+      }
+    }
   }
 
   Future<void> _checkForAppUpdates() async {
@@ -392,8 +487,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 Navigator.pop(context);
                 _performAppUpdate(info);
               },
-              icon: const Icon(Icons.download, size: 16, color: Colors.white),
-              label: const Text('Update Now & Restart', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              icon: Icon(Icons.download, size: 16, color: themeNotifier.onPrimaryColor),
+              label: Text('Update Now & Restart', style: TextStyle(color: themeNotifier.onPrimaryColor, fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -533,27 +628,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _pulseController?.dispose();
     _playerService.stopAll();
     _searchController.dispose();
+    _sidebarSearchFocus.dispose();
     _oauthServer?.close(force: true);
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
     super.dispose();
   }
 
-  Future<void> _initSystemTray() async {
-    final menu = Menu();
-    await menu.buildFrom([
-      MenuItemLabel(label: 'Show App', onClicked: (menuItem) => windowManager.show()),
-      MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => windowManager.hide()),
-      MenuSeparator(),
-      MenuItemLabel(label: 'Exit', onClicked: (menuItem) => _handleAppExitRequest()),
-    ]);
+  /// Signature of the last-built tray menu. system_tray 2.0.3 leaks the
+  /// native HMENU on every setContextMenu, so the menu is only rebuilt when
+  /// the live-favorites set actually changes - never per poll.
+  String? _traySignature;
 
+  Future<void> _initSystemTray() async {
     await _systemTray.initSystemTray(
       title: "Twitch Streamlink GUI",
       iconPath: 'assets/app_icon.ico',
       toolTip: "Twitch Streamlink GUI",
     );
-    await _systemTray.setContextMenu(menu);
+    await _rebuildTrayMenu();
 
     _systemTray.registerSystemTrayEventHandler((eventName) {
       if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
@@ -563,6 +656,62 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _systemTray.popUpContextMenu();
       }
     });
+  }
+
+  Future<void> _rebuildTrayMenu() async {
+    final liveNames = _settings.trayLiveMenuEnabled
+        ? _channels.where((c) => c.isLive).map((c) => c.username).take(5).toList()
+        : <String>[];
+    final signature = liveNames.join('|');
+    if (signature == _traySignature) return;
+    _traySignature = signature;
+
+    try {
+      final menu = Menu();
+      await menu.buildFrom([
+        for (final name in liveNames)
+          MenuItemLabel(
+            label: 'Watch $name',
+            onClicked: (menuItem) => _launchTrayChannel(name),
+          ),
+        if (liveNames.isNotEmpty) MenuSeparator(),
+        MenuItemLabel(label: 'Show App', onClicked: (menuItem) => windowManager.show()),
+        MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => windowManager.hide()),
+        MenuItemLabel(
+          label: 'Open Library',
+          onClicked: (menuItem) async {
+            await windowManager.show();
+            await windowManager.focus();
+            _openLibrary();
+          },
+        ),
+        MenuSeparator(),
+        MenuItemLabel(label: 'Exit', onClicked: (menuItem) => _handleAppExitRequest()),
+      ]);
+      await _systemTray.setContextMenu(menu);
+      await _systemTray.setToolTip(
+        liveNames.isEmpty
+            ? 'Twitch Streamlink GUI'
+            : 'Twitch Streamlink GUI - ${liveNames.length} favorite${liveNames.length == 1 ? '' : 's'} live',
+      );
+      await _systemTray.setImage(
+        liveNames.isEmpty ? 'assets/app_icon.ico' : 'assets/app_icon_live.ico',
+      );
+    } catch (_) {
+      // A failed tray refresh must never break polling; retry on next change.
+      _traySignature = null;
+    }
+  }
+
+  /// Resolves the channel by name AT CLICK TIME: menu items can outlive a
+  /// poll cycle, and capturing the channel object would launch with stale
+  /// title/game metadata (or a channel that just went offline).
+  void _launchTrayChannel(String username) {
+    final index = _channels.indexWhere((c) => c.username == username);
+    if (index == -1) return;
+    final channel = _channels[index];
+    if (!channel.isLive) return;
+    _launchChannelStream(channel);
   }
 
   Future<void> _handleAppExitRequest() async {
@@ -591,7 +740,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
               ),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                // White on the fixed danger red, theme-independent.
+                style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
                 onPressed: () => Navigator.pop(context, true),
                 child: const Text('Exit & Save Queue'),
               ),
@@ -654,14 +804,38 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   void onWindowClose() async {
     final isPreventClose = await windowManager.isPreventClose();
-    if (isPreventClose) {
-      await windowManager.hide();
+    if (!isPreventClose) return;
+    if (_settings.closeAction == 'exit') {
+      await _handleAppExitRequest();
+      return;
     }
+    await windowManager.hide();
+    _maybeShowTrayNotice();
   }
 
   @override
   void onWindowMinimize() async {
-    await windowManager.hide();
+    // Default is the Windows convention (taskbar); 'tray' preserves the old
+    // behavior for users who want it.
+    if (_settings.minimizeAction == 'tray') {
+      await windowManager.hide();
+    }
+  }
+
+  /// One-time heads-up that closing the window left the app running.
+  Future<void> _maybeShowTrayNotice() async {
+    if (_settings.trayNoticeShown) return;
+    _settings.trayNoticeShown = true;
+    await _saveChannels();
+    try {
+      final notification = LocalNotification(
+        title: 'Still running in the tray',
+        body:
+            'Twitch Streamlink GUI keeps monitoring your favorites. Right-click the tray icon and choose Exit to quit for real. You can change the close behavior in Settings.',
+        silent: true,
+      );
+      await notification.show();
+    } catch (_) {}
   }
 
   void _checkDownloadedVods() {
@@ -754,7 +928,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         return AlertDialog(
           title: Row(
             children: [
-              const Icon(Icons.folder_copy, color: Colors.orangeAccent),
+              Icon(Icons.folder_copy, color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
               const SizedBox(width: 10),
               Text('Configure Download Folder', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
@@ -786,7 +960,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   }
                 }
               },
-              child: const Text('Browse & Set Folder', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              child: Text('Browse & Set Folder', style: TextStyle(color: themeNotifier.onPrimaryColor, fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -857,8 +1031,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           setState(() {
             _settings = AppSettings.fromJson(settingsJson);
             _sidebarCollapsed = _settings.sidebarCollapsed;
-            _sidebarTab = _settings.activeSidebarTab;
-            _showGamesOnThumbnails = _settings.showGamesOnThumbnails;
+            // The Followed/Live tabs are hidden without a token; restoring a
+            // persisted tab index would strand the user on an invisible tab.
+            _sidebarTab = _settings.twitchOauthToken.trim().isEmpty
+                ? 0
+                : _settings.activeSidebarTab;
             themeNotifier.setDarkTheme(_settings.isDarkTheme);
              
             if (_settings.unfinishedDownloads.isNotEmpty) {
@@ -878,6 +1055,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               parseHexColor(_settings.darkAccentColorHex, NeuTheme.defaultDarkAccent),
             );
             themeNotifier.updateTheme(
+              // User-configurable hex settings; these are their defaults, not theme colors.
               activeProgress: parseHexColor(_settings.activeProgressColorHex, const Color(0xFF9146FF)),
               watchedProgress: parseHexColor(_settings.watchedProgressColorHex, const Color(0x804CAF50)),
             );
@@ -905,14 +1083,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
 
       _channels.clear();
+      // No seeded starter channel: a stranger's channel confused new users
+      // and fired unsolicited API calls and go-live notifications on first
+      // launch. The welcome screen points at the sidebar search instead.
       if (loadedChannels.isNotEmpty) {
         _channels.addAll(loadedChannels);
-      } else {
-        final defaults = ['limmy'];
-        for (var name in defaults) {
-          _channels.add(TwitchChannel(username: name));
-        }
-        await _saveChannels();
       }
 
       await _refreshAllChannels(isInitialLoad: true);
@@ -1203,14 +1378,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _settings,
     );
 
-    try {
-      await LocalNotification(
-        title: 'Auto-Playing Live Stream',
-        body: '${target.username} is now live\nPlaying ${target.game ?? "Twitch"}',
-        silent: false,
-      ).show();
-    } catch (e) {
-      print('[Auto-Play Notification Error]: $e');
+    if (_settings.notifyAutoPlay) {
+      try {
+        await LocalNotification(
+          title: 'Auto-Playing Live Stream',
+          body: '${target.username} is now live\nPlaying ${target.game ?? "Twitch"}',
+          silent: false,
+        ).show();
+      } catch (e) {
+        print('[Auto-Play Notification Error]: $e');
+      }
     }
   }
 
@@ -1263,14 +1440,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             overrideDisablePostProcessing: channel.autoDownloadFastDownload ? true : null,
           );
 
-          try {
-            await LocalNotification(
-              title: 'Auto-Downloading VOD',
-              body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
-              silent: false,
-            ).show();
-          } catch (e) {
-            print('[Auto-Download Notification Error]: $e');
+          if (_settings.notifyAutoDownloadStart) {
+            try {
+              await LocalNotification(
+                title: 'Auto-Downloading VOD',
+                body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
+                silent: false,
+              ).show();
+            } catch (e) {
+              print('[Auto-Download Notification Error]: $e');
+            }
           }
         }
       } catch (e) {
@@ -1311,7 +1490,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
         if (!_previouslyLiveFavoriteUsernames.contains(cleanName)) {
           _previouslyLiveFavoriteUsernames.add(cleanName);
-          if (!isInitialLoad) {
+          if (!isInitialLoad && _settings.notifyWentLive) {
             try {
               final gameText = channel.game ?? 'Twitch';
               final titleText = channel.streamTitle ?? 'Streaming Live!';
@@ -1325,6 +1504,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 await windowManager.focus();
                 
                 setState(() {
+                  _showLibraryView = false;
                   _selectedChannel = channel;
                 });
                 _fetchVodsForChannel(channel);
@@ -1381,6 +1561,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
 
     _prefetchVodsInBackground(_channels);
+    _rebuildTrayMenu();
   }
 
   Future<void> _addChannel(String name) async {
@@ -1445,8 +1626,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
               ),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger),
                 onPressed: () => Navigator.pop(context, true),
+                // White on the fixed danger red, theme-independent.
                 child: const Text('Remove',
                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
@@ -1566,13 +1748,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _showSnackBar(String message, {required bool isError}) {
+    // Errors use the fixed danger red (white text); info follows the accent.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           message,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+          style: TextStyle(
+            color: isError ? Colors.white : themeNotifier.onPrimaryColor,
+            fontWeight: FontWeight.w500,
+          ),
         ),
-        backgroundColor: isError ? Colors.redAccent : const Color(0xFF9146FF),
+        backgroundColor: isError ? NeuTheme.danger : themeNotifier.primaryColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         margin: const EdgeInsets.all(12),
@@ -1591,6 +1777,26 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _showSnackBar('Local watch progress history cleared!', isError: false);
   }
 
+  /// Launches [channel]'s live stream using ITS OWN metadata. The old
+  /// double-tap path received only a username and looked title/game/live up on
+  /// _selectedChannel, so double-tapping a non-selected row launched with a
+  /// different channel's metadata.
+  void _launchChannelStream(TwitchChannel channel) {
+    if (_playerService.runningChannels
+        .contains(channel.username.toLowerCase().trim())) {
+      return;
+    }
+    _playerService.launchStreamlinkForLive(
+      channel.username,
+      channel.isLive,
+      channel.streamTitle,
+      channel.game,
+      _settings,
+    );
+  }
+
+  UpdateInfo? _pendingUpdateInfo;
+
   void _showSettingsDialog() {
     SettingsDialog.show(
       context,
@@ -1600,21 +1806,26 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       onConnectAccount: _startOAuthServer,
       openExternalLink: _openExternalLink,
       onClearWatchHistory: _clearWatchProgress,
-      onUpdateAvailable: (info) {
-        // Offer the update once the dialog has closed, so the prompt is not
-        // stacked behind the settings modal.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && !_isUpdatePromptOpen && !_isUpdateInProgress) {
-            _showUpdatePromptDialog(info);
-          }
-        });
-      },
+      // Stash it; the prompt is offered AFTER the dialog closes. The old
+      // post-frame callback fired while Settings was still open and stacked
+      // the prompt behind the modal.
+      onUpdateAvailable: (info) => _pendingUpdateInfo = info,
       onSave: (updatedSettings) async {
+        final startupChanged =
+            _settings.launchAtStartup != updatedSettings.launchAtStartup;
         setState(() {
           _settings = updatedSettings;
           _isWebTokenExpired = false;
         });
         await _saveChannels();
+
+        if (startupChanged) {
+          StartupService().sync(_settings.launchAtStartup);
+        }
+        // The tray menu preference may have flipped; the signature gate makes
+        // this a no-op otherwise.
+        _traySignature = null;
+        _rebuildTrayMenu();
 
         if (_settings.twitchOauthToken.trim().isNotEmpty) {
           _loadFollowedChannels();
@@ -1628,98 +1839,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
         _showSnackBar('Settings saved successfully!', isError: false);
       },
-    );
-  }
-
-  Widget _buildLivePreviewPopup(TwitchChannel channel) {
-    final cleanName = channel.username.toLowerCase().trim();
-    final cacheBuster = DateTime.now().millisecondsSinceEpoch ~/ 10000;
-    final thumbUrl = 'https://static-cdn.jtvnw.net/previews-ttv/live_user_$cleanName-320x180.jpg?t=$cacheBuster';
-    
-    return Container(
-      width: 260,
-      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Image.network(
-                thumbUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                    child: Center(
-                      child: Icon(Icons.live_tv, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Colors.redAccent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        channel.username,
-                        style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (channel.viewerCount != null && channel.viewerCount != '0') ...[
-                      Icon(Icons.remove_red_eye, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 12),
-                      const SizedBox(width: 4),
-                      Text(
-                        channel.viewerCount!,
-                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  channel.streamTitle ?? 'Streaming Live!',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                ),
-                if (channel.game != null && channel.game != 'Offline') ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    channel.game!,
-                    style: TextStyle(
-                      color: themeNotifier.primaryColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    ).then((_) {
+      final info = _pendingUpdateInfo;
+      _pendingUpdateInfo = null;
+      if (info != null && mounted && !_isUpdatePromptOpen && !_isUpdateInProgress) {
+        _showUpdatePromptDialog(info);
+      }
+    });
   }
 
   @override
@@ -1731,6 +1857,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final effectiveSidebarCollapsed = (isNarrow || isVertical) ? true : _sidebarCollapsed;
     
     final sidebar = SidebarPanel(
+      key: _sidebarKey,
+      searchFocusNode: _sidebarSearchFocus,
       channels: _channels,
       followedChannels: _followedChannels,
       selectedChannel: _selectedChannel,
@@ -1747,6 +1875,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       searchController: _searchController,
       onChannelSelected: (channel) {
         setState(() {
+          _showLibraryView = false;
           _selectedChannel = channel;
           _channelVods.clear();
           _selectedGamesFilter.clear();
@@ -1756,16 +1885,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           _fetchVodsForChannel(channel);
         }
       },
-      onChannelDoubleTapped: (username) {
-        if (_playerService.runningChannels.contains(username)) return;
-        _playerService.launchStreamlinkForLive(
-          username,
-          _selectedChannel?.isLive ?? false,
-          _selectedChannel?.streamTitle,
-          _selectedChannel?.game,
-          _settings
-        );
-      },
+      onChannelDoubleTapped: _launchChannelStream,
+      onChannelPlayPressed: _launchChannelStream,
       onAddChannel: _addChannel,
       onToggleFavorite: _toggleFavorite,
       onToggleCollapse: (collapsed) {
@@ -1777,6 +1898,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       },
       onGoToDashboard: () {
         setState(() {
+          _showLibraryView = false;
           _selectedChannel = null;
         });
       },
@@ -1807,22 +1929,48 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
       },
       onShowSettings: _showSettingsDialog,
-      buildLivePreviewPopup: _buildLivePreviewPopup,
+      onShowLibrary: _openLibrary,
     );
 
     final contentArea = Expanded(
       child: Container(
         color: themeNotifier.backgroundColor,
-        child: _selectedChannel == null
-            ? _buildWelcomeScreen(theme)
-            : _buildDashboard(theme, _selectedChannel!),
+        child: _showLibraryView
+            ? _buildLibraryView()
+            : _selectedChannel == null
+                ? _buildWelcomeScreen(theme)
+                : _buildDashboard(theme, _selectedChannel!),
       ),
     );
 
     return Scaffold(
-      body: Column(
+      body: CallbackShortcuts(
+        bindings: {
+          // Focus the sidebar search from anywhere. In layouts without the
+          // inline field the search popover is the affordance instead.
+          const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
+            if (_sidebarCollapsed || isNarrow || isVertical) {
+              // Expand first on wide layouts where the user collapsed it.
+              if (!isNarrow && !isVertical && _sidebarCollapsed) {
+                setState(() {
+                  _sidebarCollapsed = false;
+                  _settings.sidebarCollapsed = false;
+                });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _sidebarKey.currentState?.focusSearch();
+                });
+                return;
+              }
+            }
+            _sidebarKey.currentState?.focusSearch();
+          },
+        },
+        child: Focus(
+          autofocus: true,
+          child: Column(
         children: [
           NeuTitleBar(
+            liveCount: _channels.where((c) => c.isLive).length,
             isDarkTheme: themeNotifier.isDarkTheme,
             onThemeToggle: (isDark) {
               setState(() {
@@ -1848,6 +1996,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   ),
           ),
         ],
+          ),
+        ),
       ),
     );
   }
@@ -1890,17 +2040,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    theme.primaryColor.withOpacity(0.15),
+                    theme.primaryColor.withValues(alpha: 0.15),
                     themeNotifier.surfaceColor,
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.primaryColor.withOpacity(0.3), width: 1.5),
+                border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3), width: 1.5),
                 boxShadow: [
                   BoxShadow(
-                    color: theme.primaryColor.withOpacity(0.05),
+                    color: theme.primaryColor.withValues(alpha: 0.05),
                     blurRadius: 12,
                     spreadRadius: 2,
                   ),
@@ -2010,7 +2160,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           child: Tooltip(
                             message: '${video.title}\nResume at $progressPct% (${video.duration})',
                             child: GestureDetector(
-                              onTap: () => _playVod(video, 'VOD'),
+                              onTap: () => _playVod(video, _channelNameForVod(video.id)),
                               child: AnimatedContainer(
                                 duration: const Duration(milliseconds: 180),
                                 child: Container(
@@ -2051,6 +2201,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                               if (isHovered)
                                                 Positioned.fill(
                                                   child: Container(
+                                                    // Intentional: scrim over video artwork, theme-independent.
                                                     color: Colors.black45,
                                                     child: Center(
                                                       child: Container(
@@ -2060,12 +2211,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                           shape: BoxShape.circle,
                                                           boxShadow: [
                                                             BoxShadow(
-                                                              color: theme.primaryColor.withOpacity(0.5),
+                                                              color: theme.primaryColor.withValues(alpha: 0.5),
                                                               blurRadius: 10,
                                                             )
                                                           ],
                                                         ),
-                                                        child: const Icon(Icons.play_arrow, color: Colors.white, size: 24),
+                                                        child: Icon(Icons.play_arrow, color: themeNotifier.onPrimaryColor, size: 24),
                                                       ),
                                                     ),
                                                   ),
@@ -2073,10 +2224,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                               Positioned(
                                                 bottom: 4,
                                                 right: 6,
+                                                // Intentional: white-on-black pill over video artwork, theme-independent.
                                                 child: Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                                   decoration: BoxDecoration(
-                                                    color: Colors.black.withOpacity(0.75),
+                                                    color: Colors.black.withValues(alpha: 0.75),
                                                     borderRadius: BorderRadius.circular(4),
                                                   ),
                                                   child: Text(
@@ -2092,6 +2244,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                   right: 0,
                                                   child: Container(
                                                     height: 3,
+                                                    // Intentional: track scrim over video artwork.
                                                     color: Colors.black45,
                                                     child: Align(
                                                       alignment: Alignment.centerLeft,
@@ -2171,8 +2324,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   Icon(Icons.portable_wifi_off, size: 36, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                   const SizedBox(height: 10),
                   Text(
-                    'No favorite channels are currently live.',
+                    _channels.isEmpty
+                        ? 'Add your first channel: open the sidebar search (Ctrl+F), type a name, press Enter.'
+                        : 'No favorite channels are currently live.',
                     style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
@@ -2212,7 +2368,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     decoration: NeuTheme.raisedDecoration(
                       themeNotifier.isDarkTheme,
                       radius: 12,
-                      border: Border.all(color: theme.primaryColor.withOpacity(0.25)),
+                      border: Border.all(color: theme.primaryColor.withValues(alpha: 0.25)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2222,7 +2378,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             CircleAvatar(
                               radius: 18,
                               backgroundImage: channel.avatarUrl != null && channel.avatarUrl!.isNotEmpty
-                                  ? NetworkImage(channel.avatarUrl!)
+                                  ? resizedAvatar(channel.avatarUrl!)
                                   : null,
                               backgroundColor: Colors.transparent,
                               child: channel.avatarUrl == null || channel.avatarUrl!.isEmpty
@@ -2261,7 +2417,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             ),
                             Row(
                               children: [
-                                const Icon(Icons.remove_red_eye, size: 10, color: Colors.redAccent),
+                                Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
                                 const SizedBox(width: 4),
                                 Text(
                                   channel.viewerCount != null ? '${channel.viewerCount}' : '0',
@@ -2278,7 +2434,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
                 return HoverOverlayMenu(
                   trigger: itemCard,
-                  menu: _buildLivePreviewPopup(channel),
+                  menu: LivePreviewPopup(channel: channel),
                 );
               },
             ),
@@ -2311,6 +2467,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               _buildQuickActionCard(
                 context: context,
                 theme: theme,
+                icon: Icons.video_library,
+                title: 'Library',
+                subtitle:
+                    '${_downloadedVodsRegistry.length} downloaded VOD${_downloadedVodsRegistry.length == 1 ? '' : 's'} & history',
+                onTap: _openLibrary,
+              ),
+              _buildQuickActionCard(
+                context: context,
+                theme: theme,
                 icon: Icons.account_circle,
                 title: 'Twitch Account',
                 subtitle: _authenticatedUserLogin != null ? 'Logged in as $_authenticatedUserLogin' : 'Connect Account',
@@ -2328,46 +2493,256 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       ),
     ),
   ),
-  ConsolePanel(
-          logNotifier: _logNotifier,
-          playerTabTitles: _playerService.playerTabTitles,
-          playingVodIds: _playerService.playingVodIds,
-          runningChannels: _playerService.runningChannels,
-          selectedConsoleTabKey: _selectedConsoleTabKey,
-          consoleCollapsed: _consoleCollapsed,
-          activeDownloadsProgress: _playerService.activeDownloadsProgress,
-          activeDownloadTasks: _playerService.activeDownloadTasks,
-          downloadQueue: _playerService.downloadQueue,
-          queuedDownloadTasks: _playerService.queuedDownloadTasks,
-          downloadTitles: _playerService.downloadTitles,
-          onCancelDownload: (vodId) {
-            final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
-            _cancelVodDownload(vodId, channel);
-          },
-          onTabSelected: (key) {
-            setState(() {
-              _selectedConsoleTabKey = key;
-              _consoleCollapsed = false;
-            });
-          },
-          onCloseTab: (key) {
-            setState(() {
-              _playerService.playerTabTitles.remove(key);
-              if (_selectedConsoleTabKey == key) {
-                _selectedConsoleTabKey = '__downloads_manager__';
-              }
-            });
-          },
-          onToggleCollapse: () {
-            setState(() {
-              _consoleCollapsed = !_consoleCollapsed;
-            });
-          },
-          onKillProcess: (key) {
-            _playerService.killProcess(key);
-          },
-        ),
+  _buildConsolePanel(),
       ],
+    );
+  }
+
+  /// Opens the Library screen with a fresh scan of the download registry.
+  void _openLibrary() {
+    _checkDownloadedVods();
+    _refreshLibraryEntries();
+    setState(() {
+      _showLibraryView = true;
+    });
+  }
+
+  /// Rebuilds the cached Library rows (the only place file stats happen).
+  void _refreshLibraryEntries() {
+    final entries = buildLibraryEntries(
+      registry: _downloadedVodsRegistry,
+      recents: _recentWatchedVods,
+      localProgress: _localVodsProgress,
+      channelNames: _playerService.downloadChannelNames,
+      downloadRoot: _settings.vodDownloadFolder,
+      statFile: (path) {
+        try {
+          final file = File(path);
+          if (!file.existsSync()) return null;
+          final stat = file.statSync();
+          return (size: stat.size, modified: stat.modified);
+        } catch (_) {
+          return null;
+        }
+      },
+    );
+    if (mounted) {
+      setState(() {
+        _libraryEntries = entries;
+      });
+    }
+  }
+
+  /// Channel a VOD belongs to, best-effort: the registry path's channel
+  /// folder, then this session's download bookkeeping. The recents carousel
+  /// previously hardcoded 'VOD', which made _playVod look for the local file
+  /// under `<root>/VOD/` and re-stream VODs that were sitting on disk.
+  String _channelNameForVod(String vodId) {
+    final path = _downloadedVodsRegistry[vodId];
+    if (path != null) {
+      final parsed = channelFromDownloadPath(path, _settings.vodDownloadFolder);
+      if (parsed != null && parsed.isNotEmpty) return parsed;
+    }
+    return _playerService.downloadChannelNames[vodId] ?? 'VOD';
+  }
+
+  /// Opens Explorer with [filePath] selected. Launched detached via
+  /// explorer.exe so the shell window is not inside our kill-on-close job.
+  Future<void> _revealInExplorer(String filePath) async {
+    try {
+      await Process.start(
+        'explorer.exe',
+        ['/select,${filePath.replaceAll('/', r'\')}'],
+        mode: ProcessStartMode.detached,
+      );
+    } catch (e) {
+      _showSnackBar('Could not open folder: $e', isError: true);
+    }
+  }
+
+  void _playLibraryEntry(LibraryEntry entry) {
+    // Registry-only entries carry no Twitch metadata; a minimal synthesized
+    // video is enough for _playVod's local-file path.
+    final video = entry.video ??
+        TwitchVideo(
+          id: entry.vodId,
+          title: entry.title,
+          duration: '',
+          thumbnailUrl: '',
+          viewCount: '0',
+          publishedAt: entry.modified ?? DateTime.now(),
+        );
+    _playVod(video, entry.channel);
+  }
+
+  Future<void> _deleteLibraryEntry(LibraryEntry entry) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete Download?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+        backgroundColor: themeNotifier.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Text(
+          'Delete the downloaded file for "${entry.title}"? This cannot be undone.',
+          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+          ),
+          ElevatedButton(
+            // White on the fixed danger red, theme-independent.
+            style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _deleteDownloadedVod(entry.vodId, entry.channel);
+    _refreshLibraryEntries();
+  }
+
+  Future<void> _removeLibraryEntryFromHistory(LibraryEntry entry) async {
+    setState(() {
+      _recentWatchedVods.removeWhere((v) => v.id == entry.vodId);
+      _localVodsProgress.remove(entry.vodId);
+    });
+    await _storageService.saveRecentWatchedVods(
+      _recentWatchedVods.map((v) => v.toJson()).toList(),
+    );
+    await _saveChannels();
+    _refreshLibraryEntries();
+  }
+
+  Widget _buildLibraryView() {
+    return Column(
+      children: [
+        Expanded(
+          child: LibraryView(
+            entries: _libraryEntries,
+            onRefresh: () {
+              _checkDownloadedVods();
+              _refreshLibraryEntries();
+            },
+            onPlay: _playLibraryEntry,
+            onOpenFolder: (entry) {
+              if (entry.filePath != null) _revealInExplorer(entry.filePath!);
+            },
+            onDelete: _deleteLibraryEntry,
+            onRemoveFromHistory: _removeLibraryEntryFromHistory,
+          ),
+        ),
+        _buildConsolePanel(),
+      ],
+    );
+  }
+
+  /// True when [key]'s underlying process is still alive or pending
+  /// (a running player, a live stream, or an active/queued download).
+  bool _consoleTabHasRunningProcess(String key) {
+    if (key.startsWith('dl-')) {
+      final vodId = key.substring(3);
+      return _playerService.activeDownloadProcesses.containsKey(vodId) ||
+          _playerService.downloadQueue.contains(vodId);
+    }
+    return _playerService.playingVodIds.contains(key) ||
+        _playerService.runningChannels.contains(key.replaceFirst('stream_', ''));
+  }
+
+  /// The single close-tab path for both the dashboard and welcome screens.
+  ///
+  /// The two screens used to wire divergent inline handlers: the dashboard's
+  /// never called removeKey (leaking the closed tab's log buffer) and neither
+  /// asked before killing a tab whose process was still running.
+  Future<void> _closeConsoleTab(String key) async {
+    if (_consoleTabHasRunningProcess(key)) {
+      final isDownload = key.startsWith('dl-');
+      final bool? stop = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(isDownload ? 'Cancel Download?' : 'Stop Process?',
+              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+          backgroundColor: themeNotifier.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Text(
+            isDownload
+                ? 'This download is still in progress. Closing the tab will cancel it and delete the partial file.'
+                : 'This process is still running. Closing the tab will stop it.',
+            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Keep Running', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+            ),
+            ElevatedButton(
+              // White on the fixed danger red, theme-independent.
+              style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(isDownload ? 'Cancel & Close' : 'Stop & Close'),
+            ),
+          ],
+        ),
+      );
+      if (stop != true) return;
+      if (isDownload) {
+        final vodId = key.substring(3);
+        final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
+        await _cancelVodDownload(vodId, channel);
+      } else {
+        _playerService.killProcess(key);
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _logNotifier.removeKey(key);
+      _playerService.playerTabTitles.remove(key);
+      if (_selectedConsoleTabKey == key) {
+        _selectedConsoleTabKey = _playerService.playerTabTitles.keys.isNotEmpty
+            ? _playerService.playerTabTitles.keys.first
+            : '__downloads_manager__';
+      }
+    });
+  }
+
+  /// The single ConsolePanel construction, shared by the dashboard and the
+  /// welcome screen (they previously carried diverged inline copies).
+  Widget _buildConsolePanel() {
+    return ConsolePanel(
+      logNotifier: _logNotifier,
+      playerTabTitles: _playerService.playerTabTitles,
+      playingVodIds: _playerService.playingVodIds,
+      runningChannels: _playerService.runningChannels,
+      selectedConsoleTabKey: _selectedConsoleTabKey,
+      consoleCollapsed: _consoleCollapsed,
+      activeDownloadsProgress: _playerService.activeDownloadsProgress,
+      activeDownloadTasks: _playerService.activeDownloadTasks,
+      downloadQueue: _playerService.downloadQueue,
+      queuedDownloadTasks: _playerService.queuedDownloadTasks,
+      downloadTitles: _playerService.downloadTitles,
+      activeProcessIds: _playerService.activeDownloadProcesses.keys.toSet(),
+      onCancelDownload: (vodId) {
+        final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
+        _cancelVodDownload(vodId, channel);
+      },
+      onTabSelected: (key) {
+        setState(() {
+          _selectedConsoleTabKey = key;
+          _consoleCollapsed = false;
+        });
+      },
+      onToggleCollapse: () {
+        setState(() {
+          _consoleCollapsed = !_consoleCollapsed;
+        });
+      },
+      onKillProcess: (key) {
+        _playerService.killProcess(key);
+      },
+      onCloseTab: _closeConsoleTab,
     );
   }
 
@@ -2406,7 +2781,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: theme.primaryColor.withOpacity(0.12),
+                      color: theme.primaryColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(icon, size: 20, color: theme.primaryColor),
@@ -2449,13 +2824,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       children: [
         // Main Dashboard Body
         Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(isCompact ? 12 : 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          // CustomScrollView so the VOD grid renders as a real SliverGrid and
+          // off-screen cards are culled; the old SingleChildScrollView +
+          // shrinkWrap GridView materialized every card at once.
+          child: CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.all(isCompact ? 12 : 24),
+                sliver: SliverMainAxisGroup(slivers: [
                 // Real-time Stats Card Widget
-                DashboardHeader(
+                SliverToBoxAdapter(child: DashboardHeader(
                   channel: channel,
                   pulseController: _pulseController!,
                   isPlaying: _playerService.runningChannels.contains(channel.username),
@@ -2472,10 +2850,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     if (mounted) setState(() {});
                   }),
                   openExternalLink: _openExternalLink,
-                ),
-                
+                )),
+
                 // VOD section (if OAuth token present)
                 if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
+                  SliverToBoxAdapter(child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                   SizedBox(height: isCompact ? 12 : 32),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2518,7 +2899,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.check_circle_outline, size: 16),
                                 label: const Text('Mark Watched', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: theme.primaryColor.withOpacity(0.2),
+                                  backgroundColor: theme.primaryColor.withValues(alpha: 0.2),
                                   foregroundColor: theme.primaryColor,
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
@@ -2540,8 +2921,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.download, size: 16),
                                 label: const Text('Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: Colors.green.withOpacity(0.2),
-                                  foregroundColor: Colors.greenAccent,
+                                  backgroundColor: NeuTheme.live.withValues(alpha: 0.15),
+                                  foregroundColor: NeuTheme.liveText(themeNotifier.isDarkTheme),
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
                                 onPressed: _selectedVodIds.isEmpty ? null : _bulkDownloadSelectedVods,
@@ -2551,8 +2932,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 icon: const Icon(Icons.delete_outline, size: 16),
                                 label: const Text('Delete Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: Colors.red.withOpacity(0.2),
-                                  foregroundColor: Colors.redAccent,
+                                  backgroundColor: NeuTheme.danger.withValues(alpha: 0.15),
+                                  foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
                                 onPressed: _selectedVodIds.isEmpty ? null : _bulkDeleteSelectedVods,
@@ -2614,19 +2995,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                         Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                         const SizedBox(width: 4),
                                         Text('Show All Games', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                                        Transform.scale(
-                                          scale: 0.7,
-                                          child: Switch(
-                                            value: _showGamesOnThumbnails,
-                                            activeColor: theme.primaryColor,
-                                            onChanged: (val) {
-                                              setState(() {
-                                                _showGamesOnThumbnails = val;
-                                                _settings.showGamesOnThumbnails = val;
-                                              });
-                                              _saveChannels();
-                                            },
-                                          ),
+                                        const SizedBox(width: 8),
+                                        NeuSwitch(
+                                          value: _settings.showGamesOnThumbnails,
+                                          onChanged: (val) {
+                                            setState(() {
+                                              _settings.showGamesOnThumbnails = val;
+                                            });
+                                            _saveChannels();
+                                          },
                                         ),
                                       ],
                                     ),
@@ -2662,24 +3039,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   SizedBox(
                                     width: 110,
                                     child: SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        trackHeight: 2,
-                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                        activeTrackColor: theme.primaryColor,
-                                        inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                        thumbColor: theme.primaryColor,
-                                        overlayColor: theme.primaryColor.withOpacity(0.12),
-                                      ),
+                                      data: neuSliderTheme(context),
                                       child: Slider(
-                                        value: _vodScale,
+                                        value: _settings.vodCardScale,
                                         min: 200.0,
                                         max: 600.0,
                                         onChanged: (val) {
                                           setState(() {
-                                            _vodScale = val;
+                                            _settings.vodCardScale = val;
                                           });
                                         },
+                                        onChangeEnd: (_) => _saveChannels(),
                                       ),
                                     ),
                                   ),
@@ -2690,24 +3060,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   SizedBox(
                                     width: 90,
                                     child: SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        trackHeight: 2,
-                                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                        activeTrackColor: theme.primaryColor,
-                                        inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                        thumbColor: theme.primaryColor,
-                                        overlayColor: theme.primaryColor.withOpacity(0.12),
-                                      ),
+                                      data: neuSliderTheme(context),
                                       child: Slider(
-                                        value: _vodTitleFontSize,
+                                        value: _settings.vodTitleFontSize,
                                         min: 11.0,
                                         max: 20.0,
                                         onChanged: (val) {
                                           setState(() {
-                                            _vodTitleFontSize = val;
+                                            _settings.vodTitleFontSize = val;
                                           });
                                         },
+                                        onChangeEnd: (_) => _saveChannels(),
                                       ),
                                     ),
                                   ),
@@ -2728,26 +3091,28 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     Container(
                       margin: const EdgeInsets.only(bottom: 16),
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      // Intentional: translucent warning tint, readable over both themes.
                       decoration: BoxDecoration(
-                        color: Colors.orangeAccent.withOpacity(0.1),
+                        color: Colors.orangeAccent.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                        border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.3)),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+                          Icon(Icons.warning_amber_rounded,
+                              color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800, size: 20),
                           const SizedBox(width: 12),
-                          const Expanded(
+                          Expanded(
                             child: Text(
                               'Your Twitch Browser OAuth Token has expired. VOD watch progress tracking is currently paused.',
-                              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 13, fontWeight: FontWeight.bold),
                             ),
                           ),
                           const SizedBox(width: 12),
                           TextButton(
                             style: TextButton.styleFrom(
-                              backgroundColor: Colors.orangeAccent.withOpacity(0.2),
-                              foregroundColor: Colors.orangeAccent,
+                              backgroundColor: Colors.orangeAccent.withValues(alpha: 0.2),
+                              foregroundColor: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800,
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                             onPressed: _showSettingsDialog,
@@ -2755,7 +3120,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           ),
                           const SizedBox(width: 8),
                           IconButton(
-                            icon: const Icon(Icons.close, color: Colors.white60, size: 16),
+                            icon: Icon(Icons.close, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 16),
                             onPressed: () {
                               setState(() {
                                 _isWebTokenExpired = false;
@@ -2766,15 +3131,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       ),
                     ),
                   ],
-                  
+                  ])),
+
                   // Modular Vods Grid Component
                   VodsGrid(
                     vods: _channelVods,
                     isLoading: _isLoadingVods,
                     vodsError: _vodsError,
-                    vodScale: _vodScale,
-                    vodTitleFontSize: _vodTitleFontSize,
-                    showGamesOnThumbnails: _showGamesOnThumbnails,
+                    vodScale: _settings.vodCardScale,
+                    vodTitleFontSize: _settings.vodTitleFontSize,
+                    showGamesOnThumbnails: _settings.showGamesOnThumbnails,
                     selectedGamesFilter: _selectedGamesFilter,
                     vodSearchController: _vodSearchController,
                     theme: theme,
@@ -2788,9 +3154,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     watchedThreshold: _settings.watchedThreshold,
                     activeProgressColor: themeNotifier.activeProgressColor,
                     watchedProgressColor: themeNotifier.watchedProgressColor,
-                    onScaleChanged: (val) => setState(() => _vodScale = val),
-                    onFontSizeChanged: (val) => setState(() => _vodTitleFontSize = val),
-                    onShowGamesChanged: (val) => setState(() => _showGamesOnThumbnails = val),
                     onGameFilterSelected: (game) {
                       setState(() {
                         if (_selectedGamesFilter.contains(game)) {
@@ -2801,25 +3164,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       });
                     },
                     onClearGameFilter: () => setState(() => _selectedGamesFilter.clear()),
-                    onToggleMultiSelect: () => setState(() {
-                      _isMultiSelectMode = !_isMultiSelectMode;
-                      _selectedVodIds.clear();
-                    }),
-                    onSelectAllVisible: () {
-                      final searchQuery = _vodSearchController.text.trim().toLowerCase();
-                      final visible = _channelVods.where((vod) {
-                        final matchesSearch = searchQuery.isEmpty ||
-                            vod.title.toLowerCase().contains(searchQuery) ||
-                            vod.games.any((game) => game.toLowerCase().contains(searchQuery));
-                        final matchesGameFilter = _selectedGamesFilter.isEmpty ||
-                            vod.games.any((game) => _selectedGamesFilter.contains(game));
-                        return matchesSearch && matchesGameFilter;
-                      });
-                      setState(() {
-                        _selectedVodIds.addAll(visible.map((v) => v.id));
-                      });
-                    },
-                    onDeselectAll: () => setState(() => _selectedVodIds.clear()),
                     onPlay: (vod) => _playVod(vod, _selectedChannel?.username ?? 'VOD'),
                     onDownload: (vod) => _queueVodDownload(vod, _selectedChannel?.username ?? 'VOD'),
                     onDeleteDownload: (id) => _deleteDownloadedVod(id, _selectedChannel?.username ?? 'VOD'),
@@ -2833,11 +3177,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         }
                       });
                     },
-                    onBulkDownload: _bulkDownloadSelectedVods,
-                    onBulkDelete: _bulkDeleteSelectedVods,
+                    onOpenFolder: (vod) {
+                      final path = _downloadedVodsRegistry[vod.id];
+                      if (path != null) _revealInExplorer(path);
+                    },
                   ),
                   
                   if (_vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty && _channelVods.isNotEmpty) ...[
+                    SliverToBoxAdapter(child: Column(children: [
                     const SizedBox(height: 24),
                     Center(
                       child: SizedBox(
@@ -2873,56 +3220,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         ),
                       ),
                     ),
+                    ])),
                   ],
                 ],
-              ],
-            ),
+                ]),
+              ),
+            ],
           ),
         ),
 
         // Modular Terminal Logs Console Panel
-        ConsolePanel(
-          logNotifier: _logNotifier,
-          playerTabTitles: _playerService.playerTabTitles,
-          playingVodIds: _playerService.playingVodIds,
-          runningChannels: _playerService.runningChannels,
-          selectedConsoleTabKey: _selectedConsoleTabKey,
-          consoleCollapsed: _consoleCollapsed,
-          activeDownloadsProgress: _playerService.activeDownloadsProgress,
-          activeDownloadTasks: _playerService.activeDownloadTasks,
-          downloadQueue: _playerService.downloadQueue,
-          queuedDownloadTasks: _playerService.queuedDownloadTasks,
-          downloadTitles: _playerService.downloadTitles,
-          onCancelDownload: (vodId) {
-            final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
-            _cancelVodDownload(vodId, channel);
-          },
-          onTabSelected: (key) {
-            setState(() {
-              _selectedConsoleTabKey = key;
-              _consoleCollapsed = false;
-            });
-          },
-          onToggleCollapse: () {
-            setState(() {
-              _consoleCollapsed = !_consoleCollapsed;
-            });
-          },
-          onKillProcess: (key) {
-            _playerService.killProcess(key);
-          },
-          onCloseTab: (key) {
-            setState(() {
-              _logNotifier.removeKey(key);
-              _playerService.playerTabTitles.remove(key);
-              if (_selectedConsoleTabKey == key) {
-                _selectedConsoleTabKey = _playerService.playerTabTitles.keys.isNotEmpty 
-                    ? _playerService.playerTabTitles.keys.first 
-                    : '__downloads_manager__';
-              }
-            });
-          },
-        ),
+        _buildConsolePanel(),
       ],
     );
   }
@@ -2952,20 +3260,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         Text('Show All Games on Thumbnails', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                       ],
                     ),
-                    Transform.scale(
-                      scale: 0.8,
-                      child: Switch(
-                        value: _showGamesOnThumbnails,
-                        activeColor: theme.primaryColor,
-                        onChanged: (val) {
-                          setState(() {
-                            _showGamesOnThumbnails = val;
-                            _settings.showGamesOnThumbnails = val;
-                          });
-                          _saveChannels();
-                          setMenuState(() {});
-                        },
-                      ),
+                    NeuSwitch(
+                      value: _settings.showGamesOnThumbnails,
+                      onChanged: (val) {
+                        setState(() {
+                          _settings.showGamesOnThumbnails = val;
+                        });
+                        _saveChannels();
+                        setMenuState(() {});
+                      },
                     ),
                   ],
                 );
@@ -3050,24 +3353,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               child: Row(
                                 children: [
-                                  SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: Checkbox(
-                                      value: isChecked,
-                                      activeColor: theme.primaryColor,
-                                      checkColor: Colors.white,
-                                      onChanged: (val) {
-                                        setState(() {
-                                          if (isChecked) {
-                                            _selectedGamesFilter.remove(game);
-                                          } else {
-                                            _selectedGamesFilter.add(game);
-                                          }
-                                        });
-                                        setMenuState(() {});
-                                      },
-                                    ),
+                                  NeuCheckbox(
+                                    value: isChecked,
+                                    activeColor: theme.primaryColor,
+                                    size: 16,
+                                    onChanged: (val) {
+                                      setState(() {
+                                        if (isChecked) {
+                                          _selectedGamesFilter.remove(game);
+                                        } else {
+                                          _selectedGamesFilter.add(game);
+                                        }
+                                      });
+                                      setMenuState(() {});
+                                    },
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
@@ -3095,24 +3394,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 Text('Card Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                 Expanded(
                   child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 2,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                      activeTrackColor: theme.primaryColor,
-                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                      thumbColor: theme.primaryColor,
-                      overlayColor: theme.primaryColor.withOpacity(0.12),
-                    ),
+                    data: neuSliderTheme(context),
                     child: Slider(
-                      value: _vodScale,
+                      value: _settings.vodCardScale,
                       min: 200.0,
                       max: 600.0,
                       onChanged: (val) {
                         setState(() {
-                          _vodScale = val;
+                          _settings.vodCardScale = val;
                         });
                       },
+                      onChangeEnd: (_) => _saveChannels(),
                     ),
                   ),
                 ),
@@ -3126,24 +3418,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 Text('Font Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                 Expanded(
                   child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 2,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                      activeTrackColor: theme.primaryColor,
-                      inactiveTrackColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                      thumbColor: theme.primaryColor,
-                      overlayColor: theme.primaryColor.withOpacity(0.12),
-                    ),
+                    data: neuSliderTheme(context),
                     child: Slider(
-                      value: _vodTitleFontSize,
+                      value: _settings.vodTitleFontSize,
                       min: 11.0,
                       max: 20.0,
                       onChanged: (val) {
                         setState(() {
-                          _vodTitleFontSize = val;
+                          _settings.vodTitleFontSize = val;
                         });
                       },
+                      onChangeEnd: (_) => _saveChannels(),
                     ),
                   ),
                 ),
@@ -3275,11 +3560,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.download_for_offline, color: Colors.greenAccent),
-              SizedBox(width: 10),
-              Text('Download Queue Order'),
+              Icon(Icons.download_for_offline, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
+              const SizedBox(width: 10),
+              const Text('Download Queue Order'),
             ],
           ),
           backgroundColor: themeNotifier.surfaceColor,
@@ -3417,8 +3702,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger),
               onPressed: () => Navigator.pop(context, true),
+              // White on the fixed danger red, theme-independent.
               child: const Text('Delete Files', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ],

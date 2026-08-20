@@ -22,6 +22,11 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
   @override
   Color get primaryColor => isDarkTheme ? darkAccentColor : lightAccentColor;
 
+  /// Readable foreground for content rendered on [primaryColor]. Computed,
+  /// never a constant: the accent is user-selectable and bright accents need
+  /// dark ink where dark accents need white.
+  Color get onPrimaryColor => NeuTheme.onAccent(primaryColor);
+
   @override
   Color get backgroundColor => NeuTheme.background(isDarkTheme);
 

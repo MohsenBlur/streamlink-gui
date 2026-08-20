@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'neu_container.dart';
+import '../../theme/neu_theme.dart';
+import 'neu_focusable.dart';
 
 class NeuSegmentedControl<T> extends StatelessWidget {
   final Map<T, Widget> children;
@@ -26,12 +27,10 @@ class NeuSegmentedControl<T> extends StatelessWidget {
 
     return SizedBox(
       height: height,
-      child: NeuContainer(
-        style: NeuStyle.sunken,
-        borderRadius: BorderRadius.circular(height / 2),
+      child: Container(
+        decoration: NeuTheme.sunkenDecoration(isDark, radius: height / 2)
+            .copyWith(color: NeuTheme.wellSurface(isDark)),
         padding: padding,
-        depth: 4.0,
-        color: isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final count = keys.length;
@@ -48,34 +47,22 @@ class NeuSegmentedControl<T> extends StatelessWidget {
                     bottom: 0,
                     width: itemWidth,
                     child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            isDark ? const Color(0xFF2B303C) : Colors.white,
-                            isDark ? const Color(0xFF222630) : const Color(0xFFE8EEF5),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular((height - 8) / 2),
-                        border: Border.all(
-                          color: isDark
-                              ? Colors.white.withOpacity(0.08)
-                              : Colors.white.withOpacity(0.9),
-                          width: 1.0,
-                        ),
+                      // Same recipe as every other raised surface, just with a
+                      // tighter blur so it reads inside the small control.
+                      decoration: NeuTheme.raisedDecoration(
+                        isDark,
+                        radius: (height - 8) / 2,
+                      ).copyWith(
                         boxShadow: [
                           BoxShadow(
-                            color: isDark
-                                ? Colors.black.withOpacity(0.6)
-                                : const Color(0xFFA3B1C6).withOpacity(0.8),
+                            color: NeuTheme.shadow(isDark)
+                                .withValues(alpha: isDark ? 0.6 : 0.8),
                             offset: const Offset(3, 3),
                             blurRadius: 6,
                           ),
                           BoxShadow(
-                            color: isDark
-                                ? Colors.white.withOpacity(0.05)
-                                : Colors.white.withOpacity(0.9),
+                            color: NeuTheme.highlight(isDark)
+                                .withValues(alpha: isDark ? 0.05 : 0.9),
                             offset: const Offset(-3, -3),
                             blurRadius: 6,
                           ),
@@ -87,7 +74,10 @@ class NeuSegmentedControl<T> extends StatelessWidget {
                   children: keys.map((key) {
                     final isSelected = key == selectedValue;
                     return Expanded(
-                      child: GestureDetector(
+                      child: NeuFocusable(
+                        onActivate: () => onValueChanged(key),
+                        focusRadius: 10,
+                        child: GestureDetector(
                         onTap: () => onValueChanged(key),
                         child: MouseRegion(
                           cursor: SystemMouseCursors.click,
@@ -99,15 +89,17 @@ class NeuSegmentedControl<T> extends StatelessWidget {
                                 curve: Curves.easeOut,
                                 style: TextStyle(
                                   color: isSelected
-                                      ? (isDark ? Colors.white : const Color(0xFF2D3748))
-                                      : (isDark ? const Color(0xFF8A96A6) : const Color(0xFF718096)),
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                      ? NeuTheme.text(isDark)
+                                      : NeuTheme.subtext(isDark),
+                                  fontWeight:
+                                      isSelected ? FontWeight.bold : FontWeight.w500,
                                   fontSize: 13,
                                 ),
                                 child: children[key]!,
                               ),
                             ),
                           ),
+                        ),
                         ),
                       ),
                     );

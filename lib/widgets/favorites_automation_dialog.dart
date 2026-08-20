@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../theme/neu_theme.dart';
+import '../utils/image_utils.dart';
 import 'neumorphic/neu_checkbox.dart';
+import 'neumorphic/neu_switch.dart';
 import '../theme/theme_notifier.dart';
 
 class _ChannelAutomationState {
@@ -105,7 +107,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
       backgroundColor: themeNotifier.backgroundColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.primaryColor.withOpacity(0.4), width: 1.5),
+        side: BorderSide(color: theme.primaryColor.withValues(alpha: 0.4), width: 1.5),
       ),
       child: Container(
         width: 720,
@@ -208,7 +210,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
               decoration: BoxDecoration(
                 color: themeNotifier.surfaceColor,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: NeuTheme.border(themeNotifier.isDarkTheme)),
               ),
               child: Row(
                 children: [
@@ -216,19 +218,19 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Preempt Lower Priority Streams',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                         ),
                         const SizedBox(height: 2),
-                        const Text(
+                        Text(
                           'If a lower priority stream is playing and a higher priority channel goes live, switch automatically.',
-                          style: TextStyle(fontSize: 11, color: Colors.white54),
+                          style: TextStyle(fontSize: 11, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                         ),
                       ],
                     ),
                   ),
-                  Switch(
+                  NeuSwitch(
                     value: widget.settings.autoPlayPreemptLowerPriority,
                     activeColor: theme.primaryColor,
                     onChanged: (val) {
@@ -245,23 +247,23 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
             // Content List
             Expanded(
               child: _favChannels.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
                         'No Favorite channels added yet.',
-                        style: TextStyle(color: Colors.white38),
+                        style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                       ),
                     )
                   : ListView(
                       children: [
                         if (priorityChannels.isNotEmpty) ...[
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 8),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
                             child: Text(
                               'Priority Live Auto-Play Order (Drag to Reorder)',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.amberAccent,
+                                color: themeNotifier.isDarkTheme ? Colors.amberAccent : Colors.amber.shade800,
                               ),
                             ),
                           ),
@@ -269,7 +271,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                             decoration: BoxDecoration(
                               color: themeNotifier.surfaceColor,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                              border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
                             ),
                             child: ReorderableListView(
                               shrinkWrap: true,
@@ -283,13 +285,18 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       elevation: 8,
                                       color: themeNotifier.surfaceColor,
                                       borderRadius: BorderRadius.circular(8),
-                                      shadowColor: Colors.black.withOpacity(0.5),
+                                      shadowColor: Colors.black.withValues(alpha: 0.5),
                                       child: child,
                                     );
                                   },
                                   child: child,
                                 );
                               },
+                              // The replacement (onReorderItem, which pre-adjusts
+                              // newIndex) only exists from Flutter 3.44; the
+                              // local toolchain is 3.41.9 while CI builds 3.44.2.
+                              // Migrate once the floor moves past 3.44.
+                              // ignore: deprecated_member_use
                               onReorder: (oldIndex, newIndex) {
                                 setState(() {
                                   if (newIndex > oldIndex) newIndex -= 1;
@@ -328,7 +335,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         CircleAvatar(
                                           radius: 14,
                                           backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                          backgroundImage: NetworkImage(ch.originalChannel.avatarUrl!),
+                                          backgroundImage: resizedAvatar(ch.originalChannel.avatarUrl!),
                                         )
                                       else
                                         CircleAvatar(
@@ -346,7 +353,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: theme.primaryColor.withOpacity(0.2),
+                                          color: theme.primaryColor.withValues(alpha: 0.2),
                                           borderRadius: BorderRadius.circular(12),
                                           border: Border.all(color: theme.primaryColor, width: 1),
                                         ),
@@ -385,7 +392,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                               radius: 12,
                               border: Border.all(
                                 color: (ch.autoPlayLive || ch.autoDownloadVods)
-                                    ? theme.primaryColor.withOpacity(0.4)
+                                    ? theme.primaryColor.withValues(alpha: 0.4)
                                     : NeuTheme.border(themeNotifier.isDarkTheme),
                               ),
                             ),
@@ -398,7 +405,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       CircleAvatar(
                                         radius: 16,
                                         backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                        backgroundImage: NetworkImage(ch.originalChannel.avatarUrl!),
+                                        backgroundImage: resizedAvatar(ch.originalChannel.avatarUrl!),
                                       )
                                     else
                                       CircleAvatar(
@@ -601,10 +608,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                icon: const Icon(Icons.check, color: Colors.white, size: 18),
-                label: const Text(
+                icon: Icon(Icons.check, color: themeNotifier.onPrimaryColor, size: 18),
+                label: Text(
                   'Save & Apply',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: themeNotifier.onPrimaryColor),
                 ),
                 onPressed: () {
                   widget.settings.vodWatchExclusionThreshold = _threshold;
