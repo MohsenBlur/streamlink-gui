@@ -14,7 +14,10 @@ import 'services/storage_service.dart';
 import 'services/twitch_api_service.dart';
 import 'services/player_service.dart';
 import 'services/update_service.dart';
-import 'widgets/console_panel.dart';
+import 'services/log_store.dart';
+import 'state/activity_state.dart';
+import 'widgets/activity_pill.dart';
+import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
 import 'widgets/dashboard_header.dart';
 import 'widgets/vods_grid.dart';
@@ -217,8 +220,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   final TwitchApiService _apiService = TwitchApiService();
   final PlayerService _playerService = PlayerService();
 
-  // Logging and Console State
+  // Logging
   final LogNotifier _logNotifier = LogNotifier();
+
+  /// Everything currently downloading or playing. Kept as a ValueNotifier so
+  /// the activity pill and the Library's live rows repaint on a progress tick
+  /// without rebuilding the whole screen.
+  final ValueNotifier<ActivitySnapshot> _activity =
+      ValueNotifier(ActivitySnapshot.empty);
+
+  /// Last whole-percent bucket and status per download, used to collapse the
+  /// several-per-second progress callbacks into at most one rebuild per
+  /// percent (see progressTickIsVisible).
+  final Map<String, int> _progressBuckets = {};
+  final Map<String, String?> _progressStatuses = {};
 
   // UI state variables
   final List<TwitchChannel> _channels = [];
@@ -268,8 +283,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _showLibraryView = false;
   List<LibraryEntry> _libraryEntries = [];
 
-  bool _consoleCollapsed = true;
-  String? _selectedConsoleTabKey = '__downloads_manager__';
 
   bool _isUpdatePromptOpen = false;
   bool _isUpdateInProgress = false;
@@ -292,11 +305,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _logNotifier.appendLog(key, line);
     };
 
+    // The service mutates playingVodIds/runningChannels internally with no
+    // notification of its own, so this callback is the only signal that
+    // playback began - it must stay even though the console tab it used to
+    // select is gone.
     _playerService.onPlayerStarted = (key, title) {
+      _logNotifier.beginSession(key, title);
       if (mounted) {
-        setState(() {
-          _selectedConsoleTabKey = key;
-        });
+        _publishActivity();
+        setState(() {});
       }
     };
 
@@ -309,9 +326,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // subsequent pass, silently killing BOTH priority auto-play and VOD
       // auto-download until the app was restarted.
       _activePlayingVideos.remove(key);
+      _logNotifier.endSession(key, exitCode);
 
       if (mounted) {
+        _publishActivity();
         setState(() {});
+        // A player that never opened is otherwise silent: the console drawer
+        // used to be the only hint. Surface it, with the log one tap away.
+        if (exitCode != 0) {
+          final label = _logNotifier.session(key)?.label ?? 'playback';
+          _showSnackBar('Playback failed for $label', isError: true,
+              action: _viewLogAction(key));
+        }
       }
     };
 
@@ -348,15 +374,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     };
 
     _playerService.onDownloadProgress = (vodId, progress, status) {
-      if (mounted) {
+      if (!mounted) return;
+      // Always cheap, and drives the pill plus the Library's live rows.
+      _publishActivity();
+      // The full rebuild is still needed because VodsGrid reads the service
+      // maps directly during build - but at most once per whole percent
+      // instead of the ~10/second it used to fire.
+      if (progressTickIsVisible(
+        previousBucket: _progressBuckets[vodId],
+        progress: progress,
+        previousStatus: _progressStatuses[vodId],
+        status: status,
+      )) {
+        _progressBuckets[vodId] = (progress * 100).floor();
+        _progressStatuses[vodId] = status;
         setState(() {});
       }
     };
 
     _playerService.onDownloadCancelled = (vodId) {
+      _progressBuckets.remove(vodId);
+      _progressStatuses.remove(vodId);
       if (mounted) {
+        _publishActivity();
         setState(() {});
-        _showSnackBar('Download cancelled.', isError: true);
+        if (_showLibraryView) _refreshLibraryEntries();
+        // Not an error - the user asked for it.
+        _showSnackBar('Download cancelled.', isError: false);
       }
     };
 
@@ -367,6 +411,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             _downloadedVodsRegistry[vodId] = filePath;
           }
         });
+        _progressBuckets.remove(vodId);
+        _progressStatuses.remove(vodId);
+        _publishActivity();
         _checkDownloadedVods();
         _saveChannels();
         if (_showLibraryView) _refreshLibraryEntries();
@@ -387,9 +434,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     };
 
     _playerService.onDownloadFailed = (vodId, title, exitCode) {
+      _progressBuckets.remove(vodId);
+      _progressStatuses.remove(vodId);
       if (mounted) {
+        _publishActivity();
         setState(() {});
-        _showSnackBar('Download failed for: $title (Exit code $exitCode)', isError: true);
+        _showSnackBar('Download failed for: $title (Exit code $exitCode)',
+            isError: true, action: _viewLogAction('dl-$vodId'));
       }
     };
 
@@ -645,6 +696,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _oauthServer?.close(force: true);
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
+    _activity.dispose();
+    _logNotifier.dispose();
     super.dispose();
   }
 
@@ -1760,7 +1813,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  void _showSnackBar(String message, {required bool isError}) {
+  void _showSnackBar(String message,
+      {required bool isError, SnackBarAction? action}) {
     // Errors use the fixed danger red (white text); info follows the accent.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1775,8 +1829,96 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         margin: const EdgeInsets.all(12),
+        action: action,
       ),
     );
+  }
+
+  /// "View log" for a failure message, deep-linking to that session.
+  SnackBarAction _viewLogAction(String logKey) {
+    return SnackBarAction(
+      label: 'View log',
+      textColor: Colors.white,
+      onPressed: () => LogViewerDialog.show(context,
+          logs: _logNotifier, initialKey: logKey),
+    );
+  }
+
+  /// Recomputes the activity snapshot from the service's live maps.
+  void _publishActivity() {
+    _activity.value = buildActivitySnapshot(
+      downloadTaskIds: _playerService.activeDownloadTasks.keys,
+      downloadQueue: _playerService.downloadQueue,
+      startedIds: _playerService.activeDownloadProcesses.keys.toSet(),
+      downloadTitles: _playerService.downloadTitles,
+      downloadProgress: _playerService.activeDownloadsProgress,
+      downloadStatuses: _playerService.activeDownloadTasks,
+      playingVodIds: _playerService.playingVodIds,
+      runningChannels: _playerService.runningChannels,
+      vodTitles: {
+        for (final entry in _activePlayingVideos.entries)
+          entry.key: entry.value.title,
+      },
+    );
+  }
+
+  /// Stops or cancels one activity item, confirming first where something
+  /// would be lost. Routing is by kind, never by parsing the key - sending a
+  /// download key to killProcess trips an assert in PlayerService.
+  Future<void> _stopActivity(ActivityItem item) async {
+    switch (item.kind) {
+      case ActivityKind.queued:
+        // Nothing has started, so nothing is lost.
+        await _cancelVodDownload(
+            item.id, _playerService.downloadChannelNames[item.id] ?? 'VOD');
+      case ActivityKind.downloading:
+        if (!await _confirmStop(isDownload: true)) return;
+        await _cancelVodDownload(
+            item.id, _playerService.downloadChannelNames[item.id] ?? 'VOD');
+      case ActivityKind.liveStream:
+        if (!await _confirmStop(isDownload: false)) return;
+        _playerService.killLiveStream(item.id);
+      case ActivityKind.playingVod:
+        if (!await _confirmStop(isDownload: false)) return;
+        _playerService.killProcess(item.id);
+    }
+    if (mounted) {
+      _publishActivity();
+      setState(() {});
+    }
+  }
+
+  Future<bool> _confirmStop({required bool isDownload}) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isDownload ? 'Cancel Download?' : 'Stop Process?',
+            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+        backgroundColor: themeNotifier.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Text(
+          isDownload
+              ? 'This download is still in progress. Cancelling will delete the partial file.'
+              : 'This will close the player and stop playback.',
+          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Keep Running',
+                style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+          ),
+          ElevatedButton(
+            // White on the fixed danger red, theme-independent.
+            style: ElevatedButton.styleFrom(
+                backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(isDownload ? 'Cancel Download' : 'Stop'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
   }
 
   Future<void> _clearWatchProgress() async {
@@ -1819,6 +1961,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       onConnectAccount: _startOAuthServer,
       openExternalLink: _openExternalLink,
       onClearWatchHistory: _clearWatchProgress,
+      onOpenLogs: () => LogViewerDialog.show(context, logs: _logNotifier),
       // Stash it; the prompt is offered AFTER the dialog closes. The old
       // post-frame callback fired while Settings was still open and stacked
       // the prompt behind the modal.
@@ -1984,6 +2127,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         children: [
           NeuTitleBar(
             liveCount: _channels.where((c) => c.isLive).length,
+            actions: [
+              ActivityPill(
+                activity: _activity,
+                onStop: _stopActivity,
+                compact: isNarrow,
+              ),
+              const SizedBox(width: 12),
+            ],
             isDarkTheme: themeNotifier.isDarkTheme,
             onThemeToggle: (isDark) {
               setState(() {
@@ -2017,12 +2168,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Widget _buildWelcomeScreen(ThemeData theme) {
     final liveFavorites = _channels.where((c) => c.isLive).toList();
-    final activeDownloads = _playerService.activeDownloadTasks;
+    final runningDownloads = _activity.value.downloading;
 
-    return Column(
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
+    return SingleChildScrollView(
             padding: const EdgeInsets.all(28.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2046,7 +2194,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 const SizedBox(height: 24),
 
           // Active Downloads card (Conditional)
-          if (activeDownloads.isNotEmpty) ...[
+          if (runningDownloads.isNotEmpty) ...[
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -2086,22 +2234,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         ],
                       ),
                       TextButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _selectedConsoleTabKey = '__downloads_manager__';
-                            _consoleCollapsed = false;
-                          });
-                        },
+                        onPressed: _openLibrary,
                         icon: const Icon(Icons.open_in_new, size: 14),
-                        label: const Text('Open Downloads Manager', style: TextStyle(fontSize: 12)),
+                        label: const Text('Open Library', style: TextStyle(fontSize: 12)),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  ...activeDownloads.keys.take(2).map((vodId) {
-                    final progress = _playerService.activeDownloadsProgress[vodId] ?? 0.0;
-                    final taskText = activeDownloads[vodId] ?? 'Downloading...';
-                    final title = _playerService.downloadTitles[vodId] ?? 'VOD $vodId';
+                  ...runningDownloads.take(2).map((item) {
+                    final progress = item.progress ?? 0.0;
+                    final taskText = item.status ?? 'Downloading...';
+                    final title = item.label;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8.0),
                       child: Row(
@@ -2504,10 +2647,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           ),
         ],
       ),
-    ),
-  ),
-  _buildConsolePanel(),
-      ],
     );
   }
 
@@ -2631,10 +2770,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Widget _buildLibraryView() {
-    return Column(
-      children: [
-        Expanded(
-          child: LibraryView(
+    return LibraryView(
             entries: _libraryEntries,
             onRefresh: () {
               _checkDownloadedVods();
@@ -2646,116 +2782,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             },
             onDelete: _deleteLibraryEntry,
             onRemoveFromHistory: _removeLibraryEntryFromHistory,
-          ),
-        ),
-        _buildConsolePanel(),
-      ],
-    );
-  }
-
-  /// True when [key]'s underlying process is still alive or pending
-  /// (a running player, a live stream, or an active/queued download).
-  bool _consoleTabHasRunningProcess(String key) {
-    if (key.startsWith('dl-')) {
-      final vodId = key.substring(3);
-      return _playerService.activeDownloadProcesses.containsKey(vodId) ||
-          _playerService.downloadQueue.contains(vodId);
-    }
-    return _playerService.playingVodIds.contains(key) ||
-        _playerService.runningChannels.contains(key.replaceFirst('stream_', ''));
-  }
-
-  /// The single close-tab path for both the dashboard and welcome screens.
-  ///
-  /// The two screens used to wire divergent inline handlers: the dashboard's
-  /// never called removeKey (leaking the closed tab's log buffer) and neither
-  /// asked before killing a tab whose process was still running.
-  Future<void> _closeConsoleTab(String key) async {
-    if (_consoleTabHasRunningProcess(key)) {
-      final isDownload = key.startsWith('dl-');
-      final bool? stop = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(isDownload ? 'Cancel Download?' : 'Stop Process?',
-              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-          backgroundColor: themeNotifier.surfaceColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: Text(
-            isDownload
-                ? 'This download is still in progress. Closing the tab will cancel it and delete the partial file.'
-                : 'This process is still running. Closing the tab will stop it.',
-            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('Keep Running', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-            ),
-            ElevatedButton(
-              // White on the fixed danger red, theme-independent.
-              style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
-              onPressed: () => Navigator.pop(context, true),
-              child: Text(isDownload ? 'Cancel & Close' : 'Stop & Close'),
-            ),
-          ],
-        ),
-      );
-      if (stop != true) return;
-      if (isDownload) {
-        final vodId = key.substring(3);
-        final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
-        await _cancelVodDownload(vodId, channel);
-      } else {
-        _playerService.killProcess(key);
-      }
-    }
-    if (!mounted) return;
-    setState(() {
-      _logNotifier.removeKey(key);
-      _playerService.playerTabTitles.remove(key);
-      if (_selectedConsoleTabKey == key) {
-        _selectedConsoleTabKey = _playerService.playerTabTitles.keys.isNotEmpty
-            ? _playerService.playerTabTitles.keys.first
-            : '__downloads_manager__';
-      }
-    });
-  }
-
-  /// The single ConsolePanel construction, shared by the dashboard and the
-  /// welcome screen (they previously carried diverged inline copies).
-  Widget _buildConsolePanel() {
-    return ConsolePanel(
-      logNotifier: _logNotifier,
-      playerTabTitles: _playerService.playerTabTitles,
-      playingVodIds: _playerService.playingVodIds,
-      runningChannels: _playerService.runningChannels,
-      selectedConsoleTabKey: _selectedConsoleTabKey,
-      consoleCollapsed: _consoleCollapsed,
-      activeDownloadsProgress: _playerService.activeDownloadsProgress,
-      activeDownloadTasks: _playerService.activeDownloadTasks,
-      downloadQueue: _playerService.downloadQueue,
-      queuedDownloadTasks: _playerService.queuedDownloadTasks,
-      downloadTitles: _playerService.downloadTitles,
-      activeProcessIds: _playerService.activeDownloadProcesses.keys.toSet(),
-      onCancelDownload: (vodId) {
-        final channel = _playerService.downloadChannelNames[vodId] ?? 'VOD';
-        _cancelVodDownload(vodId, channel);
-      },
-      onTabSelected: (key) {
-        setState(() {
-          _selectedConsoleTabKey = key;
-          _consoleCollapsed = false;
-        });
-      },
-      onToggleCollapse: () {
-        setState(() {
-          _consoleCollapsed = !_consoleCollapsed;
-        });
-      },
-      onKillProcess: (key) {
-        _playerService.killProcess(key);
-      },
-      onCloseTab: _closeConsoleTab,
+      activity: _activity,
+      onStopActivity: _stopActivity,
     );
   }
 
@@ -2833,14 +2861,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Widget _buildDashboard(ThemeData theme, TwitchChannel channel) {
     final isSmall = MediaQuery.of(context).size.width < 1180;
     final isCompact = MediaQuery.of(context).size.width < 700 || MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
-    return Column(
-      children: [
-        // Main Dashboard Body
-        Expanded(
-          // CustomScrollView so the VOD grid renders as a real SliverGrid and
-          // off-screen cards are culled; the old SingleChildScrollView +
-          // shrinkWrap GridView materialized every card at once.
-          child: CustomScrollView(
+    // CustomScrollView so the VOD grid renders as a real SliverGrid and
+    // off-screen cards are culled; the old SingleChildScrollView +
+    // shrinkWrap GridView materialized every card at once.
+    return CustomScrollView(
             slivers: [
               SliverPadding(
                 padding: EdgeInsets.all(isCompact ? 12 : 24),
@@ -3239,12 +3263,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 ]),
               ),
             ],
-          ),
-        ),
-
-        // Modular Terminal Logs Console Panel
-        _buildConsolePanel(),
-      ],
     );
   }
 

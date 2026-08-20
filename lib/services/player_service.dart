@@ -94,7 +94,6 @@ class PlayerService {
     killProcess(liveStreamKey(channelName));
   }
 
-  final Map<String, String> playerTabTitles = {};
   
   // Windows PowerShell bridges
   final Map<String, Process> _winIpcBridges = {};
@@ -377,7 +376,6 @@ class PlayerService {
 
     final key = 'dl-$vodId';
     final title = 'Download: ${vod.title}';
-    playerTabTitles[key] = title;
     onPlayerStarted?.call(key, title);
 
     log(key, '[System] Initializing VOD Download for: ${vod.title}');
@@ -712,7 +710,6 @@ class PlayerService {
       // Recorded so retention never deletes the file being watched.
       playingVodFilePaths[vod.id] = file.path;
       activePlayerPorts[vod.id] = port;
-      playerTabTitles[key] = title;
 
       onPlayerStarted?.call(key, title);
       log(key, '[System] Initializing local player for VOD ${vod.id}...');
@@ -796,7 +793,6 @@ class PlayerService {
 
     playingVodIds.add(vod.id);
     activePlayerPorts[vod.id] = port;
-    playerTabTitles[key] = title;
 
     onPlayerStarted?.call(key, title);
     log(key, '[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${settings.defaultQuality}...');
@@ -913,7 +909,6 @@ class PlayerService {
     final title = '$channelName (Live)';
     
     runningChannels.add(cleanChannel);
-    playerTabTitles[key] = title;
 
     onPlayerStarted?.call(key, title);
     log(key, '[System] Initializing Streamlink for twitch.tv/$channelName ${settings.defaultQuality}...');

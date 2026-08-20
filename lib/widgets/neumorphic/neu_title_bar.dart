@@ -91,13 +91,21 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                       ),
                       const SizedBox(width: 10),
                     ],
-                    Text(
-                      title.toUpperCase(),
-                      style: TextStyle(
-                        color: NeuTheme.text(isDarkTheme),
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.1,
+                    // Flexible + ellipsis: at the 380px minimum window width
+                    // the title, the live badge and an activity pill together
+                    // exceed the drag region, and an unwrapped Text would
+                    // overflow rather than yield.
+                    Flexible(
+                      child: Text(
+                        title.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: NeuTheme.text(isDarkTheme),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.1,
+                        ),
                       ),
                     ),
                   ],
