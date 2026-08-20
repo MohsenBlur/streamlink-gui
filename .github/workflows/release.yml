@@ -135,7 +135,17 @@ jobs:
         shell: pwsh
         run: |
           $hash = (Get-FileHash -Path "streamlink-gui-windows.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  streamlink-gui-windows.zip" | Out-File -FilePath "SHA256SUMS" -Encoding ascii
+          # LF, no BOM. Out-File wrote CRLF, which leaves a stray \r on the
+          # filename field and makes `sha256sum -c SHA256SUMS` report the file
+          # as unreadable - the digest was fine, but anyone verifying the
+          # download by hand saw a failure. (The in-app updater is unaffected:
+          # it extracts the digest by regex and ignores the filename.)
+          $line = "$hash  streamlink-gui-windows.zip`n"
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) "SHA256SUMS"),
+            $line,
+            (New-Object System.Text.UTF8Encoding($false))
+          )
           Get-Content "SHA256SUMS"
 
       - name: Create or Update GitHub Release
