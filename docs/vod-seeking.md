@@ -116,6 +116,30 @@ work. But a media player gives no way to set that, so the local-file variant is
 a dead end. Serving over localhost HTTP sidesteps it entirely: the playlist
 arrives over `http`, and nested `https` segments are then ordinary HLS.
 
+## Settled: piping mode does not corrupt watch progress
+
+While designing this, a plausible pre-existing bug was flagged: under piping
+with `--hls-start-offset X`, if the player reported position starting at 0
+rather than X, `_syncProgress` would treat that as absolute and overwrite real
+progress with a few seconds, pushing it to Twitch. It was deliberately NOT
+"fixed" speculatively, pending measurement.
+
+Measured 2026-08-20 by piping a VOD with a 600s offset straight into ffprobe:
+
+```sh
+bin/bin/streamlink.exe --stdout --hls-start-offset 600s "twitch.tv/videos/<id>" 160p   | bin/ffprobe.exe -v error -show_entries format=start_time -of default=nw=1 -
+# start_time=668.149000
+```
+
+`start_time` is ~668s, not 0 — streamlink preserves the source timestamps
+rather than rebasing them, so the player receives an absolute clock and
+progress stays correct. No offset compensation is needed in either mode.
+(Confirmed independently for passthrough: resume works, since the player holds
+the whole playlist.)
+
+Note this measures the container's timestamp base, which is what a player
+surfaces; it is strong evidence rather than a direct read of MPC-HC's UI.
+
 ## Related fix that rode along
 
 Streamlink parses `--player-args` with POSIX `shlex`, where a backslash escapes
