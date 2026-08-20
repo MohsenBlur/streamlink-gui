@@ -151,6 +151,21 @@ ActivitySnapshot buildActivitySnapshot({
   );
 }
 
+/// Whether a player exiting deserves a failure message.
+///
+/// Stopping playback deliberately kills the process, which on Windows means
+/// taskkill and a non-zero exit code — identical to a crash from the outside.
+/// Reporting that as "playback failed" told the user their own click had
+/// broken something. The same trap already bit downloads once, which is why
+/// PlayerService tracks cancelled downloads; players now do the same.
+bool shouldReportPlaybackFailure({
+  required int exitCode,
+  required bool userInitiated,
+}) {
+  if (userInitiated) return false;
+  return exitCode != 0;
+}
+
 /// Whether a download progress tick is worth a full-app rebuild.
 ///
 /// `onDownloadProgress` fires several times a second per download and used to

@@ -181,4 +181,29 @@ void main() {
           isTrue);
     });
   });
+  group('shouldReportPlaybackFailure', () {
+    test('a deliberate stop is never a failure, whatever the exit code', () {
+      // Regression: stopping playback from the activity popover runs taskkill,
+      // which exits non-zero, and every stop reported "Playback failed".
+      expect(
+          shouldReportPlaybackFailure(exitCode: 1, userInitiated: true), isFalse);
+      expect(
+          shouldReportPlaybackFailure(exitCode: -1, userInitiated: true), isFalse);
+    });
+
+    test('an unexpected non-zero exit still reports', () {
+      expect(
+          shouldReportPlaybackFailure(exitCode: 1, userInitiated: false), isTrue);
+      // -1 is what the service reports when the player never launched.
+      expect(
+          shouldReportPlaybackFailure(exitCode: -1, userInitiated: false), isTrue);
+    });
+
+    test('a clean exit is never a failure', () {
+      expect(
+          shouldReportPlaybackFailure(exitCode: 0, userInitiated: false), isFalse);
+      expect(
+          shouldReportPlaybackFailure(exitCode: 0, userInitiated: true), isFalse);
+    });
+  });
 }

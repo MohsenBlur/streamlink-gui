@@ -66,6 +66,13 @@ class PlayerService {
   /// deliberate cancel apart from a genuine failure.
   final Set<String> _cancelledDownloads = {};
 
+  /// Player keys the user (or shutdown) deliberately terminated.
+  ///
+  /// taskkill makes the process exit non-zero, so without this a deliberate
+  /// stop is indistinguishable from a crash and gets reported as a playback
+  /// failure. This is the same trap `_cancelledDownloads` exists to avoid.
+  final Set<String> _stoppedByUser = {};
+
   // Active Players
   final Map<String, Process> activePlayerProcesses = {};
   final Map<String, int> activePlayerPorts = {};
@@ -105,7 +112,9 @@ class PlayerService {
   void Function(String vodId, String title, int exitCode)? onDownloadFailed;
   
   void Function(String key, String title)? onPlayerStarted;
-  void Function(String key, int exitCode)? onPlayerStopped;
+  /// [userInitiated] is true when the process was stopped on purpose, so
+  /// callers do not report a deliberate stop as a failure.
+  void Function(String key, int exitCode, bool userInitiated)? onPlayerStopped;
   void Function(String key, String line)? onPlayerLog;
   void Function(String vodId, int position, double progress)? onWatchProgressUpdated;
 
@@ -741,14 +750,14 @@ class PlayerService {
         activePlayerPorts.remove(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
-        onPlayerStopped?.call(key, exitCode);
+        onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
       });
     } catch (e) {
       playingVodIds.remove(vod.id);
       playingVodFilePaths.remove(vod.id);
       activePlayerPorts.remove(vod.id);
       log(key, '[System Error] Failed to launch local player: $e');
-      onPlayerStopped?.call(key, -1);
+      onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key));
     }
   }
 
@@ -845,13 +854,13 @@ class PlayerService {
         activePlayerPorts.remove(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
-        onPlayerStopped?.call(key, exitCode);
+        onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
       });
     } catch (e) {
       log(key, '[System Error] Failed to start Streamlink: $e');
       playingVodIds.remove(vod.id);
       activePlayerPorts.remove(vod.id);
-      onPlayerStopped?.call(key, -1);
+      onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key));
     }
   }
 
@@ -944,14 +953,14 @@ class PlayerService {
         log(key, '[System] Streamlink process for channel $channelName terminated with exit code $exitCode');
         runningChannels.remove(cleanChannel);
         activePlayerProcesses.remove(key);
-        onPlayerStopped?.call(key, exitCode);
+        onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
       });
     } catch (e) {
       log(key, '[System Error] Failed to run streamlink: $e');
       log(key, '[System Error] Ensure Streamlink is installed and available in your environment.');
       runningChannels.remove(cleanChannel);
       activePlayerProcesses.remove(key);
-      onPlayerStopped?.call(key, -1);
+      onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key));
     }
   }
 
@@ -1170,6 +1179,9 @@ class PlayerService {
 
     final proc = activePlayerProcesses[key];
     if (proc != null) {
+      // Marked before the kill so the exit handler, which may fire almost
+      // immediately, already sees it.
+      _stoppedByUser.add(key);
       try {
         if (Platform.isWindows) {
           Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
@@ -1188,6 +1200,7 @@ class PlayerService {
     queuedDownloadTasks.clear();
     downloadTaskFastDownloadOverrides.clear();
 
+    _stoppedByUser.addAll(activePlayerProcesses.keys);
     for (final proc in activePlayerProcesses.values) {
       try {
         if (Platform.isWindows) {

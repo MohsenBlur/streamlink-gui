@@ -317,7 +317,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     };
 
-    _playerService.onPlayerStopped = (key, exitCode) {
+    _playerService.onPlayerStopped = (key, exitCode, userInitiated) {
       // Release the "user is watching a VOD" marker.
       //
       // This map was written when a VOD started and never cleared anywhere, so
@@ -333,7 +333,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         setState(() {});
         // A player that never opened is otherwise silent: the console drawer
         // used to be the only hint. Surface it, with the log one tap away.
-        if (exitCode != 0) {
+        //
+        // userInitiated excludes deliberate stops: taskkill makes the process
+        // exit non-zero, so without it every "Stop" reported a failure.
+        if (shouldReportPlaybackFailure(
+            exitCode: exitCode, userInitiated: userInitiated)) {
           final label = _logNotifier.session(key)?.label ?? 'playback';
           _showSnackBar('Playback failed for $label', isError: true,
               action: _viewLogAction(key));
@@ -1816,7 +1820,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   void _showSnackBar(String message,
       {required bool isError, SnackBarAction? action}) {
     // Errors use the fixed danger red (white text); info follows the accent.
-    ScaffoldMessenger.of(context).showSnackBar(
+    //
+    // Replace rather than queue: ScaffoldMessenger plays queued snackbars one
+    // after another, so a burst of messages read as one that would not go
+    // away. Only the newest is worth showing.
+    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+    messenger.showSnackBar(
       SnackBar(
         content: Text(
           message,
@@ -1829,6 +1838,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         margin: const EdgeInsets.all(12),
+        // Long enough to read and act on, short enough to get out of the way.
+        duration: Duration(seconds: action != null ? 8 : 3),
+        showCloseIcon: true,
+        closeIconColor: isError ? Colors.white : themeNotifier.onPrimaryColor,
         action: action,
       ),
     );
