@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import '../models/app_settings.dart';
+import '../utils/player_args.dart';
 import '../models/twitch_video.dart';
 import 'twitch_api_service.dart';
 
@@ -168,11 +169,6 @@ class PlayerService {
     };
   }
 
-  /// MPC-HC view preset, passed as `/viewpreset N`: 1 = minimal, 2 = compact,
-  /// 3 = normal. Compact keeps the seek bar and transport controls visible;
-  /// minimal hides them, which makes seeking in a VOD awkward.
-  static const List<String> _mpcViewPresetCompact = ['/viewpreset', '2'];
-
   /// Resolves the configured player to a concrete one.
   ///
   /// 'default' means "whatever is installed"; it must be turned into a real
@@ -187,6 +183,27 @@ class PlayerService {
     if (findMpvPath() != null) return 'mpv';
     if (findMpcHcPath() != null) return 'mpc-hc';
     return 'default';
+  }
+
+  /// The executable for the resolved player, or null when there is none.
+  ///
+  /// The bare-name fallbacks preserve the previous `--player` values: a player
+  /// on PATH but not at a known install location keeps working, because
+  /// streamlink resolves it itself.
+  String? resolvePlayerExecutable(String effectivePlayerType, AppSettings settings) {
+    if (effectivePlayerType == 'custom') {
+      final p = settings.customPlayerPath.trim().replaceAll('"', '');
+      return p.isEmpty ? null : p;
+    }
+    switch (effectivePlayerType) {
+      case 'vlc':
+        return findVlcPath() ?? 'vlc';
+      case 'mpv':
+        return findMpvPath() ?? 'mpv';
+      case 'mpc-hc':
+        return findMpcHcPath() ?? 'mpc-hc64';
+    }
+    return null;
   }
 
   void log(String key, String line) {
@@ -657,10 +674,11 @@ class PlayerService {
     final args = <String>[];
     String exe = '';
 
-    final seekTime = (vod.watchPosition != null && vod.watchPosition! > 10) ? vod.watchPosition! : 0;
-    final watchedThresholdPct = settings.watchedThreshold / 100.0;
-    final isFullyWatched = vod.watchProgress != null && vod.watchProgress! >= watchedThresholdPct;
-    final finalSeek = isFullyWatched ? 0 : seekTime;
+    final finalSeek = resumeSeconds(
+      watchPosition: vod.watchPosition,
+      watchProgress: vod.watchProgress,
+      watchedThreshold: settings.watchedThreshold,
+    );
 
     final port = getNextAvailablePlayerPort();
     final key = vod.id;
@@ -668,70 +686,25 @@ class PlayerService {
 
     final String effectivePlayerType = resolveEffectivePlayerType(settings);
 
-    if (effectivePlayerType == 'vlc') {
-      exe = findVlcPath() ?? 'vlc';
-      if (finalSeek > 0) {
-        args.add('--start-time=$finalSeek');
-      }
-      args.addAll([
-        '--extraintf=http',
-        '--http-port=$port',
-        '--http-password=streamlink',
-        '--http-host=127.0.0.1'
-      ]);
-      args.add(path);
-    } else if (effectivePlayerType == 'mpv') {
-      exe = findMpvPath() ?? 'mpv';
-      if (finalSeek > 0) {
-        args.add('--start=$finalSeek');
-      }
-      if (Platform.isWindows) {
-        args.add('--input-ipc-server=\\\\.\\pipe\\mpv-socket-$key');
-      } else {
-        args.add('--input-ipc-server=/tmp/mpv-socket-$key');
-      }
-      args.add(path);
-    } else if (effectivePlayerType == 'mpc-hc') {
-      exe = findMpcHcPath() ?? 'mpc-hc64';
-      if (finalSeek > 0) {
-        args.addAll(['/start', '${finalSeek * 1000}']);
-      }
-      args.addAll(['/webport', '$port']);
-      args.addAll(_mpcViewPresetCompact);
-      args.add(path);
-    } else if (effectivePlayerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
-      exe = settings.customPlayerPath.trim().replaceAll('"', '');
-      final lowerPath = exe.toLowerCase();
-      if (lowerPath.contains('vlc')) {
-        if (finalSeek > 0) {
-          args.add('--start-time=$finalSeek');
-        }
-        args.addAll([
-          '--extraintf=http',
-          '--http-port=$port',
-          '--http-password=streamlink',
-          '--http-host=127.0.0.1'
-        ]);
-      } else if (lowerPath.contains('mpv')) {
-        if (finalSeek > 0) {
-          args.add('--start=$finalSeek');
-        }
-        if (Platform.isWindows) {
-          args.add('--input-ipc-server=\\\\.\\pipe\\mpv-socket-$key');
-        } else {
-          args.add('--input-ipc-server=/tmp/mpv-socket-$key');
-        }
-      } else if (lowerPath.contains('mpc')) {
-        if (finalSeek > 0) {
-          args.addAll(['/start', '${finalSeek * 1000}']);
-        }
-        args.addAll(['/webport', '$port']);
-        args.addAll(_mpcViewPresetCompact);
-      }
-      args.add(path);
-    } else {
+    final kind = classifyPlayer(effectivePlayerType, settings.customPlayerPath);
+    final resolvedExe = resolvePlayerExecutable(effectivePlayerType, settings);
+
+    if (resolvedExe == null) {
+      // No usable player: hand the file to the shell as before.
       exe = 'cmd';
       args.addAll(['/c', 'start', '/WAIT', '""', path]);
+    } else {
+      exe = resolvedExe;
+      // Local files are passed straight to Process.start, so no shlex quoting
+      // here - unlike the streamlink path, which parses --player-args.
+      args.addAll(buildPlayerArgs(
+        kind: kind,
+        startSeconds: finalSeek,
+        port: port,
+        ipcName: key,
+        isWindows: Platform.isWindows,
+      ));
+      args.add(path);
     }
 
     try {
@@ -784,94 +757,42 @@ class PlayerService {
 
   Future<void> launchStreamlinkForVod(TwitchVideo vod, String channelName, AppSettings settings) async {
     String titleString = '$channelName - ${vod.title}';
-    final args = <String>[];
     // Resolve "default" to a real player before building arguments.
     final playerType = resolveEffectivePlayerType(settings);
-    args.addAll(['--title', titleString]);
+    final kind = classifyPlayer(playerType, settings.customPlayerPath);
+    final playerExe = resolvePlayerExecutable(playerType, settings);
 
-    final token = settings.twitchOauthToken.trim().startsWith('oauth:') 
+    final token = settings.twitchOauthToken.trim().startsWith('oauth:')
         ? settings.twitchOauthToken.trim().substring(6)
         : settings.twitchOauthToken.trim();
-    
+
     final clientId = settings.twitchClientId.trim().isNotEmpty
         ? settings.twitchClientId.trim()
         : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
-    if (token.isNotEmpty && clientId == 'kimne78kx3ncx6brgo4mv6wki5h1ko') {
-      args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
-    }
-
     final port = getNextAvailablePlayerPort();
-    final extraArgsList = <String>[];
-
     final key = vod.id;
     final title = 'VOD: ${vod.title}';
 
-    if (playerType == 'vlc') {
-      args.addAll(['--player', findVlcPath() ?? 'vlc']);
-      extraArgsList.addAll([
-        '--extraintf=http',
-        '--http-port=$port',
-        '--http-password=streamlink',
-        '--http-host=127.0.0.1'
-      ]);
-    } else if (playerType == 'mpv') {
-      args.addAll(['--player', findMpvPath() ?? 'mpv']);
-      if (Platform.isWindows) {
-        extraArgsList.add('--input-ipc-server=\\\\.\\pipe\\mpv-socket-$key');
-      } else {
-        extraArgsList.add('--input-ipc-server=/tmp/mpv-socket-$key');
-      }
-    } else if (playerType == 'mpc-hc') {
-      args.addAll(['--player', findMpcHcPath() ?? 'mpc-hc64']);
-      extraArgsList.addAll(['/webport', '$port']);
-      extraArgsList.addAll(_mpcViewPresetCompact);
-    } else if (playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
-      args.addAll(['--player', settings.customPlayerPath.trim()]);
-      final lowerPath = settings.customPlayerPath.toLowerCase();
-      if (lowerPath.contains('vlc')) {
-        extraArgsList.addAll([
-          '--extraintf=http',
-          '--http-port=$port',
-          '--http-password=streamlink',
-          '--http-host=127.0.0.1'
-        ]);
-      } else if (lowerPath.contains('mpv')) {
-        if (Platform.isWindows) {
-          extraArgsList.add('--input-ipc-server=\\\\.\\pipe\\mpv-socket-$key');
-        } else {
-          extraArgsList.add('--input-ipc-server=/tmp/mpv-socket-$key');
-        }
-      } else if (lowerPath.contains('mpc')) {
-        extraArgsList.addAll(['/webport', '$port']);
-        extraArgsList.addAll(_mpcViewPresetCompact);
-      }
-    }
-
-    String combinedPlayerArgs = '';
-    if (settings.customPlayerArgs.trim().isNotEmpty) {
-      combinedPlayerArgs = settings.customPlayerArgs.trim();
-    }
-    if (extraArgsList.isNotEmpty) {
-      if (combinedPlayerArgs.isNotEmpty) {
-        combinedPlayerArgs += ' ' + extraArgsList.join(' ');
-      } else {
-        combinedPlayerArgs = extraArgsList.join(' ');
-      }
-    }
-
-    if (combinedPlayerArgs.isNotEmpty) {
-      args.addAll(['--player-args', combinedPlayerArgs]);
-    }
-
-    final watchedThresholdPct = settings.watchedThreshold / 100.0;
-    final isFullyWatched = vod.watchProgress != null && vod.watchProgress! >= watchedThresholdPct;
-    if (vod.watchPosition != null && vod.watchPosition! > 10 && !isFullyWatched) {
-      args.addAll(['--hls-start-offset', '${vod.watchPosition}s']);
-    }
-
-    args.add('twitch.tv/videos/${vod.id}');
-    args.add(settings.defaultQuality);
+    final cmd = buildVodStreamlinkArgs(
+      vodId: vod.id,
+      titleString: titleString,
+      quality: settings.defaultQuality,
+      oauthToken: token,
+      clientId: clientId,
+      kind: kind,
+      playerExe: playerExe,
+      customPlayerArgs: settings.customPlayerArgs,
+      port: port,
+      seekableStreaming: settings.seekableVodStreaming,
+      resume: resumeSeconds(
+        watchPosition: vod.watchPosition,
+        watchProgress: vod.watchProgress,
+        watchedThreshold: settings.watchedThreshold,
+      ),
+      isWindows: Platform.isWindows,
+    );
+    final args = cmd.args;
 
     playingVodIds.add(vod.id);
     activePlayerPorts[vod.id] = port;
@@ -879,6 +800,13 @@ class PlayerService {
 
     onPlayerStarted?.call(key, title);
     log(key, '[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${settings.defaultQuality}...');
+    log(key, cmd.passthrough
+        ? '[System] Seekable streaming: the player opens the HLS URL itself, so its seek bar works.'
+        : '[System] Piping mode: no seek bar. Streamlink skips ahead to ${cmd.appliedStart}s.');
+    if (cmd.resumeUnsupported) {
+      log(key, '[System] This player has no known start-position flag, so playback begins at 0. '
+          'Drag the seek bar to ${vod.watchPosition}s.');
+    }
     log(key, '[System] Arguments: ${args.join(" ")}');
 
     try {
@@ -892,12 +820,8 @@ class PlayerService {
       activePlayerProcesses[vod.id] = proc;
       
       // Spawn Windows Named Pipe to TCP Bridge for MPV players
-      final usesMpv = playerType == 'mpv' || 
-          (playerType == 'custom' && settings.customPlayerPath.toLowerCase().contains('mpv'));
-      if (usesMpv) {
-        if (Platform.isWindows) {
-          await _startWindowsIpcBridge(key, port);
-        }
+      if (kind == PlayerKind.mpv && Platform.isWindows) {
+        await _startWindowsIpcBridge(key, port);
       }
 
       _startVODProgressTracker(vod, port, settings);
@@ -1047,13 +971,10 @@ class PlayerService {
     // findMpvPath() / findMpcHcPath() inside the callback, hitting the
     // filesystem several times every two seconds for the whole playback.
     final resolvedPlayer = resolveEffectivePlayerType(settings);
-    final customPath = settings.customPlayerPath.toLowerCase();
-    final isVlc = resolvedPlayer == 'vlc' ||
-        (resolvedPlayer == 'custom' && customPath.contains('vlc'));
-    final isMpv = resolvedPlayer == 'mpv' ||
-        (resolvedPlayer == 'custom' && customPath.contains('mpv'));
-    final isMpc = resolvedPlayer == 'mpc-hc' ||
-        (resolvedPlayer == 'custom' && customPath.contains('mpc'));
+    final kind = classifyPlayer(resolvedPlayer, settings.customPlayerPath);
+    final isVlc = kind == PlayerKind.vlc;
+    final isMpv = kind == PlayerKind.mpv;
+    final isMpc = kind == PlayerKind.mpcHc;
 
     final timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
 

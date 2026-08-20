@@ -12,6 +12,7 @@ AppSettings buildNonDefaultSettings() {
     playerType: 'mpv',
     customPlayerPath: r'C:\Players\mpv.exe',
     customPlayerArgs: '--ontop --no-border',
+    seekableVodStreaming: false,
     twitchClientId: 'custom-client-id',
     localServerPort: 54321,
     watchedThreshold: 88,

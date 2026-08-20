@@ -71,6 +71,7 @@ class SettingsDialog {
       text: settings.maxDownloadsToKeep == 0 ? '' : settings.maxDownloadsToKeep.toString()
     );
     bool tempDisableVodPostProcessing = settings.disableVodPostProcessing;
+    bool tempSeekableVodStreaming = settings.seekableVodStreaming;
     final customVodArgsController = TextEditingController(text: settings.customVodArgs);
     bool tempNotifyWentLive = settings.notifyWentLive;
     bool tempNotifyAutoPlay = settings.notifyAutoPlay;
@@ -659,6 +660,31 @@ class SettingsDialog {
                                 ),
                               ],
                             ],
+                            const SizedBox(height: 18),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Seekable VOD streaming', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        "Hands the player the VOD's stream address instead of piping the video through Streamlink, so the player's own seek bar works. Turn off if streamed VODs fail to open, or to let Streamlink filter ad segments.",
+                                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                NeuSwitch(
+                                  value: tempSeekableVodStreaming,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempSeekableVodStreaming = val),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 18),
                             Text('Custom Player Arguments (Optional)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 6),
@@ -1276,6 +1302,7 @@ class SettingsDialog {
                                 twitchWebOauthToken: webTokenController.text.trim(),
                                 customPlayerPath: playerPathController.text.trim(),
                                 customPlayerArgs: playerArgsController.text.trim(),
+                                seekableVodStreaming: tempSeekableVodStreaming,
                                 twitchClientId: clientIdController.text.trim(),
                                 localServerPort: int.tryParse(portController.text.trim()) ?? settings.localServerPort,
                                 vodDownloadFolder: downloadFolderController.text.trim(),

@@ -8,6 +8,11 @@ class AppSettings {
   String playerType; // 'default', 'vlc', 'mpv', 'mpc-hc', 'custom'
   String customPlayerPath;
   String customPlayerArgs;
+
+  /// Hand the player the VOD's HLS URL instead of piping the stream through
+  /// streamlink, so the player's own seek bar works across the whole VOD.
+  /// Turning this off restores piping, where no timeline exists at all.
+  bool seekableVodStreaming;
   String twitchClientId;
   int localServerPort;
   int watchedThreshold;
@@ -82,6 +87,7 @@ class AppSettings {
     this.playerType = 'default',
     this.customPlayerPath = '',
     this.customPlayerArgs = '',
+    this.seekableVodStreaming = true,
     this.twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko',
     this.localServerPort = 65432,
     this.watchedThreshold = 96,
@@ -149,6 +155,7 @@ class AppSettings {
     String? playerType,
     String? customPlayerPath,
     String? customPlayerArgs,
+    bool? seekableVodStreaming,
     String? twitchClientId,
     int? localServerPort,
     int? watchedThreshold,
@@ -196,6 +203,7 @@ class AppSettings {
       playerType: playerType ?? this.playerType,
       customPlayerPath: customPlayerPath ?? this.customPlayerPath,
       customPlayerArgs: customPlayerArgs ?? this.customPlayerArgs,
+      seekableVodStreaming: seekableVodStreaming ?? this.seekableVodStreaming,
       twitchClientId: twitchClientId ?? this.twitchClientId,
       localServerPort: localServerPort ?? this.localServerPort,
       watchedThreshold: watchedThreshold ?? this.watchedThreshold,
@@ -244,6 +252,7 @@ class AppSettings {
         'player_type': playerType,
         'custom_player_path': customPlayerPath,
         'custom_player_args': customPlayerArgs,
+        'seekable_vod_streaming': seekableVodStreaming,
         'twitch_client_id': twitchClientId,
         'local_server_port': localServerPort,
         'watched_threshold': watchedThreshold,
@@ -309,6 +318,7 @@ class AppSettings {
         playerType: json['player_type'] ?? 'default',
         customPlayerPath: json['custom_player_path'] ?? '',
         customPlayerArgs: json['custom_player_args'] ?? '',
+        seekableVodStreaming: json['seekable_vod_streaming'] ?? true,
         twitchClientId: json['twitch_client_id'] ?? 'kimne78kx3ncx6brgo4mv6wki5h1ko',
         localServerPort: _clampInt(json['local_server_port'], 65432, 1, 65535),
         watchedThreshold: _clampInt(json['watched_threshold'], 96, 50, 100),
