@@ -3648,6 +3648,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _playVod(TwitchVideo vod, String channelName) {
+    // The service refuses a second launch silently, which is right for the
+    // automation paths but reads as a broken button here: the card's corner
+    // play control is not visibly disabled while a VOD is playing.
+    if (_playerService.playingVodIds.contains(vod.id)) {
+      _showSnackBar('Already playing "${vod.title}".', isError: false);
+      return;
+    }
+
     final localPos = _localVodsProgress[vod.id];
     if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
       vod.watchPosition = localPos;
@@ -3674,11 +3682,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
 
     
-    if (file != null && file.existsSync()) {
-      _playerService.playDownloadedVod(file, vod, _settings);
-    } else {
-      _playerService.launchStreamlinkForVod(vod, channelName, _settings);
-    }
+    // _activePlayingVideos is what _isWatchingVod reads, and only
+    // onPlayerStopped clears it. If a launch fails before the service can
+    // arrange that callback, auto-play and auto-download stand down for the
+    // rest of the session - the exact failure already documented and fixed
+    // once for the live path.
+    final Future<void> launch = (file != null && file.existsSync())
+        ? _playerService.playDownloadedVod(file, vod, _settings)
+        : _playerService.launchStreamlinkForVod(vod, channelName, _settings);
+
+    launch.catchError((Object e) {
+      _activePlayingVideos.remove(vod.id);
+      if (mounted) {
+        _showSnackBar('Could not start playback: $e', isError: true);
+      }
+    });
   }
 
   void _queueVodDownload(TwitchVideo vod, String channelName) {
