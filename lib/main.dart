@@ -17,6 +17,7 @@ import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
+import 'state/vod_cache.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
@@ -1375,15 +1376,47 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  final Map<String, List<TwitchVideo>> _vodCache = {};
+  final VodCache _vodCache = VodCache();
+
+  /// Identifies the newest VOD request, so a slower earlier one cannot win.
+  ///
+  /// Selecting channel A then B fires two fetches; whichever the network
+  /// returns last used to be the one displayed, under B's header either way.
+  int _vodRequestId = 0;
+
+  /// Selects a channel and loads its VODs.
+  ///
+  /// The one path for this. It used to be open-coded in three places - the
+  /// sidebar, the welcome screen's live cards and the "went live" notification
+  /// - and each had forgotten something different: the game filter left over
+  /// from the previous channel, the stale error, the async fetch started from
+  /// inside setState.
+  void _selectChannel(TwitchChannel channel) {
+    setState(() {
+      _showLibraryView = false;
+      _selectedChannel = channel;
+      _channelVods = [];
+      _selectedGamesFilter.clear();
+      _selectedVodIds.clear();
+      _vodsError = null;
+    });
+    if (_settings.twitchOauthToken.trim().isNotEmpty) {
+      _fetchVodsForChannel(channel);
+    }
+  }
 
   Future<void> _fetchVodsForChannel(TwitchChannel channel, {bool loadMore = false}) async {
-    final cached = _vodCache[channel.username];
+    final cached = _vodCache.read(channel.username);
+    final int requestId = ++_vodRequestId;
     setState(() {
       _isLoadingVods = cached == null || loadMore;
       _vodsError = null;
       if (!loadMore) {
-        _channelVods = cached ?? [];
+        // A copy. _channelVods is mutated in place elsewhere (notably cleared
+        // on channel switch), and handing out the cache's own list meant that
+        // clear() emptied the cache entry too - so every channel visited once
+        // was permanently cached as "no past broadcasts".
+        _channelVods = List<TwitchVideo>.from(cached ?? const []);
         _vodPaginationCursor = null;
       }
     });
@@ -1396,28 +1429,35 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         afterCursor: loadMore ? _vodPaginationCursor : null,
       );
 
+      if (!mounted || requestId != _vodRequestId) return;
+
       setState(() {
         _vodPaginationCursor = result.nextCursor;
         _isWebTokenExpired = result.isWebTokenExpired;
         if (loadMore) {
           _channelVods.addAll(result.vods);
         } else {
-          _channelVods = result.vods;
-          _vodCache[channel.username] = result.vods;
+          _channelVods = List<TwitchVideo>.from(result.vods);
         }
+        _vodCache.store(channel.username, _channelVods);
       });
       _checkDownloadedVods();
       await _saveChannels();
     } catch (e) {
+      if (!mounted || requestId != _vodRequestId) return;
       if (_channelVods.isEmpty) {
         setState(() {
           _vodsError = e.toString().replaceFirst('Exception: ', '');
         });
       }
     } finally {
-      setState(() {
-        _isLoadingVods = false;
-      });
+      // Only the newest request may clear the spinner: a superseded one
+      // finishing later would otherwise report the live fetch as done.
+      if (mounted && requestId == _vodRequestId) {
+        setState(() {
+          _isLoadingVods = false;
+        });
+      }
     }
   }
 
@@ -1574,14 +1614,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   void _prefetchVodsInBackground(List<TwitchChannel> channels) async {
     if (_settings.twitchOauthToken.trim().isEmpty) return;
     for (final channel in channels.take(10)) {
-      if (!_vodCache.containsKey(channel.username)) {
+      if (!_vodCache.has(channel.username)) {
         try {
           final result = await _apiService.fetchVodsForChannel(
             channel: channel,
             settings: _settings,
             localVodsProgress: _localVodsProgress,
           );
-          _vodCache[channel.username] = result.vods;
+          _vodCache.store(channel.username, result.vods);
         } catch (_) {}
       }
     }
@@ -1616,11 +1656,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 await windowManager.show();
                 await windowManager.focus();
                 
-                setState(() {
-                  _showLibraryView = false;
-                  _selectedChannel = channel;
-                });
-                _fetchVodsForChannel(channel);
+                _selectChannel(channel);
 
                 _playerService.launchStreamlinkForLive(
                   channel.username,
@@ -2085,18 +2121,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       authenticatedUserAvatar: _authenticatedUserAvatar,
       pulseController: _pulseController!,
       searchController: _searchController,
-      onChannelSelected: (channel) {
-        setState(() {
-          _showLibraryView = false;
-          _selectedChannel = channel;
-          _channelVods.clear();
-          _selectedGamesFilter.clear();
-          _vodsError = null;
-        });
-        if (_settings.twitchOauthToken.trim().isNotEmpty) {
-          _fetchVodsForChannel(channel);
-        }
-      },
+      onChannelSelected: _selectChannel,
       onChannelDoubleTapped: _launchChannelStream,
       onChannelPlayPressed: _launchChannelStream,
       onAddChannel: _addChannel,
@@ -2568,12 +2593,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               itemBuilder: (context, index) {
                 final channel = liveFavorites[index];
                 final itemCard = GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedChannel = channel;
-                      _fetchVodsForChannel(channel);
-                    });
-                  },
+                  onTap: () => _selectChannel(channel),
                   onDoubleTap: () {
                     if (_playerService.runningChannels.contains(channel.username)) return;
                     _playerService.launchStreamlinkForLive(
