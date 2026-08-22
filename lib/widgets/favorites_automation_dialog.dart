@@ -66,12 +66,18 @@ class FavoritesAutomationDialog extends StatefulWidget {
 
 class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
   late int _threshold;
+  late bool _preemptLowerPriority;
   late List<_ChannelAutomationState> _favChannels;
 
   @override
   void initState() {
     super.initState();
     _threshold = widget.settings.vodWatchExclusionThreshold;
+    // Staged, like the threshold and every per-channel switch. This one wrote
+    // straight to the live settings, so it took effect immediately and stuck
+    // even when the dialog was closed with the X - whose handler is commented
+    // "Close without applying changes".
+    _preemptLowerPriority = widget.settings.autoPlayPreemptLowerPriority;
     _favChannels = widget.favorites.map((ch) => _ChannelAutomationState.fromChannel(ch)).toList();
     _sortPriorityList();
   }
@@ -231,11 +237,11 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                     ),
                   ),
                   NeuSwitch(
-                    value: widget.settings.autoPlayPreemptLowerPriority,
+                    value: _preemptLowerPriority,
                     activeColor: theme.primaryColor,
                     onChanged: (val) {
                       setState(() {
-                        widget.settings.autoPlayPreemptLowerPriority = val;
+                        _preemptLowerPriority = val;
                       });
                     },
                   ),
@@ -615,6 +621,8 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                 ),
                 onPressed: () {
                   widget.settings.vodWatchExclusionThreshold = _threshold;
+                  widget.settings.autoPlayPreemptLowerPriority =
+                      _preemptLowerPriority;
                   _updatePriorities();
                   for (final st in _favChannels) {
                     st.applyToOriginal();

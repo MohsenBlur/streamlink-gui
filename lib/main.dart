@@ -1753,9 +1753,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _searchController.clear();
       _isAdding = false;
     });
+    _seedLiveTracking(newChannel);
 
     await _saveChannels();
     _showSnackBar('Channel "$cleanName" added successfully!', isError: false);
+  }
+
+  /// Records a channel that is ALREADY live at the moment it joins the list.
+  ///
+  /// The went-live check fires for any live channel missing from this set, so
+  /// starring or adding someone mid-broadcast produced an "is now LIVE!"
+  /// notification up to a minute later for a stream the user had just been
+  /// looking at - and, with auto-play configured, could launch it unasked.
+  void _seedLiveTracking(TwitchChannel channel) {
+    if (!channel.isLive) return;
+    _previouslyLiveFavoriteUsernames.add(channel.username.toLowerCase().trim());
   }
 
   Future<void> _toggleFavorite(TwitchChannel channel) async {
@@ -1825,6 +1837,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       setState(() {
         _channels.add(newFav);
       });
+      _seedLiveTracking(newFav);
       await _saveChannels();
       _showSnackBar('Added "${channel.username}" to Favorites.', isError: false);
       
