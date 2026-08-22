@@ -211,3 +211,48 @@ VodStreamCommand buildVodStreamlinkArgs({
     resumeUnsupported: unsupported,
   );
 }
+
+/// The streamlink command line for a live channel.
+///
+/// Extracted from PlayerService so it can be tested, and so the live and VOD
+/// paths stop disagreeing. The live path used to hand-build `--player` from
+/// findVlcPath()/findMpvPath()/findMpcHcPath() inline and pass a custom path
+/// through untouched - so a path pasted from Explorer's "Copy as path", which
+/// arrives wrapped in double quotes, worked for VODs and failed for live.
+///
+/// [playerExe] comes from the same resolvePlayerExecutable the VOD path uses;
+/// null means no usable player was found, and no `--player` is emitted (rather
+/// than a bare quoted string streamlink cannot run).
+List<String> buildLiveStreamlinkArgs({
+  required String channelName,
+  required String titleString,
+  required String quality,
+  required String oauthToken, // already stripped of any 'oauth:' prefix
+  required String clientId,
+  required String? playerExe,
+  required String customPlayerArgs,
+  required bool lowLatency,
+}) {
+  final args = <String>['--title', titleString];
+
+  if (oauthToken.isNotEmpty && clientId == 'kimne78kx3ncx6brgo4mv6wki5h1ko') {
+    args.addAll(['--twitch-api-header', 'Authorization=OAuth $oauthToken']);
+  }
+
+  // Supported by the bundled streamlink 8.4.0, contrary to the comment that
+  // used to sit at this spot claiming it was deprecated. Live only: it lowers
+  // --hls-live-edge and prefetches, neither of which means anything for a VOD.
+  if (lowLatency) args.add('--twitch-low-latency');
+
+  if (playerExe != null) args.addAll(['--player', playerExe]);
+
+  if (customPlayerArgs.trim().isNotEmpty) {
+    args.addAll(['--player-args', customPlayerArgs.trim()]);
+  }
+
+  // Positional, and order matters: URL then quality.
+  args.add('twitch.tv/$channelName');
+  args.add(quality);
+
+  return args;
+}

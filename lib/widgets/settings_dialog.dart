@@ -229,8 +229,11 @@ class SettingsDialog {
                                   children: [
                                     Text('Low Latency Streams', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                                     const SizedBox(height: 4),
+                                    // Streamlink's own help warns this can
+                                    // cause buffering, so the trade-off
+                                    // belongs on the switch, not in a wiki.
                                     Text(
-                                      'Reduces delay on Twitch streams',
+                                      'Cuts delay on live streams. May buffer more.',
                                       style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                                     ),
                                   ],

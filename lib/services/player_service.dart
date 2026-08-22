@@ -913,41 +913,29 @@ class PlayerService {
       titleString = '$channelName - Offline Stream';
     }
 
-    final args = <String>[];
     // Resolve "default" to a real player before building arguments.
     final playerType = resolveEffectivePlayerType(settings);
-    args.addAll(['--title', titleString]);
 
-    final token = settings.twitchOauthToken.trim().startsWith('oauth:') 
+    final token = settings.twitchOauthToken.trim().startsWith('oauth:')
         ? settings.twitchOauthToken.trim().substring(6)
         : settings.twitchOauthToken.trim();
-    
+
     final clientId = settings.twitchClientId.trim().isNotEmpty
         ? settings.twitchClientId.trim()
         : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
-    if (token.isNotEmpty && clientId == 'kimne78kx3ncx6brgo4mv6wki5h1ko') {
-      args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
-    }
-
-    // Note: --twitch-low-latency is deprecated/unrecognized in modern Streamlink versions
-
-    if (playerType == 'vlc') {
-      args.addAll(['--player', findVlcPath() ?? 'vlc']);
-    } else if (playerType == 'mpv') {
-      args.addAll(['--player', findMpvPath() ?? 'mpv']);
-    } else if (playerType == 'mpc-hc') {
-      args.addAll(['--player', findMpcHcPath() ?? 'mpc-hc64']);
-    } else if (playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
-      args.addAll(['--player', settings.customPlayerPath.trim()]);
-    }
-
-    if (settings.customPlayerArgs.trim().isNotEmpty) {
-      args.addAll(['--player-args', settings.customPlayerArgs.trim()]);
-    }
-
-    args.add('twitch.tv/$channelName');
-    args.add(settings.defaultQuality);
+    final args = buildLiveStreamlinkArgs(
+      channelName: channelName,
+      titleString: titleString,
+      quality: settings.defaultQuality,
+      oauthToken: token,
+      clientId: clientId,
+      // The same resolver the VOD path uses, which strips the quotes an
+      // Explorer "Copy as path" leaves around a custom player path.
+      playerExe: resolvePlayerExecutable(playerType, settings),
+      customPlayerArgs: settings.customPlayerArgs,
+      lowLatency: settings.twitchLowLatency,
+    );
 
     final key = liveStreamKey(channelName);
     final title = '$channelName (Live)';
