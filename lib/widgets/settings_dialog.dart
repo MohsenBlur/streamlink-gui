@@ -437,7 +437,11 @@ class SettingsDialog {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Download completes', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                // Not "Download completes": it governs the
+                                // failure notification too, and none of these
+                                // rows can wrap, so the label has to be both
+                                // true and no longer than its siblings.
+                                Text('Download completes or fails', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                                 NeuSwitch(
                                   value: tempNotifyDownloadComplete,
                                   activeColor: themeNotifier.primaryColor,

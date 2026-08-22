@@ -371,6 +371,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           final label = _logNotifier.session(key)?.label ?? 'playback';
           _showSnackBar('Playback failed for $label', isError: true,
               action: _viewLogAction(key));
+          // Only when the window is hidden, which is the auto-play case: a
+          // failure the user is watching happen does not need a tray popup
+          // on top of the message they can already see.
+          _windowIsHidden().then((hidden) {
+            if (hidden) _notify('Playback failed', label);
+          });
         }
       }
     };
@@ -458,16 +464,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         if (_showLibraryView) _refreshLibraryEntries();
         _showSnackBar('Download completed: $title', isError: false);
         if (_settings.notifyDownloadComplete) {
-          try {
-            final notification = LocalNotification(
-              title: 'VOD Download Completed',
-              body: title,
-              silent: false,
-            );
-            notification.show();
-          } catch (e) {
-            print('[Download Notification Error]: $e');
-          }
+          _notify('VOD Download Completed', title);
         }
       }
     };
@@ -480,6 +477,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         setState(() {});
         _showSnackBar('Download failed for: $title (Exit code $exitCode)',
             isError: true, action: _viewLogAction(logKeyForDownload(vodId)));
+      }
+      // A failure is at least as worth knowing about as a success, and
+      // downloads are exactly what runs while the app sits in the tray. No new
+      // setting: it rides the toggle that already governs the outcome of a
+      // download, now honestly labelled as covering both.
+      if (_settings.notifyDownloadComplete) {
+        _notify('VOD Download Failed', title);
       }
     };
 
@@ -1904,6 +1908,27 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     } catch (e) {
       _showSnackBar('Failed to open link: $e', isError: true);
     }
+  }
+
+  /// Whether the window is somewhere the user can actually read a SnackBar.
+  ///
+  /// The app's normal state is minimised to the tray, where an in-app message
+  /// is shown to nobody - and auto-play and auto-download run precisely then.
+  Future<bool> _windowIsHidden() async {
+    try {
+      if (!await windowManager.isVisible()) return true;
+      return await windowManager.isMinimized();
+    } catch (_) {
+      // Unknown: prefer the OS notification over silence.
+      return true;
+    }
+  }
+
+  /// Raises an OS notification, ignoring a platform that refuses.
+  Future<void> _notify(String title, String body, {bool silent = false}) async {
+    try {
+      await LocalNotification(title: title, body: body, silent: silent).show();
+    } catch (_) {}
   }
 
   void _showSnackBar(String message,
