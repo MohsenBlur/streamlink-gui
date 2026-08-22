@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import '../models/app_settings.dart';
+import '../state/activity_state.dart';
 import '../utils/player_args.dart';
 import '../models/twitch_video.dart';
 import 'twitch_api_service.dart';
@@ -94,7 +95,7 @@ class PlayerService {
   /// lower-priority stream had been killed while it kept playing, and the
   /// preemption feature was entirely dead.
   static String liveStreamKey(String channelName) =>
-      'stream_' + channelName.toLowerCase().trim();
+      logKeyForLiveStream(channelName.trim());
 
   /// Stops the live stream for [channelName], if one is running.
   void killLiveStream(String channelName) {
@@ -110,6 +111,14 @@ class PlayerService {
   void Function(String vodId)? onDownloadCancelled;
   void Function(String vodId, String title, String filePath)? onDownloadCompleted;
   void Function(String vodId, String title, int exitCode)? onDownloadFailed;
+
+  /// Fires once per download process, whatever the outcome.
+  ///
+  /// Downloads announce their start through [onPlayerStarted] like players do,
+  /// but had no matching end, so their log session read "running" forever - and
+  /// eviction only reclaims finished sessions, so the session count grew
+  /// without bound for as long as the app ran.
+  void Function(String vodId, int exitCode)? onDownloadEnded;
   
   void Function(String key, String title)? onPlayerStarted;
   /// [userInitiated] is true when the process was stopped on purpose, so
@@ -383,7 +392,7 @@ class PlayerService {
       url
     ]);
 
-    final key = 'dl-$vodId';
+    final key = logKeyForDownload(vodId);
     final title = 'Download: ${vod.title}';
     onPlayerStarted?.call(key, title);
 
@@ -478,6 +487,9 @@ class PlayerService {
 
       final exitCode = await proc.exitCode;
       _cleanupDownloadState(vodId);
+      // Before every branch below, including the cancelled early return and
+      // the ffmpeg retry (which begins a fresh session of its own).
+      onDownloadEnded?.call(vodId, exitCode);
 
       // A cancelled download exits non-zero like a failed one. Without this
       // check the ffmpeg fallback below restarted it - after the user cancelled
@@ -518,6 +530,7 @@ class PlayerService {
     } catch (e) {
       log(key, '[System Error] Download failed to start: $e');
       _cleanupDownloadState(vodId);
+      onDownloadEnded?.call(vodId, -1);
       onDownloadFailed?.call(vodId, vod.title, -1);
     }
   }
@@ -611,6 +624,9 @@ class PlayerService {
 
     downloadQueue.remove(vodId);
     queuedDownloadTasks.remove(vodId);
+    // Otherwise a stale override outlives the download it was chosen for and
+    // silently applies to a later manual re-queue of the same VOD.
+    downloadTaskFastDownloadOverrides.remove(vodId);
     _cleanupDownloadState(vodId);
     onDownloadCancelled?.call(vodId);
     removeVodFromArchive(vodId);
@@ -1250,6 +1266,12 @@ class PlayerService {
     downloadQueue.clear();
     queuedDownloadTasks.clear();
     downloadTaskFastDownloadOverrides.clear();
+
+    // A killed yt-dlp exits non-zero exactly like a failed one, so quitting or
+    // updating with downloads running reported "Download failed" for each -
+    // the same trap _cancelledDownloads already exists to close for the cancel
+    // button. Marked before the kill, since the exit handler can run at once.
+    _cancelledDownloads.addAll(activeDownloadProcesses.keys);
 
     _stoppedByUser.addAll(activePlayerProcesses.keys);
     for (final proc in activePlayerProcesses.values) {

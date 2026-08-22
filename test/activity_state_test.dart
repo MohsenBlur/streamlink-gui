@@ -105,7 +105,14 @@ void main() {
     });
   });
 
-  group('ActivityItem.logKey', () {
+  group('log session keys', () {
+    test('one spelling, shared with PlayerService', () {
+      // Hand-built at several call sites before this; a mismatch silently
+      // pointed "View log" at a session that did not exist.
+      expect(logKeyForDownload('5'), 'dl-5');
+      expect(logKeyForLiveStream('Shroud'), 'stream_shroud');
+    });
+
     test('matches the keys PlayerService registers', () {
       expect(
           const ActivityItem(kind: ActivityKind.downloading, id: '5', label: '')

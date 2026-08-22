@@ -80,7 +80,28 @@ class LogNotifier extends ChangeNotifier {
   }
 
   void endSession(String key, int exitCode) {
-    _sessions[key]?.exitCode = exitCode;
+    final session = _sessions[key];
+    if (session == null || !session.isRunning) return;
+    session.exitCode = exitCode;
+    // Eviction skips running sessions, so a session only becomes reclaimable
+    // once it ends - which is why this runs here rather than only at begin.
+    _evict();
+    notifyListeners();
+  }
+
+  /// Ends every session still marked running.
+  ///
+  /// For the paths that kill all child processes at once without the app
+  /// exiting - a failed update, most notably.
+  void endAllRunning(int exitCode) {
+    var changed = false;
+    for (final session in _sessions.values) {
+      if (!session.isRunning) continue;
+      session.exitCode = exitCode;
+      changed = true;
+    }
+    if (!changed) return;
+    _evict();
     notifyListeners();
   }
 

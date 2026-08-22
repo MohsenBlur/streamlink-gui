@@ -426,6 +426,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     };
 
+    _playerService.onDownloadEnded = (vodId, exitCode) {
+      if (!mounted) return;
+      _logNotifier.endSession(logKeyForDownload(vodId), exitCode);
+    };
+
     _playerService.onDownloadCancelled = (vodId) {
       _progressBuckets.remove(vodId);
       _progressStatuses.remove(vodId);
@@ -474,7 +479,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _publishActivity();
         setState(() {});
         _showSnackBar('Download failed for: $title (Exit code $exitCode)',
-            isError: true, action: _viewLogAction('dl-$vodId'));
+            isError: true, action: _viewLogAction(logKeyForDownload(vodId)));
       }
     };
 
@@ -684,6 +689,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         await updateService.applyUpdateAndRestart(extractDir);
       } catch (e) {
         _isUpdateInProgress = false;
+        // stopAll() may already have killed everything before the failure. The
+        // app survives this path, so any session still marked running would
+        // stay that way for the rest of the session - and eviction only
+        // reclaims finished ones.
+        _logNotifier.endAllRunning(-1);
         if (mounted) {
           Navigator.pop(context);
           _showSnackBar('Update failed: $e', isError: true);

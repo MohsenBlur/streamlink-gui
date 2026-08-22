@@ -114,5 +114,56 @@ void main() {
       logs.clearAll();
       expect(logs.isEmpty, isTrue);
     });
+
+    test('a session that ends becomes evictable', () {
+      // Downloads announced their start but never their end, so their sessions
+      // read "running" forever - and because eviction skips running sessions,
+      // the store could never reclaim them and grew for as long as the app ran.
+      final logs = LogNotifier(maxSessions: 2);
+      logs.beginSession('a', 'a');
+      logs.beginSession('b', 'b');
+      logs.endSession('a', 0);
+
+      logs.beginSession('c', 'c');
+
+      expect(logs.sessions.map((s) => s.key).toSet(), {'b', 'c'});
+    });
+
+    test('ending a session evicts immediately, without waiting for the next start', () {
+      final logs = LogNotifier(maxSessions: 1);
+      logs.beginSession('a', 'a');
+      logs.beginSession('b', 'b'); // over cap, but both are running
+      expect(logs.sessions, hasLength(2));
+
+      logs.endSession('a', 0);
+
+      expect(logs.sessions.map((s) => s.key), ['b']);
+    });
+
+    test('ending an unknown or already-ended session is a no-op', () {
+      final logs = LogNotifier();
+      logs.endSession('nope', 1); // must not create anything
+      expect(logs.session('nope'), isNull);
+
+      logs.beginSession('a', 'a');
+      logs.endSession('a', 0);
+      logs.endSession('a', 1); // a late second report cannot rewrite history
+      expect(logs.session('a')!.exitCode, 0);
+    });
+
+    test('endAllRunning closes the sessions a mass kill left behind', () {
+      // A failed update kills every child process but the app survives, so
+      // nothing else would ever end these.
+      final logs = LogNotifier();
+      logs.beginSession('a', 'a');
+      logs.beginSession('b', 'b');
+      logs.endSession('a', 0);
+
+      logs.endAllRunning(-1);
+
+      expect(logs.session('a')!.exitCode, 0); // untouched
+      expect(logs.session('b')!.exitCode, -1);
+      expect(logs.sessions.every((s) => !s.isRunning), isTrue);
+    });
   });
 }
