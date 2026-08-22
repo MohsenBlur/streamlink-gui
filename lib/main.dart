@@ -1835,11 +1835,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _bulkUpdateSelectedVods(bool markAsWatched) async {
+    // No browser token required. The write that matters is local, and refusing
+    // without a token blocked the whole feature to protect a sync that Twitch
+    // rejects anyway; a token, when present, is used opportunistically.
     final webToken = _settings.twitchWebOauthToken.trim();
-    if (webToken.isEmpty) {
-      _showSnackBar('Twitch Browser Token is required in Settings to sync watch progress.', isError: true);
-      return;
-    }
 
     if (_selectedVodIds.isEmpty) {
       _showSnackBar('No VODs selected.', isError: true);
@@ -1869,9 +1868,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       });
       successCount++;
 
-      try {
-        _apiService.syncSingleVODProgressDirect(videoId, targetPosition, webToken).catchError((_) {});
-      } catch (_) {}
+      if (webToken.isNotEmpty) {
+        try {
+          _apiService.syncSingleVODProgressDirect(videoId, targetPosition, webToken).catchError((_) {});
+        } catch (_) {}
+      }
     }
 
     setState(() {
@@ -1882,8 +1883,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     if (successCount > 0) {
       await _saveChannels();
+      // Careful with this wording. Local progress is merged as
+      // max(local, remote) on the next fetch, so marking WATCHED sticks - it
+      // only ever raises the position - while marking UNWATCHED sets it to 0
+      // and is silently overwritten by the remote position on the next fetch
+      // whenever a browser token is present. Claiming a clean local update
+      // would just replace one over-claim with another.
+      final revertible = !markAsWatched && webToken.isNotEmpty;
       _showSnackBar(
-        'Successfully updated $successCount VODs locally! Note: Twitch blocks third-party watch history syncing on their website.',
+        revertible
+            ? 'Marked $successCount VODs unwatched here. Twitch still has a '
+                'position for them, so this may come back on the next refresh.'
+            : 'Marked $successCount VODs watched here. Twitch does not accept '
+                'watch history from third-party apps, so this stays local.',
         isError: false,
       );
     }
@@ -3851,13 +3863,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 subtitle: Text('Downloads the oldest broadcasts sequentially', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                 onTap: () => Navigator.pop(context, 'oldest'),
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.bolt, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                title: Text('Simultaneous Downloads', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                subtitle: Text('Starts all downloads in parallel (may consume high CPU/bandwidth)', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                onTap: () => Navigator.pop(context, 'parallel'),
-              ),
+              // "Simultaneous Downloads" used to sit here. It called the same
+              // queueVodDownload as the two branches above, which drains one
+              // download at a time, and only differed in skipping the sort -
+              // while announcing "Starting N parallel downloads...". Real
+              // concurrency is a feature, not a relabelling.
             ],
           ),
           actions: [
@@ -3874,22 +3884,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     final channelName = _selectedChannel?.username ?? 'VOD';
 
-    if (chosenOrder == 'parallel') {
-      _showSnackBar('Starting ${selectedVods.length} parallel downloads...', isError: false);
-      for (final vod in selectedVods) {
-        _playerService.queueVodDownload(vod, channelName, _settings);
-      }
+    final sortedVods = List<TwitchVideo>.from(selectedVods);
+    if (chosenOrder == 'newest') {
+      sortedVods.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
     } else {
-      final sortedVods = List<TwitchVideo>.from(selectedVods);
-      if (chosenOrder == 'newest') {
-        sortedVods.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-      } else {
-        sortedVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
-      }
-      _showSnackBar('Queueing ${selectedVods.length} sequential downloads...', isError: false);
-      for (final vod in sortedVods) {
-        _playerService.queueVodDownload(vod, channelName, _settings);
-      }
+      sortedVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
+    }
+    _showSnackBar('Queueing ${sortedVods.length} downloads...', isError: false);
+    for (final vod in sortedVods) {
+      _playerService.queueVodDownload(vod, channelName, _settings);
     }
     setState(() {});
   }
