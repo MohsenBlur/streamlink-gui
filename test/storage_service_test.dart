@@ -173,4 +173,77 @@ void main() {
       expect(() => json.decode(raw), returnsNormally);
     });
   });
+  group('write failures are reported', () {
+    tearDown(() => storageWriteFailure.value = null);
+
+    test('an unwritable target sets the failure, and a good save clears it', () async {
+      // Regression: the error was recorded in a field nothing read, so a save
+      // that never reached disk looked identical to a successful one and the
+      // user lost everything at next launch.
+      final blocked = configFile().path;
+      Directory(blocked).createSync(recursive: true); // a directory, not a file
+
+      await save(storage, ['a']);
+      expect(storageWriteFailure.value, isNotNull);
+      expect(storageWriteFailure.value!.path, blocked);
+
+      Directory(blocked).deleteSync(recursive: true);
+      await save(storage, ['a']);
+      expect(storageWriteFailure.value, isNull);
+    });
+
+    test('a successful save leaves the failure state clear', () async {
+      await save(storage, ['a']);
+      expect(storageWriteFailure.value, isNull);
+    });
+  });
+
+  group('debris does not accumulate', () {
+    test('an aged orphan temp file is swept on load, a fresh one is kept', () async {
+      await save(storage, ['a']);
+      final base = configFile().path;
+
+      final old = File('$base.111.tmp')..writeAsStringSync('{}');
+      old.setLastModifiedSync(DateTime.now().subtract(const Duration(hours: 3)));
+      final fresh = File('$base.222.tmp')..writeAsStringSync('{}');
+      // Not our shape: must be left alone whatever its age.
+      final unrelated = File('$base.notes.tmp')..writeAsStringSync('{}');
+      unrelated.setLastModifiedSync(DateTime.now().subtract(const Duration(days: 9)));
+
+      await storage.loadConfig();
+
+      expect(old.existsSync(), isFalse);
+      expect(fresh.existsSync(), isTrue);
+      expect(unrelated.existsSync(), isTrue);
+    });
+
+    test('quarantined copies are capped, newest kept', () async {
+      final file = configFile();
+      // Each corrupt load renames the file away, so write a fresh bad one each time.
+      for (var i = 0; i < 5; i++) {
+        file.writeAsStringSync('not json $i');
+        expect(await storage.loadConfig(), isNull);
+      }
+
+      final copies = tempDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.contains('.corrupt-'))
+          .toList();
+      expect(copies.length, lessThanOrEqualTo(3));
+    });
+  });
+
+  group('configExists', () {
+    test('distinguishes absent from present-but-unreadable', () async {
+      expect(storage.configExists(), isFalse);
+
+      configFile().writeAsStringSync('not json');
+      expect(storage.configExists(), isTrue);
+
+      // loadConfig quarantines it, so afterwards there is genuinely no config.
+      expect(await storage.loadConfig(), isNull);
+      expect(storage.configExists(), isFalse);
+    });
+  });
 }

@@ -53,10 +53,12 @@ void main(List<String> args) async {
 
   await windowManager.ensureInitialized();
 
-  final config = await StorageService().loadConfig();
-  // First run = no config file at all. Computed once here so a returning user
-  // (config exists, even a partial one) can never see the wizard.
-  final bool isFirstRun = config == null;
+  final storage = StorageService();
+  // Existence is checked BEFORE loading: loadConfig() quarantines an unreadable
+  // file and returns null, which is indistinguishable from a first run - so a
+  // user whose config got corrupted was shown the onboarding wizard.
+  final bool isFirstRun = !storage.configExists();
+  final config = await storage.loadConfig();
   AppSettings settings = AppSettings();
   if (config != null && config['settings'] is Map<String, dynamic>) {
     // Runs before the first frame, so an unparseable config here would stop
@@ -283,6 +285,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   final Map<String, TwitchVideo> _activePlayingVideos = {};
   List<TwitchVideo> _recentWatchedVods = [];
 
+  /// Set when the user dismisses the save-failure banner, so a persistent
+  /// disk problem does not become an undismissable wall. Reset whenever a save
+  /// succeeds, so a NEW failure is reported again.
+  bool _saveWarningDismissed = false;
+
+  /// Re-arms the save-failure banner once a save succeeds, so a dismissal
+  /// covers the problem the user saw and not every future one.
+  void _watchSaveFailures() {
+    storageWriteFailure.addListener(() {
+      if (!mounted) return;
+      if (storageWriteFailure.value == null && _saveWarningDismissed) {
+        setState(() => _saveWarningDismissed = false);
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
   /// Library screen state. Entries are CACHED - built (with file stats) only
   /// on open/refresh/mutation, never inside build(), because download-progress
   /// setState storms would otherwise stat every file per frame.
@@ -456,6 +476,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     };
 
+    _watchSaveFailures();
     _loadChannels();
     
     _downloadCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -2173,6 +2194,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               _saveChannels();
             },
           ),
+          ValueListenableBuilder<StorageWriteFailure?>(
+            valueListenable: storageWriteFailure,
+            builder: (context, failure, _) {
+              if (failure == null || _saveWarningDismissed) {
+                return const SizedBox.shrink();
+              }
+              return _buildSaveFailureBanner(failure);
+            },
+          ),
           Expanded(
             child: isVertical
                 ? Column(
@@ -2673,6 +2703,97 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 },
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Warns that changes are not reaching disk.
+  ///
+  /// A banner rather than a message: this is a CONDITION, not an event. It
+  /// clears itself the moment a save succeeds (which happens within seconds
+  /// during normal use), and a snackbar would be missed entirely while the app
+  /// sits minimised in the tray, which is its normal state.
+  Widget _buildSaveFailureBanner(StorageWriteFailure failure) {
+    final isDark = themeNotifier.isDarkTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: NeuTheme.danger.withValues(alpha: 0.12),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline,
+              size: 16, color: NeuTheme.dangerText(isDark)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Your settings could not be saved to disk. Recent changes may be '
+              'lost when the app closes.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: NeuTheme.dangerText(isDark),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => _showSaveFailureDetail(failure),
+            child: const Text('Details', style: TextStyle(fontSize: 11)),
+          ),
+          IconButton(
+            icon: Icon(Icons.close, size: 14, color: NeuTheme.subtext(isDark)),
+            tooltip: 'Dismiss',
+            onPressed: () => setState(() => _saveWarningDismissed = true),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSaveFailureDetail(StorageWriteFailure failure) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: themeNotifier.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Could not save settings',
+            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Writing to this file keeps failing. Common causes are a full '
+                'disk, antivirus or backup software holding the file open, or '
+                'the folder no longer being writable.',
+                style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: NeuTheme.sunkenDecoration(
+                    themeNotifier.isDarkTheme,
+                    radius: 8),
+                child: SelectableText(
+                  '${failure.path}\n\n${failure.error}',
+                  style: const TextStyle(fontFamily: 'Consolas', fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close',
+                style: TextStyle(
+                    color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
           ),
         ],
       ),
