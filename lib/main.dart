@@ -59,7 +59,13 @@ void main(List<String> args) async {
   final bool isFirstRun = config == null;
   AppSettings settings = AppSettings();
   if (config != null && config['settings'] is Map<String, dynamic>) {
-    settings = AppSettings.fromJson(config['settings']);
+    // Runs before the first frame, so an unparseable config here would stop
+    // the app from starting at all rather than falling back to defaults.
+    try {
+      settings = AppSettings.fromJson(config['settings']);
+    } catch (e) {
+      print('[Config] Settings unreadable, using defaults: $e');
+    }
   }
 
   // Autostart launches pass --start-minimized; the manual-launch preference
@@ -310,8 +316,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // playback began - it must stay even though the console tab it used to
     // select is gone.
     _playerService.onPlayerStarted = (key, title) {
+      if (!mounted) return;
       _logNotifier.beginSession(key, title);
-      if (mounted) {
+      {
         _publishActivity();
         setState(() {});
       }
@@ -326,9 +333,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // subsequent pass, silently killing BOTH priority auto-play and VOD
       // auto-download until the app was restarted.
       _activePlayingVideos.remove(key);
+      if (!mounted) return;
       _logNotifier.endSession(key, exitCode);
 
-      if (mounted) {
+      {
         _publishActivity();
         setState(() {});
         // A player that never opened is otherwise silent: the console drawer
@@ -700,6 +708,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _oauthServer?.close(force: true);
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
+    _windowSaveTimer?.cancel();
     _activity.dispose();
     _logNotifier.dispose();
     super.dispose();
@@ -1098,6 +1107,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
         final settingsJson = config['settings'];
         if (settingsJson is Map<String, dynamic>) {
+          try {
           setState(() {
             _settings = AppSettings.fromJson(settingsJson);
             _sidebarCollapsed = _settings.sidebarCollapsed;
@@ -1130,6 +1140,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               watchedProgress: parseHexColor(_settings.watchedProgressColorHex, const Color(0x804CAF50)),
             );
           });
+          } catch (e) {
+            // Keep going with default settings rather than aborting the whole
+            // load - the outer catch would abandon the channel list too, and
+            // the next autosave would persist the loss.
+            print('[Config] Settings unreadable, using defaults: $e');
+          }
         }
         final localProgressJson = config['local_vods_progress'];
         if (localProgressJson is Map) {
