@@ -16,6 +16,7 @@ import 'services/player_service.dart';
 import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
+import 'state/download_registry.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
@@ -960,59 +961,64 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       return;
     }
 
-    final newDownloaded = <String>{};
-    bool registryChanged = false;
+    final inFlight = <String>{
+      ..._playerService.activeDownloadTasks.keys,
+      ..._playerService.activeDownloadProcesses.keys,
+      ..._playerService.downloadQueue,
+    };
 
-    // 1. Validate all files in the registry
-    _downloadedVodsRegistry.forEach((vodId, filePath) {
-      if (_playerService.activeDownloadTasks.containsKey(vodId) ||
-          _playerService.activeDownloadProcesses.containsKey(vodId) ||
-          _playerService.downloadQueue.contains(vodId)) {
-        return;
-      }
-
-      if (File(filePath).existsSync()) {
-        newDownloaded.add(vodId);
-      } else {
-        registryChanged = true;
-        _playerService.removeVodFromArchive(vodId);
-      }
-    });
-
-    if (registryChanged) {
-      _downloadedVodsRegistry.removeWhere((vodId, filePath) => !File(filePath).existsSync());
-    }
-    
-    // 2. Scan the current channel's VODs and pick up newly found downloads
+    // Resolve where each of the current channel's VODs would live, so files
+    // that arrived without going through this app get picked up.
+    final candidates = <String, String>{};
     for (final vod in _channelVods) {
-      if (newDownloaded.contains(vod.id)) continue;
-      
-      if (_playerService.activeDownloadTasks.containsKey(vod.id) ||
-          _playerService.activeDownloadProcesses.containsKey(vod.id) ||
-          _playerService.downloadQueue.contains(vod.id)) {
-        continue;
-      }
-      
-      final file = _playerService.getDownloadedVodFile(
-        vod.id,
-        _selectedChannel?.username ?? '',
-        _settings.vodDownloadFolder
-      );
-      if (file != null && file.existsSync()) {
-        newDownloaded.add(vod.id);
-        _downloadedVodsRegistry[vod.id] = file.path;
-        registryChanged = true;
-      }
+      try {
+        final file = _playerService.getDownloadedVodFile(
+            vod.id, _selectedChannel?.username ?? '', _settings.vodDownloadFolder);
+        if (file != null) candidates[vod.id] = file.path;
+      } catch (_) {}
     }
 
-    if (registryChanged) {
+    final plan = planRegistryScan(
+      registry: Map<String, String>.from(_downloadedVodsRegistry),
+      inFlightIds: inFlight,
+      candidates: candidates,
+      fileExists: _pathIsFile,
+      directoryExists: _pathIsDirectory,
+    );
+
+    for (final vodId in plan.stripFromArchive) {
+      _playerService.removeVodFromArchive(vodId);
+    }
+    _downloadedVodsRegistry.removeWhere((vodId, _) => plan.prune.contains(vodId));
+    _downloadedVodsRegistry.addAll(plan.additions);
+
+    if (plan.registryChanged) {
       _saveChannels();
     }
-    
+
     if (mounted) {
       setState(() {
-        _downloadedVodIds = newDownloaded;
+        // Unverified entries stay badged: their location is merely unreachable
+        // right now, and flickering the badge off for an unplugged drive is a
+        // worse lie than leaving it on.
+        _downloadedVodIds = {...plan.present, ...plan.unverified};
       });
+    }
+  }
+
+  static bool _pathIsFile(String path) {
+    try {
+      return File(path).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool _pathIsDirectory(String path) {
+    try {
+      return Directory(path).existsSync();
+    } catch (_) {
+      return false;
     }
   }
 
