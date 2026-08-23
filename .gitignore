@@ -79,3 +79,7 @@ app.*.map.json
 # Screenshot review artifacts: large, regenerable, and they can contain
 # real channel names and avatars from the captured session.
 shots/
+
+# Scratch files written by audit subagents; never part of the suite.
+test/zz*_test.dart
+test/tmp_*_test.dart
