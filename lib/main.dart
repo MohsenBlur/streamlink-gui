@@ -30,7 +30,6 @@ import 'package:screen_retriever/screen_retriever.dart';
 
 import 'services/startup_service.dart';
 import 'state/library_entries.dart';
-import 'utils/image_utils.dart';
 import 'utils/window_bounds.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
@@ -42,6 +41,7 @@ import 'widgets/neumorphic/neu_title_bar.dart';
 import 'state/automation_decisions.dart';
 import 'theme/neu_material_themes.dart';
 import 'theme/neu_theme.dart';
+import 'widgets/neumorphic/neu_avatar.dart';
 import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
 
@@ -2676,15 +2676,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       children: [
                         Row(
                           children: [
-                            CircleAvatar(
+                            NeuAvatar(
+                              url: channel.avatarUrl,
                               radius: 18,
-                              backgroundImage: channel.avatarUrl != null && channel.avatarUrl!.isNotEmpty
-                                  ? resizedAvatar(channel.avatarUrl!)
-                                  : null,
+                              isDark: themeNotifier.isDarkTheme,
+                              // This one sits on a coloured card, so it keeps
+                              // its transparent ground and brighter icon.
                               backgroundColor: Colors.transparent,
-                              child: channel.avatarUrl == null || channel.avatarUrl!.isEmpty
-                                  ? Icon(Icons.person, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme))
-                                  : null,
+                              iconColor: NeuTheme.text(themeNotifier.isDarkTheme),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
