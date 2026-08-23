@@ -18,7 +18,7 @@ void main() {
         (tester) async {
       // Two files wrote this out by hand at fontSize 9.5, below the size where
       // Segoe UI's stems land on whole device pixels.
-      await tester.pumpWidget(host(const SectionHeader(
+      await tester.pumpWidget(host(SectionHeader(
         title: 'In progress',
         density: SectionDensity.inline,
       )));
@@ -40,10 +40,10 @@ void main() {
     });
 
     testWidgets('page and panel headings are not uppercased', (tester) async {
-      await tester.pumpWidget(host(const SectionHeader(title: 'Live now')));
+      await tester.pumpWidget(host(SectionHeader(title: 'Live now')));
       expect(find.text('Live now'), findsOneWidget);
 
-      await tester.pumpWidget(host(const SectionHeader(
+      await tester.pumpWidget(host(SectionHeader(
         title: 'Live now',
         density: SectionDensity.panel,
       )));
@@ -66,7 +66,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(host(const SectionHeader(
+      await tester.pumpWidget(host(SectionHeader(
         title: 'An extremely long section heading that cannot possibly fit',
         count: 42,
         icon: Icons.live_tv,
@@ -77,7 +77,7 @@ void main() {
     });
 
     testWidgets('the count renders beside the title', (tester) async {
-      await tester.pumpWidget(host(const SectionHeader(
+      await tester.pumpWidget(host(SectionHeader(
         title: 'Live now',
         count: 3,
       )));
@@ -87,7 +87,7 @@ void main() {
 
   group('EmptyState', () {
     testWidgets('shows what is missing and why', (tester) async {
-      await tester.pumpWidget(host(const EmptyState(
+      await tester.pumpWidget(host(EmptyState(
         icon: Icons.videocam_off_outlined,
         title: 'No past broadcasts',
         message: 'This channel has no VODs available.',
@@ -117,7 +117,7 @@ void main() {
     testWidgets('reads as calm, not as an error', (tester) async {
       // An empty state is a normal condition; the icon must not be the danger
       // colour that a failure uses.
-      await tester.pumpWidget(host(const EmptyState(
+      await tester.pumpWidget(host(EmptyState(
         icon: Icons.inbox,
         title: 'Nothing here',
       )));
@@ -133,7 +133,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(host(const EmptyState(
+      await tester.pumpWidget(host(EmptyState(
         icon: Icons.inbox,
         title: 'Nothing here',
         message: 'A message long enough that, unconstrained, it would stretch '
@@ -160,7 +160,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(host(const EmptyState(
+      await tester.pumpWidget(host(EmptyState(
         icon: Icons.inbox,
         title: 'Nothing here',
         message: 'A reasonably long explanatory sentence goes here.',

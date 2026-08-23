@@ -90,7 +90,16 @@ const MaterialPalette _rackDark = MaterialPalette(
     (at: 0.38, dh: 3.4, ds: -0.0084, dl: 0.0510),
     (at: 1.00, dh: 1.8, ds: -0.0099, dl: -0.0196),
   ],
-  bevelLight: Color(0x1FFFFFFF),
+  // 22% white, not 12%. The lit edge is the single strongest "machined" cue a
+  // dark panel has, and it is the one lever with no contrast cost: the bevel
+  // is a ring one logical pixel wide at the box edge, and every surface in the
+  // app carries at least four pixels of padding, so no glyph ever sits on it.
+  // The fill, the grain and the gloss all have to be paid for against the
+  // worst-pixel matrix; this does not.
+  bevelLight: Color(0x38FFFFFF),
+  // The dark side is left alone. On a near-black canvas a shadow has nowhere
+  // to go - black at 50% over #16181C reaches 1.23:1 - which is the whole
+  // reason this palette carries its depth on the light side.
   bevelShade: Color(0x59000000),
   // Swept, not uniform: a constant-alpha ring is a CSS border. Real reflectance
   // is nearly flat to about 60 degrees off the light and then climbs steeply.

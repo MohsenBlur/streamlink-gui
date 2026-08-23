@@ -332,7 +332,7 @@ class _LibraryViewState extends State<LibraryView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SectionHeader(
+                    SectionHeader(
                       title: 'In progress',
                       density: SectionDensity.inline,
                     ),
@@ -347,7 +347,7 @@ class _LibraryViewState extends State<LibraryView> {
         Expanded(
           child: visible.isEmpty
               ? (widget.entries.isEmpty
-                  ? const EmptyState(
+                  ? EmptyState(
                       icon: Icons.video_library_outlined,
                       title: 'Nothing here yet',
                       message: 'VODs you download and broadcasts you watch will '

@@ -285,7 +285,7 @@ class _VodsGridState extends State<VodsGrid> {
           message: 'No past broadcast titles contain "$searchQuery".',
         );
       } else {
-        empty = const EmptyState(
+        empty = EmptyState(
           icon: Icons.videocam_off_outlined,
           title: 'No past broadcasts',
           message: 'This channel has no VODs available, or they have expired. '

@@ -1,5 +1,3 @@
-import 'dart:ui' show FontFeature, FontVariation;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
@@ -36,8 +34,8 @@ void main() {
             // declares no face must leave the step exactly as the scale
             // produced it, which is how Soft opts out with no call site
             // knowing Soft exists.
-            expect(styled.fontFamily, isNull, reason: '${spec.id.key}');
-            expect(styled.fontVariations, isNull, reason: '${spec.id.key}');
+            expect(styled.fontFamily, isNull, reason: spec.id.key);
+            expect(styled.fontVariations, isNull, reason: spec.id.key);
             continue;
           }
 

@@ -2493,7 +2493,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             style: NeuType.bodySmMetrics),
                       ),
                     )
-                  : const EmptyState(
+                  : EmptyState(
                       icon: Icons.bedtime_outlined,
                       title: 'Nobody is live',
                       message: 'None of your favorite channels are streaming '
@@ -2616,7 +2616,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
           // Recently Watched VODs (Conditional)
           if (_recentWatchedVods.isNotEmpty) ...[
-            const SectionHeader(title: 'Continue watching'),
+            SectionHeader(title: 'Continue watching'),
             const SizedBox(height: NeuSpace.s12),
             SizedBox(
               height: 155,
@@ -2881,7 +2881,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           ],
 
           // Quick Action Cards
-          const SectionHeader(title: 'Quick actions'),
+          SectionHeader(title: 'Quick actions'),
           const SizedBox(height: NeuSpace.s12),
           GridView(
             shrinkWrap: true,
