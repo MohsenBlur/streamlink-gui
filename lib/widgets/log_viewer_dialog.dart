@@ -6,6 +6,7 @@ import '../state/log_line_kind.dart';
 import '../theme/neu_theme.dart';
 import '../theme/theme_notifier.dart';
 import '../utils/time_utils.dart';
+import 'shell/neu_dialog.dart';
 
 /// On-demand process logs.
 ///
@@ -18,8 +19,10 @@ class LogViewerDialog {
     required LogNotifier logs,
     String? initialKey,
   }) {
-    return showDialog(
-      context: context,
+    // Dismissible: it is read-only, and nothing is staged or in flight.
+    return NeuDialog.show<void>(
+      context,
+      dismissible: true,
       builder: (context) =>
           _LogViewerDialog(logs: logs, initialKey: initialKey),
     );
@@ -113,89 +116,88 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
     final lines = _selected == null ? const <String>[] : widget.logs.getLogs(_selected!);
     _followTail();
 
-    return AlertDialog(
-      backgroundColor: themeNotifier.surfaceColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Row(
-        children: [
-          Icon(Icons.terminal, color: themeNotifier.accentInk, size: 18),
-          const SizedBox(width: 10),
-          Text('Diagnostics Log',
-              style: NeuTheme.titleStyle(isDark, fontSize: 16)),
-          const Spacer(),
-          if (_selected != null) ...[
-            TextButton.icon(
-              onPressed: lines.isEmpty
-                  ? null
-                  : () {
-                      Clipboard.setData(ClipboardData(text: lines.join('\n')));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Log copied')),
-                      );
-                    },
-              icon: const Icon(Icons.copy_all, size: 14),
-              label: const Text('Copy all', style: TextStyle(fontSize: 11)),
-            ),
-            TextButton.icon(
-              onPressed: lines.isEmpty
-                  ? null
-                  : () => widget.logs.clear(_selected!),
-              icon: const Icon(Icons.delete_outline, size: 14),
-              label: const Text('Clear', style: TextStyle(fontSize: 11)),
-            ),
-          ],
-        ],
-      ),
-      contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-      content: SizedBox(
-        width: 760,
-        height: 460,
-        child: sessions.isEmpty
-            ? Center(
+    // The widest dialog in the app: two panes side by side, so it asks for
+    // 900 and NeuDialog clamps it to whatever the window can actually hold.
+    return NeuDialog(
+      title: 'Diagnostics log',
+      subtitle: sessions.isEmpty
+          ? null
+          : '${sessions.length} ${sessions.length == 1 ? 'session' : 'sessions'} this run',
+      icon: Icons.terminal,
+      width: 900,
+      maxHeight: 620,
+      scrollable: false,
+      // Copy and Clear act on the selected log rather than on the dialog, so
+      // they sit at the far left of the footer, away from Close. They used to
+      // be crammed into the title bar beside the heading.
+      leadingActions: _selected == null
+          ? const <Widget>[]
+          : [
+              TextButton.icon(
+                onPressed: lines.isEmpty
+                    ? null
+                    : () {
+                        Clipboard.setData(
+                            ClipboardData(text: lines.join('\n')));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Log copied')),
+                        );
+                      },
+                icon: const Icon(Icons.copy_all, size: 14),
+                label: const Text('Copy all', style: TextStyle(fontSize: 11)),
+              ),
+              TextButton.icon(
+                onPressed:
+                    lines.isEmpty ? null : () => widget.logs.clear(_selected!),
+                icon: const Icon(Icons.delete_outline, size: 14),
+                label: const Text('Clear', style: TextStyle(fontSize: 11)),
+              ),
+            ],
+      content: sessions.isEmpty
+          ? SizedBox(
+              height: 200,
+              child: Center(
                 child: Text(
                   'Nothing has run yet this session.',
                   style: NeuTheme.subtextStyle(isDark, fontSize: 13),
                 ),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_requestedGone)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        'That log is no longer available; showing the most recent instead.',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: NeuTheme.dangerText(isDark)),
-                      ),
-                    ),
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          width: 210,
-                          child: ListView.builder(
-                            itemCount: sessions.length,
-                            itemBuilder: (context, i) =>
-                                _sessionTile(sessions[i], isDark, theme),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(child: _logBody(lines, isDark, theme)),
-                      ],
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_requestedGone)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: NeuSpace.s8),
+                    child: Text(
+                      'That log is no longer available; showing the most recent instead.',
+                      style: TextStyle(
+                          fontSize: 11, color: NeuTheme.dangerText(isDark)),
                     ),
                   ),
-                ],
-              ),
-      ),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: 210,
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: sessions.length,
+                          itemBuilder: (context, i) =>
+                              _sessionTile(sessions[i], isDark, theme),
+                        ),
+                      ),
+                      const SizedBox(width: NeuSpace.s12),
+                      Expanded(child: _logBody(lines, isDark, theme)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Close',
-              style: TextStyle(color: NeuTheme.subtext(isDark))),
-        ),
+        NeuDialogAction.secondary('Close', () => Navigator.pop(context)),
       ],
     );
   }

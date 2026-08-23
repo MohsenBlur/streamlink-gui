@@ -6,6 +6,7 @@ import 'neumorphic/neu_avatar.dart';
 import 'neumorphic/neu_checkbox.dart';
 import 'neumorphic/neu_switch.dart';
 import '../theme/theme_notifier.dart';
+import 'shell/neu_dialog.dart';
 
 class _ChannelAutomationState {
   final TwitchChannel originalChannel;
@@ -109,49 +110,19 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
     final theme = Theme.of(context);
     final priorityChannels = _favChannels.where((c) => c.autoPlayLive).toList();
 
-    return Dialog(
-      backgroundColor: themeNotifier.backgroundColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.primaryColor.withValues(alpha: 0.4), width: 1.5),
-      ),
-      child: Container(
-        width: 720,
-        height: 650,
-        padding: const EdgeInsets.all(24),
-        child: Column(
+    // This was the one dialog painted on `backgroundColor` rather than
+    // `surfaceColor`, so it was visibly a different colour from its siblings.
+    return NeuDialog(
+      title: 'Automation',
+      subtitle: 'What happens on its own when a favourite goes live',
+      icon: Icons.play_circle_outline,
+      width: 760,
+      maxHeight: 680,
+      scrollable: false,
+      content: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Title Header
-            Row(
-              children: [
-                Stack(
-                  alignment: Alignment.bottomRight,
-                  children: [
-                    Icon(Icons.play_arrow, color: themeNotifier.accentInk, size: 28),
-                    Icon(Icons.star, color: NeuTheme.favoriteText(themeNotifier.isDarkTheme), size: 14),
-                  ],
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Auto Download & Play Manager',
-                    style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 20),
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.close, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                  onPressed: () {
-                    // Close without applying changes
-                    Navigator.of(context).pop();
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
-            const SizedBox(height: 12),
-
             // Threshold Setting Bar
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -165,11 +136,11 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'VOD Exclusion Threshold',
+                          'Skip VODs already watched past',
                           style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                         ),
                         Text(
-                          'Excludes VODs from auto-download if watch progress exceeds this limit',
+                          'Auto-download leaves these alone.',
                           style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                         ),
                       ],
@@ -225,12 +196,12 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Preempt Lower Priority Streams',
+                          'Switch to a higher priority channel',
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'If a lower priority stream is playing and a higher priority channel goes live, switch automatically.',
+                          'When one goes live while a lower-priority stream is playing.',
                           style: TextStyle(fontSize: 11, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                         ),
                       ],
@@ -255,7 +226,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
               child: _favChannels.isEmpty
                   ? Center(
                       child: Text(
-                        'No Favorite channels added yet.',
+                        'No favourites yet. Star a channel to automate it.',
                         style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                       ),
                     )
@@ -265,7 +236,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Text(
-                              'Priority Live Auto-Play Order (Drag to Reorder)',
+                              'Auto-play order - drag to reorder',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
@@ -377,7 +348,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Text(
-                            'All Favorite Channels Controls',
+                            'Every favourite',
                             style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
                           ),
                         ),
@@ -446,7 +417,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                           ),
                                           const SizedBox(width: 8),
                                           Text(
-                                            'Auto Play When Live',
+                                            'Play when live',
                                             style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                           ),
                                         ],
@@ -475,7 +446,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                           ),
                                           const SizedBox(width: 8),
                                           Text(
-                                            'Auto Download VODs',
+                                            'Download VODs',
                                             style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
                                           ),
                                         ],
@@ -587,40 +558,21 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                     ),
             ),
 
-            const SizedBox(height: 16),
-            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
-            const SizedBox(height: 12),
-
-            // Save & Close Button
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.primaryColor,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                icon: Icon(Icons.check, color: themeNotifier.onPrimaryColor, size: 18),
-                label: Text(
-                  'Save & Apply',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: themeNotifier.onPrimaryColor),
-                ),
-                onPressed: () {
-                  widget.settings.vodWatchExclusionThreshold = _threshold;
-                  widget.settings.autoPlayPreemptLowerPriority =
-                      _preemptLowerPriority;
-                  _updatePriorities();
-                  for (final st in _favChannels) {
-                    st.applyToOriginal();
-                  }
-                  widget.onSettingsSaved();
-                  Navigator.of(context).pop();
-                },
-              ),
-            ),
           ],
         ),
-      ),
+      actions: [
+        NeuDialogAction.secondary('Cancel', () => Navigator.of(context).pop()),
+        NeuDialogAction.primary('Save and apply', () {
+          widget.settings.vodWatchExclusionThreshold = _threshold;
+          widget.settings.autoPlayPreemptLowerPriority = _preemptLowerPriority;
+          _updatePriorities();
+          for (final st in _favChannels) {
+            st.applyToOriginal();
+          }
+          widget.onSettingsSaved();
+          Navigator.of(context).pop();
+        }),
+      ],
     );
   }
 }

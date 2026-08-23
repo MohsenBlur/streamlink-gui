@@ -7,6 +7,7 @@ import '../services/twitch_api_service.dart';
 import '../theme/neu_theme.dart';
 import '../theme/theme_notifier.dart';
 import 'neumorphic/neu_switch.dart';
+import 'shell/neu_dialog.dart';
 
 /// First-run setup: player, download folder, optional Twitch token, tray
 /// behavior. Fully skippable; everything it configures lives in Settings too.
@@ -16,9 +17,11 @@ import 'neumorphic/neu_switch.dart';
 /// marks onboarding complete - the wizard never comes back.
 class OnboardingWizard {
   static Future<AppSettings?> show(BuildContext context, {required AppSettings settings}) {
-    return showDialog<AppSettings>(
-      context: context,
-      barrierDismissible: false,
+    // Not dismissible: a stray click on the scrim would silently skip setup
+    // for good, since the caller marks onboarding complete either way.
+    return NeuDialog.show<AppSettings>(
+      context,
+      dismissible: false,
       builder: (context) => _OnboardingDialog(settings: settings),
     );
   }
@@ -92,96 +95,66 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // Esc/back = skip with defaults; the caller still marks onboarding done.
+    final isLast = _step == _stepCount - 1;
     return PopScope(
       canPop: true,
-      child: AlertDialog(
-        backgroundColor: themeNotifier.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-        content: SizedBox(
-          width: 540,
-          height: 460,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+      child: NeuDialog(
+        title: 'Set up Twitch Streamlink GUI',
+        subtitle: 'Step ${_step + 1} of $_stepCount',
+        icon: Icons.auto_awesome,
+        width: 560,
+        maxHeight: 560,
+        scrollable: false,
+        // Expanded, not a hard 460: PageView has no intrinsic height, and the
+        // old fixed 540x460 could not fit the 380x500 window the app allows.
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  Icon(Icons.auto_awesome, color: themeNotifier.accentInk, size: 18),
-                  const SizedBox(width: 8),
-                  Text('Welcome to Twitch Streamlink GUI',
-                      style: NeuTheme.titleStyle(_isDark, fontSize: 15)),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(null),
-                    child: Text('Skip setup',
-                        style: TextStyle(
-                            fontSize: 11, color: NeuTheme.subtext(_isDark))),
-                  ),
+                  _welcomeStep(theme),
+                  _playerStep(theme),
+                  _folderStep(theme),
+                  _tokenStep(theme),
+                  _trayStep(theme),
                 ],
               ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _welcomeStep(theme),
-                    _playerStep(theme),
-                    _folderStep(theme),
-                    _tokenStep(theme),
-                    _trayStep(theme),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  for (var i = 0; i < _stepCount; i++)
-                    Container(
-                      width: 8,
-                      height: 8,
-                      margin: const EdgeInsets.only(right: 6),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: i == _step
-                            ? theme.primaryColor
-                            : NeuTheme.border(_isDark),
-                      ),
-                    ),
-                  const Spacer(),
-                  if (_step > 0)
-                    TextButton(
-                      onPressed: () => _goTo(_step - 1),
-                      child: Text('Back',
-                          style: TextStyle(color: NeuTheme.subtext(_isDark))),
-                    ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.primaryColor,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 22, vertical: 12),
-                    ),
-                    onPressed: () {
-                      if (_step < _stepCount - 1) {
-                        _goTo(_step + 1);
-                      } else {
-                        _finish();
-                      }
-                    },
-                    child: Text(
-                      _step < _stepCount - 1 ? 'Next' : 'Finish',
-                      style: TextStyle(
-                        color: themeNotifier.onPrimaryColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
+        // Progress and the way out both belong on the left: "Skip setup" was
+        // previously in the title bar, which is where a close button lives, so
+        // it read as "dismiss" rather than "continue without configuring".
+        leadingActions: [
+          for (var i = 0; i < _stepCount; i++)
+            Container(
+              width: NeuSpace.s8,
+              height: NeuSpace.s8,
+              margin: const EdgeInsets.only(right: NeuSpace.s6),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: i == _step ? theme.primaryColor : NeuTheme.border(_isDark),
+              ),
+            ),
+          const SizedBox(width: NeuSpace.s8),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: Text('Skip setup',
+                style:
+                    TextStyle(fontSize: 11, color: NeuTheme.subtext(_isDark))),
+          ),
+        ],
+        actions: [
+          if (_step > 0)
+            NeuDialogAction.secondary('Back', () => _goTo(_step - 1)),
+          NeuDialogAction.primary(
+            isLast ? 'Finish' : 'Next',
+            () => isLast ? _finish() : _goTo(_step + 1),
+          ),
+        ],
       ),
     );
   }

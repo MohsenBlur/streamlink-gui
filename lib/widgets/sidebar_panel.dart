@@ -5,6 +5,7 @@ import '../state/channel_search.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
+import 'shell/neu_dialog.dart';
 import 'interactive_popover.dart';
 import 'live_preview_popup.dart';
 import 'sidebar_search_popover.dart';
@@ -104,8 +105,10 @@ class SidebarPanelState extends State<SidebarPanel> {
   }
 
   void _openFavoritesAutomationDialog() {
-    showDialog(
-      context: context,
+    // Dismissible: the dialog stages its edits and applies none until Save.
+    NeuDialog.show<void>(
+      context,
+      dismissible: true,
       builder: (context) => FavoritesAutomationDialog(
         favorites: widget.channels,
         settings: widget.settings,

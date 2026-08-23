@@ -553,65 +553,53 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   void _showUpdatePromptDialog(UpdateInfo info) {
     _isUpdatePromptOpen = true;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
+    // Not dismissible by clicking away: this is the only place the update is
+    // offered, and a stray click outside would silently defer it for a day.
+    NeuDialog.show<void>(
+      context,
+      dismissible: false,
       builder: (context) {
-        return AlertDialog(
-          backgroundColor: themeNotifier.surfaceColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
+        final isDark = themeNotifier.isDarkTheme;
+        return NeuDialog(
+          title: 'Update available',
+          subtitle: 'v${UpdateService.currentVersion} → ${info.tagName}',
+          icon: Icons.system_update,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.system_update, color: themeNotifier.accentInk),
-              const SizedBox(width: 10),
-              Text('Update Available (${info.tagName})', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-            ],
-          ),
-          content: SizedBox(
-            width: 460,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'A new version of Twitch Streamlink GUI is available on GitHub Releases.\n\n'
-                  'Current Version: v${UpdateService.currentVersion}\n'
-                  'Latest Version: ${info.tagName}',
-                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                ),
-                if (info.releaseNotes.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text('Release Notes:', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                  const SizedBox(height: 6),
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 120),
-                    padding: const EdgeInsets.all(10),
-                    decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 8),
-                    child: SingleChildScrollView(
-                      child: Text(
-                        info.releaseNotes,
-                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                      ),
+              Text(
+                'A newer build is on GitHub Releases. The app downloads it, '
+                'verifies its checksum and restarts itself.',
+                style: NeuTheme.bodyStyle(isDark, fontSize: 13),
+              ),
+              if (info.releaseNotes.isNotEmpty) ...[
+                const SizedBox(height: NeuSpace.s16),
+                Text("What's new",
+                    style: NeuTheme.titleStyle(isDark, fontSize: 12)),
+                const SizedBox(height: NeuSpace.s6),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 180),
+                  padding: const EdgeInsets.all(NeuSpace.s12),
+                  decoration:
+                      NeuTheme.sunkenDecoration(isDark, radius: NeuRadius.r8),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      info.releaseNotes,
+                      style: NeuTheme.bodyStyle(isDark, fontSize: 12),
                     ),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Remind Me Later', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-            ),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
-              onPressed: () {
-                Navigator.pop(context);
-                _performAppUpdate(info);
-              },
-              icon: Icon(Icons.download, size: 16, color: themeNotifier.onPrimaryColor),
-              label: Text('Update Now & Restart', style: TextStyle(color: themeNotifier.onPrimaryColor, fontWeight: FontWeight.bold)),
-            ),
+            NeuDialogAction.secondary(
+                'Remind me later', () => Navigator.pop(context)),
+            NeuDialogAction.primary('Update and restart', () {
+              Navigator.pop(context);
+              _performAppUpdate(info);
+            }),
           ],
         );
       },
@@ -636,39 +624,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       if (setter != null) setter(() {});
     }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
+    // No actions and not dismissible: the binaries are being replaced
+    // underneath the running process, so there is genuinely no way out until
+    // it finishes or fails. dialog_conformance_test pins this.
+    NeuDialog.show<void>(
+      context,
+      dismissible: false,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setProgressState) {
             setDialogState = setProgressState;
-            return AlertDialog(
-              backgroundColor: themeNotifier.surfaceColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: Row(
+            final isDark = themeNotifier.isDarkTheme;
+            return NeuDialog(
+              title: 'Updating',
+              icon: Icons.downloading,
+              width: 420,
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.downloading, color: themeNotifier.accentInk),
-                  const SizedBox(width: 10),
-                  Text('Updating Application', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+                  Text(statusText,
+                      style: NeuTheme.bodyStyle(isDark, fontSize: 13)),
+                  const SizedBox(height: NeuSpace.s12),
+                  NeuProgressBar(
+                    value: progress > 0 ? progress : null,
+                    semanticLabel: 'Update download',
+                  ),
+                  const SizedBox(height: NeuSpace.s8),
+                  Text('${(progress * 100).toStringAsFixed(1)}%',
+                      style: NeuTheme.subtextStyle(isDark, fontSize: 11)),
                 ],
-              ),
-              content: SizedBox(
-                width: 400,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(statusText, style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                    const SizedBox(height: 12),
-                    NeuProgressBar(
-                      value: progress > 0 ? progress : null,
-                      semanticLabel: 'Update download',
-                    ),
-                    const SizedBox(height: 8),
-                    Text('${(progress * 100).toStringAsFixed(1)}%', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                  ],
-                ),
               ),
             );
           },
@@ -864,33 +849,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final hasUnfinished = _playerService.activeDownloadProcesses.isNotEmpty || _playerService.downloadQueue.isNotEmpty;
     if (hasUnfinished) {
       if (!mounted) return;
-      final bool? confirmExit = await showDialog<bool>(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Text('Exit Twitch Streamlink GUI?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-            content: Text(
-              'There are VOD downloads currently in progress or queued. '
-              'If you exit, they will be paused and resumed the next time you start the app.\n\n'
-              'Do you want to exit now?',
-              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-              ),
-              ElevatedButton(
-                // White on the fixed danger red, theme-independent.
-                style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Exit & Save Queue'),
-              ),
-            ],
-          );
-        },
+      final bool? confirmExit = await NeuDialog.show<bool>(
+        context,
+        dismissible: true,
+        builder: (context) => NeuDialog(
+          title: 'Downloads are still running',
+          icon: Icons.download_for_offline_outlined,
+          content: Text(
+            'Exiting pauses them. They resume the next time you start the app.',
+            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+          ),
+          actions: [
+            NeuDialogAction.secondary(
+                'Keep running', () => Navigator.pop(context, false)),
+            NeuDialogAction.primary(
+                'Exit and save queue', () => Navigator.pop(context, true)),
+          ],
+        ),
       );
 
       if (confirmExit != true) {
@@ -903,32 +878,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // exiting now loses the queue with no trace - and the banner that would
       // normally report it goes with the window.
       if (storageWriteFailure.value != null && mounted) {
-        final bool? exitAnyway = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Text('Could not save the download queue',
-                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+        final bool? exitAnyway = await NeuDialog.show<bool>(
+          context,
+          dismissible: true,
+          builder: (context) => NeuDialog(
+            title: 'Could not save the download queue',
+            icon: Icons.error_outline,
+            tone: DialogTone.destructive,
             content: Text(
               'Writing to ${storageWriteFailure.value?.path} failed, so the '
               'queued downloads will not resume after a restart.'
               '\n\nThis usually means the folder is full, read-only, or locked '
-              'by another program. Cancel to fix it and try again.',
+              'by another program. Go back to fix it and try again.',
               style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text('Cancel',
-                    style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Exit Anyway'),
-              ),
+              NeuDialogAction.secondary(
+                  'Go back', () => Navigator.pop(context, false)),
+              NeuDialogAction.primary(
+                  'Exit anyway', () => Navigator.pop(context, true)),
             ],
           ),
         );
@@ -1159,49 +1127,34 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       return;
     }
 
-    final bool? proceed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.folder_copy, color: NeuTheme.warningText(themeNotifier.isDarkTheme)),
-              const SizedBox(width: 10),
-              Text('Configure Download Folder', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-            ],
-          ),
-          backgroundColor: themeNotifier.surfaceColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: Text(
-            'A VOD download folder has not been configured yet.\n\nWould you like to select a folder now to proceed with your download?',
-            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
-              onPressed: () async {
-                // Cross-platform picker (resolving Issue 2)
-                final String? path = await FilePicker.platform.getDirectoryPath();
-                if (path != null && path.isNotEmpty) {
-                  setState(() {
-                    _settings.vodDownloadFolder = path;
-                  });
-                  await _saveChannels();
-                  _checkDownloadedVods();
-                  if (context.mounted) {
-                    Navigator.pop(context, true);
-                  }
-                }
-              },
-              child: Text('Browse & Set Folder', style: TextStyle(color: themeNotifier.onPrimaryColor, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        );
-      },
+    final bool? proceed = await NeuDialog.show<bool>(
+      context,
+      dismissible: true,
+      builder: (context) => NeuDialog(
+        title: 'Where should VODs be saved?',
+        icon: Icons.folder_copy,
+        content: Text(
+          'No download folder is set yet. Pick one and the download starts '
+          'straight away; everything you download later goes there too.',
+          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+        ),
+        actions: [
+          NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
+          NeuDialogAction.primary('Choose folder', () async {
+            final String? path = await FilePicker.platform.getDirectoryPath();
+            if (path != null && path.isNotEmpty) {
+              setState(() {
+                _settings.vodDownloadFolder = path;
+              });
+              await _saveChannels();
+              _checkDownloadedVods();
+              if (context.mounted) {
+                Navigator.pop(context, true);
+              }
+            }
+          }),
+        ],
+      ),
     );
 
     if (proceed == true && _settings.vodDownloadFolder.trim().isNotEmpty) {
@@ -1898,33 +1851,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // single mis-click on the star used to silently destroy it.
       final existing = _channels.firstWhere((c) => c.username == cleanName);
       if (existing.autoPlayLive || existing.autoDownloadVods) {
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: Text('Remove "${channel.username}"?',
-                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+        final confirmed = await NeuDialog.show<bool>(
+          context,
+          dismissible: true,
+          builder: (context) => NeuDialog(
+            title: 'Remove ${channel.username} from favourites?',
+            icon: Icons.star_border,
+            tone: DialogTone.destructive,
             content: Text(
-              'This channel has automation configured'
+              'Its automation is discarded and cannot be undone:'
               '${existing.autoPlayLive ? '\n• Auto-play when live (priority #${existing.autoPlayPriority + 1})' : ''}'
               '${existing.autoDownloadVods ? '\n• Auto-download VODs (keep ${existing.maxVodKeepCount})' : ''}'
-              '\n\nRemoving it from Favorites discards that configuration. Downloaded files are kept.',
+              '\n\nAlready-downloaded files are kept.',
               style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text('Cancel',
-                    style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger),
-                onPressed: () => Navigator.pop(context, true),
-                // White on the fixed danger red, theme-independent.
-                child: const Text('Remove',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
+              NeuDialogAction.secondary(
+                  'Keep it', () => Navigator.pop(context, false)),
+              NeuDialogAction.primary(
+                  'Remove', () => Navigator.pop(context, true)),
             ],
           ),
         );
@@ -2159,32 +2104,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<bool> _confirmStop({required bool isDownload}) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isDownload ? 'Cancel Download?' : 'Stop Process?',
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-        backgroundColor: themeNotifier.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    final result = await NeuDialog.show<bool>(
+      context,
+      dismissible: true,
+      builder: (context) => NeuDialog(
+        title: isDownload ? 'Cancel this download?' : 'Stop playback?',
+        icon: isDownload ? Icons.downloading : Icons.stop_circle_outlined,
+        tone: isDownload ? DialogTone.destructive : DialogTone.neutral,
         content: Text(
           isDownload
-              ? 'This download is still in progress. Cancelling will delete the partial file.'
-              : 'This will close the player and stop playback.',
+              ? 'The partial file is deleted. The VOD stays available to '
+                  'download again.'
+              : 'This closes the player window.',
           style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text('Keep Running',
-                style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-          ),
-          ElevatedButton(
-            // White on the fixed danger red, theme-independent.
-            style: ElevatedButton.styleFrom(
-                backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(isDownload ? 'Cancel Download' : 'Stop'),
-          ),
+          NeuDialogAction.secondary(
+              'Keep running', () => Navigator.pop(context, false)),
+          NeuDialogAction.primary(isDownload ? 'Cancel download' : 'Stop',
+              () => Navigator.pop(context, true)),
         ],
       ),
     );
@@ -3900,39 +3838,32 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _showDownloadOrderDialog(List<TwitchVideo> selectedVods) async {
-    String? chosenOrder = await showDialog<String>(
-      context: context,
+    String? chosenOrder = await NeuDialog.show<String>(
+      context,
+      dismissible: true,
       builder: (context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.download_for_offline, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
-              const SizedBox(width: 10),
-              const Text('Download Queue Order'),
-            ],
-          ),
-          backgroundColor: themeNotifier.surfaceColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        return NeuDialog(
+          title: 'Download order',
+          subtitle: '${selectedVods.length} VODs, one at a time',
+          icon: Icons.download_for_offline,
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('You have selected ${selectedVods.length} VODs to download.'),
-              const SizedBox(height: 12),
-              Text('Please select how the download order should be processed:', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-              const SizedBox(height: 10),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.arrow_downward, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                title: Text('Newest First', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                subtitle: Text('Downloads the latest broadcasts sequentially', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+              // Picking IS the action, so these rows carry it and the footer
+              // only offers the way out. The old version buried the same two
+              // choices in ListTiles under a paragraph asking you to choose.
+              NeuChoiceTile(
+                icon: Icons.arrow_downward,
+                title: 'Newest first',
+                subtitle: 'The latest broadcast starts downloading now',
                 onTap: () => Navigator.pop(context, 'newest'),
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.arrow_upward, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                title: Text('Oldest First', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                subtitle: Text('Downloads the oldest broadcasts sequentially', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+              const SizedBox(height: NeuSpace.s8),
+              NeuChoiceTile(
+                icon: Icons.arrow_upward,
+                title: 'Oldest first',
+                subtitle: 'Work forwards from the oldest one selected',
                 onTap: () => Navigator.pop(context, 'oldest'),
               ),
               // "Simultaneous Downloads" used to sit here. It called the same
@@ -3943,10 +3874,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-            ),
+            NeuDialogAction.secondary('Cancel', () => Navigator.pop(context)),
           ],
         );
       },
@@ -3991,57 +3919,44 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       return;
     }
     
-    final confirm = await showDialog<bool>(
-      context: context,
+    final confirm = await NeuDialog.show<bool>(
+      context,
+      dismissible: true,
       builder: (context) {
-        return AlertDialog(
-          title: Text('Delete ${toDelete.length} VOD Downloads?'),
-          backgroundColor: themeNotifier.surfaceColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: SizedBox(
-            width: 400,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Are you sure you want to delete the downloaded files on disk for the following videos? This cannot be undone.',
-                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+        final isDark = themeNotifier.isDarkTheme;
+        return NeuDialog(
+          title: 'Delete ${toDelete.length} downloaded '
+              '${toDelete.length == 1 ? 'VOD' : 'VODs'}?',
+          subtitle: 'The files on disk are removed. This cannot be undone.',
+          icon: Icons.delete_outline,
+          tone: DialogTone.destructive,
+          scrollable: false,
+          content: Container(
+            constraints: const BoxConstraints(maxHeight: 220),
+            padding: const EdgeInsets.symmetric(vertical: NeuSpace.s8),
+            decoration:
+                NeuTheme.sunkenDecoration(isDark, radius: NeuRadius.r12),
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              itemCount: toDelete.length,
+              itemBuilder: (context, index) => Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: NeuSpace.s12, vertical: NeuSpace.s4),
+                child: Text(
+                  toDelete[index].title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: NeuTheme.bodyStyle(isDark, fontSize: 12),
                 ),
-                const SizedBox(height: 12),
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 180),
-                  decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 8),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: toDelete.length,
-                    itemBuilder: (context, index) {
-                      return ListTile(
-                        dense: true,
-                        title: Text(
-                          toDelete[index].title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger),
-              onPressed: () => Navigator.pop(context, true),
-              // White on the fixed danger red, theme-independent.
-              child: const Text('Delete Files', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
+            NeuDialogAction.secondary(
+                'Keep them', () => Navigator.pop(context, false)),
+            NeuDialogAction.primary(
+                'Delete files', () => Navigator.pop(context, true)),
           ],
         );
       },

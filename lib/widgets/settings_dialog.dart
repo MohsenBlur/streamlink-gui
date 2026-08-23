@@ -8,6 +8,7 @@ import '../services/update_service.dart';
 import '../utils/color_utils.dart';
 import '../theme/neu_material_themes.dart';
 import '../theme/neu_theme.dart';
+import 'shell/neu_dialog.dart';
 import 'neumorphic/neu_switch.dart';
 
 // Abstract theme notifier interface to break dependencies
@@ -139,55 +140,47 @@ class SettingsDialog {
       themeNotifier.setDarkTheme(originalIsDarkTheme);
     }
 
-    return showDialog(
-      context: context,
-      barrierDismissible: false,
+    // Not dismissible: the dialog stages every edit and applies theme changes
+    // live, so a click on the scrim would discard typed tokens and paths while
+    // leaving the accent it had already previewed.
+    return NeuDialog.show<void>(
+      context,
+      dismissible: false,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return DefaultTabController(
               length: 5,
-              child: AlertDialog(
-                titlePadding: EdgeInsets.zero,
-                title: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-                      child: Row(
-                        children: [
-                          Icon(Icons.settings, color: themeNotifier.accentInk),
-                          const SizedBox(width: 10),
-                          Text('Streamlink Settings', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-                        ],
-                      ),
-                    ),
-                    TabBar(
-                      labelColor: themeNotifier.accentInk,
-                      unselectedLabelColor: NeuTheme.subtext(themeNotifier.isDarkTheme),
-                      indicatorColor: themeNotifier.accentInk,
-                      indicatorSize: TabBarIndicatorSize.tab,
-                      isScrollable: true,
-                      labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                      tabs: const [
-                        Tab(text: 'Playback'),
-                        Tab(text: 'Downloads'),
-                        Tab(text: 'Appearance'),
-                        Tab(text: 'Twitch'),
-                        Tab(text: 'System'),
-                      ],
-                    ),
+              child: NeuDialog(
+                title: 'Settings',
+                icon: Icons.settings,
+                width: 600,
+                maxHeight: 680,
+                scrollable: false,
+                headerBottom: TabBar(
+                  labelColor: themeNotifier.accentInk,
+                  unselectedLabelColor: NeuTheme.subtext(themeNotifier.isDarkTheme),
+                  indicatorColor: themeNotifier.accentInk,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  tabs: const [
+                    Tab(text: 'Playback'),
+                    Tab(text: 'Downloads'),
+                    Tab(text: 'Appearance'),
+                    Tab(text: 'Twitch'),
+                    Tab(text: 'System'),
                   ],
                 ),
-                backgroundColor: themeNotifier.surfaceColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: themeNotifier.primaryColor.withValues(alpha: 0.3), width: 1.5),
-                ),
-                content: SizedBox(
-                  width: 520,
-                  height: 520,
-                  child: TabBarView(
+                // Expanded rather than a hard 520: TabBarView has no intrinsic
+                // height, and a fixed one cannot fit the 380x500 window the app
+                // itself permits.
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Expanded(
+                      child: TabBarView(
                     children: [
                       // PANEL 1: Playback - streamlink flags and the player itself
                       SingleChildScrollView(
@@ -1144,26 +1137,23 @@ class SettingsDialog {
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                               ),
                               onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: Text('Clear Watch History?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-                                    backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                    content: Text('Are you sure you want to clear your local watch progress history for all VODs? This action cannot be undone.', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                                NeuDialog.show<void>(
+                                  context,
+                                  dismissible: true,
+                                  builder: (context) => NeuDialog(
+                                    title: 'Clear watch history?',
+                                    icon: Icons.delete_forever,
+                                    tone: DialogTone.destructive,
+                                    content: Text(
+                                      'Every VOD goes back to unwatched and loses its resume position. Downloaded files are untouched.',
+                                      style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                                    ),
                                     actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-                                      ),
-                                      TextButton(
-                                        style: TextButton.styleFrom(foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
-                                        onPressed: () {
-                                          Navigator.pop(context);
-                                          onClearWatchHistory();
-                                        },
-                                        child: const Text('Clear History'),
-                                      ),
+                                      NeuDialogAction.secondary('Keep it', () => Navigator.pop(context)),
+                                      NeuDialogAction.primary('Clear history', () {
+                                        Navigator.pop(context);
+                                        onClearWatchHistory();
+                                      }),
                                     ],
                                   ),
                                 );
@@ -1197,11 +1187,13 @@ class SettingsDialog {
                       ),
                     ],
                   ),
+                    ),
+                  ],
                 ),
-                actions: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
+                // The version chip, repo link and update check act on the
+                // app rather than on this dialog, so they sit at the far
+                // left of the footer rather than beside Save.
+                leadingActions: [
                       Flexible(
                         child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1299,22 +1291,20 @@ class SettingsDialog {
                         ],
                       ),
                       ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              restoreLiveThemeEdits();
-                              Navigator.pop(context);
-                            },
-                            child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
-                            onPressed: (portError != null || maxDownloadsError != null)
-                                ? null
-                                : () {
+                ],
+                actions: [
+                  NeuDialogAction.secondary('Cancel', () {
+                    restoreLiveThemeEdits();
+                    Navigator.pop(context);
+                  }),
+                  // Null while a field is invalid: NeuDialogAction renders
+                  // that disabled, which is what the old ternary did by
+                  // hand on ElevatedButton.onPressed.
+                  NeuDialogAction.primary(
+                    'Save changes',
+                    (portError != null || maxDownloadsError != null)
+                        ? null
+                        : () {
                               // copyWith, not a fresh AppSettings: constructing a new
                               // instance from only the fields this dialog knows about
                               // silently reset every other persisted field to its
@@ -1358,11 +1348,6 @@ class SettingsDialog {
                               onSave(updated);
                               Navigator.pop(context);
                             },
-                            child: Text('Save Changes', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
-                          ),
-                        ],
-                      ),
-                    ],
                   ),
                 ],
               ),
@@ -1385,23 +1370,16 @@ class SettingsDialog {
   }
 
   static void _showBrowserTokenHelp(BuildContext context, ThemeUpdateListener themeNotifier) {
-    showDialog(
-      context: context,
+    NeuDialog.show<void>(
+      context,
+      dismissible: true,
       builder: (context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.help_outline, color: themeNotifier.accentInk),
-              const SizedBox(width: 10),
-              Text('How to get Browser Token', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-            ],
-          ),
-          backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: SizedBox(
-            width: 480,
-            child: SingleChildScrollView(
-              child: Column(
+        return NeuDialog(
+          title: 'Getting your browser token',
+          subtitle: 'Four steps, in your browser',
+          icon: Icons.help_outline,
+          width: 520,
+          content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1434,14 +1412,8 @@ class SettingsDialog {
                   ),
                 ],
               ),
-            ),
-          ),
           actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
-              onPressed: () => Navigator.pop(context),
-              child: Text('Got it!', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
-            ),
+            NeuDialogAction.primary('Got it', () => Navigator.pop(context)),
           ],
         );
       },
