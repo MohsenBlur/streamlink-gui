@@ -6,6 +6,7 @@ import 'package:path/path.dart' as path;
 import '../models/app_settings.dart';
 import '../state/activity_state.dart';
 import '../utils/player_args.dart';
+import '../utils/player_progress.dart';
 import '../models/twitch_video.dart';
 import 'twitch_api_service.dart';
 
@@ -1032,12 +1033,8 @@ class PlayerService {
           ).timeout(const Duration(seconds: 2));
 
           if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            final state = data['state'] as String?;
-            final time = data['time'] as int?;
-            if (state == 'playing' && time != null && time > 0) {
-              syncIfLive(time);
-            }
+            final position = parseVlcPosition(response.body);
+            if (position != null) syncIfLive(position);
           }
         } catch (_) {}
       } else if (isMpv) {
@@ -1066,24 +1063,8 @@ class PlayerService {
           socket.write('{"command": ["get_property", "pause"]}\n');
           await Future.delayed(const Duration(milliseconds: 300));
 
-          final lines = responseBuffer.split('\n').where((l) => l.trim().isNotEmpty).toList();
-          if (lines.isNotEmpty) {
-            double? timePos;
-            bool isPaused = false;
-            for (final line in lines) {
-              try {
-                final parsed = json.decode(line);
-                if (parsed['data'] is num) {
-                  timePos = (parsed['data'] as num).toDouble();
-                } else if (parsed['data'] is bool) {
-                  isPaused = parsed['data'] as bool;
-                }
-              } catch (_) {}
-            }
-            if (timePos != null && !isPaused) {
-              syncIfLive(timePos.round());
-            }
-          }
+          final position = parseMpvPosition(responseBuffer);
+          if (position != null) syncIfLive(position);
         } catch (_) {}
       } else if (isMpc) {
         try {
@@ -1092,16 +1073,8 @@ class PlayerService {
           ).timeout(const Duration(seconds: 2));
 
           if (response.statusCode == 200) {
-            final html = response.body;
-            final posMatch = RegExp(r'id="position">(\d+)<').firstMatch(html);
-            final stateMatch = RegExp(r'id="statestring">([^<]+)<').firstMatch(html);
-
-            final state = stateMatch?.group(1);
-            final posMs = posMatch != null ? int.tryParse(posMatch.group(1)!) : null;
-
-            if (state != null && state.toLowerCase().contains('play') && posMs != null && posMs > 0) {
-              syncIfLive((posMs / 1000).round());
-            }
+            final position = parseMpcHcPosition(response.body);
+            if (position != null) syncIfLive(position);
           }
         } catch (_) {}
       }
