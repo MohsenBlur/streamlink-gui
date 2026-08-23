@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_badge.dart';
@@ -57,10 +58,20 @@ void main() {
     testWidgets('every tone clears AA against the surface it sits on',
         (tester) async {
       // The chip fill is the tone at 15% over the surface, so the ink is
-      // effectively on the surface.
+      // effectively on the surface — but "the surface" is no longer a flat
+      // token. A raised surface carries a fill ramp, a grain and a gloss, and
+      // WCAG F83 judges contrast against the worst pixel behind the letter,
+      // not against the declared colour. `worstGround` is that pixel in closed
+      // form, so this measures where the chip actually sits.
+      //
+      // The premise still holds and is worth restating: a 15% tone over a
+      // ground moves it 15% of the way to the tone, so the ink's real ground
+      // is closer to the surface than to the tone. Checking against the plain
+      // surface is the conservative reading of that, and now against the
+      // surface's worst point rather than its nominal one.
       for (final isDark in [true, false]) {
         themeNotifier.setDarkTheme(isDark);
-        final ground = NeuTheme.surface(isDark);
+        final ground = NeuTheme.palette(isDark).worstGround(SurfaceRole.raised);
         for (final tone in BadgeTone.values) {
           await tester.pumpWidget(host(
             StatusBadge(label: 'x', tone: tone),

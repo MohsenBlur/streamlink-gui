@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/theme/material/skeuo_decoration.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 
 void main() {
@@ -66,55 +67,95 @@ void main() {
     });
   });
 
-  group('the one neumorphic recipe', () {
+  group('the one surface recipe', () {
+    // These six used to read `BoxDecoration` fields directly. The recipe now
+    // returns a `Decoration`, so they assert the same properties through the
+    // resolved parameter set instead. Same six contracts, same count - the
+    // diff for this commit shows 15 tests before and 15 after, because "the
+    // suite is green" catches a broken test and not a deleted one.
+
+    SurfaceParams paramsOf(Decoration d) => (d as SkeuoDecoration).params;
+
     test('raised and sunken agree on their geometry inputs', () {
       // Two recipes existed and a comment claimed they matched; they differed
       // on three of five properties.
       final raised = NeuTheme.raised(true, radius: NeuRadius.r12);
       final sunken = NeuTheme.sunken(true, radius: NeuRadius.r12);
-      expect(raised.borderRadius, BorderRadius.circular(NeuRadius.r12));
-      expect(sunken.borderRadius, BorderRadius.circular(NeuRadius.r12));
+      expect(paramsOf(raised).radius, NeuRadius.r12);
+      expect(paramsOf(sunken).radius, NeuRadius.r12);
+      expect(raised.getClipPath(const Rect.fromLTWH(0, 0, 40, 40),
+              TextDirection.ltr).getBounds(),
+          sunken.getClipPath(const Rect.fromLTWH(0, 0, 40, 40),
+              TextDirection.ltr).getBounds());
     });
 
-    test('raised paints a gradient, not a flat fill', () {
+    test('raised paints a ramp, not a flat fill', () {
       // The gradient is what makes a surface read as extruded material rather
       // than a card with a drop shadow.
-      final d = NeuTheme.raised(true);
-      expect(d.gradient, isNotNull);
-      expect(d.color, isNull, reason: 'the gradient owns the fill');
+      expect(paramsOf(NeuTheme.raised(true)).fillRamp, greaterThan(0),
+          reason: 'the ramp owns the fill');
+      expect(paramsOf(NeuTheme.raised(true)).fill.length,
+          greaterThanOrEqualTo(2));
     });
 
     test('depth drives the shadow offsets', () {
-      final shallow = NeuTheme.raised(true, depth: NeuElevation.d1);
-      final deep = NeuTheme.raised(true, depth: NeuElevation.d5);
-      expect(deep.boxShadow!.first.offset.dx.abs(),
-          greaterThan(shallow.boxShadow!.first.offset.dx.abs()));
-      expect(deep.boxShadow!.first.blurRadius,
-          greaterThan(shallow.boxShadow!.first.blurRadius));
+      final shallow = paramsOf(NeuTheme.raised(true, depth: NeuElevation.d1));
+      final deep = paramsOf(NeuTheme.raised(true, depth: NeuElevation.d5));
+      // Distance, not dx. A material lit from directly overhead has dx 0 on
+      // every layer, and comparing the x component alone would compare 0 to 0
+      // and pass whatever the depth did.
+      double travel(SurfaceParams p) {
+        final l = p.contact.first;
+        return Offset(l.dx, l.dy).distance * p.depth;
+      }
+
+      expect(travel(deep), greaterThan(travel(shallow)));
+      expect(deep.contact.first.blur * deep.depth,
+          greaterThan(shallow.contact.first.blur * shallow.depth));
     });
 
     test('zero depth means no shadow at all', () {
-      // The disabled treatment: flat, not merely shallow.
-      expect(NeuTheme.raised(true, depth: NeuElevation.d0).boxShadow, isEmpty);
-      expect(NeuTheme.sunken(true, depth: NeuElevation.d0).boxShadow, isEmpty);
+      // The disabled treatment: flat, not merely shallow. Depth scales every
+      // cast layer, so a zero depth collapses the whole stack rather than
+      // shrinking it.
+      for (final d in [
+        NeuTheme.raised(true, depth: NeuElevation.d0),
+        NeuTheme.sunken(true, depth: NeuElevation.d0),
+      ]) {
+        final p = paramsOf(d);
+        expect(p.depth, 0);
+        for (final l in [...p.contact, ...p.inset]) {
+          expect(l.blur * p.depth, 0);
+          expect(l.dx * p.depth, 0);
+          expect(l.dy * p.depth, 0);
+        }
+      }
     });
 
     test('sunken defaults to the well, not the surface', () {
       // NeuSwitch's off-track defaulted to the surface colour, which is the
       // exact colour of the panel behind it - so the off state was invisible
-      // in light mode.
+      // in light mode. The default now lives in the role table.
       for (final isDark in [true, false]) {
-        expect(NeuTheme.sunken(isDark).color, NeuTheme.wellSurface(isDark));
-        expect(NeuTheme.sunken(isDark).color,
+        // At zero depth nothing is lifted, so the ground is the ground.
+        expect(paramsOf(NeuTheme.sunken(isDark, depth: NeuElevation.d0)).base,
+            NeuTheme.wellSurface(isDark));
+        // At a real depth a material may lift the base - Rack's dark palette
+        // carries its depth cue on the light side, because black over a dark
+        // ground reaches 1.23:1 and has nowhere left to go. It must still not
+        // land on the panel colour, which is the bug this guards.
+        expect(paramsOf(NeuTheme.sunken(isDark)).base,
             isNot(NeuTheme.surface(isDark)));
       }
     });
 
-    test('the legacy names still work and still produce a gradient', () {
-      // ~36 call sites use raisedDecoration and were not edited; they must
-      // keep compiling AND pick up the unified recipe.
-      final legacy = NeuTheme.raisedDecoration(true);
-      expect(legacy.gradient, isNotNull);
+    test('the legacy names still work and still produce a ramp', () {
+      // ~53 call sites use raisedDecoration/sunkenDecoration and were not
+      // edited; they must keep compiling AND pick up the material.
+      expect(paramsOf(NeuTheme.raisedDecoration(true)).fillRamp,
+          greaterThan(0));
+      expect(paramsOf(NeuTheme.sunkenDecoration(true)).base,
+          isNot(NeuTheme.surface(true)));
     });
   });
 }

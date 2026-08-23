@@ -123,10 +123,12 @@ abstract final class NeuElevation {
 
   /// Popovers and menus floating over app surfaces.
   ///
-  /// Deliberately NOT used for dialogs: they sit on a scrim, and neumorphism's
-  /// premise is extrusion from the surface behind. A white bevel bleeding onto
-  /// a black scrim reads as a rendering artefact, and the scrim eats the dark
-  /// shadow anyway.
+  /// Dialogs used to be excluded from this on the grounds that they sit on a
+  /// scrim, and neumorphism's premise is extrusion from the surface behind —
+  /// so a white bevel bleeding onto a black scrim was an artefact rather than
+  /// depth. That reasoning was specific to neumorphism. A material is not
+  /// extruded from anything; it is an object, and a panel in front of another
+  /// panel is what a dialog is. They take `d4` now.
   static const double d5 = 12;
 
   /// Blur is always twice the depth.

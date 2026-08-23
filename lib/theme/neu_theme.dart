@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'material/app_material.dart';
+import 'material/skeuo_decoration.dart';
+
 export 'neu_tokens.dart';
 export 'neu_type.dart';
 
@@ -55,20 +58,41 @@ class NeuTheme {
   /// light/dark branch at all, measuring 1.28:1 on the light canvas.
   static const Color favorite = Color(0xFFFFC24B);
 
-  /// Text/icon variant of [live]: the base mint washes out on light grounds.
-  /// 4.60:1 at worst (the well). Was #008F66 = 3.47:1.
-  static Color liveText(bool isDark) => isDark ? live : const Color(0xFF00704F);
+  /// Text/icon variant of a brand fill, made readable on the active material.
+  ///
+  /// These were frozen `isDark ? hexA : hexB` switches whose doc comments
+  /// recorded ratios measured against the grounds of **one** material. They do
+  /// not survive a material that moves the ground: `liveText` #006B4B measures
+  /// 4.55:1 on Soft's light well floor and **4.03:1** on Rack's champagne — and
+  /// that failure is silent, because nothing recomputes.
+  ///
+  /// So they derive. A palette may pin one through `inkOverrides` for
+  /// character — Soft pins all four, because "the look the app had before"
+  /// includes its exact inks — but a pin still faces the contrast matrix. What
+  /// it buys is character, never an exemption.
+  static Color _semanticInk(String name, Color brand, bool isDark,
+      {AppMaterial? material, double target = _inkTarget}) {
+    final p = palette(isDark, material: material);
+    return p.inkOverrides[name] ?? readableOn(brand, p, target: target);
+  }
 
-  /// Text/icon variant of [danger]. 4.68:1 at worst. Was #D92645 = 4.12:1.
-  static Color dangerText(bool isDark) => isDark ? danger : const Color(0xFFC01230);
+  static Color liveText(bool isDark, {AppMaterial? material}) =>
+      _semanticInk('liveText', live, isDark, material: material);
 
-  /// Text/icon variant of [warning]. 4.63:1 at worst.
-  static Color warningText(bool isDark) => isDark ? warning : const Color(0xFF8F5300);
+  static Color dangerText(bool isDark, {AppMaterial? material}) =>
+      _semanticInk('dangerText', danger, isDark, material: material);
 
-  /// Text/icon variant of [favorite]. 3.20:1 at worst - held to the 3:1 bar
-  /// for meaningful non-text graphics rather than the 4.5:1 body-text bar,
-  /// because it is always an icon and never a label.
-  static Color favoriteText(bool isDark) => isDark ? favorite : const Color(0xFFA86F00);
+  static Color warningText(bool isDark, {AppMaterial? material}) =>
+      _semanticInk('warningText', warning, isDark, material: material);
+
+  /// Held to the 3:1 non-text bar rather than 4.5:1, because it is always an
+  /// icon and never a label.
+  static Color favoriteText(bool isDark, {AppMaterial? material}) =>
+      _semanticInk('favoriteText', favorite, isDark,
+          material: material, target: kNonTextInk);
+
+  /// The bar for meaningful non-text graphics, per WCAG 1.4.11.
+  static const double kNonTextInk = 3.0;
 
   /// Ink for content rendered ON an accent fill.
   ///
@@ -109,28 +133,70 @@ class NeuTheme {
   ///
   /// Cost is a short loop, so callers should cache — see
   /// `AppThemeNotifier.accentInk`.
-  static Color accentInk(Color accent, bool isDark) {
-    final ground = isDark ? darkSurface : wellSurface(false);
-    if (contrastRatio(accent, ground) >= _inkTarget) return accent;
+  static Color accentInk(Color accent, bool isDark, {AppMaterial? material}) {
+    final p = palette(isDark, material: material);
+    return readableOn(accent, p, ground: p.inkGround);
+  }
 
-    final hsl = HSLColor.fromColor(accent);
-    // Darkening desaturates perceptually, so nudge saturation up in light mode
-    // to keep the hue recognisable as the colour the user picked.
+  /// The accent made readable on a [SurfaceRole.screen].
+  ///
+  /// A separate derivation because a screen is dark in **both** brightnesses,
+  /// and asking one colour to clear 4.5:1 against a light material's canvas
+  /// *and* against its near-black screen is an empty set — the best any single
+  /// colour manages across such a pair is about 3.73:1. A single-direction
+  /// walk would exhaust its 200 steps and fall through to the plain text ink,
+  /// silently discarding the accent the user picked.
+  static Color accentInkOnScreen(Color accent, bool isDark,
+          {AppMaterial? material}) =>
+      inkOnScreen(accent, isDark, material: material);
+
+  /// Any brand colour walked until it is readable on a given ground.
+  ///
+  /// Generalised from `accentInk` so the semantic inks can stop being fifty
+  /// hand-calibrated hexes. `liveText` and friends were frozen `isDark ? a : b`
+  /// switches whose doc comments recorded ratios measured against *today's*
+  /// grounds; they do not survive a material that moves the ground, and
+  /// duplicating them per material would be fifty values to keep true forever.
+  ///
+  /// Walks lightness in the direction that helps: darker on a light ground,
+  /// lighter on a dark one. Saturation is nudged up when darkening, because
+  /// darkening desaturates perceptually and the point is to keep the hue
+  /// recognisable as the colour that was asked for.
+  static Color readableOn(
+    Color source,
+    MaterialPalette p, {
+    double target = _inkTarget,
+    Color? ground,
+    bool? darken,
+  }) {
+    final g = ground ?? p.inkGround;
+    if (contrastRatio(source, g) >= target) return source;
+
+    final hsl = HSLColor.fromColor(source);
+    // The direction belongs to the PALETTE, not to this particular ground.
+    // A light material's worst ground can be mid-tone once its fill has
+    // darkened the well - Rack's is #B3B1AB - and choosing by the ground's own
+    // luminance would then try to *lighten* ink that has to stay dark, walk
+    //200 steps without clearing, and fall through to the plain text colour.
+    // Overridable, because the default is a statement about the palette's
+    // *surface* family and one ground in the app is not part of it. See
+    // `inkOnScreen`.
+    final goDark = darken ?? p.isLight;
     final saturation =
-        isDark ? hsl.saturation : (hsl.saturation * 1.10).clamp(0.0, 1.0);
+        goDark ? (hsl.saturation * 1.10).clamp(0.0, 1.0) : hsl.saturation;
 
     for (var i = 1; i <= 200; i++) {
-      final lightness = isDark
-          ? (hsl.lightness + i * 0.005).clamp(0.0, 0.97)
-          : (hsl.lightness - i * 0.005).clamp(0.03, 1.0);
+      final lightness = goDark
+          ? (hsl.lightness - i * 0.005).clamp(0.03, 1.0)
+          : (hsl.lightness + i * 0.005).clamp(0.0, 0.97);
       final candidate =
           hsl.withSaturation(saturation).withLightness(lightness).toColor();
-      if (contrastRatio(candidate, ground) >= _inkTarget) return candidate;
+      if (contrastRatio(candidate, g) >= target) return candidate;
     }
-    // A fully achromatic accent can run out of headroom before clearing the
-    // bar; fall back to the plain text ink rather than returning something
-    // unreadable.
-    return text(isDark);
+    // A fully achromatic source can run out of headroom before clearing the
+    // bar; fall back to the palette's own text ink rather than returning
+    // something unreadable.
+    return p.text;
   }
 
   static const double _inkTarget = 4.5;
@@ -151,8 +217,8 @@ class NeuTheme {
   ///
   /// Canonicalized on the value most widgets already used; NeuContainer's
   /// slightly different light well was the outlier.
-  static Color wellSurface(bool isDark) =>
-      isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB);
+  static Color wellSurface(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).well;
 
   /// Keyboard-focus visual consistent with the neumorphic style: an accent
   /// border with a soft outer glow, readable on both themes' low-contrast
@@ -171,15 +237,51 @@ class NeuTheme {
     );
   }
 
-  // Dynamic Color Token Getters
+  // ---------------------------------------------------------------------
+  // Raw tokens vs resolved tokens.
+  //
+  // The `raw*` functions are the v1.6.0 values, frozen. They exist because
+  // `Soft`'s palette is built FROM them: if the public accessors dispatched to
+  // the palette and the palette read the public accessors, the first colour
+  // read would recurse forever.
+  //
+  // Everything public below reads the ACTIVE MATERIAL's palette. Every one
+  // keeps its `(bool isDark)` shape, so all ~330 call sites compile unchanged,
+  // and every one gains an optional `material` — which is not a convenience:
+  // the Settings picker previews a material that is not active, the contrast
+  // matrix iterates all of them, and widget tests call these with a literal
+  // bool and no notifier configured.
+  // ---------------------------------------------------------------------
+
+  static Color rawCanvas(bool isDark) => isDark ? darkBg : lightBg;
+  static Color rawSurface(bool isDark) => isDark ? darkSurface : lightSurface;
+  static Color rawText(bool isDark) => isDark ? darkText : lightText;
+  static Color rawSubtext(bool isDark) => isDark ? darkSubtext : lightSubtext;
+  static Color rawHighlight(bool isDark) =>
+      isDark ? darkHighlight : lightHighlight;
+  static Color rawShadow(bool isDark) => isDark ? darkShadow : lightShadow;
+  static Color rawDisabledText(bool isDark) =>
+      isDark ? const Color(0xFF64748B) : const Color(0xFF6C7A91);
+  static Color rawWellSurface(bool isDark) =>
+      isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB);
+  static Color rawBorder(bool isDark) => isDark
+      ? const Color(0xFF49566B).withValues(alpha: 0.8)
+      : const Color(0xFF8494AD).withValues(alpha: 0.9);
+  static Color rawTerminalBg(bool isDark) =>
+      isDark ? const Color(0xFF0F131E) : const Color(0xFFF8FAFC);
 
   /// The page behind everything. [background] is kept as an alias so the ~30
   /// existing call sites need no edit.
-  static Color canvas(bool isDark) => isDark ? darkBg : lightBg;
-  static Color background(bool isDark) => canvas(isDark);
-  static Color surface(bool isDark) => isDark ? darkSurface : lightSurface;
-  static Color text(bool isDark) => isDark ? darkText : lightText;
-  static Color subtext(bool isDark) => isDark ? darkSubtext : lightSubtext;
+  static Color canvas(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).canvas;
+  static Color background(bool isDark, {AppMaterial? material}) =>
+      canvas(isDark, material: material);
+  static Color surface(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).surface;
+  static Color text(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).text;
+  static Color subtext(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).subtext;
 
   /// 3.18:1 at worst in light mode, held to the 3:1 non-text bar.
   ///
@@ -187,9 +289,12 @@ class NeuTheme {
   /// This value is calibrated to be exactly as dim as it should be, so nothing
   /// may dim it further - the disabled affordance is carried by the flat
   /// (shadowless) treatment and the cursor, not by fading the label away.
-  static Color disabledText(bool isDark) => isDark ? const Color(0xFF64748B) : const Color(0xFF6E7C93);
-  static Color highlight(bool isDark) => isDark ? darkHighlight : lightHighlight;
-  static Color shadow(bool isDark) => isDark ? darkShadow : lightShadow;
+  static Color disabledText(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).disabledText;
+  static Color highlight(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).highlight;
+  static Color shadow(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).shadow;
 
   /// Component boundaries: 2.19:1 light (was 1.33), 1.74:1 dark (was 1.15).
   ///
@@ -198,10 +303,13 @@ class NeuTheme {
   /// the boundary is strengthened as far as the style allows and the burden of
   /// meeting the standard is carried by the focus ring instead, which is held
   /// to >= 4.5:1.
-  static Color border(bool isDark) => isDark
-      ? const Color(0xFF49566B).withValues(alpha: 0.8)
-      : const Color(0xFF8494AD).withValues(alpha: 0.9);
-  static Color terminalBg(bool isDark) => isDark ? const Color(0xFF0F131E) : const Color(0xFFF8FAFC);
+  static Color border(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).border;
+
+  /// The log pane's ground. Tracks the material's `screen`, because a log pane
+  /// is a display set into a bezel and that is what `screen` means.
+  static Color terminalBg(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).screen;
 
   // Unified Typography Tokens
   // titleStyle / bodyStyle / subtextStyle lived here. Each took an overridable
@@ -233,13 +341,53 @@ class NeuTheme {
   /// uniform, clips at 0, and misbehaved on the translucent bases NeuButton
   /// passes for its selected state. On the dark well the old offset landed
   /// near-black; this stays proportional.
+  /// How far a raised fill's gradient darkens from its base, in HSL lightness.
+  ///
+  /// Public because it is not a private styling detail: it is the difference
+  /// between the colour a token declares and the colour text actually lands
+  /// on, and WCAG F83 judges contrast against the latter.
+  static const double fillSpread = 0.030;
+
+  /// The darkest point a raised fill reaches - the real ground under text.
+  ///
+  /// A gradient means an ink sits on a *range* of colours, and F83's rule is
+  /// the worst pixel behind the letter, not the declared base. Checking the
+  /// base alone hid seven genuine failures in the light theme: liveText,
+  /// dangerText, warningText, disabledText and favoriteText all cleared their
+  /// bar against the flat token and missed it by 0.05-0.25 against the floor.
+  static Color fillFloor(Color base) => _shade(base, -fillSpread);
+
   static Color _shade(Color base, double delta) {
     final hsl = HSLColor.fromColor(base);
     return hsl.withLightness((hsl.lightness + delta).clamp(0.0, 1.0)).toColor();
   }
 
+  /// The palette the engine paints from.
+  ///
+  /// `material` defaults to the active one. It is not a convenience: the
+  /// Settings picker previews a material that is *not* active, the contrast
+  /// matrix iterates all of them, and widget tests call these with a literal
+  /// `isDark` and no notifier configured. Global-only dispatch forbids all
+  /// three.
+  static MaterialPalette palette(bool isDark, {AppMaterial? material}) =>
+      MaterialSpec.of(material ?? activeMaterial).palette(isDark);
+
+  /// Which material the app is wearing.
+  ///
+  /// A plain static rather than a read through the notifier, so `neu_theme`
+  /// does not depend on the widget layer. `AppThemeNotifier.setMaterial`
+  /// assigns it, in the same call that invalidates the derived-colour cache.
+  /// Rack, not Soft. Shipping the work behind an off-by-default switch means
+  /// nobody sees it; `Soft (classic)` is one dropdown away and persists.
+  static AppMaterial activeMaterial = AppMaterial.rack;
+
   /// A surface extruded from the page.
-  static BoxDecoration raised(
+  ///
+  /// Returns a `Decoration`, not a `BoxDecoration`: a material needs seven
+  /// paint layers including a true inset shadow, and `BoxDecoration` can carry
+  /// two. Every call site assigns into a `decoration:` or
+  /// `foregroundDecoration:` slot that already accepts the wider type.
+  static Decoration raised(
     bool isDark, {
     Color? base,
     double radius = NeuRadius.r12,
@@ -248,47 +396,28 @@ class NeuTheme {
     Border? border,
     Gradient? gradient,
     bool circle = false,
-  }) {
-    final b = base ?? surface(isDark);
-    final bl = blur ?? NeuElevation.blurFor(depth);
-    return BoxDecoration(
-      gradient: gradient ??
-          LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [b, _shade(b, -0.030)],
-          ),
-      shape: circle ? BoxShape.circle : BoxShape.rectangle,
-      borderRadius: circle ? null : BorderRadius.circular(radius),
-      border: border ??
-          Border.all(
-            color: highlight(isDark).withValues(alpha: isDark ? 0.06 : 0.60),
-            width: 1.0,
-          ),
-      boxShadow: depth <= 0
-          ? const <BoxShadow>[]
-          : [
-              BoxShadow(
-                color: highlight(isDark).withValues(alpha: isDark ? 0.50 : 0.90),
-                offset: Offset(-depth, -depth),
-                blurRadius: bl,
-              ),
-              BoxShadow(
-                color: shadow(isDark).withValues(alpha: isDark ? 0.70 : 0.80),
-                offset: Offset(depth, depth),
-                blurRadius: bl,
-              ),
-            ],
-    );
-  }
+    AppMaterial? material,
+  }) =>
+      SkeuoDecoration.role(
+        palette: palette(isDark, material: material),
+        role: SurfaceRole.raised,
+        depth: depth,
+        radius: radius,
+        circle: circle,
+        base: base,
+        border: border,
+        gradient: gradient,
+        blur: blur,
+      );
 
   /// A surface recessed into the page.
   ///
   /// The base defaults to [wellSurface], not [surface]. A sunken thing is a
   /// well; defaulting to the surface colour meant NeuSwitch's off-track was
   /// the exact colour of the panel behind it, so **the off state was invisible
-  /// in light mode**. Two of the three sunken consumers already overrode this.
-  static BoxDecoration sunken(
+  /// in light mode**. That default now lives in the role table, which routes
+  /// `sunken` to `Ground.well`.
+  static Decoration sunken(
     bool isDark, {
     Color? base,
     double radius = NeuRadius.r12,
@@ -296,46 +425,182 @@ class NeuTheme {
     double? blur,
     Border? border,
     bool circle = false,
+    AppMaterial? material,
+  }) =>
+      SkeuoDecoration.role(
+        palette: palette(isDark, material: material),
+        role: SurfaceRole.sunken,
+        depth: depth,
+        radius: radius,
+        circle: circle,
+        base: base,
+        border: border,
+        blur: blur,
+      );
+
+  /// A faceplate: textured, bevelled, lightly shadowed.
+  static Decoration panel(
+    bool isDark, {
+    Color? base,
+    double radius = NeuRadius.r12,
+    double depth = NeuElevation.d2,
+    Border? border,
+    bool circle = false,
+    AppMaterial? material,
+  }) =>
+      SkeuoDecoration.role(
+        palette: palette(isDark, material: material),
+        role: SurfaceRole.panel,
+        depth: depth,
+        radius: radius,
+        circle: circle,
+        base: base,
+        border: border,
+      );
+
+  /// Inset glass — a display set into a bezel.
+  /// The hairline that separates a status dot from whatever is behind it.
+  ///
+  /// Five sites drew this ring in the **surface colour**, knocking the dot out
+  /// of the avatar underneath. That works exactly as long as the ring's colour
+  /// is the colour behind it, and a material breaks the premise rather than
+  /// the value: a dot sits at an avatar's bottom-right corner, half over the
+  /// picture and half over the panel, and the panel now carries a fill ramp
+  /// and a grain. A flat ring over that is a small bright disc — the dot stops
+  /// reading as a dot and starts reading as a target. No colour swap fixes it,
+  /// because there is no single colour that matches a gradient.
+  ///
+  /// So the ring stops matching anything and becomes a **darkening**, which is
+  /// ground-independent by construction. On a light ground it is a dark
+  /// hairline; on a dark ground it vanishes into it, which is correct — there
+  /// the dot's own edge is what separates it, and a bright green dot on a
+  /// graphite panel needs no help.
+  ///
+  /// That makes the right question a disjunction rather than a ratio: for
+  /// every ground, *either* the ring separates the dot from what is behind it
+  /// *or* the dot separates itself. `status_ring_test` asserts exactly that,
+  /// and the alpha below is the sweep's answer rather than a value picked by
+  /// eye. Worst-case legibility climbs steeply to 0.74 and is flat above it —
+  /// the ceiling is an offline dot on a black avatar, where the ring is black
+  /// too and no alpha can help — so 0.74 is the lightest touch that reaches
+  /// the best result available. Every lighter value is strictly worse and
+  /// every heavier one is gratuitously heavier for nothing.
+  ///
+  /// The binding case is the *offline* dot, not the live one. That was not
+  /// obvious: the live green is bright and clears the bar against a white
+  /// avatar at 0.54, while `disabledText` is a mid-tone and mid-tones have the
+  /// least room in both directions.
+  static Border statusRing({double width = 1}) =>
+      Border.all(color: statusRingInk, width: width);
+
+  static const Color statusRingInk = Color(0xBD000000);
+
+  /// The rim around a recessed display, painted **over** what it surrounds.
+  ///
+  /// Null when the material declares no bezel, which is how Soft opts out
+  /// without the call site knowing Soft exists. A null `foregroundDecoration`
+  /// paints nothing, so the site is `foregroundDecoration: NeuTheme.bezel(...)`
+  /// with no conditional around it.
+  ///
+  /// It is the `screen` role minus its fill: the same inverted bevel, the same
+  /// inset band and the same edge, over a picture that has to survive. Painting
+  /// the fill would obliterate the thumbnail this exists to frame.
+  static Decoration? bezel(
+    bool isDark, {
+    double radius = NeuRadius.r12,
+    double depth = NeuElevation.d2,
+    Border? border,
+    AppMaterial? material,
   }) {
-    final b = base ?? wellSurface(isDark);
-    final bl = blur ?? NeuElevation.blurFor(depth);
-    return BoxDecoration(
-      color: b,
-      shape: circle ? BoxShape.circle : BoxShape.rectangle,
-      borderRadius: circle ? null : BorderRadius.circular(radius),
-      border: border ??
-          Border.all(
-            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.045),
-            width: 1.0,
-          ),
-      boxShadow: depth <= 0
-          ? const <BoxShadow>[]
-          : [
-              BoxShadow(
-                color: shadow(isDark).withValues(alpha: isDark ? 0.65 : 0.70),
-                offset: Offset(depth, depth),
-                blurRadius: bl,
-                spreadRadius: -depth / 2,
-              ),
-              BoxShadow(
-                color: highlight(isDark).withValues(alpha: isDark ? 0.35 : 0.85),
-                offset: Offset(-depth, -depth),
-                blurRadius: bl,
-                spreadRadius: -depth / 2,
-              ),
-            ],
+    final id = material ?? activeMaterial;
+    if (!MaterialSpec.of(id).furniture.bezels) return null;
+    return SkeuoDecoration.role(
+      palette: palette(isDark, material: id),
+      role: SurfaceRole.screen,
+      depth: depth,
+      radius: radius,
+      border: border,
+      fillOpacity: 0,
     );
   }
 
+  /// Ink for text drawn on a [SurfaceRole.screen].
+  ///
+  /// Not the same as [text], and the gap is not cosmetic. A lit readout stays
+  /// dark in a lit room, so a material's screen is dark in **both**
+  /// brightnesses — which means in light mode `text` and `screen` are both
+  /// dark and measure as little as 1.08:1 against each other. Every string
+  /// inside a log pane or a readout takes this instead.
+  static Color screenText(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).screenText;
+
+  static Color screenSubtext(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).screenSubtext;
+
+  /// Any colour walked until it is readable on the screen ground.
+  ///
+  /// The semantic inks need this for exactly the reason above: `dangerText` is
+  /// calibrated against the surface, and a log line coloured by severity lands
+  /// on the screen instead.
+  /// Any colour walked until it is readable on the screen ground.
+  ///
+  /// Two things here are not the obvious ones, and the contrast matrix caught
+  /// both the first time it ran.
+  ///
+  /// The ground is the screen's **worst stop**, not the flat `screen` token.
+  /// The screen role carries a fill like every other role, so no log line has
+  /// ever sat on the declared colour — this is the same F83 correction the
+  /// ordinary grounds got, applied to the one ground that had been left out.
+  /// Against the flat token the dark theme derived inks measuring 4.09:1.
+  ///
+  /// The direction is read from the ground rather than from the palette. That
+  /// is the opposite of [readableOn]'s default, and deliberately: the default
+  /// exists because a light material's worst *surface* ground can be mid-tone
+  /// and choosing by luminance would try to lighten ink that has to stay dark.
+  /// A screen is not a family of surfaces, it is one surface, and an emissive
+  /// one is dark inside a light material — so the palette's own direction is
+  /// exactly wrong there. Left as the default, every light material's log ink
+  /// walked *darker* against a near-black screen, exhausted its 200 steps and
+  /// fell through to the plain text colour at 1.08:1.
+  static Color inkOnScreen(Color source, bool isDark,
+      {AppMaterial? material}) {
+    final p = palette(isDark, material: material);
+    return readableOn(
+      source,
+      p,
+      ground: p.worstGround(SurfaceRole.screen),
+      darken: p.inkIsDarkOn(SurfaceRole.screen),
+    );
+  }
+
+  static Decoration screen(
+    bool isDark, {
+    Color? base,
+    double radius = NeuRadius.r12,
+    double depth = NeuElevation.d2,
+    Border? border,
+    bool circle = false,
+    AppMaterial? material,
+  }) =>
+      SkeuoDecoration.role(
+        palette: palette(isDark, material: material),
+        role: SurfaceRole.screen,
+        depth: depth,
+        radius: radius,
+        circle: circle,
+        base: base,
+        border: border,
+      );
+
   /// Kept so the ~36 existing call sites need no edit. They silently gain the
   /// gradient and a depth parameter.
-  static BoxDecoration raisedDecoration(bool isDark,
+  static Decoration raisedDecoration(bool isDark,
           {Color? customBase, double radius = NeuRadius.r12, Border? border}) =>
       raised(isDark, base: customBase, radius: radius, border: border);
 
   /// Kept for the same reason. Note the base default change documented on
   /// [sunken]: call sites that want the panel colour must now say so.
-  static BoxDecoration sunkenDecoration(bool isDark,
+  static Decoration sunkenDecoration(bool isDark,
           {Color? customBase, double radius = NeuRadius.r12, Border? border}) =>
       sunken(isDark, base: customBase, radius: radius, border: border);
 }

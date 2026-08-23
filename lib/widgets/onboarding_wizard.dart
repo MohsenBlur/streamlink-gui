@@ -240,7 +240,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                     if (detected != null)
                       Text(
                         detected ? 'Detected' : 'Not found',
-                        style: NeuType.micro(themeNotifier.isDarkTheme, color: detected
+                        style: NeuType.plate(themeNotifier.isDarkTheme, color: detected
                               ? NeuTheme.liveText(_isDark)
                               : NeuTheme.subtext(_isDark)),
                       ),

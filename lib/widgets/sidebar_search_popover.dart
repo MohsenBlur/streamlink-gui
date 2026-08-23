@@ -141,8 +141,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                               decoration: BoxDecoration(
                                 color: NeuTheme.live,
                                 shape: BoxShape.circle,
-                                border: Border.all(
-                                    color: NeuTheme.surface(isDark), width: 1),
+                                border: NeuTheme.statusRing(),
                               ),
                             ),
                           ),

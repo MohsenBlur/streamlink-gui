@@ -3,6 +3,12 @@ import '../../theme/neu_theme.dart';
 import '../shell/motion.dart';
 
 class NeuLedIndicator extends StatefulWidget {
+  /// The dimmest a live LED ever gets, as a fraction of full brightness.
+  ///
+  /// Public because the contract is about what the eye sees, so the test that
+  /// enforces it samples a real cycle rather than reading the tween.
+  static const double pulseFloor = 0.75;
+
   final double size;
   final bool isLive;
   final Color? activeColor;
@@ -57,7 +63,14 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
         vsync: this,
         duration: const Duration(milliseconds: 1200),
       );
-      _pulseAnimation ??= Tween<double>(begin: 0.4, end: 1.0).animate(
+      // 0.75, not 0.4. The FadeTransition wraps the whole indicator - core as
+      // well as bloom - so the floor is how dim the lamp itself gets, not just
+      // its glow. At 0.4 a lit LED spends part of every cycle looking unlit,
+      // which reads as flickering rather than as a heartbeat; `NeuBadge` had
+      // the same defect and fixed it at 0.75 with the same reasoning, and this
+      // one was left behind. On a graphite panel it reads as a fault.
+      _pulseAnimation ??=
+          Tween<double>(begin: NeuLedIndicator.pulseFloor, end: 1.0).animate(
         CurvedAnimation(parent: _controller!, curve: Curves.easeInOut),
       );
       _controller!.repeat(reverse: true);

@@ -21,6 +21,7 @@ AppSettings buildNonDefaultSettings() {
     watchedProgressColorHex: '#80556677',
     lightAccentColorHex: '#10B981',
     darkAccentColorHex: '#38BDF8',
+    material: 'soft',
     vodDownloadFolder: r'D:\Vods',
     maxDownloadsToKeep: 7,
     unfinishedDownloads: const [
@@ -265,6 +266,7 @@ void main() {
         'vod_card_scale': 'big',
         'close_action': 'explode',
         'notify_went_live': 'sometimes',
+        'material': 17,
       };
 
       late AppSettings s;
@@ -286,6 +288,32 @@ void main() {
       expect(s.vodCardScale, 350.0);
       expect(s.closeAction, 'tray');
       expect(s.notifyWentLive, isTrue);
+      expect(s.material, 'rack');
+    });
+
+    test('a material key from a newer build survives the round trip', () {
+      // The case inside this plan's own release train: a v1.8.0 config met by
+      // a v1.7.0 build. `material` is stored as a String and validated where
+      // it is USED, so an unrecognised key is carried through untouched rather
+      // than clamped to a known one.
+      //
+      // That matters because `saveConfig` rebuilds the whole file with no
+      // merge and `_saveWindowState` fires on every window resize. A build
+      // that clamped on read would not merely ignore the newer choice - it
+      // would overwrite it within seconds of launching, and downgrading for
+      // ten minutes would silently destroy the setting.
+      final s = AppSettings.fromJson(<String, dynamic>{'material': 'deck'});
+      expect(s.material, 'deck');
+      expect(s.toJson()['material'], 'deck');
+    });
+
+    test('an absent material key means rack', () {
+      // Every config written before v1.7.0 has no such key. The default is the
+      // new material rather than the old look, which is the release decision:
+      // Broadcast rack on fresh install AND on upgrade, with the picker named
+      // in the release notes as the way back.
+      final s = AppSettings.fromJson(<String, dynamic>{});
+      expect(s.material, 'rack');
     });
 
     test('an out-of-range sidebar tab cannot strand the user', () {

@@ -186,7 +186,13 @@ class SidebarPanelState extends State<SidebarPanel> {
 
     return Container(
       width: sidebarWidth,
-      color: themeNotifier.surfaceColor,
+      // The faceplate. A flat `color:` was the right call while every material
+      // was the same soft plastic; a panel carries the material's grain and its
+      // bevelled edge, which is where a rack's brush actually reads.
+      //
+      // Radius zero: this panel is the full height of the window and its edges
+      // are the window's own, so rounding them would float it inside itself.
+      decoration: NeuTheme.panel(themeNotifier.isDarkTheme, radius: 0),
       child: widget.sidebarCollapsed
           ? _buildCollapsedSidebar(theme)
           : Column(
@@ -423,7 +429,18 @@ class SidebarPanelState extends State<SidebarPanel> {
                                   width: 1,
                                 ),
                               ),
-                              child: ListTile(
+                              // Transparent Material, because a ListTile paints
+                              // its background and its ink splash on the
+                              // NEAREST Material ancestor - which here is the
+                              // Scaffold, behind this decorated Container. The
+                              // splash was being drawn under an opaque box and
+                              // was invisible. Flutter 3.44 asserts on the
+                              // arrangement; 3.41, which this repo builds
+                              // against locally, does not, so CI is the only
+                              // thing that sees it.
+                              child: Material(
+                                type: MaterialType.transparency,
+                                child: ListTile(
                                 dense: true,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
                                 leading: Icon(Icons.add_circle_outline, color: themeNotifier.accentInk, size: 20),
@@ -439,6 +456,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                       )
                                      : Icon(Icons.chevron_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
                                 onTap: widget.isAdding ? null : () => widget.onAddChannel(query),
+                              ),
                               ),
                             );
                           }
@@ -645,7 +663,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                 decoration: BoxDecoration(
                                   color: NeuTheme.live,
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: themeNotifier.surfaceColor, width: 1),
+                                  border: NeuTheme.statusRing(),
                                 ),
                               ),
                             ),
@@ -792,18 +810,44 @@ class SidebarPanelState extends State<SidebarPanel> {
     return Container(
       height: 60,
       width: double.infinity,
-      color: themeNotifier.surfaceColor,
-      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16),
-      child: Row(
+      // The portrait branch, reached by the early return above. It is easy to
+      // miss - the expanded sidebar and this rail are two separate roots - and
+      // missing it would leave the top bar flat in every material.
+      decoration: NeuTheme.panel(themeNotifier.isDarkTheme, radius: 0),
+      // The rail overflowed by 48px at the enforced 380px minimum, live, in
+      // the shipped build. Nothing saw it: the overflow sweep pumped a copy of
+      // a card footer defined inside the test file, so the only surface it
+      // could ever check was one the app does not use.
+      //
+      // Ten fixed controls plus two rules do not fit in 348 logical pixels, so
+      // below 460 the row tightens: the two decorative rules go, the gaps
+      // halve, and the three trailing IconButtons drop Material's 48px
+      // minimum box for a 34px one. Nothing is removed and nothing moves -
+      // every affordance is still there, still in the same order, and still
+      // above the 24px hit target this app holds itself to. The 460 boundary
+      // is the measured point where the untightened row stops fitting, not a
+      // round number, and the inset halves with it - 16px of air on each side
+      // is a luxury a row that does not fit cannot afford.
+      child: LayoutBuilder(builder: (context, constraints) {
+        final tight = constraints.maxWidth < 480;
+        final gap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s8);
+        final tightBox = tight
+            ? const BoxConstraints.tightFor(width: 32, height: 32)
+            : null;
+        final tightPad = tight ? EdgeInsets.zero : null;
+        return Padding(
+          padding: EdgeInsets.symmetric(
+              horizontal: tight ? NeuSpace.s8 : NeuSpace.s16),
+          child: Row(
         children: [
           NavScopeRow(
                   current: NavScopeTab.byIndex[widget.sidebarTab] ?? NavScopeTab.favorites,
                   onChanged: (tab) => widget.onTabChanged(tab.index),
                   isAuthenticated: widget.settings.twitchOauthToken.trim().isNotEmpty,
                 ),
-          const SizedBox(width: NeuSpace.s8),
+          gap,
           _buildSearchPopoverTrigger(theme, size: 32),
-          const SizedBox(width: NeuSpace.s8),
+          gap,
           Tooltip(
             message: widget.sidebarTab == 0
                 ? 'Refresh Favorites'
@@ -819,11 +863,18 @@ class SidebarPanelState extends State<SidebarPanel> {
               onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
               hoverColor: theme.primaryColor.withValues(alpha: 0.2),
               splashRadius: 20,
+              padding: tightPad,
+              constraints: tightBox,
             ),
           ),
-          const SizedBox(width: NeuSpace.s8),
-          Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
-          const SizedBox(width: NeuSpace.s8),
+          if (!tight) ...[
+            const SizedBox(width: NeuSpace.s8),
+            Container(
+                width: 1,
+                height: 24,
+                color: NeuTheme.border(themeNotifier.isDarkTheme)),
+          ],
+          gap,
           Expanded(
             child: Listener(
               onPointerSignal: (pointerSignal) {
@@ -883,7 +934,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                       decoration: BoxDecoration(
                                         color: NeuTheme.live,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: themeNotifier.surfaceColor, width: 1),
+                                        border: NeuTheme.statusRing(),
                                       ),
                                     ),
                                   ),
@@ -912,15 +963,22 @@ class SidebarPanelState extends State<SidebarPanel> {
               enabled: widget.sidebarTab == 0,
             ),
           ],
-          const SizedBox(width: NeuSpace.s8),
-          Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
-          const SizedBox(width: NeuSpace.s8),
+          if (!tight) ...[
+            const SizedBox(width: NeuSpace.s8),
+            Container(
+                width: 1,
+                height: 24,
+                color: NeuTheme.border(themeNotifier.isDarkTheme)),
+          ],
+          gap,
           IconButton(
             icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
             tooltip: 'Library (downloads & history)',
             onPressed: widget.onShowLibrary,
             hoverColor: theme.primaryColor.withValues(alpha: 0.2),
             splashRadius: 20,
+            padding: tightPad,
+            constraints: tightBox,
           ),
           const SizedBox(width: NeuSpace.s4),
           IconButton(
@@ -929,9 +987,13 @@ class SidebarPanelState extends State<SidebarPanel> {
             onPressed: widget.onShowSettings,
             hoverColor: theme.primaryColor.withValues(alpha: 0.2),
             splashRadius: 20,
+            padding: tightPad,
+            constraints: tightBox,
           ),
         ],
-      ),
+        ),
+        );
+      }),
     );
   }
 }
@@ -1113,7 +1175,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
           child: GestureDetector(
           onDoubleTap:
               channel.isLive ? () => widget.onDoubleTapped(channel) : null,
-          child: ListTile(
+          // See the note on the other ListTile in this file: the splash paints
+          // on the nearest Material ancestor, and the row's own decorated
+          // Container sits between them.
+          child: Material(
+            type: MaterialType.transparency,
+            child: ListTile(
             contentPadding: const EdgeInsets.only(left: NeuSpace.s12, right: NeuSpace.s4),
             leading: Stack(
               children: [
@@ -1127,7 +1194,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                     decoration: BoxDecoration(
                       color: channel.isLive ? NeuTheme.live : NeuTheme.disabledText(themeNotifier.isDarkTheme),
                       shape: BoxShape.circle,
-                      border: Border.all(color: themeNotifier.surfaceColor, width: 1.5),
+                      border: NeuTheme.statusRing(width: 1.5),
                     ),
                   ),
                 ),
@@ -1198,6 +1265,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               children: [playSlot, starSlot],
             ),
             onTap: () => widget.onSelected(channel),
+          ),
           ),
         ),
         ),

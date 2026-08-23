@@ -86,6 +86,17 @@ class AppSettings {
   String lightAccentColorHex;
   String darkAccentColorHex;
 
+  /// Which material world the app wears, as the material's own key.
+  ///
+  /// A `String`, not the enum, and validated where it is used rather than
+  /// where it is read. `StorageService.saveConfig` rebuilds the whole file
+  /// with no merge and `_saveWindowState` fires on every resize, so an older
+  /// build does not *ignore* a key it does not know - it deletes it within
+  /// seconds. Storing the raw string and resolving via `AppMaterial.fromKey`
+  /// means a v1.7.0 build meeting a v1.8.0 config falls back for the session
+  /// instead of clamping the value and destroying the choice on the next save.
+  String material;
+
   AppSettings({
     this.defaultQuality = 'best',
     this.twitchLowLatency = false,
@@ -103,6 +114,7 @@ class AppSettings {
     this.watchedProgressColorHex = '#804CAF50',
     this.lightAccentColorHex = '#FF6584',
     this.darkAccentColorHex = '#FF3B30',
+    this.material = 'rack',
     this.vodDownloadFolder = '',
     this.maxDownloadsToKeep = 0,
     this.unfinishedDownloads = const [],
@@ -171,6 +183,7 @@ class AppSettings {
     String? watchedProgressColorHex,
     String? lightAccentColorHex,
     String? darkAccentColorHex,
+    String? material,
     String? vodDownloadFolder,
     int? maxDownloadsToKeep,
     List<dynamic>? unfinishedDownloads,
@@ -219,6 +232,7 @@ class AppSettings {
       watchedProgressColorHex: watchedProgressColorHex ?? this.watchedProgressColorHex,
       lightAccentColorHex: lightAccentColorHex ?? this.lightAccentColorHex,
       darkAccentColorHex: darkAccentColorHex ?? this.darkAccentColorHex,
+      material: material ?? this.material,
       vodDownloadFolder: vodDownloadFolder ?? this.vodDownloadFolder,
       maxDownloadsToKeep: maxDownloadsToKeep ?? this.maxDownloadsToKeep,
       unfinishedDownloads: unfinishedDownloads ?? this.unfinishedDownloads,
@@ -268,6 +282,7 @@ class AppSettings {
         'watched_progress_color_hex': watchedProgressColorHex,
         'light_accent_color_hex': lightAccentColorHex,
         'dark_accent_color_hex': darkAccentColorHex,
+        'material': material,
         'vod_download_folder': vodDownloadFolder,
         'max_downloads_to_keep': maxDownloadsToKeep,
         'unfinished_downloads': unfinishedDownloads,
@@ -386,6 +401,7 @@ class AppSettings {
             _str(json['watched_progress_color_hex'], '#804CAF50'),
         lightAccentColorHex: _str(json['light_accent_color_hex'], '#FF6584'),
         darkAccentColorHex: _str(json['dark_accent_color_hex'], '#FF3B30'),
+        material: _str(json['material'], 'rack'),
         vodDownloadFolder: _str(json['vod_download_folder'], ''),
         maxDownloadsToKeep: _clampInt(json['max_downloads_to_keep'], 0, 0, 1 << 30),
         unfinishedDownloads: _list(json['unfinished_downloads']),

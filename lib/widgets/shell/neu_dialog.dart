@@ -18,15 +18,17 @@ enum DialogTone {
 /// One action in a dialog's footer.
 class NeuDialogAction {
   /// The action the dialog exists to offer.
-  const NeuDialogAction.primary(this.label, this.onPressed,
-      {this.isDestructive = false})
-      : isPrimary = true;
+  const NeuDialogAction.primary(
+    this.label,
+    this.onPressed, {
+    this.isDestructive = false,
+  }) : isPrimary = true;
 
   /// The way out. "Cancel" when the dialog stages edits, "Close" when it is
   /// read-only.
   const NeuDialogAction.secondary(this.label, this.onPressed)
-      : isPrimary = false,
-        isDestructive = false;
+    : isPrimary = false,
+      isDestructive = false;
 
   final String label;
 
@@ -64,7 +66,9 @@ class NeuChoiceTile extends StatelessWidget {
     return NeuButton(
       onPressed: onTap,
       padding: const EdgeInsets.symmetric(
-          horizontal: NeuSpace.s12, vertical: NeuSpace.s12),
+        horizontal: NeuSpace.s12,
+        vertical: NeuSpace.s12,
+      ),
       borderRadius: BorderRadius.circular(NeuRadius.r12),
       child: Row(
         children: [
@@ -78,8 +82,7 @@ class NeuChoiceTile extends StatelessWidget {
                 Text(title, style: NeuType.headingSm(isDark)),
                 if (subtitle != null) ...[
                   const SizedBox(height: NeuSpace.s2),
-                  Text(subtitle!,
-                      style: NeuType.caption(isDark)),
+                  Text(subtitle!, style: NeuType.caption(isDark)),
                 ],
               ],
             ),
@@ -108,10 +111,13 @@ class NeuChoiceTile extends StatelessWidget {
 ///   dismissed by clicking away is a real decision - the update-in-progress
 ///   dialog must not be, or a user can walk away mid-update - and a default
 ///   would let that decision be made by accident.
-/// * Dialogs get a flat sheet treatment rather than neumorphic depth. They sit
-///   on a scrim, and neumorphism's premise is extrusion FROM the surface
-///   behind; a white bevel bleeding onto a black scrim reads as a rendering
-///   artefact, and the scrim swallows the dark shadow anyway.
+/// * Dialogs take the `panel` treatment, which **reverses** the rule this file
+///   used to state. The old reasoning was sound for neumorphism: extrusion
+///   means extrusion *from the surface behind*, so a bevel bleeding onto a
+///   black scrim was a rendering artefact rather than depth. A material is not
+///   extruded from anything — it is an object — and a service panel in front
+///   of another panel is exactly what a dialog is. The same argument was
+///   written twice; see `NeuElevation.d5`.
 class NeuDialog extends StatelessWidget {
   const NeuDialog({
     Key? key,
@@ -129,6 +135,7 @@ class NeuDialog extends StatelessWidget {
   }) : super(key: key);
 
   final String title;
+
   /// The dialog body. Named `content` rather than `child` because it is one
   /// slot among several, and because `child` must come last by lint.
   final Widget content;
@@ -176,41 +183,56 @@ class NeuDialog extends StatelessWidget {
 
     // Never wider or taller than the window can hold. A 520x520 dialog cannot
     // fit a 380x500 window, and the app permits exactly that size.
-    final effectiveWidth =
-        (width ?? (layout.isCompact ? 400 : 520)).clamp(0.0, media.width - 48);
-    final effectiveMaxHeight =
-        (maxHeight ?? 560).clamp(0.0, media.height - 96);
+    final effectiveWidth = (width ?? (layout.isCompact ? 400 : 520)).clamp(
+      0.0,
+      media.width - 48,
+    );
+    final effectiveMaxHeight = (maxHeight ?? 560).clamp(0.0, media.height - 96);
 
     return Dialog(
-      backgroundColor: NeuTheme.surface(isDark),
+      // Transparent, because the panel below paints the sheet. Leaving a
+      // background here would put a flat rectangle under the material and its
+      // bevel would sit on the wrong colour at the corners.
+      backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
+      elevation: 0,
       insetPadding: const EdgeInsets.all(NeuSpace.s24),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(NeuRadius.r16),
-        side: BorderSide(color: NeuTheme.border(isDark), width: 1),
-      ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: effectiveWidth.toDouble(),
-          maxHeight: effectiveMaxHeight.toDouble(),
+      child: Container(
+        decoration: NeuTheme.panel(
+          isDark,
+          radius: NeuRadius.r16,
+          depth: NeuElevation.d4,
+          border: Border.all(color: NeuTheme.border(isDark)),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _header(isDark),
-            ?headerBottom,
-            Flexible(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(NeuSpace.s20, NeuSpace.s4, NeuSpace.s20, NeuSpace.s16),
-                child: scrollable
-                    ? SingleChildScrollView(child: content)
-                    : content,
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: effectiveWidth.toDouble(),
+            maxHeight: effectiveMaxHeight.toDouble(),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _header(isDark),
+              ?headerBottom,
+              Flexible(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    NeuSpace.s20,
+                    NeuSpace.s4,
+                    NeuSpace.s20,
+                    NeuSpace.s16,
+                  ),
+                  child: scrollable
+                      ? SingleChildScrollView(child: content)
+                      : content,
+                ),
               ),
-            ),
-            if (actions.isNotEmpty || leadingActions.isNotEmpty)
-              _footer(isDark),
-          ],
+              if (actions.isNotEmpty || leadingActions.isNotEmpty)
+                _footer(isDark),
+            ],
+          ),
         ),
       ),
     );
@@ -218,16 +240,23 @@ class NeuDialog extends StatelessWidget {
 
   Widget _header(bool isDark) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(NeuSpace.s20, NeuSpace.s16, NeuSpace.s20, NeuSpace.s12),
+      padding: const EdgeInsets.fromLTRB(
+        NeuSpace.s20,
+        NeuSpace.s16,
+        NeuSpace.s20,
+        NeuSpace.s12,
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (icon != null) ...[
-            Icon(icon,
-                size: 20,
-                color: tone == DialogTone.destructive
-                    ? NeuTheme.dangerText(isDark)
-                    : themeNotifier.accentInk),
+            Icon(
+              icon,
+              size: 20,
+              color: tone == DialogTone.destructive
+                  ? NeuTheme.dangerText(isDark)
+                  : themeNotifier.accentInk,
+            ),
             const SizedBox(width: NeuSpace.s8),
           ],
           Expanded(
@@ -235,14 +264,21 @@ class NeuDialog extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(title,
-                    style: NeuType.headingMd(isDark),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis),
+                Text(
+                  title,
+                  style: NeuType.headingMd(isDark),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 if (subtitle != null) ...[
                   const SizedBox(height: NeuSpace.s4),
-                  Text(subtitle!,
-                      style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark))),
+                  Text(
+                    subtitle!,
+                    style: NeuType.bodySm(
+                      isDark,
+                      color: NeuTheme.subtext(isDark),
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -254,29 +290,78 @@ class NeuDialog extends StatelessWidget {
 
   Widget _footer(bool isDark) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(NeuSpace.s20, NeuSpace.s12, NeuSpace.s20, NeuSpace.s16),
+      padding: const EdgeInsets.fromLTRB(
+        NeuSpace.s20,
+        NeuSpace.s12,
+        NeuSpace.s20,
+        NeuSpace.s16,
+      ),
       // A hairline, always. Long dialogs scroll their content behind the
       // footer, and without a boundary the last visible line just stops
       // mid-sentence above the buttons and reads as a clipping bug.
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: NeuTheme.border(isDark))),
       ),
-      child: Row(
+      // A Wrap rather than a Row, because two ordinary labels do not fit on
+      // one line in a 380px window: "Cancel" beside "Save changes" needed 307
+      // logical pixels of the 290 the footer has, and a Row's only answer to
+      // that is to overflow. Wrapping keeps both labels whole - truncating the
+      // word that says what a button does is the one outcome worse than a
+      // second line.
+      //
+      // The Spacer is gone with it: `Expanded` does the same job here, and a
+      // Spacer inside a Row alongside a Flexible would have split the free
+      // space with it rather than yielding all of it.
+      // One Wrap with two groups, not a Row with a Spacer.
+      //
+      // The Spacer version overflowed twice over. "Cancel" beside "Save
+      // changes" needs 307 of the 290 a 380px window leaves; and the settings
+      // dialog carries three leading actions - a version chip, a repo link and
+      // an update check - which together with the buttons overflowed its own
+      // 600px sheet by 27px in the shipped build. A Row's only answer to
+      // either is to overflow, and truncating the word that says what a button
+      // does is worse than a second line.
+      //
+      // `spaceBetween` is what keeps the left/right split on one line while
+      // still allowing two: on a single run the groups sit at the ends exactly
+      // as the Spacer put them, and on two runs the leading group takes the
+      // upper line. The groups are themselves Wraps, so a very narrow sheet
+      // breaks them internally rather than clipping.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: NeuSpace.s8,
+        runSpacing: NeuSpace.s8,
         children: [
-          ...leadingActions,
-          const Spacer(),
-          // Secondary first, primary last: the confirm sits where the eye
-          // finishes, and every dialog in the app now agrees on that.
-          for (final action in actions.where((a) => !a.isPrimary)) ...[
-            TextButton(
-              onPressed: action.onPressed,
-              child: Text(action.label,
-                  style: TextStyle(color: NeuTheme.subtext(isDark))),
+          if (leadingActions.isNotEmpty)
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: NeuSpace.s8,
+              runSpacing: NeuSpace.s8,
+              children: leadingActions,
             ),
-            const SizedBox(width: NeuSpace.s8),
-          ],
-          for (final action in actions.where((a) => a.isPrimary))
-            _primaryButton(action, isDark),
+          Wrap(
+            alignment: WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: NeuSpace.s8,
+            runSpacing: NeuSpace.s8,
+            children: [
+              // Secondary first, primary last: the confirm sits where the eye
+              // finishes, and every dialog in the app agrees on that. Wrap
+              // lays out in order, so a wrapped footer puts the confirm on the
+              // lower line - still last in the reading order.
+              for (final action in actions.where((a) => !a.isPrimary))
+                TextButton(
+                  onPressed: action.onPressed,
+                  child: Text(
+                    action.label,
+                    style: TextStyle(color: NeuTheme.subtext(isDark)),
+                  ),
+                ),
+              for (final action in actions.where((a) => a.isPrimary))
+                _primaryButton(action, isDark),
+            ],
+          ),
         ],
       ),
     );
@@ -291,16 +376,23 @@ class NeuDialog extends StatelessWidget {
           foregroundColor: Colors.white,
         ),
         onPressed: action.onPressed,
-        child: Text(action.label,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
+        child: Text(
+          action.label,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
       );
     }
     return NeuButton(
       onPressed: action.onPressed,
-      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: NeuSpace.s16,
+        vertical: NeuSpace.s8,
+      ),
       borderRadius: BorderRadius.circular(NeuRadius.r8),
-      child: Text(action.label,
-          style: NeuType.headingSm(isDark, color: themeNotifier.accentInk)),
+      child: Text(
+        action.label,
+        style: NeuType.headingSm(isDark, color: themeNotifier.accentInk),
+      ),
     );
   }
 }

@@ -14,7 +14,27 @@ import '../../theme/theme_notifier.dart';
 /// say what is missing ([title]), say why or what to do ([message]), and give
 /// the user the action if there is one ([action]).
 class EmptyState extends StatelessWidget {
-  const EmptyState({
+  /// **Deliberately not `const`.**
+  ///
+  /// This widget reads the `themeNotifier` global in `build`, and a const
+  /// widget that does that never rebuilds when the theme changes. Const
+  /// expressions are canonicalised, so the "new" widget a parent hands down is
+  /// the *same instance*; `Element.updateChild` short-circuits on
+  /// `child.widget == newWidget` and returns the existing element without
+  /// calling `update` at all. The subtree is skipped, and it keeps whatever
+  /// ink it was first built with.
+  ///
+  /// It is not hypothetical: `themeNotifier.isDarkTheme` starts true and is
+  /// corrected from the config asynchronously, so on a light-theme install
+  /// every const instance of this widget rendered its heading in the DARK
+  /// theme's near-white ink on a light ground, permanently. "Live now" was
+  /// built without `const` two hundred lines from "Quick actions" which had
+  /// it, and only the second one was wrong.
+  ///
+  /// Dropping `const` from the constructor makes that a compile error rather
+  /// than a rendering bug. `const_theme_reader_test` guards the general case.
+  // ignore: prefer_const_constructors_in_immutables
+  EmptyState({
     Key? key,
     required this.icon,
     required this.title,

@@ -18,26 +18,32 @@ void main() {
         (tester) async {
       // Two files wrote this out by hand at fontSize 9.5, below the size where
       // Segoe UI's stems land on whole device pixels.
-      await tester.pumpWidget(host(const SectionHeader(
+      await tester.pumpWidget(host(SectionHeader(
         title: 'In progress',
         density: SectionDensity.inline,
       )));
-      // Asserted against the token rather than a literal: the tracking is the
-      // scale's to decide, and this test's job is that the inline density
-      // uses the micro step at all.
+      // Asserted against the token rather than a literal: the tracking is not
+      // this test's to decide, and its job is that the inline density sits at
+      // the legible floor at all.
+      //
+      // The token is `plate` rather than `micro` now — same size, same weight,
+      // the material's face and letterfit. The size assertion stays literal on
+      // purpose: 10 is the floor because below it Segoe UI's stems go
+      // sub-pixel, and that is a fact about the fallback face, so no material
+      // is allowed to move it.
       final style = tester.widget<Text>(find.text('IN PROGRESS')).style!;
-      final micro = NeuType.micro(false);
-      expect(style.fontSize, micro.fontSize);
+      final plate = NeuType.plate(false);
+      expect(style.fontSize, plate.fontSize);
       expect(style.fontSize, 10);
-      expect(style.letterSpacing, micro.letterSpacing);
+      expect(style.letterSpacing, plate.letterSpacing);
       expect(style.fontWeight, FontWeight.w700);
     });
 
     testWidgets('page and panel headings are not uppercased', (tester) async {
-      await tester.pumpWidget(host(const SectionHeader(title: 'Live now')));
+      await tester.pumpWidget(host(SectionHeader(title: 'Live now')));
       expect(find.text('Live now'), findsOneWidget);
 
-      await tester.pumpWidget(host(const SectionHeader(
+      await tester.pumpWidget(host(SectionHeader(
         title: 'Live now',
         density: SectionDensity.panel,
       )));
@@ -60,7 +66,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(host(const SectionHeader(
+      await tester.pumpWidget(host(SectionHeader(
         title: 'An extremely long section heading that cannot possibly fit',
         count: 42,
         icon: Icons.live_tv,
@@ -71,7 +77,7 @@ void main() {
     });
 
     testWidgets('the count renders beside the title', (tester) async {
-      await tester.pumpWidget(host(const SectionHeader(
+      await tester.pumpWidget(host(SectionHeader(
         title: 'Live now',
         count: 3,
       )));
@@ -81,7 +87,7 @@ void main() {
 
   group('EmptyState', () {
     testWidgets('shows what is missing and why', (tester) async {
-      await tester.pumpWidget(host(const EmptyState(
+      await tester.pumpWidget(host(EmptyState(
         icon: Icons.videocam_off_outlined,
         title: 'No past broadcasts',
         message: 'This channel has no VODs available.',
@@ -111,7 +117,7 @@ void main() {
     testWidgets('reads as calm, not as an error', (tester) async {
       // An empty state is a normal condition; the icon must not be the danger
       // colour that a failure uses.
-      await tester.pumpWidget(host(const EmptyState(
+      await tester.pumpWidget(host(EmptyState(
         icon: Icons.inbox,
         title: 'Nothing here',
       )));
@@ -127,7 +133,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(host(const EmptyState(
+      await tester.pumpWidget(host(EmptyState(
         icon: Icons.inbox,
         title: 'Nothing here',
         message: 'A message long enough that, unconstrained, it would stretch '
@@ -154,7 +160,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(host(const EmptyState(
+      await tester.pumpWidget(host(EmptyState(
         icon: Icons.inbox,
         title: 'Nothing here',
         message: 'A reasonably long explanatory sentence goes here.',

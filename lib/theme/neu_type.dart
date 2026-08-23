@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'material/app_material.dart';
 import 'neu_theme.dart';
 
 /// The type scale.
@@ -84,6 +85,98 @@ abstract final class NeuType {
         fontWeight: FontWeight.w700,
         letterSpacing: 0.6,
         color: color ?? NeuTheme.subtext(isDark),
+      );
+
+  /// The material's own label face, applied to a style that already exists.
+  ///
+  /// A treatment, like [readout], and for the same reason: it swaps the face
+  /// and leaves the size, the weight and the tracking exactly where the step
+  /// put them, so adopting it cannot move a pixel of layout. Returns [style]
+  /// untouched on any material that declares no label family, which is how
+  /// Soft opts out without the call site knowing Soft exists.
+  ///
+  /// ## Why this binds through font axes and not a family name
+  ///
+  /// Windows lists twelve `Bahnschrift *` families — Condensed, SemiBold
+  /// SemiCondensed, and so on. Those are **GDI aliases**, and Flutter does not
+  /// resolve fonts through GDI; Skia asks DirectWrite, which holds exactly one
+  /// family called `Bahnschrift`. Measured in a built app at 40px, asking for
+  /// `'Bahnschrift SemiBold Condensed'` at w600 lays out at advance 435.449
+  /// with 4385 ink pixels — byte for byte what `'Segoe UI'` w600 produces. It
+  /// silently renders as Segoe UI Semibold, and nothing anywhere says so.
+  ///
+  /// The axis path is the one that works: the same family string at
+  /// `wght 600` and `wdth 75` lays out at 290.449, thirty percent narrower,
+  /// which is the DIN condensed a panel legend is actually asking for.
+  ///
+  /// ## The weight is deliberately stated twice, and differently
+  ///
+  /// `fontVariations` carries the material's weight for Bahnschrift;
+  /// `fontWeight` is left as the step's own, which is what Segoe UI gets when
+  /// the family does not resolve. They disagree on purpose — Bahnschrift's
+  /// DIN at 400 is sturdy where Segoe at 400 and 10px goes sub-pixel and greys
+  /// out. Forcing them to agree would make one of the two faces wrong.
+  ///
+  /// **Nothing can detect the fall-through at runtime**, so every size and
+  /// tracking here has to work in plain Segoe UI. The material face buys
+  /// character and horizontal headroom; it is never load-bearing for fit.
+  /// Forces the fallback, for checking that the app is legible without the
+  /// material face.
+  ///
+  /// `flutter run -d windows --dart-define=SKEUO_NO_BAHNSCHRIFT=true`
+  ///
+  /// It exists because nothing detects the fall-through at runtime: a machine
+  /// without the face renders plain Segoe UI and says nothing about it. This
+  /// is the only way to see that layout before shipping it, and it is a
+  /// compile-time constant so it costs nothing when off.
+  static const bool suppressMaterialFace =
+      bool.fromEnvironment('SKEUO_NO_BAHNSCHRIFT', defaultValue: false);
+
+  static TextStyle plated(TextStyle style, bool isDark,
+      {AppMaterial? material}) {
+    if (suppressMaterialFace) return style;
+    final type = MaterialSpec.of(material ?? NeuTheme.activeMaterial).type;
+    final family = type.labelFamily;
+    if (family == null) return style;
+    return style.copyWith(
+      fontFamily: family,
+      fontFamilyFallback: const ['Segoe UI'],
+      fontVariations: [
+        FontVariation('wght', type.weightFor(isDark)),
+        FontVariation('wdth', type.labelWidth),
+      ],
+    );
+  }
+
+  /// 10/700 caps in the material's label face. Engraved panel legends.
+  ///
+  /// [micro] re-skinned, at the same size — a material may change what a
+  /// legend is made of, never how big it is or where it sits. The tracking is
+  /// the one thing it does own, because letterfit is a property of the face
+  /// and 0.6 was measured on Segoe.
+  ///
+  /// Every caller must uppercase its own text; a style cannot.
+  static TextStyle plate(bool isDark, {Color? color, AppMaterial? material}) {
+    final type = MaterialSpec.of(material ?? NeuTheme.activeMaterial).type;
+    return plated(
+      micro(isDark, color: color).copyWith(letterSpacing: type.labelTracking),
+      isDark,
+      material: material,
+    );
+  }
+
+  /// Lining, fixed-width figures on top of whatever step is already in use.
+  ///
+  /// A treatment, not a step, and that distinction is the point: counts,
+  /// durations, sizes and percentages keep the size, weight and face they
+  /// already have, so every adoption is size-preserving. It exists because
+  /// `9.7 GB` and `20.1 GB` in a right-aligned column start at different
+  /// x positions with proportional figures, and a column of numbers that does
+  /// not line up reads as a rendering fault.
+  ///
+  /// [mono] adopts nothing: `tnum` on a fixed-pitch face is a no-op.
+  static TextStyle readout(TextStyle style) => style.copyWith(
+        fontFeatures: const [FontFeature.tabularFigures()],
       );
 
   /// 12/400 monospace. Log output, file paths, anything column-aligned.

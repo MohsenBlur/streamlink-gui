@@ -113,7 +113,7 @@ class NeuIconAction extends StatelessWidget {
             ? themeNotifier.accentInk
             : tone.ink(isDark);
 
-    BoxDecoration? decoration;
+    Decoration? decoration;
     switch (style) {
       case NeuActionStyle.raised:
         decoration = isSelected
