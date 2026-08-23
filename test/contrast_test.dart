@@ -107,4 +107,76 @@ void main() {
           closeTo(NeuTheme.contrastRatio(b, a), 1e-9));
     });
   });
+  group('accentInk', () {
+    // Every accent the picker offers.
+    const presets = <String, Color>{
+      'Soft Pink': Color(0xFFFF6584),
+      'Twitch Purple': Color(0xFF7C3AED),
+      'Cyan': Color(0xFF00F2FE),
+      'Emerald': Color(0xFF10B981),
+      'Orange': Color(0xFFFF7A00),
+      'Rose': Color(0xFFF43F5E),
+      'Vibrant Red': Color(0xFFFF3B30),
+      'Electric Purple': Color(0xFF8B5CF6),
+      'Sky Blue': Color(0xFF38BDF8),
+      'Magenta': Color(0xFFFF2A85),
+      'Gold': Color(0xFFF59E0B),
+    };
+
+    test('every preset becomes readable on every ground', () {
+      // Raw, several of these are unusable as a foreground: Cyan measures
+      // 1.04:1 against the light well, and even the default Soft Pink 2.12:1.
+      for (final isDark in [false, true]) {
+        presets.forEach((name, accent) {
+          expectInk('accentInk($name)', NeuTheme.accentInk(accent, isDark), isDark);
+        });
+      }
+    });
+
+    test('an accent that is already readable is returned untouched', () {
+      // Derivation must not restyle what does not need it - 5 of the 11
+      // presets pass as-is in dark mode and should keep the exact hue chosen.
+      expect(NeuTheme.accentInk(const Color(0xFF00F2FE), true),
+          const Color(0xFF00F2FE));
+      expect(NeuTheme.accentInk(const Color(0xFFF59E0B), true),
+          const Color(0xFFF59E0B));
+    });
+
+    test('the stored accent is never mutated', () {
+      // The whole reason for deriving instead of restricting the palette:
+      // fills, tints and glows must keep exactly what the user picked.
+      const chosen = Color(0xFF00F2FE);
+      NeuTheme.accentInk(chosen, false);
+      expect(chosen, const Color(0xFF00F2FE));
+    });
+
+    test('survives values a hand-edited config could contain', () {
+      const hostile = <Color>[
+        Color(0xFFFFFFFF), Color(0xFF000000), Color(0xFF7F7F7F),
+        Color(0xFFEBECF0), Color(0xFFD8E0EB), Color(0xFF222632),
+      ];
+      for (final isDark in [false, true]) {
+        for (final accent in hostile) {
+          final ink = NeuTheme.accentInk(accent, isDark);
+          final ground =
+              isDark ? NeuTheme.surface(true) : NeuTheme.wellSurface(false);
+          expect(NeuTheme.contrastRatio(ink, ground),
+              greaterThanOrEqualTo(kTextAA),
+              reason: '$accent (${isDark ? 'dark' : 'light'}) produced an '
+                  'unreadable ink');
+        }
+      }
+    });
+
+    test('keeps the hue recognisable', () {
+      // A darkened cyan must still read as cyan, or the accent has stopped
+      // being the user's choice in any meaningful sense.
+      const cyan = Color(0xFF00F2FE);
+      final ink = NeuTheme.accentInk(cyan, false);
+      final original = HSLColor.fromColor(cyan).hue;
+      final derived = HSLColor.fromColor(ink).hue;
+      expect((derived - original).abs(), lessThan(12.0),
+          reason: 'hue drifted from $original to $derived');
+    });
+  });
 }

@@ -369,7 +369,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.analytics_outlined, size: 12, color: theme.primaryColor),
+                            Icon(Icons.analytics_outlined, size: 12, color: themeNotifier.accentInk),
                             const SizedBox(width: 4),
                             Text('Stats', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 10)),
                           ],

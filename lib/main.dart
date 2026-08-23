@@ -548,7 +548,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             children: [
-              Icon(Icons.system_update, color: themeNotifier.primaryColor),
+              Icon(Icons.system_update, color: themeNotifier.accentInk),
               const SizedBox(width: 10),
               Text('Update Available (${info.tagName})', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
@@ -634,7 +634,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
-                  Icon(Icons.downloading, color: themeNotifier.primaryColor),
+                  Icon(Icons.downloading, color: themeNotifier.accentInk),
                   const SizedBox(width: 10),
                   Text('Updating Application', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
                 ],
@@ -2378,7 +2378,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 // Title Header
                 Row(
                   children: [
-                    Icon(Icons.dashboard_outlined, size: 28, color: theme.primaryColor),
+                    Icon(Icons.dashboard_outlined, size: 28, color: themeNotifier.accentInk),
                     const SizedBox(width: 10),
                     Text(
                       'Dashboard Hub',
@@ -2425,7 +2425,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.downloading, color: theme.primaryColor, size: 20),
+                          Icon(Icons.downloading, color: themeNotifier.accentInk, size: 20),
                           const SizedBox(width: 8),
                           Text(
                             'Active Downloads Running',
@@ -2639,7 +2639,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                   if (progressPct > 0)
                                                     Text(
                                                       '$progressPct%',
-                                                      style: TextStyle(fontSize: 9, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                                                      style: TextStyle(fontSize: 9, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
                                                     ),
                                                 ],
                                               ),
@@ -2761,7 +2761,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           children: [
                             Text(
                               channel.game ?? 'Unknown Game',
-                              style: TextStyle(fontSize: 10, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                              style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -3110,7 +3110,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       color: theme.primaryColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(icon, size: 20, color: theme.primaryColor),
+                    child: Icon(icon, size: 20, color: themeNotifier.accentInk),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -3189,7 +3189,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           IconButton(
                             icon: Icon(
                               _isMultiSelectMode ? Icons.edit_off : Icons.edit,
-                              color: _isMultiSelectMode ? theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
+                              color: _isMultiSelectMode ? themeNotifier.accentInk : NeuTheme.text(themeNotifier.isDarkTheme),
                               size: 18,
                             ),
                             tooltip: _isMultiSelectMode ? 'Cancel Multi-Select' : 'Toggle Multi-Select Mode',
@@ -3222,7 +3222,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 label: const Text('Mark Watched', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
                                   backgroundColor: theme.primaryColor.withValues(alpha: 0.2),
-                                  foregroundColor: theme.primaryColor,
+                                  foregroundColor: themeNotifier.accentInk,
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
                                 onPressed: () => _bulkUpdateSelectedVods(true),
@@ -3639,7 +3639,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               },
                               child: Text(
                                 'Clear All',
-                                style: TextStyle(fontSize: 10, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                                style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
                               ),
                             ),
                           ),
@@ -4085,7 +4085,7 @@ class _VodSettingsHoverButtonState extends State<_VodSettingsHoverButton> {
             ? NeuTheme.raisedDecoration(
                 themeNotifier.isDarkTheme,
                 radius: 6,
-                border: Border.all(color: widget.theme.primaryColor, width: 1.5),
+                border: Border.all(color: themeNotifier.accentInk, width: 1.5),
               )
             : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
         child: Row(
@@ -4093,14 +4093,14 @@ class _VodSettingsHoverButtonState extends State<_VodSettingsHoverButton> {
           children: [
             Icon(
               Icons.tune,
-              color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
+              color: isHovered ? themeNotifier.accentInk : NeuTheme.text(themeNotifier.isDarkTheme),
               size: 16,
             ),
             const SizedBox(width: 4),
             Text(
               'VOD Settings',
               style: TextStyle(
-                color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
+                color: isHovered ? themeNotifier.accentInk : NeuTheme.text(themeNotifier.isDarkTheme),
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
               ),

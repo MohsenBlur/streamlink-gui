@@ -222,7 +222,7 @@ class _VodsGridState extends State<VodsGrid> {
                               // accent TINT, so the readable color is the accent
                               // itself (NeuButton's own selected text style).
                               if (isSelected) ...[
-                                Icon(Icons.check, size: 13, color: widget.theme.primaryColor),
+                                Icon(Icons.check, size: 13, color: themeNotifier.accentInk),
                                 const SizedBox(width: 4),
                               ],
                               Text(

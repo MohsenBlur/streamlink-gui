@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/theme_notifier.dart';
 import 'neu_container.dart';
 import 'neu_led_indicator.dart';
 import '../../theme/neu_theme.dart';
@@ -105,7 +106,7 @@ class NeuAvatarFrame extends StatelessWidget {
         child: Text(
           fallbackText.isNotEmpty ? fallbackText[0].toUpperCase() : '?',
           style: TextStyle(
-            color: theme.primaryColor,
+            color: themeNotifier.accentInk,
             fontWeight: FontWeight.bold,
             fontSize: size * 0.4,
           ),

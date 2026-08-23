@@ -13,6 +13,9 @@ import 'neumorphic/neu_switch.dart';
 // Abstract theme notifier interface to break dependencies
 abstract class ThemeUpdateListener extends ChangeNotifier {
   Color get primaryColor;
+
+  /// The accent made safe to use as a foreground. See [NeuTheme.accentInk].
+  Color get accentInk;
   Color get backgroundColor;
   Color get surfaceColor;
   Color get lightShadowColor;
@@ -153,16 +156,16 @@ class SettingsDialog {
                       padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
                       child: Row(
                         children: [
-                          Icon(Icons.settings, color: themeNotifier.primaryColor),
+                          Icon(Icons.settings, color: themeNotifier.accentInk),
                           const SizedBox(width: 10),
                           Text('Streamlink Settings', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
                         ],
                       ),
                     ),
                     TabBar(
-                      labelColor: themeNotifier.primaryColor,
+                      labelColor: themeNotifier.accentInk,
                       unselectedLabelColor: NeuTheme.subtext(themeNotifier.isDarkTheme),
-                      indicatorColor: themeNotifier.primaryColor,
+                      indicatorColor: themeNotifier.accentInk,
                       indicatorSize: TabBarIndicatorSize.tab,
                       isScrollable: true,
                       labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
@@ -658,8 +661,8 @@ class SettingsDialog {
                                         });
                                       }
                                     },
-                                    icon: Icon(Icons.file_open, color: NeuTheme.onAccent(themeNotifier.primaryColor), size: 16),
-                                    label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontWeight: FontWeight.bold)),
+                                    icon: Icon(Icons.file_open, color: NeuTheme.onAccent(themeNotifier.accentInk), size: 16),
+                                    label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               ),
@@ -776,8 +779,8 @@ class SettingsDialog {
                                           onConnectAccount();
                                           Navigator.pop(context);
                                         },
-                                        icon: Icon(Icons.login, size: 12, color: NeuTheme.onAccent(themeNotifier.primaryColor)),
-                                        label: Text('Connect Account', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: NeuTheme.onAccent(themeNotifier.primaryColor))),
+                                        icon: Icon(Icons.login, size: 12, color: NeuTheme.onAccent(themeNotifier.accentInk)),
+                                        label: Text('Connect Account', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: NeuTheme.onAccent(themeNotifier.accentInk))),
                                       ),
                                     ],
                                   ),
@@ -856,7 +859,7 @@ class SettingsDialog {
                                 Text('Twitch Browser Token (Optional, for VOD Sync)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                                 IconButton(
                                   icon: const Icon(Icons.help_outline, size: 16),
-                                  color: themeNotifier.primaryColor,
+                                  color: themeNotifier.accentInk,
                                   padding: EdgeInsets.zero,
                                   constraints: const BoxConstraints(),
                                   onPressed: () => _showBrowserTokenHelp(context, themeNotifier),
@@ -914,7 +917,7 @@ class SettingsDialog {
                                             height: 14,
                                             child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.onAccent(themeNotifier.primaryColor)),
                                           )
-                                        : Text('Test', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontSize: 11, fontWeight: FontWeight.bold)),
+                                        : Text('Test', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontSize: 11, fontWeight: FontWeight.bold)),
                                   ),
                                 ),
                               ],
@@ -1131,8 +1134,8 @@ class SettingsDialog {
                                       });
                                     }
                                   },
-                                  icon: Icon(Icons.folder_open, color: NeuTheme.onAccent(themeNotifier.primaryColor), size: 16),
-                                  label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontWeight: FontWeight.bold)),
+                                  icon: Icon(Icons.folder_open, color: NeuTheme.onAccent(themeNotifier.accentInk), size: 16),
+                                  label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
                                 ),
                               ],
                             ),
@@ -1228,7 +1231,7 @@ class SettingsDialog {
                                   const SizedBox(width: 4),
                                   Text(
                                     'GitHub Repo',
-                                    style: TextStyle(fontSize: 11, color: themeNotifier.primaryColor, fontWeight: FontWeight.bold),
+                                    style: TextStyle(fontSize: 11, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
                                   ),
                                 ],
                               ),
@@ -1359,7 +1362,7 @@ class SettingsDialog {
                               onSave(updated);
                               Navigator.pop(context);
                             },
-                            child: Text('Save Changes', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontWeight: FontWeight.bold)),
+                            child: Text('Save Changes', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
                           ),
                         ],
                       ),
@@ -1392,7 +1395,7 @@ class SettingsDialog {
         return AlertDialog(
           title: Row(
             children: [
-              Icon(Icons.help_outline, color: themeNotifier.primaryColor),
+              Icon(Icons.help_outline, color: themeNotifier.accentInk),
               const SizedBox(width: 10),
               Text('How to get Browser Token', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
@@ -1441,7 +1444,7 @@ class SettingsDialog {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: themeNotifier.primaryColor),
               onPressed: () => Navigator.pop(context),
-              child: Text('Got it!', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.primaryColor), fontWeight: FontWeight.bold)),
+              child: Text('Got it!', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
             ),
           ],
         );

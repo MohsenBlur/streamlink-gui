@@ -104,7 +104,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                 if (showAddRow)
                   _row(
                     leading: Icon(Icons.add_circle_outline,
-                        color: theme.primaryColor, size: 18),
+                        color: themeNotifier.accentInk, size: 18),
                     title: "Add '$query' to Favorites",
                     titleColor: theme.primaryColor,
                     onTap: () {
@@ -152,7 +152,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                     trailing: channel.isLive
                         ? IconButton(
                             icon: Icon(Icons.play_arrow,
-                                size: 18, color: theme.primaryColor),
+                                size: 18, color: themeNotifier.accentInk),
                             tooltip: 'Watch now',
                             splashRadius: 16,
                             onPressed: () {

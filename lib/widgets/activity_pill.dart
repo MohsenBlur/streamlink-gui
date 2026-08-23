@@ -114,7 +114,7 @@ class ActivityPill extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(_icon(s), size: 12, color: theme.primaryColor),
+                Icon(_icon(s), size: 12, color: themeNotifier.accentInk),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -124,7 +124,7 @@ class ActivityPill extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10.5,
                       fontWeight: FontWeight.bold,
-                      color: theme.primaryColor,
+                      color: themeNotifier.accentInk,
                     ),
                   ),
                 ),

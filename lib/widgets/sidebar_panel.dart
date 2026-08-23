@@ -215,7 +215,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                               borderRadius: BorderRadius.circular(8),
                                               border: Border.all(color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
                                             ),
-                                            child: Icon(Icons.dashboard_outlined, color: theme.primaryColor, size: 20),
+                                            child: Icon(Icons.dashboard_outlined, color: themeNotifier.accentInk, size: 20),
                                           ),
                                     const SizedBox(width: 10),
                                     Expanded(
@@ -418,12 +418,12 @@ class SidebarPanelState extends State<SidebarPanel> {
                               child: ListTile(
                                 dense: true,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                                leading: Icon(Icons.add_circle_outline, color: theme.primaryColor, size: 20),
+                                leading: Icon(Icons.add_circle_outline, color: themeNotifier.accentInk, size: 20),
                                 title: Text(
                                   "Add '$query' to Favorites",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    color: theme.primaryColor,
+                                    color: themeNotifier.accentInk,
                                     fontSize: 13,
                                   ),
                                 ),
@@ -542,7 +542,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
                       ),
-                      child: Icon(Icons.dashboard_outlined, color: theme.primaryColor, size: 18),
+                      child: Icon(Icons.dashboard_outlined, color: themeNotifier.accentInk, size: 18),
                     ),
             ),
           ),
@@ -585,7 +585,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         decoration: BoxDecoration(
                           color: theme.primaryColor.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: theme.primaryColor, width: 1.5),
+                          border: Border.all(color: themeNotifier.accentInk, width: 1.5),
                         ),
                         child: Icon(
                           isHovered
@@ -862,7 +862,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                           decoration: BoxDecoration(
                             color: theme.primaryColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: theme.primaryColor, width: 1.5),
+                            border: Border.all(color: themeNotifier.accentInk, width: 1.5),
                           ),
                           child: Icon(
                             isHovered
@@ -1051,7 +1051,7 @@ class _PinnedFavoritesAutomationButtonState extends State<_PinnedFavoritesAutoma
                 ? NeuTheme.raisedDecoration(
                     themeNotifier.isDarkTheme,
                     radius: 8,
-                    border: Border.all(color: widget.theme.primaryColor, width: 1.5),
+                    border: Border.all(color: themeNotifier.accentInk, width: 1.5),
                   )
                 : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
             child: Stack(
@@ -1059,7 +1059,7 @@ class _PinnedFavoritesAutomationButtonState extends State<_PinnedFavoritesAutoma
               children: [
                 Icon(
                   isHovered ? Icons.settings : Icons.play_arrow,
-                  color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
+                  color: isHovered ? themeNotifier.accentInk : NeuTheme.text(themeNotifier.isDarkTheme),
                   size: 16,
                 ),
                 Positioned(
@@ -1129,7 +1129,6 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isDark = themeNotifier.isDarkTheme;
     final channel = widget.channel;
 
@@ -1140,7 +1139,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
       height: 32,
       child: (_hovered && channel.isLive)
           ? IconButton(
-              icon: Icon(Icons.play_arrow, size: 20, color: theme.primaryColor),
+              icon: Icon(Icons.play_arrow, size: 20, color: themeNotifier.accentInk),
               tooltip: 'Watch now',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints.tightFor(width: 32, height: 32),
@@ -1177,7 +1176,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
             ? NeuTheme.raisedDecoration(
                 isDark,
                 radius: 10,
-                border: Border.all(color: theme.primaryColor, width: 1.5),
+                border: Border.all(color: themeNotifier.accentInk, width: 1.5),
               )
             : (_hovered
                 ? NeuTheme.raisedDecoration(isDark, radius: 10)

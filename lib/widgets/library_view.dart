@@ -95,7 +95,7 @@ class _LibraryViewState extends State<LibraryView> {
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
           child: Row(
             children: [
-              Icon(Icons.video_library, color: theme.primaryColor, size: 22),
+              Icon(Icons.video_library, color: themeNotifier.accentInk, size: 22),
               const SizedBox(width: 10),
               Text('Library', style: NeuTheme.titleStyle(isDark, fontSize: 18)),
               const SizedBox(width: 12),
@@ -227,7 +227,7 @@ class _LibraryViewState extends State<LibraryView> {
       child: Row(
         children: [
           Icon(queued ? Icons.schedule : Icons.downloading,
-              size: 16, color: theme.primaryColor),
+              size: 16, color: themeNotifier.accentInk),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

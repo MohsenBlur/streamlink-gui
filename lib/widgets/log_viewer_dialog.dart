@@ -118,7 +118,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Row(
         children: [
-          Icon(Icons.terminal, color: theme.primaryColor, size: 18),
+          Icon(Icons.terminal, color: themeNotifier.accentInk, size: 18),
           const SizedBox(width: 10),
           Text('Diagnostics Log',
               style: NeuTheme.titleStyle(isDark, fontSize: 16)),
@@ -215,7 +215,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
           decoration: selected
               ? NeuTheme.sunkenDecoration(isDark,
                   radius: 8,
-                  border: Border.all(color: theme.primaryColor, width: 1.5))
+                  border: Border.all(color: themeNotifier.accentInk, width: 1.5))
               : NeuTheme.raisedDecoration(isDark, radius: 8),
           child: Row(
             children: [

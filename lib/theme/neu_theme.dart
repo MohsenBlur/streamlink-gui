@@ -82,6 +82,54 @@ class NeuTheme {
   /// on every accent that resolves to dark ink.
   static const Color _onAccentInk = Color(0xFF0B0D12);
 
+  /// Foreground-safe variant of [accent], for content drawn *in* the accent
+  /// colour on an ordinary surface — text, icons, focus rings, thin strokes.
+  ///
+  /// [onAccent] solves the opposite problem (ink *on* an accent fill) and does
+  /// not help here. Used raw as a foreground, the shipped accents measure as
+  /// little as 1.09:1 on the light canvas (Cyan), and even the default Soft
+  /// Pink manages only 2.21:1 — so accent-coloured labels and the keyboard
+  /// focus ring were effectively invisible in light mode.
+  ///
+  /// The value is derived rather than the palette being restricted, for three
+  /// reasons: restricting deletes user choice, it would invalidate accents
+  /// already saved, and it would not even close the hole, since the hex is a
+  /// hand-editable string in channels_config.json and the picker is not the
+  /// only way a value arrives. Derivation is total — **the stored accent is
+  /// never rewritten**, it is only adjusted at render time, so fills, tints
+  /// and glows keep the exact colour the user chose.
+  ///
+  /// Resolved against the *lowest-contrast* ground in the theme (the well in
+  /// light mode, the surface in dark), so one value is safe on all of them.
+  ///
+  /// Cost is a short loop, so callers should cache — see
+  /// `AppThemeNotifier.accentInk`.
+  static Color accentInk(Color accent, bool isDark) {
+    final ground = isDark ? darkSurface : wellSurface(false);
+    if (contrastRatio(accent, ground) >= _inkTarget) return accent;
+
+    final hsl = HSLColor.fromColor(accent);
+    // Darkening desaturates perceptually, so nudge saturation up in light mode
+    // to keep the hue recognisable as the colour the user picked.
+    final saturation =
+        isDark ? hsl.saturation : (hsl.saturation * 1.10).clamp(0.0, 1.0);
+
+    for (var i = 1; i <= 200; i++) {
+      final lightness = isDark
+          ? (hsl.lightness + i * 0.005).clamp(0.0, 0.97)
+          : (hsl.lightness - i * 0.005).clamp(0.03, 1.0);
+      final candidate =
+          hsl.withSaturation(saturation).withLightness(lightness).toColor();
+      if (contrastRatio(candidate, ground) >= _inkTarget) return candidate;
+    }
+    // A fully achromatic accent can run out of headroom before clearing the
+    // bar; fall back to the plain text ink rather than returning something
+    // unreadable.
+    return text(isDark);
+  }
+
+  static const double _inkTarget = 4.5;
+
   /// WCAG 2.x relative-contrast ratio between two opaque colors.
   ///
   /// `Color.computeLuminance()` already implements the sRGB-linearised

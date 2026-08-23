@@ -351,14 +351,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       ? NeuTheme.raisedDecoration(
                                           themeNotifier.isDarkTheme,
                                           radius: 12,
-                                          border: Border.all(color: widget.theme.primaryColor, width: 2),
+                                          border: Border.all(color: themeNotifier.accentInk, width: 2),
                                         )
                                       : NeuTheme.sunkenDecoration(
                                           themeNotifier.isDarkTheme,
                                           radius: 12,
                                         ),
                                   child: widget.isSelected
-                                      ? Icon(Icons.check_rounded, size: 14, color: widget.theme.primaryColor)
+                                      ? Icon(Icons.check_rounded, size: 14, color: themeNotifier.accentInk)
                                       : null,
                                 )
                               : Row(
