@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_button.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_checkbox.dart';
@@ -65,9 +66,12 @@ void main() {
 
     testWidgets('a disabled label stays legible on both themes', (tester) async {
       for (final isDark in [false, true]) {
+        // The worst point of the raised surface, not its nominal token. WCAG
+        // F83 judges contrast against the worst pixel behind the letter, and a
+        // raised surface carries a fill ramp, a grain and a gloss over it.
         final ratio = NeuTheme.contrastRatio(
           NeuTheme.disabledText(isDark),
-          NeuTheme.surface(isDark),
+          NeuTheme.palette(isDark).worstGround(SurfaceRole.raised),
         );
         expect(ratio, greaterThanOrEqualTo(3.0),
             reason: '${isDark ? 'dark' : 'light'} disabled ink measured '
@@ -176,6 +180,52 @@ void main() {
       await tester.pumpWidget(host(const NeuLedIndicator(isLive: false)));
       await tester.pump(const Duration(milliseconds: 100));
       expect(ledFade(), findsNothing);
+    });
+
+    testWidgets('a live LED never dims to the point of reading as off',
+        (tester) async {
+      // The FadeTransition wraps the whole indicator - core as well as bloom -
+      // so the tween's floor is how dim the LAMP gets, not just its glow. At
+      // the shipped 0.4 a lit LED spent part of every cycle looking unlit.
+      //
+      // Sampled across a full cycle rather than trusting the tween's declared
+      // begin, because the curve is what the eye actually sees and a future
+      // curve with overshoot could dip below the floor the tween names.
+      await tester.pumpWidget(host(const NeuLedIndicator(isLive: true)));
+      var dimmest = 1.0;
+      for (var i = 0; i < 24; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        final fade = tester.widget<FadeTransition>(find.descendant(
+          of: find.byType(NeuLedIndicator),
+          matching: find.byType(FadeTransition),
+        ));
+        final v = fade.opacity.value;
+        if (v < dimmest) dimmest = v;
+      }
+      expect(dimmest, greaterThanOrEqualTo(NeuLedIndicator.pulseFloor - 1e-6),
+          reason: 'the pulse bottomed out at ${dimmest.toStringAsFixed(3)}, '
+              'which is dim enough to read as offline mid-cycle');
+      expect(NeuLedIndicator.pulseFloor, greaterThanOrEqualTo(0.7),
+          reason: 'NeuBadge settled this at 0.75 for the same reason - a lamp '
+              'that halves its brightness is flickering, not breathing');
+    });
+
+    testWidgets('a stopped LED settles bright, not wherever the tween was',
+        (tester) async {
+      // Going offline mid-cycle must not leave the lamp parked at its floor.
+      await tester.pumpWidget(host(const NeuLedIndicator(isLive: true)));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pumpWidget(host(const NeuLedIndicator(isLive: false)));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        find.descendant(
+          of: find.byType(NeuLedIndicator),
+          matching: find.byType(FadeTransition),
+        ),
+        findsNothing,
+        reason: 'an unlit LED still wrapped in a FadeTransition is holding '
+            'whatever opacity the pulse stopped at',
+      );
     });
   });
 
