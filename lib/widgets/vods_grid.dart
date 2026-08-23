@@ -5,6 +5,7 @@ import 'horizontal_mouse_scrollable.dart';
 import 'neumorphic/neu_button.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_progress.dart';
+import 'shell/edge_fade.dart';
 import 'shell/empty_state.dart';
 import '../theme/theme_notifier.dart';
 
@@ -189,10 +190,13 @@ class _VodsGridState extends State<VodsGrid> {
             _updateScrollIndicators();
             return false;
           },
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: HorizontalMouseScrollable(
+          // The fade is applied to the chips, not painted over them. See
+          // EdgeFade: a strip of ground colour only ever matched a flat ground,
+          // and a panel with a grain on it is not one.
+          child: EdgeFade(
+            left: _showLeftIndicator,
+            right: _showRightIndicator,
+            child: HorizontalMouseScrollable(
                   controller: _gameScrollController,
                   child: Row(
                     children: List.generate(sortedGames.length + 1, (index) {
@@ -249,50 +253,6 @@ class _VodsGridState extends State<VodsGrid> {
                   ),
                 ),
               ),
-              if (_showLeftIndicator)
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: 32,
-                  child: IgnorePointer(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            themeNotifier.backgroundColor,
-                            themeNotifier.backgroundColor.withValues(alpha: 0.0),
-                          ],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              if (_showRightIndicator)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: 32,
-                  child: IgnorePointer(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            themeNotifier.backgroundColor.withValues(alpha: 0.0),
-                            themeNotifier.backgroundColor,
-                          ],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
         ),
       );
     }

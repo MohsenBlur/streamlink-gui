@@ -651,7 +651,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                 decoration: BoxDecoration(
                                   color: NeuTheme.live,
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: themeNotifier.surfaceColor, width: 1),
+                                  border: NeuTheme.statusRing(),
                                 ),
                               ),
                             ),
@@ -892,7 +892,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                       decoration: BoxDecoration(
                                         color: NeuTheme.live,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: themeNotifier.surfaceColor, width: 1),
+                                        border: NeuTheme.statusRing(),
                                       ),
                                     ),
                                   ),
@@ -1136,7 +1136,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                     decoration: BoxDecoration(
                       color: channel.isLive ? NeuTheme.live : NeuTheme.disabledText(themeNotifier.isDarkTheme),
                       shape: BoxShape.circle,
-                      border: Border.all(color: themeNotifier.surfaceColor, width: 1.5),
+                      border: NeuTheme.statusRing(width: 1.5),
                     ),
                   ),
                 ),

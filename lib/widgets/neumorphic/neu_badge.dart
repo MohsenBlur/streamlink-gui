@@ -132,8 +132,6 @@ class LiveBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = themeNotifier.isDarkTheme;
-
     if (variant == LiveVariant.dot) {
       final dot = Container(
         width: 10,
@@ -141,7 +139,7 @@ class LiveBadge extends StatelessWidget {
         decoration: BoxDecoration(
           color: NeuTheme.live,
           shape: BoxShape.circle,
-          border: Border.all(color: NeuTheme.surface(isDark), width: 2),
+          border: NeuTheme.statusRing(width: 2),
         ),
       );
       return _maybePulse(dot);

@@ -459,6 +459,42 @@ class NeuTheme {
       );
 
   /// Inset glass — a display set into a bezel.
+  /// The hairline that separates a status dot from whatever is behind it.
+  ///
+  /// Five sites drew this ring in the **surface colour**, knocking the dot out
+  /// of the avatar underneath. That works exactly as long as the ring's colour
+  /// is the colour behind it, and a material breaks the premise rather than
+  /// the value: a dot sits at an avatar's bottom-right corner, half over the
+  /// picture and half over the panel, and the panel now carries a fill ramp
+  /// and a grain. A flat ring over that is a small bright disc — the dot stops
+  /// reading as a dot and starts reading as a target. No colour swap fixes it,
+  /// because there is no single colour that matches a gradient.
+  ///
+  /// So the ring stops matching anything and becomes a **darkening**, which is
+  /// ground-independent by construction. On a light ground it is a dark
+  /// hairline; on a dark ground it vanishes into it, which is correct — there
+  /// the dot's own edge is what separates it, and a bright green dot on a
+  /// graphite panel needs no help.
+  ///
+  /// That makes the right question a disjunction rather than a ratio: for
+  /// every ground, *either* the ring separates the dot from what is behind it
+  /// *or* the dot separates itself. `status_ring_test` asserts exactly that,
+  /// and the alpha below is the sweep's answer rather than a value picked by
+  /// eye. Worst-case legibility climbs steeply to 0.74 and is flat above it —
+  /// the ceiling is an offline dot on a black avatar, where the ring is black
+  /// too and no alpha can help — so 0.74 is the lightest touch that reaches
+  /// the best result available. Every lighter value is strictly worse and
+  /// every heavier one is gratuitously heavier for nothing.
+  ///
+  /// The binding case is the *offline* dot, not the live one. That was not
+  /// obvious: the live green is bright and clears the bar against a white
+  /// avatar at 0.54, while `disabledText` is a mid-tone and mid-tones have the
+  /// least room in both directions.
+  static Border statusRing({double width = 1}) =>
+      Border.all(color: statusRingInk, width: width);
+
+  static const Color statusRingInk = Color(0xBD000000);
+
   /// The rim around a recessed display, painted **over** what it surrounds.
   ///
   /// Null when the material declares no bezel, which is how Soft opts out
