@@ -119,7 +119,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                       query.isEmpty
                           ? 'Type to search this tab.'
                           : "No channels match '$query'.",
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 12),
+                      style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark)),
                     ),
                   ),
                 ...results.take(_maxResults).map((channel) {
@@ -196,11 +196,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
               child: Text(
                 title,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: titleColor ?? NeuTheme.text(isDark),
-                ),
+                style: NeuType.bodyStrong(isDark, color: titleColor ?? NeuTheme.text(isDark)),
               ),
             ),
             ?trailing,

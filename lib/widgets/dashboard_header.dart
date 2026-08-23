@@ -198,7 +198,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         ),
         onPressed: onPressed,
         icon: Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-        label: Text(label, style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+        label: Text(label, style: NeuType.bodySm(themeNotifier.isDarkTheme)),
       ),
     );
   }
@@ -241,7 +241,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           const SizedBox(width: 6),
           Text(
             label,
-            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+            style: NeuType.caption(themeNotifier.isDarkTheme),
           ),
         ],
       ),
@@ -313,7 +313,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       Flexible(
                         child: Text(
                           widget.channel.username,
-                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 15),
+                          style: NeuType.headingMd(themeNotifier.isDarkTheme),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -371,7 +371,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                           children: [
                             Icon(Icons.analytics_outlined, size: 12, color: themeNotifier.accentInk),
                             const SizedBox(width: 4),
-                            Text('Stats', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 10)),
+                            Text('Stats', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
                           ],
                         ),
                       ),
@@ -390,7 +390,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               const SizedBox(height: 6),
               _withLivePreview(Text(
                 '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
-                style: TextStyle(fontSize: 12, color: NeuTheme.subtext(themeNotifier.isDarkTheme), fontWeight: FontWeight.w500),
+                style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               )),
@@ -411,7 +411,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     Expanded(
                       child: Text(
                         widget.channel.errorMessage!,
-                        style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 10),
+                        style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -444,7 +444,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   Flexible(
                     child: Text(
                       widget.channel.username,
-                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
+                      style: NeuType.display(themeNotifier.isDarkTheme),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -498,7 +498,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         children: [
                           Icon(Icons.more_vert, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 16),
                           const SizedBox(width: 4),
-                          Text('Actions', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                          Text('Actions', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
                         ],
                       ),
                     ),
@@ -532,7 +532,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
           Text(
             widget.channel.streamTitle!,
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
+            style: NeuType.headingSm(themeNotifier.isDarkTheme),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -622,7 +622,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                             Expanded(
                               child: Text(
                                 widget.channel.errorMessage!,
-                                style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 11),
+                                style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                               ),
                             ),
                           ],

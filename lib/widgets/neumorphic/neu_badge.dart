@@ -81,12 +81,7 @@ class StatusBadge extends StatelessWidget {
           ],
           Text(
             label.toUpperCase(),
-            style: TextStyle(
-              color: ink,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.6,
-            ),
+            style: NeuType.micro(isDark, color: ink),
           ),
         ],
       ),

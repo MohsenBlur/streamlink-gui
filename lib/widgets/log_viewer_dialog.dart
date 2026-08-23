@@ -159,7 +159,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
               child: Center(
                 child: Text(
                   'Nothing has run yet this session.',
-                  style: NeuTheme.subtextStyle(isDark, fontSize: 13),
+                  style: NeuType.body(isDark, color: NeuTheme.subtext(isDark)),
                 ),
               ),
             )
@@ -172,8 +172,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                     padding: const EdgeInsets.only(bottom: NeuSpace.s8),
                     child: Text(
                       'That log is no longer available; showing the most recent instead.',
-                      style: TextStyle(
-                          fontSize: 11, color: NeuTheme.dangerText(isDark)),
+                      style: NeuType.caption(isDark, color: NeuTheme.dangerText(isDark)),
                     ),
                   ),
                 Expanded(
@@ -253,7 +252,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                           : (s.failed
                               ? 'exit ${s.exitCode} · ${timeAgo(s.startedAt)}'
                               : timeAgo(s.startedAt)),
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 9.5),
+                      style: NeuType.caption(isDark),
                     ),
                   ],
                 ),
@@ -285,7 +284,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
       child: lines.isEmpty
           ? Center(
               child: Text('No output.',
-                  style: NeuTheme.subtextStyle(isDark, fontSize: 12)))
+                  style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark))))
           : SelectionArea(
               child: ListView.builder(
                 controller: _scroll,

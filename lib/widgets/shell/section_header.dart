@@ -50,19 +50,14 @@ class SectionHeader extends StatelessWidget {
     final TextStyle style;
     switch (density) {
       case SectionDensity.page:
-        style = NeuTheme.titleStyle(isDark, fontSize: 16);
+        style = NeuType.headingMd(isDark);
       case SectionDensity.panel:
-        style = NeuTheme.titleStyle(isDark, fontSize: 13);
+        style = NeuType.headingSm(isDark);
       case SectionDensity.inline:
         // 10px is the floor for all-caps micro text: below it Segoe UI's stems
         // fall between device pixels and grey out whatever colour is set. The
         // two sites doing this by hand used 9.5.
-        style = TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.8,
-          color: NeuTheme.subtext(isDark),
-        );
+        style = NeuType.micro(isDark, color: NeuTheme.subtext(isDark));
     }
 
     final label = density == SectionDensity.inline ? title.toUpperCase() : title;
@@ -92,8 +87,10 @@ class SectionHeader extends StatelessWidget {
                   if (count != null) ...[
                     const SizedBox(width: 8),
                     Text('$count',
-                        style: NeuTheme.subtextStyle(isDark,
-                            fontSize: density == SectionDensity.page ? 13 : 11)),
+                        style: density == SectionDensity.page
+                            ? NeuType.body(isDark,
+                                color: NeuTheme.subtext(isDark))
+                            : NeuType.caption(isDark)),
                   ],
                 ],
               ),
@@ -101,7 +98,7 @@ class SectionHeader extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(subtitle!,
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                      style: NeuType.caption(isDark),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis),
                 ),

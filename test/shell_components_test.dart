@@ -22,9 +22,15 @@ void main() {
         title: 'In progress',
         density: SectionDensity.inline,
       )));
+      // Asserted against the token rather than a literal: the tracking is the
+      // scale's to decide, and this test's job is that the inline density
+      // uses the micro step at all.
       final style = tester.widget<Text>(find.text('IN PROGRESS')).style!;
+      final micro = NeuType.micro(false);
+      expect(style.fontSize, micro.fontSize);
       expect(style.fontSize, 10);
-      expect(style.letterSpacing, 0.8);
+      expect(style.letterSpacing, micro.letterSpacing);
+      expect(style.fontWeight, FontWeight.w700);
     });
 
     testWidgets('page and panel headings are not uppercased', (tester) async {

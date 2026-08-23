@@ -194,7 +194,7 @@ class _LibraryViewState extends State<LibraryView> {
                               widget.backLabel!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                              style: NeuType.bodySm(isDark),
                             ),
                           ),
                         ],
@@ -206,7 +206,7 @@ class _LibraryViewState extends State<LibraryView> {
                 Icon(Icons.video_library,
                     color: themeNotifier.accentInk, size: 22),
                 const SizedBox(width: 10),
-                Text('Library', style: NeuTheme.titleStyle(isDark, fontSize: 18)),
+                Text('Library', style: NeuType.headingLg(isDark)),
                 // The count/size chip is the first thing to go: it is
                 // information, not a control.
                 if (!tight) ...[
@@ -226,7 +226,7 @@ class _LibraryViewState extends State<LibraryView> {
                           if (downloaded.isNotEmpty)
                             '${formatBytes(totalBytes)} on disk',
                         ].join(' \u00B7 '),
-                        style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                        style: NeuType.caption(isDark),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -411,12 +411,11 @@ class _LibraryViewState extends State<LibraryView> {
                 Text(item.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: NeuTheme.bodyStyle(isDark,
-                        fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: NeuType.bodyStrong(isDark)),
                 const SizedBox(height: 4),
                 if (queued)
                   Text('Waiting to start',
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 11))
+                      style: NeuType.caption(isDark))
                 else
                   Row(
                     children: [
@@ -431,7 +430,7 @@ class _LibraryViewState extends State<LibraryView> {
                         const SizedBox(width: 10),
                         Text(item.status!,
                             style:
-                                NeuTheme.subtextStyle(isDark, fontSize: 10)),
+                                NeuType.caption(isDark)),
                       ],
                     ],
                   ),
@@ -626,8 +625,7 @@ class _LibraryRowState extends State<_LibraryRow> {
                         children: [
                           Text(
                             entry.title,
-                            style: NeuTheme.bodyStyle(isDark,
-                                fontSize: 13, fontWeight: FontWeight.w600),
+                            style: NeuType.bodyStrong(isDark),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -661,8 +659,7 @@ class _LibraryRowState extends State<_LibraryRow> {
                                     if (progress != null)
                                       '${(progress * 100).round()}% watched',
                                   ].join(' \u00B7 '),
-                                  style: NeuTheme.subtextStyle(isDark,
-                                      fontSize: 11),
+                                  style: NeuType.caption(isDark),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -683,7 +680,7 @@ class _LibraryRowState extends State<_LibraryRow> {
                         child: Text(
                           sizeLabel ?? '',
                           textAlign: TextAlign.right,
-                          style: NeuTheme.subtextStyle(isDark, fontSize: 11)
+                          style: NeuType.caption(isDark)
                               .copyWith(fontFeatures: const [
                             FontFeature.tabularFigures()
                           ]),

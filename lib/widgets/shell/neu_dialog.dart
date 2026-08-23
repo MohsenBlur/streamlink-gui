@@ -75,11 +75,11 @@ class NeuChoiceTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(title, style: NeuTheme.titleStyle(isDark, fontSize: 13)),
+                Text(title, style: NeuType.headingSm(isDark)),
                 if (subtitle != null) ...[
                   const SizedBox(height: NeuSpace.s2),
                   Text(subtitle!,
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 11)),
+                      style: NeuType.caption(isDark)),
                 ],
               ],
             ),
@@ -236,13 +236,13 @@ class NeuDialog extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(title,
-                    style: NeuTheme.titleStyle(isDark, fontSize: 16),
+                    style: NeuType.headingMd(isDark),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis),
                 if (subtitle != null) ...[
                   const SizedBox(height: 4),
                   Text(subtitle!,
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 12)),
+                      style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark))),
                 ],
               ],
             ),
@@ -300,10 +300,7 @@ class NeuDialog extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       borderRadius: BorderRadius.circular(8),
       child: Text(action.label,
-          style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: themeNotifier.accentInk)),
+          style: NeuType.headingSm(isDark, color: themeNotifier.accentInk)),
     );
   }
 }

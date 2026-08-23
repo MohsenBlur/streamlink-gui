@@ -107,7 +107,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                     Expanded(
                       child: Text(
                         channel.username,
-                        style: NeuTheme.titleStyle(isDark, fontSize: 13),
+                        style: NeuType.headingSm(isDark),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -118,7 +118,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                       const SizedBox(width: 4),
                       Text(
                         channel.viewerCount!,
-                        style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                        style: NeuType.caption(isDark),
                       ),
                     ],
                   ],
@@ -128,17 +128,13 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                   channel.streamTitle ?? 'Streaming Live!',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                  style: NeuType.bodySm(isDark),
                 ),
                 if (channel.game != null && channel.game != 'Offline') ...[
                   const SizedBox(height: 6),
                   Text(
                     channel.game!,
-                    style: TextStyle(
-                      color: themeNotifier.accentInk,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: NeuType.captionStrong(isDark, color: themeNotifier.accentInk),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],

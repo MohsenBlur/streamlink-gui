@@ -231,7 +231,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                         children: [
                                           Text(
                                             'Streamlink GUI',
-                                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 15),
+                                            style: NeuType.headingMd(themeNotifier.isDarkTheme),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
@@ -252,7 +252,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                                   widget.authenticatedUserLogin != null
                                                       ? '@${widget.authenticatedUserLogin}'
                                                       : 'Guest Mode',
-                                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                                                  style: NeuType.caption(themeNotifier.isDarkTheme),
                                                   maxLines: 1,
                                                   overflow: TextOverflow.ellipsis,
                                                 ),
@@ -401,7 +401,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                         ? 'No followed channels found.\nMake sure your account is connected.'
                                         : 'No live channels found.'),
                             textAlign: TextAlign.center,
-                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                            style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                           ),
                         );
                       }
@@ -428,11 +428,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                 leading: Icon(Icons.add_circle_outline, color: themeNotifier.accentInk, size: 20),
                                 title: Text(
                                   "Add '$query' to Favorites",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: themeNotifier.accentInk,
-                                    fontSize: 13,
-                                  ),
+                                  style: NeuType.headingSm(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                                 ),
                                 trailing: widget.isAdding
                                     ? SizedBox(
@@ -993,7 +989,7 @@ class _PinnedFavoritesAutomationButton extends StatelessWidget {
                   : NeuTheme.disabledText(isDark)),
           const SizedBox(width: NeuSpace.s6),
           Text('Automation',
-              style: NeuTheme.bodyStyle(isDark, fontSize: 12).copyWith(
+              style: NeuType.bodySm(isDark).copyWith(
                   color: enabled
                       ? NeuTheme.text(isDark)
                       : NeuTheme.disabledText(isDark))),
@@ -1190,7 +1186,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                   )
                 : Text(
                     channel.isLive ? (channel.game ?? 'Playing...') : 'Offline',
-                    style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                    style: NeuType.caption(isDark),
                     overflow: TextOverflow.ellipsis,
                   ),
             trailing: Row(

@@ -84,12 +84,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                         title.toUpperCase(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: NeuTheme.text(isDarkTheme),
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.1,
-                        ),
+                        style: NeuType.label(isDarkTheme, color: NeuTheme.text(isDarkTheme)).copyWith(letterSpacing: 1.1),
                       ),
                     ),
                   ],

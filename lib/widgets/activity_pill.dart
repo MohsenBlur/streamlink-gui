@@ -190,12 +190,7 @@ class ActivityPopover extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 6, top: 2),
         child: Text(
           title.toUpperCase(),
-          style: TextStyle(
-            fontSize: 9.5,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.8,
-            color: NeuTheme.subtext(isDark),
-          ),
+          style: NeuType.micro(isDark, color: NeuTheme.subtext(isDark)),
         ),
       ),
       for (final item in items) _row(context, item, isDark),
@@ -220,7 +215,7 @@ class ActivityPopover extends StatelessWidget {
                   item.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                  style: NeuType.bodySm(isDark),
                 ),
                 if (item.kind == ActivityKind.downloading) ...[
                   const SizedBox(height: 5),
@@ -236,14 +231,14 @@ class ActivityPopover extends StatelessWidget {
                       if (item.status != null) ...[
                         const SizedBox(width: 8),
                         Text(item.status!,
-                            style: NeuTheme.subtextStyle(isDark, fontSize: 10)),
+                            style: NeuType.caption(isDark)),
                       ],
                     ],
                   ),
                 ] else if (item.status != null) ...[
                   const SizedBox(height: 2),
                   Text(item.status!,
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 10)),
+                      style: NeuType.caption(isDark)),
                 ],
               ],
             ),

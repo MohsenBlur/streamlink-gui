@@ -137,11 +137,11 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                       children: [
                         Text(
                           'Skip VODs already watched past',
-                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                          style: NeuType.headingSm(themeNotifier.isDarkTheme),
                         ),
                         Text(
                           'Auto-download leaves these alone.',
-                          style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                          style: NeuType.caption(themeNotifier.isDarkTheme),
                         ),
                       ],
                     ),
@@ -167,11 +167,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                         ),
                         Text(
                           '$_threshold%',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: themeNotifier.accentInk,
-                          ),
+                          style: NeuType.headingSm(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                         ),
                       ],
                     ),
@@ -197,12 +193,12 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                       children: [
                         Text(
                           'Switch to a higher priority channel',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                          style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'When one goes live while a lower-priority stream is playing.',
-                          style: TextStyle(fontSize: 11, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                          style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                         ),
                       ],
                     ),
@@ -237,11 +233,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Text(
                               'Auto-play order - drag to reorder',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: NeuTheme.favoriteText(themeNotifier.isDarkTheme),
-                              ),
+                              style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.favoriteText(themeNotifier.isDarkTheme)),
                             ),
                           ),
                           Container(
@@ -317,7 +309,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       Expanded(
                                         child: Text(
                                           ch.originalChannel.username,
-                                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                                          style: NeuType.headingSm(themeNotifier.isDarkTheme),
                                         ),
                                       ),
                                       Container(
@@ -329,11 +321,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         ),
                                         child: Text(
                                           'Priority #${priorityChannels.indexOf(ch) + 1}',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: themeNotifier.accentInk,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                                          style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                                         ),
                                       ),
                                     ],
@@ -349,7 +337,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Text(
                             'Every favourite',
-                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                            style: NeuType.headingSm(themeNotifier.isDarkTheme),
                           ),
                         ),
 
@@ -380,7 +368,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                     Expanded(
                                       child: Text(
                                         ch.originalChannel.username,
-                                        style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
+                                        style: NeuType.headingSm(themeNotifier.isDarkTheme),
                                       ),
                                     ),
                                   ],
@@ -418,7 +406,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                           const SizedBox(width: 8),
                                           Text(
                                             'Play when live',
-                                            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                            style: NeuType.bodySm(themeNotifier.isDarkTheme),
                                           ),
                                         ],
                                       ),
@@ -447,7 +435,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                           const SizedBox(width: 8),
                                           Text(
                                             'Download VODs',
-                                            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                            style: NeuType.bodySm(themeNotifier.isDarkTheme),
                                           ),
                                         ],
                                       ),
@@ -460,7 +448,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         children: [
                                           Text(
                                             'Keep Max VODs: ',
-                                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                            style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                           ),
                                           DropdownButton<int>(
                                             value: ch.maxVodKeepCount.clamp(1, 5),
@@ -513,7 +501,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                               // slider drove the behaviour would
                                               // be a lie.
                                               'Stop at last watched (over $_threshold%)',
-                                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                              style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                             ),
                                           ],
                                         ),
@@ -542,7 +530,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                             const SizedBox(width: 8),
                                             Text(
                                               'Fast Download (Skip post-processing)',
-                                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                              style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                                             ),
                                           ],
                                         ),

@@ -571,12 +571,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               Text(
                 'A newer build is on GitHub Releases. The app downloads it, '
                 'verifies its checksum and restarts itself.',
-                style: NeuTheme.bodyStyle(isDark, fontSize: 13),
+                style: NeuType.body(isDark),
               ),
               if (info.releaseNotes.isNotEmpty) ...[
                 const SizedBox(height: NeuSpace.s16),
                 Text("What's new",
-                    style: NeuTheme.titleStyle(isDark, fontSize: 12)),
+                    style: NeuType.label(isDark)),
                 const SizedBox(height: NeuSpace.s6),
                 Container(
                   constraints: const BoxConstraints(maxHeight: 180),
@@ -586,7 +586,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   child: SingleChildScrollView(
                     child: Text(
                       info.releaseNotes,
-                      style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                      style: NeuType.bodySm(isDark),
                     ),
                   ),
                 ),
@@ -644,7 +644,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(statusText,
-                      style: NeuTheme.bodyStyle(isDark, fontSize: 13)),
+                      style: NeuType.body(isDark)),
                   const SizedBox(height: NeuSpace.s12),
                   NeuProgressBar(
                     value: progress > 0 ? progress : null,
@@ -652,7 +652,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   ),
                   const SizedBox(height: NeuSpace.s8),
                   Text('${(progress * 100).toStringAsFixed(1)}%',
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 11)),
+                      style: NeuType.caption(isDark)),
                 ],
               ),
             );
@@ -857,7 +857,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           icon: Icons.download_for_offline_outlined,
           content: Text(
             'Exiting pauses them. They resume the next time you start the app.',
-            style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+            style: NeuType.body(themeNotifier.isDarkTheme),
           ),
           actions: [
             NeuDialogAction.secondary(
@@ -890,7 +890,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               'queued downloads will not resume after a restart.'
               '\n\nThis usually means the folder is full, read-only, or locked '
               'by another program. Go back to fix it and try again.',
-              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+              style: NeuType.body(themeNotifier.isDarkTheme),
             ),
             actions: [
               NeuDialogAction.secondary(
@@ -1136,7 +1136,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         content: Text(
           'No download folder is set yet. Pick one and the download starts '
           'straight away; everything you download later goes there too.',
-          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+          style: NeuType.body(themeNotifier.isDarkTheme),
         ),
         actions: [
           NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
@@ -1863,7 +1863,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               '${existing.autoPlayLive ? '\n• Auto-play when live (priority #${existing.autoPlayPriority + 1})' : ''}'
               '${existing.autoDownloadVods ? '\n• Auto-download VODs (keep ${existing.maxVodKeepCount})' : ''}'
               '\n\nAlready-downloaded files are kept.',
-              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+              style: NeuType.body(themeNotifier.isDarkTheme),
             ),
             actions: [
               NeuDialogAction.secondary(
@@ -2116,7 +2116,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               ? 'The partial file is deleted. The VOD stays available to '
                   'download again.'
               : 'This closes the player window.',
-          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+          style: NeuType.body(themeNotifier.isDarkTheme),
         ),
         actions: [
           NeuDialogAction.secondary(
@@ -2397,14 +2397,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     const SizedBox(width: NeuSpace.s12),
                     Text(
                       'Home',
-                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
+                      style: NeuType.display(themeNotifier.isDarkTheme),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Text(
                   'Pick a channel from the sidebar, or jump back into something below.',
-                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                  style: NeuType.body(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                 ),
                 const SizedBox(height: 24),
 
@@ -2502,7 +2502,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             Expanded(
                               child: Text(
                                 channel.username,
-                                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                                style: NeuType.headingSm(themeNotifier.isDarkTheme),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -2513,7 +2513,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         Expanded(
                           child: Text(
                             channel.streamTitle ?? 'No Stream Title',
-                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                            style: NeuType.caption(themeNotifier.isDarkTheme),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -2533,7 +2533,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             Expanded(
                               child: Text(
                                 channel.game ?? 'Unknown Game',
-                                style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
+                                style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -2546,7 +2546,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 const SizedBox(width: 4),
                                 Text(
                                   channel.viewerCount != null ? '${channel.viewerCount}' : '0',
-                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10, fontWeight: FontWeight.bold),
+                                  style: NeuType.caption(themeNotifier.isDarkTheme),
                                 ),
                               ],
                             ),
@@ -2667,7 +2667,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                   ),
                                                   child: Text(
                                                     video.duration,
-                                                    style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                                    style: NeuType.micro(themeNotifier.isDarkTheme, color: Colors.white),
                                                   ),
                                                 ),
                                               ),
@@ -2702,7 +2702,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                             children: [
                                               Text(
                                                 video.title,
-                                                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                                                style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
@@ -2712,12 +2712,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                 children: [
                                                   Text(
                                                     video.publishedAt.toLocal().toString().substring(0, 10),
-                                                    style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 9),
+                                                    style: NeuType.caption(themeNotifier.isDarkTheme),
                                                   ),
                                                   if (progressPct > 0)
                                                     Text(
                                                       '$progressPct%',
-                                                      style: TextStyle(fontSize: 9, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
+                                                      style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                                                     ),
                                                 ],
                                               ),
@@ -2777,7 +2777,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           const SizedBox(width: 8),
                           Text(
                             'Active Downloads Running',
-                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
+                            style: NeuType.headingSm(themeNotifier.isDarkTheme),
                           ),
                         ],
                       ),
@@ -2803,7 +2803,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               children: [
                                 Text(
                                   title,
-                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                  style: NeuType.bodySm(themeNotifier.isDarkTheme),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -2819,7 +2819,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           const SizedBox(width: 16),
                           Text(
                             taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
-                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                            style: NeuType.caption(themeNotifier.isDarkTheme),
                           ),
                         ],
                       ),
@@ -2903,11 +2903,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             child: Text(
               'Your settings could not be saved to disk. Recent changes may be '
               'lost when the app closes.',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: NeuTheme.dangerText(isDark),
-              ),
+              style: NeuType.label(isDark, color: NeuTheme.dangerText(isDark)),
             ),
           ),
           TextButton(
@@ -2943,7 +2939,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               'Writing to this file keeps failing. Common causes are a full '
               'disk, antivirus or backup software holding the file open, or '
               'the folder no longer being writable.',
-              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+              style: NeuType.body(themeNotifier.isDarkTheme),
             ),
             const SizedBox(height: 12),
             Container(
@@ -3074,7 +3070,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         tone: DialogTone.destructive,
         content: Text(
           'Delete the downloaded file for "${entry.title}"? This cannot be undone.',
-          style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+          style: NeuType.body(themeNotifier.isDarkTheme),
         ),
         actions: [
           NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
@@ -3169,14 +3165,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       children: [
                         Text(
                           title,
-                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                          style: NeuType.headingSm(themeNotifier.isDarkTheme),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
                         Text(
                           subtitle,
-                          style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10),
+                          style: NeuType.caption(themeNotifier.isDarkTheme),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -3269,7 +3265,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           if (_isMultiSelectMode) ...[
                                                         Text(
                               '${_selectedVodIds.length} selected',
-                              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                              style: NeuType.label(themeNotifier.isDarkTheme),
                             ),
                             if (_isBulkUpdatingVods) ...[
                                                             NeuProgressRing(
@@ -3277,7 +3273,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 color: NeuTheme.text(themeNotifier.isDarkTheme),
                                 semanticLabel: 'Syncing',
                               ),
-                                                            Text('Syncing with Twitch...', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                                                            Text('Syncing with Twitch...', style: NeuType.caption(themeNotifier.isDarkTheme)),
                             ] else ...[
                                                             TextButton.icon(
                                 icon: const Icon(Icons.check_circle_outline, size: 16),
@@ -3392,7 +3388,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           Expanded(
                             child: Text(
                               'Your Twitch Browser OAuth Token has expired. VOD watch progress tracking is currently paused.',
-                              style: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 13, fontWeight: FontWeight.bold),
+                              style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -3538,7 +3534,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       children: [
                         Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                         const SizedBox(width: 6),
-                        Text('Show All Games on Thumbnails', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                        Text('Show All Games on Thumbnails', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
                       ],
                     ),
                     NeuSwitch(
@@ -3556,7 +3552,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               },
             ),
             const SizedBox(height: 12),
-            Text('Filter Broadcasts:', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold)),
+            Text('Filter Broadcasts:', style: NeuType.captionStrong(themeNotifier.isDarkTheme)),
             const SizedBox(height: 6),
             NeuTextField(
               controller: _vodSearchController,
@@ -3577,7 +3573,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Filter by Games:', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold)),
+                        Text('Filter by Games:', style: NeuType.captionStrong(themeNotifier.isDarkTheme)),
                         if (_selectedGamesFilter.isNotEmpty)
                           MouseRegion(
                             cursor: SystemMouseCursors.click,
@@ -3590,7 +3586,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               },
                               child: Text(
                                 'Clear All',
-                                style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
+                                style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                               ),
                             ),
                           ),
@@ -3639,7 +3635,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   Expanded(
                                     child: Text(
                                       game,
-                                      style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                                      style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                                     ),
                                   ),
                                 ],
@@ -3658,7 +3654,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               children: [
                 Icon(Icons.photo_size_select_large, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                 const SizedBox(width: 6),
-                Text('Card Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                Text('Card Size: ', style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
                 Expanded(
                   child: SliderTheme(
                     data: neuSliderTheme(context),
@@ -3682,7 +3678,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               children: [
                 Icon(Icons.format_size, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                 const SizedBox(width: 6),
-                Text('Font Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                Text('Font Size: ', style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
                 Expanded(
                   child: SliderTheme(
                     data: neuSliderTheme(context),
@@ -3950,7 +3946,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   toDelete[index].title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                  style: NeuType.bodySm(isDark),
                 ),
               ),
             ),
@@ -4015,7 +4011,7 @@ class _VodDisplayButton extends StatelessWidget {
           Icon(Icons.tune, size: 15, color: NeuTheme.text(isDark)),
           const SizedBox(width: NeuSpace.s6),
           Text('Display',
-              style: NeuTheme.bodyStyle(isDark, fontSize: 12)),
+              style: NeuType.bodySm(isDark)),
           const SizedBox(width: NeuSpace.s2),
           Icon(Icons.arrow_drop_down, size: 16, color: NeuTheme.subtext(isDark)),
         ],

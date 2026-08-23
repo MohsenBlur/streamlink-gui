@@ -336,7 +336,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                 ),
                                 child: Text(
                                   _formatTwitchStyleDuration(widget.vod.duration),
-                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                  style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: Colors.white),
                                 ),
                               ),
                             ],
@@ -391,7 +391,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                     const SizedBox(width: 4),
                                                     Text(
                                                       game,
-                                                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                                      style: NeuType.micro(themeNotifier.isDarkTheme, color: Colors.white),
                                                     ),
                                                   ],
                                                 ),
@@ -447,7 +447,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             const SizedBox(width: 4),
                                             Text(
                                               'NOW PLAYING',
-                                              style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: themeNotifier.onPrimaryColor, letterSpacing: 0.5),
+                                              style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.onPrimaryColor),
                                             ),
                                           ],
                                         ),
@@ -495,12 +495,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             textAlign: TextAlign.center,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 9.5,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
-                                              letterSpacing: 0.2,
-                                            ),
+                                            style: NeuType.micro(themeNotifier.isDarkTheme, color: Colors.white),
                                           ),
                                         ),
                                       ),
@@ -522,7 +517,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                             ),
                             child: Text(
                               '${widget.formatNumber(widget.vod.viewCount)} views',
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: Colors.white),
                             ),
                           ),
                         ),
@@ -557,11 +552,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               ],
                                               Text(
                                                 widget.downloadStatus!,
-                                                style: const TextStyle(
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: NeuTheme.live,
-                                                ),
+                                                style: NeuType.micro(themeNotifier.isDarkTheme, color: NeuTheme.live),
                                               ),
                                             ],
                                           ),
@@ -631,7 +622,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 4),
                                               child: Text(
                                                 timeAgo(widget.vod.publishedAt),
-                                                style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold),
+                                                style: NeuType.captionStrong(themeNotifier.isDarkTheme),
                                               ),
                                             )))),
                         ),
