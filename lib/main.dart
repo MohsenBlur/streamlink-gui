@@ -18,6 +18,7 @@ import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
 import 'widgets/shell/app_layout.dart';
+import 'widgets/shell/neu_dialog.dart';
 import 'widgets/neumorphic/neu_progress.dart';
 import 'widgets/neumorphic/neu_text_field.dart';
 import 'state/vod_cache.dart';
@@ -2911,47 +2912,40 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _showSaveFailureDetail(StorageWriteFailure failure) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: themeNotifier.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Could not save settings',
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-        content: SizedBox(
-          width: 520,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Writing to this file keeps failing. Common causes are a full '
-                'disk, antivirus or backup software holding the file open, or '
-                'the folder no longer being writable.',
-                style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+    NeuDialog.show<void>(
+      context,
+      // Read-only detail: clicking away is a fine way to leave it.
+      dismissible: true,
+      builder: (context) => NeuDialog(
+        title: 'Could not save settings',
+        icon: Icons.error_outline,
+        tone: DialogTone.destructive,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Writing to this file keeps failing. Common causes are a full '
+              'disk, antivirus or backup software holding the file open, or '
+              'the folder no longer being writable.',
+              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: NeuTheme.sunkenDecoration(
+                  themeNotifier.isDarkTheme,
+                  radius: 8),
+              child: SelectableText(
+                '${failure.path}\n\n${failure.error}',
+                style: const TextStyle(fontFamily: 'Consolas', fontSize: 11),
               ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: NeuTheme.sunkenDecoration(
-                    themeNotifier.isDarkTheme,
-                    radius: 8),
-                child: SelectableText(
-                  '${failure.path}\n\n${failure.error}',
-                  style: const TextStyle(fontFamily: 'Consolas', fontSize: 11),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close',
-                style: TextStyle(
-                    color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-          ),
+          NeuDialogAction.secondary('Close', () => Navigator.pop(context)),
         ],
       ),
     );
@@ -3051,30 +3045,27 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _deleteLibraryEntry(LibraryEntry entry) async {
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete Download?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-        backgroundColor: themeNotifier.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    final bool? confirmed = await NeuDialog.show<bool>(
+      context,
+      // Dismissible: clicking away is the same as Cancel here, and the
+      // destructive action requires a deliberate click either way.
+      dismissible: true,
+      builder: (context) => NeuDialog(
+        title: 'Delete download?',
+        icon: Icons.delete_outline,
+        tone: DialogTone.destructive,
         content: Text(
           'Delete the downloaded file for "${entry.title}"? This cannot be undone.',
           style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-          ),
-          ElevatedButton(
-            // White on the fixed danger red, theme-independent.
-            style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
+          NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
+          NeuDialogAction.primary('Delete', () => Navigator.pop(context, true)),
         ],
       ),
     );
+    // != true, not == false: a dismissed dialog returns null, and null must
+    // never mean "yes, delete it".
     if (confirmed != true) return;
     await _deleteDownloadedVod(entry.vodId, entry.channel);
     _refreshLibraryEntries();
