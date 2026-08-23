@@ -20,6 +20,7 @@ import 'state/download_registry.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
 import 'widgets/shell/section_header.dart';
+import 'widgets/shell/selection_bar.dart';
 import 'widgets/shell/empty_state.dart';
 import 'widgets/neumorphic/neu_button.dart';
 import 'widgets/shell/neu_dialog.dart';
@@ -3235,142 +3236,113 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                   SizedBox(height: isCompact ? 12 : 32),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Expanded + Wrap, not a bare Row. In multi-select this
-                      // cluster carries four labelled buttons, a count and two
-                      // icon buttons with no compact branch anywhere, so below
-                      // roughly 1100px it simply overflowed. Wrapping to a
-                      // second line is the honest minimum; the toolbar is
-                      // rebuilt properly as a SelectionBar in a later phase.
-                      Expanded(
-                        child: Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          IconButton(
-                            icon: Icon(
-                              _isMultiSelectMode ? Icons.edit_off : Icons.edit,
-                              color: _isMultiSelectMode ? themeNotifier.accentInk : NeuTheme.text(themeNotifier.isDarkTheme),
-                              size: 18,
-                            ),
-                            tooltip: _isMultiSelectMode ? 'Cancel Multi-Select' : 'Toggle Multi-Select Mode',
-                            onPressed: () {
-                              setState(() {
-                                _isMultiSelectMode = !_isMultiSelectMode;
-                                _selectedVodIds.clear();
-                              });
-                            },
-                          ),
-                          if (_isMultiSelectMode) ...[
-                                                        Text(
-                              '${_selectedVodIds.length} selected',
-                              style: NeuType.label(themeNotifier.isDarkTheme),
-                            ),
-                            if (_isBulkUpdatingVods) ...[
-                                                            NeuProgressRing(
-                                size: NeuProgressRingSize.xs,
-                                color: NeuTheme.text(themeNotifier.isDarkTheme),
-                                semanticLabel: 'Syncing',
-                              ),
-                                                            Text('Syncing with Twitch...', style: NeuType.caption(themeNotifier.isDarkTheme)),
-                            ] else ...[
-                                                            TextButton.icon(
-                                icon: const Icon(Icons.check_circle_outline, size: 16),
-                                label: const Text('Mark Watched', style: NeuType.captionMetrics),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: theme.primaryColor.withValues(alpha: 0.2),
-                                  foregroundColor: themeNotifier.accentInk,
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                ),
-                                onPressed: () => _bulkUpdateSelectedVods(true),
-                              ),
-                                                            TextButton.icon(
-                                icon: const Icon(Icons.unpublished_outlined, size: 16),
-                                label: const Text('Mark Unwatched', style: NeuType.captionMetrics),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                  foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                ),
-                                onPressed: () => _bulkUpdateSelectedVods(false),
-                              ),
-                                                            TextButton.icon(
-                                icon: const Icon(Icons.download, size: 16),
-                                label: const Text('Download', style: NeuType.captionMetrics),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: NeuTheme.live.withValues(alpha: 0.15),
-                                  foregroundColor: NeuTheme.liveText(themeNotifier.isDarkTheme),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                ),
-                                onPressed: _selectedVodIds.isEmpty ? null : _bulkDownloadSelectedVods,
-                              ),
-                                                            TextButton.icon(
-                                icon: const Icon(Icons.delete_outline, size: 16),
-                                label: const Text('Delete Download', style: NeuType.captionMetrics),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: NeuTheme.danger.withValues(alpha: 0.15),
-                                  foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                ),
-                                onPressed: _selectedVodIds.isEmpty ? null : _bulkDeleteSelectedVods,
-                              ),
-                                                            IconButton(
-                                icon: Icon(Icons.select_all, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                                tooltip: 'Select All Visible',
-                                onPressed: () {
-                                  final searchQuery = _vodSearchController.text.trim().toLowerCase();
-                                  final filteredVods = _channelVods.where((vod) {
-                                    final matchesSearch = searchQuery.isEmpty ||
-                                        vod.title.toLowerCase().contains(searchQuery) ||
-                                        vod.games.any((game) => game.toLowerCase().contains(searchQuery));
-                                    final matchesGameFilter = _selectedGamesFilter.isEmpty ||
-                                        vod.games.any((game) => _selectedGamesFilter.contains(game));
-                                    return matchesSearch && matchesGameFilter;
-                                  }).toList();
-                                  setState(() {
-                                    _selectedVodIds.addAll(filteredVods.map((v) => v.id));
-                                  });
-                                },
-                              ),
-                              IconButton(
-                                icon: Icon(Icons.deselect, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                                tooltip: 'Deselect All',
-                                onPressed: () {
-                                  setState(() {
-                                    _selectedVodIds.clear();
-                                  });
-                                },
-                              ),
+                  // In selection mode the SelectionBar REPLACES this row
+                  // rather than growing out of it. Appending the bulk actions
+                  // to the toolbar is what made the toolbar overflow: four
+                  // labelled buttons, a count, a progress ring and two icon
+                  // buttons, with no compact branch anywhere.
+                  if (_isMultiSelectMode)
+                    SelectionBar(
+                      selectedCount: _selectedVodIds.length,
+                      busy: _isBulkUpdatingVods,
+                      busyLabel: 'Syncing with Twitch...',
+                      onExit: () => setState(() {
+                        _isMultiSelectMode = false;
+                        _selectedVodIds.clear();
+                      }),
+                      onClear: () => setState(() => _selectedVodIds.clear()),
+                      onSelectAllVisible: () => setState(() {
+                        _selectedVodIds
+                            .addAll(_filteredChannelVods().map((v) => v.id));
+                      }),
+                      actions: [
+                        SelectionAction(
+                          label: 'Watched',
+                          icon: Icons.check_circle_outline,
+                          tone: SelectionTone.accent,
+                          onPressed: _selectedVodIds.isEmpty
+                              ? null
+                              : () => _bulkUpdateSelectedVods(true),
+                        ),
+                        SelectionAction(
+                          label: 'Unwatched',
+                          icon: Icons.unpublished_outlined,
+                          onPressed: _selectedVodIds.isEmpty
+                              ? null
+                              : () => _bulkUpdateSelectedVods(false),
+                        ),
+                        SelectionAction(
+                          label: 'Download',
+                          icon: Icons.download,
+                          tone: SelectionTone.positive,
+                          onPressed: _selectedVodIds.isEmpty
+                              ? null
+                              : _bulkDownloadSelectedVods,
+                        ),
+                        SelectionAction(
+                          label: 'Delete files',
+                          icon: Icons.delete_outline,
+                          tone: SelectionTone.destructive,
+                          onPressed: _selectedVodIds.isEmpty
+                              ? null
+                              : _bulkDeleteSelectedVods,
+                        ),
+                      ],
+                    )
+                  else
+                    Row(
+                      children: [
+                        // A labelled button, not a bare pencil. The pencil had
+                        // a tooltip and nothing else, so the only way to learn
+                        // the grid had a selection mode was to hover a 40px
+                        // icon and wait.
+                        NeuButton(
+                          onPressed: () => setState(() {
+                            _isMultiSelectMode = true;
+                            _selectedVodIds.clear();
+                          }),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          borderRadius: BorderRadius.circular(NeuRadius.r8),
+                          tooltip: 'Pick several VODs to download or mark',
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.checklist,
+                                  size: 15,
+                                  color: NeuTheme.text(
+                                      themeNotifier.isDarkTheme)),
+                              const SizedBox(width: 6),
+                              Text('Select',
+                                  style: NeuType.captionStrong(
+                                      themeNotifier.isDarkTheme,
+                                      color: NeuTheme.text(
+                                          themeNotifier.isDarkTheme))),
                             ],
-                          ],
+                          ),
+                        ),
+                        const Spacer(),
+                        if (_isLoadingVods) ...[
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: NeuProgressRing(
+                                size: NeuProgressRingSize.sm,
+                                semanticLabel: 'Loading'),
+                          ),
+                          const SizedBox(width: 12),
                         ],
-                      ),
-                      ),
-                      // One control path, not two. These settings used to be
-                      // rendered inline when the window was wide and in a
-                      // popover when it was narrow, and the two copies had
-                      // already drifted ('Font: ' versus 'Font Size: ', a
-                      // 110px slider versus an Expanded one). The popover is
-                      // the better layout and is what most windows already
-                      // showed, so it is now what every window shows.
-                      if (!_isMultiSelectMode)
+                        // One control path, not two. These settings used to be
+                        // rendered inline when the window was wide and in a
+                        // popover when it was narrow, and the two copies had
+                        // already drifted ('Font: ' versus 'Font Size: ', a
+                        // 110px slider versus an Expanded one).
                         InteractivePopover(
                           popover: _buildVodsSettingMenu(theme),
                           child: _VodDisplayButton(theme: theme),
                         ),
-                      if (_isLoadingVods) ...[
-                        const SizedBox(width: 12),
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
-                        ),
                       ],
-                    ],
-                  ),
+                    ),
                   const SizedBox(height: 16),
                   if (_isWebTokenExpired) ...[
                     Container(
@@ -3896,6 +3868,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _playerService.queueVodDownload(vod, channelName, _settings);
     }
     setState(() {});
+  }
+
+  /// The VODs the grid is currently showing, i.e. what "All" selects.
+  ///
+  /// Was inline inside the Select All button; the SelectionBar needs it too,
+  /// and two copies of a filter is how the old toolbar's two code paths
+  /// drifted apart in the first place.
+  List<TwitchVideo> _filteredChannelVods() {
+    final searchQuery = _vodSearchController.text.trim().toLowerCase();
+    return _channelVods.where((vod) {
+      final matchesSearch = searchQuery.isEmpty ||
+          vod.title.toLowerCase().contains(searchQuery) ||
+          vod.games.any((game) => game.toLowerCase().contains(searchQuery));
+      final matchesGameFilter = _selectedGamesFilter.isEmpty ||
+          vod.games.any((game) => _selectedGamesFilter.contains(game));
+      return matchesSearch && matchesGameFilter;
+    }).toList();
   }
 
   Future<void> _bulkDeleteSelectedVods() async {
