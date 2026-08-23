@@ -8,6 +8,7 @@ import 'neumorphic/neu_avatar_frame.dart';
 import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_card.dart';
 import '../theme/neu_theme.dart';
+import 'shell/app_layout.dart';
 import '../theme/theme_notifier.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -263,8 +264,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isSmall = MediaQuery.of(context).size.width < 1180;
-    final isCompact = MediaQuery.of(context).size.width < 700 || MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    // Was a byte-identical copy of the two lines in main.dart's dashboard
+    // build, with nothing keeping them in step.
+    final layout = AppLayout.maybeOf(context);
+    final isSmall = !layout.hasWideControls;
+    final isCompact = layout.isRail;
 
     final statsChips = [
       if (widget.channel.isLive) ...[
@@ -433,18 +437,26 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  widget.channel.username,
-                  style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(width: 10),
-                _buildStatusBadge(compact: false),
-              ],
+            // Flexible for the same reason the compact branch above already
+            // had it: at 22px a long username in an unbounded Row reports its
+            // full intrinsic width, so the ellipsis never engages and the Row
+            // overflows instead. The two branches disagreed about this.
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      widget.channel.username,
+                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _buildStatusBadge(compact: false),
+                ],
+              ),
             ),
             isSmall
                 ? InteractivePopover(

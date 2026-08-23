@@ -17,6 +17,7 @@ import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
+import 'widgets/shell/app_layout.dart';
 import 'state/vod_cache.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
@@ -2209,10 +2210,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final mediaQuery = MediaQuery.of(context);
-    final isVertical = mediaQuery.size.height > mediaQuery.size.width;
-    final isNarrow = mediaQuery.size.width < 700;
-    final effectiveSidebarCollapsed = (isNarrow || isVertical) ? true : _sidebarCollapsed;
+    // One measurement, published to the subtree. Everything below reads
+    // AppLayout.of(context) rather than re-deriving its own breakpoints.
+    final layout = AppLayoutData.fromSize(MediaQuery.sizeOf(context));
+    final isVertical = layout.isPortrait;
+    final isNarrow = layout.isCompact;
+    final effectiveSidebarCollapsed = layout.isRail ? true : _sidebarCollapsed;
     
     final sidebar = SidebarPanel(
       key: _sidebarKey,
@@ -2290,7 +2293,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       ),
     );
 
-    return Scaffold(
+    return AppLayout(
+      data: layout,
+      child: Scaffold(
       body: CallbackShortcuts(
         bindings: {
           // Focus the sidebar search from anywhere. In layouts without the
@@ -2362,6 +2367,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -2759,13 +2765,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              channel.game ?? 'Unknown Game',
-                              style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                            // Expanded, not a bare Text. `overflow: ellipsis`
+                            // can only engage when the Text is given a bounded
+                            // width; in an unconstrained Row it reports its
+                            // full intrinsic width instead and the ROW
+                            // overflows. These tiles are maxCrossAxisExtent
+                            // 220 and the window minimum is 380 wide, so a
+                            // long game name overflowed in the normal case,
+                            // not an exotic one.
+                            Expanded(
+                              child: Text(
+                                channel.game ?? 'Unknown Game',
+                                style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
+                            const SizedBox(width: 8),
                             Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
                                 const SizedBox(width: 4),
@@ -3144,8 +3162,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Widget _buildDashboard(ThemeData theme, TwitchChannel channel) {
-    final isSmall = MediaQuery.of(context).size.width < 1180;
-    final isCompact = MediaQuery.of(context).size.width < 700 || MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    final layout = AppLayout.of(context);
+    final isSmall = !layout.hasWideControls;
+    final isCompact = layout.isRail;
     // CustomScrollView so the VOD grid renders as a real SliverGrid and
     // off-screen cards are culled; the old SingleChildScrollView +
     // shrinkWrap GridView materialized every card at once.
@@ -3183,8 +3202,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
+                      // Expanded + Wrap, not a bare Row. In multi-select this
+                      // cluster carries four labelled buttons, a count and two
+                      // icon buttons with no compact branch anywhere, so below
+                      // roughly 1100px it simply overflowed. Wrapping to a
+                      // second line is the honest minimum; the toolbar is
+                      // rebuilt properly as a SelectionBar in a later phase.
+                      Expanded(
+                        child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 6,
                         children: [
                           IconButton(
                             icon: Icon(
@@ -3201,23 +3229,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             },
                           ),
                           if (_isMultiSelectMode) ...[
-                            const SizedBox(width: 8),
-                            Text(
+                                                        Text(
                               '${_selectedVodIds.length} selected',
                               style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12),
                             ),
                             if (_isBulkUpdatingVods) ...[
-                              const SizedBox(width: 12),
-                              SizedBox(
+                                                            SizedBox(
                                 width: 14,
                                 height: 14,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                               ),
-                              const SizedBox(width: 8),
-                              Text('Syncing with Twitch...', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                                                            Text('Syncing with Twitch...', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                             ] else ...[
-                              const SizedBox(width: 12),
-                              TextButton.icon(
+                                                            TextButton.icon(
                                 icon: const Icon(Icons.check_circle_outline, size: 16),
                                 label: const Text('Mark Watched', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
@@ -3227,8 +3251,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 ),
                                 onPressed: () => _bulkUpdateSelectedVods(true),
                               ),
-                              const SizedBox(width: 8),
-                              TextButton.icon(
+                                                            TextButton.icon(
                                 icon: const Icon(Icons.unpublished_outlined, size: 16),
                                 label: const Text('Mark Unwatched', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
@@ -3238,8 +3261,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 ),
                                 onPressed: () => _bulkUpdateSelectedVods(false),
                               ),
-                              const SizedBox(width: 8),
-                              TextButton.icon(
+                                                            TextButton.icon(
                                 icon: const Icon(Icons.download, size: 16),
                                 label: const Text('Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
@@ -3249,8 +3271,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 ),
                                 onPressed: _selectedVodIds.isEmpty ? null : _bulkDownloadSelectedVods,
                               ),
-                              const SizedBox(width: 8),
-                              TextButton.icon(
+                                                            TextButton.icon(
                                 icon: const Icon(Icons.delete_outline, size: 16),
                                 label: const Text('Delete Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
@@ -3260,8 +3281,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 ),
                                 onPressed: _selectedVodIds.isEmpty ? null : _bulkDeleteSelectedVods,
                               ),
-                              const SizedBox(width: 8),
-                              IconButton(
+                                                            IconButton(
                                 icon: Icon(Icons.select_all, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                                 tooltip: 'Select All Visible',
                                 onPressed: () {
@@ -3291,6 +3311,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             ],
                           ],
                         ],
+                      ),
                       ),
                       if (!_isMultiSelectMode)
                         isSmall
