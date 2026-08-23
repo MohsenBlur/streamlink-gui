@@ -85,3 +85,4 @@ test/zz*_test.dart
 test/tmp_*_test.dart
 test/zzz*_test.dart
 .scratch_probe/
+shots/
