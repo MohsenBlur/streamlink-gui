@@ -804,6 +804,12 @@ class SidebarPanelState extends State<SidebarPanel> {
     );
   }
 
+  /// One whole avatar in the rail: a 36px avatar plus its 6px margins.
+  ///
+  /// The floor under the avatar strip. Below it the strip renders nothing
+  /// rather than a slice of a face; see the note at its LayoutBuilder.
+  static const double _railAvatarItemWidth = 48.0;
+
   Widget _buildHorizontalTopBar(ThemeData theme) {
     final activeList = _getListToDisplay();
 
@@ -875,8 +881,26 @@ class SidebarPanelState extends State<SidebarPanel> {
                 color: NeuTheme.border(themeNotifier.isDarkTheme)),
           ],
           gap,
-          Expanded(
-            child: Listener(
+          // Flexible with a floor, not Expanded.
+          //
+          // The avatar strip is the channel list - in this layout it IS the
+          // primary navigation - so it gets whatever the fixed controls leave.
+          // At the 380px minimum that is about thirty logical pixels, and a
+          // horizontal ListView handed thirty pixels renders a vertical SLICE
+          // of one avatar: a rectangular crop of somebody's face wedged
+          // between two icons, with no circular mask visible. It reads as a
+          // rendering fault rather than as a list that scrolls.
+          //
+          // Below one whole item (36px avatar + 12px of margins) the strip
+          // renders nothing instead. `Flexible` rather than `Expanded` so the
+          // Row reclaims the space when that happens, rather than leaving a
+          // hole where the slice was.
+          Flexible(
+            child: LayoutBuilder(builder: (context, avatarBox) {
+              if (avatarBox.maxWidth < _railAvatarItemWidth) {
+                return const SizedBox.shrink();
+              }
+              return Listener(
               onPointerSignal: (pointerSignal) {
                 if (pointerSignal is PointerScrollEvent) {
                   GestureBinding.instance.pointerSignalResolver.register(pointerSignal, (event) {
@@ -954,7 +978,8 @@ class SidebarPanelState extends State<SidebarPanel> {
                       : itemWidget;
                 },
               ),
-            ),
+            );
+            }),
           ),
           if (widget.sidebarTab == 0) ...[
             const SizedBox(width: NeuSpace.s6),
