@@ -2298,6 +2298,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       child: Scaffold(
       body: CallbackShortcuts(
         bindings: {
+          // Esc leaves the Library. Dialogs sit on their own Navigator route
+          // and consume Esc before it reaches here, so this cannot steal a
+          // dialog's dismiss.
+          const SingleActivator(LogicalKeyboardKey.escape): _closeLibrary,
           // Focus the sidebar search from anywhere. In layouts without the
           // inline field the search popover is the affordance instead.
           const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
@@ -2962,6 +2966,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     });
   }
 
+  /// Leaves the Library for whatever was showing before it.
+  ///
+  /// _selectedChannel is deliberately left alone by _openLibrary, so simply
+  /// lowering the flag lands back on that channel's dashboard - or the welcome
+  /// screen if no channel was selected. The state to return to was always
+  /// there; what was missing was any way to ask for it.
+  void _closeLibrary() {
+    if (!_showLibraryView) return;
+    setState(() {
+      _showLibraryView = false;
+    });
+  }
+
+  /// Where [_closeLibrary] would land, for the back control's label.
+  String get _libraryBackLabel => _selectedChannel?.username ?? 'Home';
+
   /// Rebuilds the cached Library rows (the only place file stats happen).
   void _refreshLibraryEntries() {
     final entries = buildLibraryEntries(
@@ -3074,6 +3094,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Widget _buildLibraryView() {
     return LibraryView(
+            onBack: _closeLibrary,
+            backLabel: _libraryBackLabel,
             entries: _libraryEntries,
             onRefresh: () {
               _checkDownloadedVods();

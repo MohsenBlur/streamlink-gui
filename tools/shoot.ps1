@@ -30,6 +30,10 @@ param(
     [int]$Height,
     [switch]$NoResize,
     [string]$LaunchExe,
+    # "x,y" in logical pixels relative to the window's top-left. Clicked after
+    # resizing and before capturing, so screens reachable only by navigation
+    # (the Library, a channel dashboard) can be captured too.
+    [string]$ClickAt,
     [int]$SettleMs = 900,
     [int]$LaunchTimeoutMs = 30000
 )
@@ -55,6 +59,34 @@ public class Win32Shot {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll", SetLastError = true)] public static extern uint SendInput(uint n, INPUT[] pInputs, int cbSize);
+    [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Explicit)]
+    public struct INPUT { [FieldOffset(0)] public uint type; [FieldOffset(8)] public MOUSEINPUT mi; }
+
+    // mouse_event is legacy and Flutter's Win32 input path did not observe it.
+    // SendInput with absolute coordinates is the supported route; coordinates
+    // are normalised to 0..65535 across the virtual desktop.
+    public static void ClickAbsolute(int x, int y) {
+        int vx = GetSystemMetrics(76), vy = GetSystemMetrics(77);   // XVIRTUALSCREEN
+        int vw = GetSystemMetrics(78), vh = GetSystemMetrics(79);   // CXVIRTUALSCREEN
+        int nx = (int)(((double)(x - vx) * 65535.0) / vw);
+        int ny = (int)(((double)(y - vy) * 65535.0) / vh);
+        const uint MOVE = 0x0001, ABS = 0x8000, VDESK = 0x4000, DOWN = 0x0002, UP = 0x0004;
+        var inputs = new INPUT[3];
+        for (int i = 0; i < 3; i++) { inputs[i].type = 0; inputs[i].mi.dx = nx; inputs[i].mi.dy = ny; }
+        inputs[0].mi.dwFlags = MOVE | ABS | VDESK;
+        inputs[1].mi.dwFlags = MOVE | ABS | VDESK | DOWN;
+        inputs[2].mi.dwFlags = MOVE | ABS | VDESK | UP;
+        SendInput(3, inputs, Marshal.SizeOf(typeof(INPUT)));
+    }
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
 
@@ -130,6 +162,43 @@ if (-not $NoResize) {
 }
 
 Start-Sleep -Milliseconds $SettleMs   # let Flutter relayout and repaint
+
+if ($ClickAt) {
+    $parts = $ClickAt.Split(',')
+    if ($parts.Count -ne 2) { throw "ClickAt must be 'x,y'." }
+    $r0 = New-Object Win32Shot+RECT
+    [Win32Shot]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
+    $dpiC = [Win32Shot]::GetDpiForWindow($hwnd); if ($dpiC -le 0) { $dpiC = 96 }
+    $sc = $dpiC / 96.0
+    $cx = $r0.Left + [int]([double]$parts[0].Trim() * $sc)
+    $cy = $r0.Top  + [int]([double]$parts[1].Trim() * $sc)
+    Write-Host "Clicking at $cx,$cy" -ForegroundColor Gray
+    # PrintWindow captures an occluded window happily, so a shot can look
+    # correct while the app sits BEHIND the terminal - and a synthetic click at
+    # screen coordinates then lands on whatever is actually on top. Raise it
+    # for the duration of the click, and verify what is under the cursor.
+    $HWND_TOPMOST = New-Object IntPtr(-1)
+    $HWND_NOTOPMOST = New-Object IntPtr(-2)
+    $SWP_NOMOVE_NOSIZE_NOACTIVATE = 0x0002 -bor 0x0001 -bor 0x0010
+    [Win32Shot]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
+    [Win32Shot]::SetForegroundWindow($hwnd) | Out-Null
+    Start-Sleep -Milliseconds 350
+
+    $pt = New-Object Win32Shot+POINT
+    $pt.X = $cx; $pt.Y = $cy
+    $under = [Win32Shot]::WindowFromPoint($pt)
+    $sb = New-Object System.Text.StringBuilder 256
+    [Win32Shot]::GetClassNameW($under, $sb, 256) | Out-Null
+    # FLUTTERVIEW is the app's own child render surface, so it counts as a hit.
+    $hitClass = $sb.ToString()
+    if ($hitClass -ne $WINDOW_CLASS -and $hitClass -ne 'FLUTTERVIEW') {
+        Write-Warning "Point ($cx,$cy) belongs to '$hitClass', not the app - the click will miss."
+    }
+
+    [Win32Shot]::ClickAbsolute($cx, $cy)
+    Start-Sleep -Milliseconds 1400
+    [Win32Shot]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
+}
 
 # --- capture ---------------------------------------------------------------
 $rect = New-Object Win32Shot+RECT

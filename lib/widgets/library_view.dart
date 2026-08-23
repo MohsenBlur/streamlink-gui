@@ -27,6 +27,8 @@ class LibraryView extends StatefulWidget {
     required this.onRemoveFromHistory,
     this.activity,
     this.onStopActivity,
+    this.onBack,
+    this.backLabel,
   }) : super(key: key);
 
   final List<LibraryEntry> entries;
@@ -43,6 +45,18 @@ class LibraryView extends StatefulWidget {
   /// Nullable so existing call sites and tests keep working.
   final ValueListenable<ActivitySnapshot>? activity;
   final void Function(ActivityItem)? onStopActivity;
+
+  /// Leaves the Library and returns to whatever was showing before it.
+  ///
+  /// Until this existed the Library was a dead end: nothing in this file was a
+  /// back control, and the flag that shows it was cleared only by picking a
+  /// channel or clicking the sidebar's app title - so the way out was to go
+  /// somewhere else entirely.
+  final VoidCallback? onBack;
+
+  /// What [onBack] returns to, e.g. 'Home' or a channel name. Shown on the
+  /// control so it is a destination rather than a bare arrow.
+  final String? backLabel;
 
   @override
   State<LibraryView> createState() => _LibraryViewState();
@@ -93,51 +107,137 @@ class _LibraryViewState extends State<LibraryView> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-          child: Row(
-            children: [
-              Icon(Icons.video_library, color: themeNotifier.accentInk, size: 22),
-              const SizedBox(width: 10),
-              Text('Library', style: NeuTheme.titleStyle(isDark, fontSize: 18)),
-              const SizedBox(width: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: NeuTheme.sunkenDecoration(isDark, radius: 8),
-                child: Text(
-                  '${downloaded.length} download${downloaded.length == 1 ? '' : 's'} · ${formatBytes(totalBytes)}',
-                  style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+          // A Wrap is no good here: it hands children unbounded width, so a
+          // mainAxisSize.min Row inside one reports its intrinsic size and
+          // overflows anyway (which is exactly what happened - 248px and 24px
+          // over at the 380px minimum). Decide explicitly instead.
+          child: LayoutBuilder(builder: (context, constraints) {
+            // Measured, not guessed: the leading group needs ~470px with a
+            // back label and the stats chip, the sort cluster ~270, plus the
+            // gap. Below that the header takes two lines.
+            final tight = constraints.maxWidth < 820;
+
+            final leading = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.onBack != null) ...[
+                  NeuButton(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: tight ? 8 : 10, vertical: 8),
+                    borderRadius: BorderRadius.circular(8),
+                    tooltip: 'Back to ${widget.backLabel ?? 'where you were'} (Esc)',
+                    onPressed: widget.onBack,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.arrow_back,
+                            size: 15, color: NeuTheme.text(isDark)),
+                        // The label is the point of the control - it names the
+                        // destination - so it is the last thing dropped.
+                        if (widget.backLabel != null && !tight) ...[
+                          const SizedBox(width: 6),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 140),
+                            child: Text(
+                              widget.backLabel!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Icon(Icons.video_library,
+                    color: themeNotifier.accentInk, size: 22),
+                const SizedBox(width: 10),
+                Text('Library', style: NeuTheme.titleStyle(isDark, fontSize: 18)),
+                // The count/size chip is the first thing to go: it is
+                // information, not a control.
+                if (!tight) ...[
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: NeuTheme.sunkenDecoration(isDark, radius: 8),
+                      child: Text(
+                        '${downloaded.length} download${downloaded.length == 1 ? '' : 's'} \u00B7 ${formatBytes(totalBytes)}',
+                        style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            );
+
+            final trailing = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _sortButton(LibrarySort.newest, 'Newest'),
+                const SizedBox(width: 6),
+                _sortButton(LibrarySort.largest, 'Largest'),
+                const SizedBox(width: 6),
+                _sortButton(LibrarySort.progress, 'Progress'),
+                const SizedBox(width: 12),
+                NeuButton(
+                  padding: const EdgeInsets.all(8),
+                  borderRadius: BorderRadius.circular(8),
+                  tooltip: 'Rescan the download folder',
+                  onPressed: widget.onRefresh,
+                  child: Icon(Icons.refresh,
+                      size: 16, color: NeuTheme.text(isDark)),
                 ),
-              ),
-              const Spacer(),
-              _sortButton(LibrarySort.newest, 'Newest'),
-              const SizedBox(width: 6),
-              _sortButton(LibrarySort.largest, 'Largest'),
-              const SizedBox(width: 6),
-              _sortButton(LibrarySort.progress, 'Progress'),
-              const SizedBox(width: 12),
-              NeuButton(
-                padding: const EdgeInsets.all(8),
-                borderRadius: BorderRadius.circular(8),
-                tooltip: 'Rescan the download folder',
-                onPressed: widget.onRefresh,
-                child: Icon(Icons.refresh,
-                    size: 16, color: NeuTheme.text(isDark)),
-              ),
-            ],
-          ),
+              ],
+            );
+
+            if (!tight) {
+              return Row(
+                children: [
+                  Flexible(child: leading),
+                  const SizedBox(width: 12),
+                  trailing,
+                ],
+              );
+            }
+
+            // Two lines, with the controls scrollable so no combination of
+            // sort labels can overflow regardless of how narrow it gets.
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                leading,
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: trailing,
+                ),
+              ],
+            );
+          }),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
           child: Row(
             children: [
-              SizedBox(
-                width: 280,
-                child: NeuTextField(
-                  controller: _search,
-                  hintText: 'Search library...',
-                  prefixIcon: Icons.search,
-                  onChanged: (_) => setState(() {}),
-                  onClear: () => setState(() {}),
+              // A hard 280 plus a 12 gap needs 292px of the 332 available at
+              // the 380px minimum window, leaving the channel chips nothing
+              // and overflowing the row. Cap it instead of fixing it.
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 280),
+                  child: NeuTextField(
+                    controller: _search,
+                    hintText: 'Search library...',
+                    prefixIcon: Icons.search,
+                    onChanged: (_) => setState(() {}),
+                    onClear: () => setState(() {}),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
