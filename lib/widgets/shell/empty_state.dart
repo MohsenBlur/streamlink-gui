@@ -61,10 +61,12 @@ class EmptyState extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: NeuTheme.titleStyle(isDark, fontSize: compact ? 13 : 15),
+              style: compact
+                  ? NeuType.headingSm(isDark)
+                  : NeuType.headingMd(isDark),
             ),
             if (message != null) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: NeuSpace.s6),
               ConstrainedBox(
                 // Keeps the line length readable instead of stretching a
                 // sentence across a 2560px window.
@@ -72,7 +74,7 @@ class EmptyState extends StatelessWidget {
                 child: Text(
                   message!,
                   textAlign: TextAlign.center,
-                  style: NeuTheme.subtextStyle(isDark, fontSize: 12),
+                  style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark)),
                 ),
               ),
             ],

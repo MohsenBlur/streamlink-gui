@@ -101,10 +101,10 @@ class ActivityPill extends StatelessWidget {
       message: _summary(s),
       child: Container(
         constraints: BoxConstraints(maxWidth: compact ? 88 : 260),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
         decoration: BoxDecoration(
           color: theme.primaryColor.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(NeuRadius.r8),
           border: Border.all(
               color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
         ),
@@ -116,23 +116,20 @@ class ActivityPill extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(_icon(s), size: 12, color: themeNotifier.accentInk),
-                const SizedBox(width: 6),
+                const SizedBox(width: NeuSpace.s6),
                 Flexible(
                   child: Text(
                     compact ? '${s.total}' : _label(s),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.bold,
-                      color: themeNotifier.accentInk,
-                    ),
+                    style: NeuType.micro(themeNotifier.isDarkTheme,
+                        color: themeNotifier.accentInk),
                   ),
                 ),
               ],
             ),
             if (!compact && progress != null) ...[
-              const SizedBox(height: 3),
+              const SizedBox(height: NeuSpace.s4),
               NeuProgressBar(
                 value: progress,
                 size: NeuProgressSize.xs,
@@ -164,8 +161,8 @@ class ActivityPopover extends StatelessWidget {
     return Container(
       width: 340,
       constraints: const BoxConstraints(maxHeight: 420),
-      padding: const EdgeInsets.all(12),
-      decoration: NeuTheme.raisedDecoration(isDark, radius: 12),
+      padding: const EdgeInsets.all(NeuSpace.s12),
+      decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r12),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -187,28 +184,23 @@ class ActivityPopover extends StatelessWidget {
       List<ActivityItem> items, bool isDark) {
     return [
       Padding(
-        padding: const EdgeInsets.only(bottom: 6, top: 2),
+        padding: const EdgeInsets.only(bottom: NeuSpace.s6, top: NeuSpace.s2),
         child: Text(
           title.toUpperCase(),
-          style: TextStyle(
-            fontSize: 9.5,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.8,
-            color: NeuTheme.subtext(isDark),
-          ),
+          style: NeuType.micro(isDark, color: NeuTheme.subtext(isDark)),
         ),
       ),
       for (final item in items) _row(context, item, isDark),
-      const SizedBox(height: 10),
+      const SizedBox(height: NeuSpace.s8),
     ];
   }
 
   Widget _row(BuildContext context, ActivityItem item, bool isDark) {
     final isDownload = item.isDownload;
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: NeuTheme.sunkenDecoration(isDark, radius: 8),
+      margin: const EdgeInsets.only(bottom: NeuSpace.s6),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
+      decoration: NeuTheme.sunkenDecoration(isDark, radius: NeuRadius.r8),
       child: Row(
         children: [
           Expanded(
@@ -220,10 +212,10 @@ class ActivityPopover extends StatelessWidget {
                   item.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                  style: NeuType.bodySm(isDark),
                 ),
                 if (item.kind == ActivityKind.downloading) ...[
-                  const SizedBox(height: 5),
+                  const SizedBox(height: NeuSpace.s4),
                   Row(
                     children: [
                       Expanded(
@@ -234,21 +226,21 @@ class ActivityPopover extends StatelessWidget {
                         ),
                       ),
                       if (item.status != null) ...[
-                        const SizedBox(width: 8),
+                        const SizedBox(width: NeuSpace.s8),
                         Text(item.status!,
-                            style: NeuTheme.subtextStyle(isDark, fontSize: 10)),
+                            style: NeuType.caption(isDark)),
                       ],
                     ],
                   ),
                 ] else if (item.status != null) ...[
-                  const SizedBox(height: 2),
+                  const SizedBox(height: NeuSpace.s2),
                   Text(item.status!,
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 10)),
+                      style: NeuType.caption(isDark)),
                 ],
               ],
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: NeuSpace.s8),
           NeuIconAction(
             icon: isDownload ? Icons.close : Icons.stop_rounded,
             tooltip: isDownload ? 'Cancel download' : 'Stop playback',

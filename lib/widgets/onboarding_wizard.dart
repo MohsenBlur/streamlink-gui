@@ -7,6 +7,7 @@ import '../services/twitch_api_service.dart';
 import '../theme/neu_theme.dart';
 import '../theme/theme_notifier.dart';
 import 'neumorphic/neu_switch.dart';
+import 'shell/neu_dialog.dart';
 
 /// First-run setup: player, download folder, optional Twitch token, tray
 /// behavior. Fully skippable; everything it configures lives in Settings too.
@@ -16,9 +17,11 @@ import 'neumorphic/neu_switch.dart';
 /// marks onboarding complete - the wizard never comes back.
 class OnboardingWizard {
   static Future<AppSettings?> show(BuildContext context, {required AppSettings settings}) {
-    return showDialog<AppSettings>(
-      context: context,
-      barrierDismissible: false,
+    // Not dismissible: a stray click on the scrim would silently skip setup
+    // for good, since the caller marks onboarding complete either way.
+    return NeuDialog.show<AppSettings>(
+      context,
+      dismissible: false,
       builder: (context) => _OnboardingDialog(settings: settings),
     );
   }
@@ -92,96 +95,66 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // Esc/back = skip with defaults; the caller still marks onboarding done.
+    final isLast = _step == _stepCount - 1;
     return PopScope(
       canPop: true,
-      child: AlertDialog(
-        backgroundColor: themeNotifier.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-        content: SizedBox(
-          width: 540,
-          height: 460,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+      child: NeuDialog(
+        title: 'Set up Twitch Streamlink GUI',
+        subtitle: 'Step ${_step + 1} of $_stepCount',
+        icon: Icons.auto_awesome,
+        width: 560,
+        maxHeight: 560,
+        scrollable: false,
+        // Expanded, not a hard 460: PageView has no intrinsic height, and the
+        // old fixed 540x460 could not fit the 380x500 window the app allows.
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(),
                 children: [
-                  Icon(Icons.auto_awesome, color: themeNotifier.accentInk, size: 18),
-                  const SizedBox(width: 8),
-                  Text('Welcome to Twitch Streamlink GUI',
-                      style: NeuTheme.titleStyle(_isDark, fontSize: 15)),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(null),
-                    child: Text('Skip setup',
-                        style: TextStyle(
-                            fontSize: 11, color: NeuTheme.subtext(_isDark))),
-                  ),
+                  _welcomeStep(theme),
+                  _playerStep(theme),
+                  _folderStep(theme),
+                  _tokenStep(theme),
+                  _trayStep(theme),
                 ],
               ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _welcomeStep(theme),
-                    _playerStep(theme),
-                    _folderStep(theme),
-                    _tokenStep(theme),
-                    _trayStep(theme),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  for (var i = 0; i < _stepCount; i++)
-                    Container(
-                      width: 8,
-                      height: 8,
-                      margin: const EdgeInsets.only(right: 6),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: i == _step
-                            ? theme.primaryColor
-                            : NeuTheme.border(_isDark),
-                      ),
-                    ),
-                  const Spacer(),
-                  if (_step > 0)
-                    TextButton(
-                      onPressed: () => _goTo(_step - 1),
-                      child: Text('Back',
-                          style: TextStyle(color: NeuTheme.subtext(_isDark))),
-                    ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.primaryColor,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 22, vertical: 12),
-                    ),
-                    onPressed: () {
-                      if (_step < _stepCount - 1) {
-                        _goTo(_step + 1);
-                      } else {
-                        _finish();
-                      }
-                    },
-                    child: Text(
-                      _step < _stepCount - 1 ? 'Next' : 'Finish',
-                      style: TextStyle(
-                        color: themeNotifier.onPrimaryColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
+        // Progress and the way out both belong on the left: "Skip setup" was
+        // previously in the title bar, which is where a close button lives, so
+        // it read as "dismiss" rather than "continue without configuring".
+        leadingActions: [
+          for (var i = 0; i < _stepCount; i++)
+            Container(
+              width: NeuSpace.s8,
+              height: NeuSpace.s8,
+              margin: const EdgeInsets.only(right: NeuSpace.s6),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: i == _step ? theme.primaryColor : NeuTheme.border(_isDark),
+              ),
+            ),
+          const SizedBox(width: NeuSpace.s8),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: Text('Skip setup',
+                style:
+                    NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.subtext(_isDark))),
+          ),
+        ],
+        actions: [
+          if (_step > 0)
+            NeuDialogAction.secondary('Back', () => _goTo(_step - 1)),
+          NeuDialogAction.primary(
+            isLast ? 'Finish' : 'Next',
+            () => isLast ? _finish() : _goTo(_step + 1),
+          ),
+        ],
       ),
     );
   }
@@ -191,9 +164,9 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 4),
-          Text(title, style: NeuTheme.titleStyle(_isDark, fontSize: 17)),
-          const SizedBox(height: 14),
+          const SizedBox(height: NeuSpace.s4),
+          Text(title, style: NeuType.headingMd(_isDark)),
+          const SizedBox(height: NeuSpace.s12),
           ...children,
         ],
       ),
@@ -202,13 +175,13 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
 
   Widget _bullet(IconData icon, String text, ThemeData theme) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: NeuSpace.s8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, size: 16, color: themeNotifier.accentInk),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text, style: NeuTheme.bodyStyle(_isDark, fontSize: 12))),
+          const SizedBox(width: NeuSpace.s8),
+          Expanded(child: Text(text, style: NeuType.bodySm(_isDark))),
         ],
       ),
     );
@@ -222,9 +195,9 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
         _bullet(Icons.star, 'Track favorite channels, get notified when they go live, and auto-play or auto-download their streams.', theme),
         _bullet(Icons.download, 'Download past broadcasts with yt-dlp and manage them in the built-in Library.', theme),
         _bullet(Icons.speed, 'The app lives in your tray and keeps monitoring in the background.', theme),
-        const SizedBox(height: 6),
+        const SizedBox(height: NeuSpace.s6),
         Text('The next steps take about a minute. Everything can be changed later in Settings.',
-            style: NeuTheme.subtextStyle(_isDark, fontSize: 11)),
+            style: NeuType.caption(_isDark)),
       ],
     );
   }
@@ -241,16 +214,16 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       children: [
         for (final (value, label, detected) in options)
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: NeuSpace.s6),
             child: InkWell(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(NeuRadius.r8),
               onTap: () => setState(() => _playerType = value),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
                 decoration: _playerType == value
-                    ? NeuTheme.sunkenDecoration(_isDark, radius: 8,
+                    ? NeuTheme.sunkenDecoration(_isDark, radius: NeuRadius.r8,
                         border: Border.all(color: themeNotifier.accentInk, width: 1.5))
-                    : NeuTheme.raisedDecoration(_isDark, radius: 8),
+                    : NeuTheme.raisedDecoration(_isDark, radius: NeuRadius.r8),
                 child: Row(
                   children: [
                     Icon(
@@ -262,27 +235,23 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                           ? theme.primaryColor
                           : NeuTheme.subtext(_isDark),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text(label, style: NeuTheme.bodyStyle(_isDark, fontSize: 12))),
+                    const SizedBox(width: NeuSpace.s8),
+                    Expanded(child: Text(label, style: NeuType.bodySm(_isDark))),
                     if (detected != null)
                       Text(
                         detected ? 'Detected' : 'Not found',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: detected
+                        style: NeuType.micro(themeNotifier.isDarkTheme, color: detected
                               ? NeuTheme.liveText(_isDark)
-                              : NeuTheme.subtext(_isDark),
-                        ),
+                              : NeuTheme.subtext(_isDark)),
                       ),
                   ],
                 ),
               ),
             ),
           ),
-        const SizedBox(height: 6),
+        const SizedBox(height: NeuSpace.s6),
         Text('A custom player executable can be configured later under Settings > Player.',
-            style: NeuTheme.subtextStyle(_isDark, fontSize: 11)),
+            style: NeuType.caption(_isDark)),
       ],
     );
   }
@@ -292,28 +261,28 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       title: 'Where should VOD downloads go?',
       children: [
         Text('Optional - only needed if you download past broadcasts. Each channel gets its own subfolder.',
-            style: NeuTheme.subtextStyle(_isDark, fontSize: 11)),
-        const SizedBox(height: 12),
+            style: NeuType.caption(_isDark)),
+        const SizedBox(height: NeuSpace.s12),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: NeuTheme.sunkenDecoration(_isDark, radius: 8),
+          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+          decoration: NeuTheme.sunkenDecoration(_isDark, radius: NeuRadius.r8),
           child: Row(
             children: [
               Icon(Icons.folder, size: 16, color: NeuTheme.subtext(_isDark)),
-              const SizedBox(width: 10),
+              const SizedBox(width: NeuSpace.s8),
               Expanded(
                 child: Text(
                   _downloadFolder.trim().isEmpty
                       ? 'No folder selected yet'
                       : _downloadFolder,
-                  style: NeuTheme.bodyStyle(_isDark, fontSize: 12),
+                  style: NeuType.bodySm(_isDark),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: NeuSpace.s8),
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
           onPressed: () async {
@@ -337,23 +306,23 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       children: [
         Text(
           'Pasting an OAuth token unlocks your followed channels list, VOD browsing, subscriber streams and ad-free playback. You can paste one from any token tool (Settings has a guide), or skip this entirely.',
-          style: NeuTheme.subtextStyle(_isDark, fontSize: 11),
+          style: NeuType.caption(_isDark),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         Row(
           children: [
             Expanded(
               child: TextField(
                 controller: _tokenController,
                 obscureText: true,
-                style: NeuTheme.bodyStyle(_isDark, fontSize: 12),
+                style: NeuType.bodySm(_isDark),
                 decoration: const InputDecoration(
                   hintText: 'oauth:xxxxxxxxxxxx or raw token',
-                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  contentPadding: EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: NeuSpace.s8),
             SizedBox(
               height: 38,
               child: ElevatedButton(
@@ -381,16 +350,13 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                             strokeWidth: 2, color: themeNotifier.onPrimaryColor),
                       )
                     : Text('Test',
-                        style: TextStyle(
-                            color: themeNotifier.onPrimaryColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold)),
+                        style: NeuType.label(themeNotifier.isDarkTheme, color: themeNotifier.onPrimaryColor)),
               ),
             ),
           ],
         ),
         if (_tokenResult != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: NeuSpace.s8),
           Row(
             children: [
               Icon(
@@ -400,17 +366,13 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                     ? NeuTheme.liveText(_isDark)
                     : NeuTheme.dangerText(_isDark),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: NeuSpace.s6),
               Expanded(
                 child: Text(
                   _tokenResult!.message,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: _tokenResult!.isValid
+                  style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: _tokenResult!.isValid
                         ? NeuTheme.liveText(_isDark)
-                        : NeuTheme.dangerText(_isDark),
-                  ),
+                        : NeuTheme.dangerText(_isDark)),
                 ),
               ),
             ],
@@ -426,15 +388,15 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       children: [
         Text(
           'Closing the window keeps the app running in the system tray so live notifications and automation keep working. Right-click the tray icon to exit for real. Both behaviors are configurable in Settings.',
-          style: NeuTheme.subtextStyle(_isDark, fontSize: 11),
+          style: NeuType.caption(_isDark),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: NeuSpace.s12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
               child: Text('Launch at Windows startup (minimized to tray)',
-                  style: NeuTheme.bodyStyle(_isDark, fontSize: 12)),
+                  style: NeuType.bodySm(_isDark)),
             ),
             NeuSwitch(
               value: _launchAtStartup,
@@ -443,13 +405,13 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: NeuSpace.s8),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
               child: Text('Start minimized to tray on manual launch',
-                  style: NeuTheme.bodyStyle(_isDark, fontSize: 12)),
+                  style: NeuType.bodySm(_isDark)),
             ),
             NeuSwitch(
               value: _startMinimized,
@@ -458,9 +420,9 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: NeuSpace.s12),
         Text('All set - press Finish to start. Add channels with the sidebar search (Ctrl+F).',
-            style: NeuTheme.bodyStyle(_isDark, fontSize: 12)),
+            style: NeuType.bodySm(_isDark)),
       ],
     );
   }

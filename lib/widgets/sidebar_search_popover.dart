@@ -79,8 +79,8 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
     return Container(
       width: 300,
       constraints: const BoxConstraints(maxHeight: 380),
-      padding: const EdgeInsets.all(12),
-      decoration: NeuTheme.raisedDecoration(isDark, radius: 12),
+      padding: const EdgeInsets.all(NeuSpace.s12),
+      decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -96,7 +96,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
             onSubmitted: (_) => _submit(),
             onClear: () => setState(() {}),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: NeuSpace.s8),
           Flexible(
             child: ListView(
               shrinkWrap: true,
@@ -114,12 +114,12 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                   ),
                 if (results.isEmpty && !showAddRow)
                   Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(NeuSpace.s12),
                     child: Text(
                       query.isEmpty
                           ? 'Type to search this tab.'
                           : "No channels match '$query'.",
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 12),
+                      style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark)),
                     ),
                   ),
                 ...results.take(_maxResults).map((channel) {
@@ -128,7 +128,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                       children: [
                         NeuAvatar(
                           url: channel.avatarUrl,
-                          radius: 12,
+                          radius: NeuRadius.r12,
                           isDark: isDark,
                         ),
                         if (channel.isLive)
@@ -185,22 +185,18 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
     final isDark = themeNotifier.isDarkTheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(NeuRadius.r8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s6),
         child: Row(
           children: [
             leading,
-            const SizedBox(width: 10),
+            const SizedBox(width: NeuSpace.s8),
             Expanded(
               child: Text(
                 title,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: titleColor ?? NeuTheme.text(isDark),
-                ),
+                style: NeuType.bodyStrong(isDark, color: titleColor ?? NeuTheme.text(isDark)),
               ),
             ),
             ?trailing,

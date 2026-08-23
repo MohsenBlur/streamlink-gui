@@ -15,7 +15,14 @@ class LibraryEntry {
 
   final String vodId;
   final String title;
-  final String channel;
+
+  /// Null when the channel is genuinely unknown - a file outside the download
+  /// tree, or watch history with no channel recorded against the id.
+  ///
+  /// This used to fall back to the literal strings 'VOD' and 'Streamed', which
+  /// the Library then offered as channel filter chips beside real channel
+  /// names, and matched on in search. A sentinel that renders is a lie.
+  final String? channel;
 
   /// Null for streamed-only entries (watched, never downloaded).
   final String? filePath;
@@ -114,9 +121,8 @@ List<LibraryEntry> buildLibraryEntries({
         (fileName.contains('.')
             ? fileName.substring(0, fileName.lastIndexOf('.'))
             : fileName);
-    final channel = channelFromDownloadPath(filePath, downloadRoot) ??
-        channelNames[vodId] ??
-        'VOD';
+    final channel =
+        channelFromDownloadPath(filePath, downloadRoot) ?? channelNames[vodId];
 
     entries.add(LibraryEntry(
       vodId: vodId,
@@ -136,7 +142,7 @@ List<LibraryEntry> buildLibraryEntries({
     entries.add(LibraryEntry(
       vodId: video.id,
       title: video.title,
-      channel: channelNames[video.id] ?? 'Streamed',
+      channel: channelNames[video.id],
       watchProgress: video.watchProgress,
       video: video,
     ));
@@ -159,7 +165,7 @@ List<LibraryEntry> filterLibraryEntries(List<LibraryEntry> entries, String query
   return entries
       .where((e) =>
           e.title.toLowerCase().contains(q) ||
-          e.channel.toLowerCase().contains(q) ||
+          (e.channel?.toLowerCase().contains(q) ?? false) ||
           e.vodId.contains(q))
       .toList();
 }

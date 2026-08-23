@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 export 'neu_tokens.dart';
+export 'neu_type.dart';
 
 import 'neu_tokens.dart';
 
@@ -203,29 +204,10 @@ class NeuTheme {
   static Color terminalBg(bool isDark) => isDark ? const Color(0xFF0F131E) : const Color(0xFFF8FAFC);
 
   // Unified Typography Tokens
-  static TextStyle titleStyle(bool isDark, {double fontSize = 16, FontWeight fontWeight = FontWeight.bold}) {
-    return TextStyle(
-      fontSize: fontSize,
-      fontWeight: fontWeight,
-      color: text(isDark),
-    );
-  }
-
-  static TextStyle bodyStyle(bool isDark, {double fontSize = 13, FontWeight fontWeight = FontWeight.w500}) {
-    return TextStyle(
-      fontSize: fontSize,
-      fontWeight: fontWeight,
-      color: text(isDark),
-    );
-  }
-
-  static TextStyle subtextStyle(bool isDark, {double fontSize = 11, FontWeight fontWeight = FontWeight.normal}) {
-    return TextStyle(
-      fontSize: fontSize,
-      fontWeight: fontWeight,
-      color: subtext(isDark),
-    );
-  }
+  // titleStyle / bodyStyle / subtextStyle lived here. Each took an overridable
+  // fontSize and EVERY call site overrode it, so they unified colour and
+  // nothing else - 17 distinct sizes across 271 sites. NeuType replaces them
+  // with named steps; see neu_type.dart.
 
   // ---------------------------------------------------------------------
   // The one neumorphic recipe.

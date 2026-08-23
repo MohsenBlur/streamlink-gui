@@ -35,13 +35,13 @@ class NeuCheckbox extends StatelessWidget {
       decoration: value
           ? NeuTheme.raisedDecoration(
               dark,
-              radius: 5,
+              radius: NeuRadius.r6,
               border: Border.all(
                 color: enabled ? activeColor : NeuTheme.disabledText(dark),
                 width: 1.5,
               ),
             )
-          : NeuTheme.sunkenDecoration(dark, radius: 5),
+          : NeuTheme.sunkenDecoration(dark, radius: NeuRadius.r6),
       child: value
           ? Icon(
               Icons.check_rounded,

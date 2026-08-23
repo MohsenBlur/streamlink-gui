@@ -61,7 +61,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
 
     return Container(
       width: LivePreviewPopup.estimatedSize.width,
-      decoration: NeuTheme.raisedDecoration(isDark, radius: 12),
+      decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -88,7 +88,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(NeuSpace.s12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -103,11 +103,11 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: NeuSpace.s6),
                     Expanded(
                       child: Text(
                         channel.username,
-                        style: NeuTheme.titleStyle(isDark, fontSize: 13),
+                        style: NeuType.headingSm(isDark),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -115,30 +115,26 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                         channel.viewerCount != '0') ...[
                       Icon(Icons.remove_red_eye,
                           color: NeuTheme.subtext(isDark), size: 12),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: NeuSpace.s4),
                       Text(
                         channel.viewerCount!,
-                        style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                        style: NeuType.caption(isDark),
                       ),
                     ],
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: NeuSpace.s6),
                 Text(
                   channel.streamTitle ?? 'Streaming Live!',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                  style: NeuType.bodySm(isDark),
                 ),
                 if (channel.game != null && channel.game != 'Offline') ...[
-                  const SizedBox(height: 6),
+                  const SizedBox(height: NeuSpace.s6),
                   Text(
                     channel.game!,
-                    style: TextStyle(
-                      color: themeNotifier.accentInk,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: NeuType.captionStrong(isDark, color: themeNotifier.accentInk),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],

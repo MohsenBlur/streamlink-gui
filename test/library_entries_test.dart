@@ -141,6 +141,26 @@ void main() {
       expect(streamed.channel, 'someone');
     });
 
+    test('an unknown channel is null, not a placeholder that renders', () {
+      // These used to fall back to the literal strings 'VOD' and 'Streamed'.
+      // The Library builds its channel filter chips from the distinct channel
+      // values, so both appeared as chips beside real channel names, and
+      // searching for "streamed" matched every streamed-only row.
+      final entries = buildLibraryEntries(
+        // A file directly in the root has no channel folder to name it.
+        registry: {'1': r'D:\vods\Title A - 1.mp4'},
+        recents: [vid('7', 'Streamed Only')],
+        localProgress: {},
+        channelNames: {},
+        downloadRoot: r'D:\vods',
+        // The shared stats map is keyed on paths under the chan folder; this
+        // file deliberately is not, which is what makes its channel unknown.
+        statFile: (p) => (size: 1000, modified: DateTime(2026, 3, 1)),
+      );
+      expect(entries.singleWhere((e) => e.vodId == '1').channel, isNull);
+      expect(entries.singleWhere((e) => e.vodId == '7').channel, isNull);
+    });
+
     test('sorted newest-first by file mtime / publish date', () {
       final entries = buildLibraryEntries(
         registry: {

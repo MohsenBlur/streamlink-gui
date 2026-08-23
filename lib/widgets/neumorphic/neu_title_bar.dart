@@ -59,11 +59,11 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
               },
               child: Container(
                 color: Colors.transparent,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16),
                 child: Row(
                   children: [
                     ?leading,
-                    const SizedBox(width: 8),
+                    const SizedBox(width: NeuSpace.s8),
                     if (liveCount > 0) ...[
                       Tooltip(
                         message:
@@ -73,7 +73,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                           count: liveCount,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: NeuSpace.s8),
                     ],
                     // Flexible + ellipsis: at the 380px minimum window width
                     // the title, the live badge and an activity pill together
@@ -84,12 +84,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                         title.toUpperCase(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: NeuTheme.text(isDarkTheme),
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.1,
-                        ),
+                        style: NeuType.label(isDarkTheme, color: NeuTheme.text(isDarkTheme)).copyWith(letterSpacing: 1.1),
                       ),
                     ),
                   ],
@@ -113,7 +108,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                 : 'Switch to Dark Neumorphic',
             onPressed: () => onThemeToggle(!isDarkTheme),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: NeuSpace.s12),
 
           // Frameless Window Controls
           const _WindowControls(),
@@ -165,7 +160,7 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
           tooltip: 'Minimize',
           onPressed: () => windowManager.minimize(),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: NeuSpace.s6),
         _WindowControlButton(
           icon: _isMaximized ? Icons.filter_none_rounded : Icons.crop_square_rounded,
           tooltip: _isMaximized ? 'Restore' : 'Maximize',
@@ -177,14 +172,14 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
             }
           },
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: NeuSpace.s6),
         _WindowControlButton(
           icon: Icons.close_rounded,
           tooltip: 'Close',
           isClose: true,
           onPressed: () => windowManager.close(),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: NeuSpace.s8),
       ],
     );
   }
@@ -215,7 +210,7 @@ class _WindowControlButton extends StatelessWidget {
       height: 26,
       isCircle: true,
       style: NeuStyle.well,
-      padding: const EdgeInsets.all(3),
+      padding: const EdgeInsets.all(NeuSpace.s4),
       child: NeuIconButton(
         icon: icon,
         size: 20,

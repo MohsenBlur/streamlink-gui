@@ -15,7 +15,7 @@ class NeuSegmentedControl<T> extends StatelessWidget {
     required this.selectedValue,
     required this.onValueChanged,
     this.height = 42.0,
-    this.padding = const EdgeInsets.all(4.0),
+    this.padding = const EdgeInsets.all(NeuSpace.s4),
   }) : super(key: key);
 
   @override
@@ -87,14 +87,10 @@ class NeuSegmentedControl<T> extends StatelessWidget {
                               child: AnimatedDefaultTextStyle(
                                 duration: const Duration(milliseconds: 200),
                                 curve: Curves.easeOut,
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? NeuTheme.text(isDark)
-                                      : NeuTheme.subtext(isDark),
-                                  fontWeight:
-                                      isSelected ? FontWeight.bold : FontWeight.w500,
-                                  fontSize: 13,
-                                ),
+                                style: isSelected
+                                    ? NeuType.headingSm(isDark)
+                                    : NeuType.body(isDark,
+                                        color: NeuTheme.subtext(isDark)),
                                 child: children[key]!,
                               ),
                             ),

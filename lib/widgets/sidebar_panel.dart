@@ -5,6 +5,7 @@ import '../state/channel_search.dart';
 import 'hover_overlay_menu.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
+import 'shell/neu_dialog.dart';
 import 'interactive_popover.dart';
 import 'live_preview_popup.dart';
 import 'sidebar_search_popover.dart';
@@ -104,8 +105,10 @@ class SidebarPanelState extends State<SidebarPanel> {
   }
 
   void _openFavoritesAutomationDialog() {
-    showDialog(
-      context: context,
+    // Dismissible: the dialog stages its edits and applies none until Save.
+    NeuDialog.show<void>(
+      context,
+      dismissible: true,
       builder: (context) => FavoritesAutomationDialog(
         favorites: widget.channels,
         settings: widget.settings,
@@ -148,6 +151,7 @@ class SidebarPanelState extends State<SidebarPanel> {
     }
 
     return Container(
+      // Intentional: sub-grid. The hairline ring around the avatar.
       padding: const EdgeInsets.all(2.5),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
@@ -188,7 +192,7 @@ class SidebarPanelState extends State<SidebarPanel> {
           : Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s16),
                   decoration: BoxDecoration(
                     border: Border(bottom: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1.5)),
                   ),
@@ -201,9 +205,9 @@ class SidebarPanelState extends State<SidebarPanel> {
                             cursor: SystemMouseCursors.click,
                             child: InkWell(
                               onTap: widget.onGoToDashboard,
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(NeuRadius.r8),
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                                padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s4, vertical: NeuSpace.s4),
                                 child: Row(
                                   children: [
                                     widget.authenticatedUserAvatar != null
@@ -213,26 +217,26 @@ class SidebarPanelState extends State<SidebarPanel> {
                                              isDark: themeNotifier.isDarkTheme,
                                            )
                                         : Container(
-                                            padding: const EdgeInsets.all(6),
+                                            padding: const EdgeInsets.all(NeuSpace.s6),
                                             decoration: BoxDecoration(
                                               color: theme.primaryColor.withValues(alpha: 0.15),
-                                              borderRadius: BorderRadius.circular(8),
+                                              borderRadius: BorderRadius.circular(NeuRadius.r8),
                                               border: Border.all(color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
                                             ),
                                             child: Icon(Icons.dashboard_outlined, color: themeNotifier.accentInk, size: 20),
                                           ),
-                                    const SizedBox(width: 10),
+                                    const SizedBox(width: NeuSpace.s8),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             'Streamlink GUI',
-                                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 15),
+                                            style: NeuType.headingMd(themeNotifier.isDarkTheme),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
-                                          const SizedBox(height: 2),
+                                          const SizedBox(height: NeuSpace.s2),
                                           Row(
                                             children: [
                                               Container(
@@ -243,13 +247,13 @@ class SidebarPanelState extends State<SidebarPanel> {
                                                   shape: BoxShape.circle,
                                                 ),
                                               ),
-                                              const SizedBox(width: 4),
+                                              const SizedBox(width: NeuSpace.s4),
                                               Expanded(
                                                 child: Text(
                                                   widget.authenticatedUserLogin != null
                                                       ? '@${widget.authenticatedUserLogin}'
                                                       : 'Guest Mode',
-                                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                                                  style: NeuType.caption(themeNotifier.isDarkTheme),
                                                   maxLines: 1,
                                                   overflow: TextOverflow.ellipsis,
                                                 ),
@@ -279,7 +283,7 @@ class SidebarPanelState extends State<SidebarPanel> {
 
                 // Add / Search channel section
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s12),
                   child: Row(
                     children: [
                       Expanded(
@@ -293,7 +297,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                           onClear: () => setState(() {}),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: NeuSpace.s8),
                       NeuIconButton(
                         icon: widget.isAdding ? Icons.hourglass_top : Icons.add_rounded,
                         activeColor: theme.primaryColor,
@@ -309,7 +313,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 // Sidebar Tabs (Only if authenticated)
                 if (widget.settings.twitchOauthToken.trim().isNotEmpty) ...[
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s4),
                     child: NeuSegmentedControl<int>(
                       selectedValue: widget.sidebarTab,
                       onValueChanged: (val) => widget.onTabChanged(val),
@@ -320,17 +324,17 @@ class SidebarPanelState extends State<SidebarPanel> {
                       },
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: NeuSpace.s8),
                 ],
 
                 // Global Actions Toolbar
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
                   child: Row(
                     children: [
                       Expanded(
                         child: NeuButton(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          padding: const EdgeInsets.symmetric(vertical: NeuSpace.s8),
                           depth: 3.0,
                           onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
                           child: Row(
@@ -344,13 +348,13 @@ class SidebarPanelState extends State<SidebarPanel> {
                                  )
                               else
                                 const Icon(Icons.refresh, size: 14),
-                              const SizedBox(width: 6),
+                              const SizedBox(width: NeuSpace.s6),
                               Flexible(
                                 child: Text(
                                   widget.sidebarTab == 0
                                       ? 'Refresh Favorites'
                                       : (widget.sidebarTab == 1 ? 'Refresh Follows' : 'Refresh Live'),
-                                  style: const TextStyle(fontSize: 12),
+                                  style: NeuType.bodySmMetrics,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -368,7 +372,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: NeuSpace.s8),
 
                 // Channel list
                 Expanded(
@@ -398,7 +402,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                         ? 'No followed channels found.\nMake sure your account is connected.'
                                         : 'No live channels found.'),
                             textAlign: TextAlign.center,
-                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                            style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                           ),
                         );
                       }
@@ -410,10 +414,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                         itemBuilder: (context, index) {
                           if (showAddPrompt && index == 0) {
                             return Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              margin: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s4),
                               decoration: BoxDecoration(
                                 color: theme.primaryColor.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(NeuRadius.r12),
                                 border: Border.all(
                                   color: theme.primaryColor.withValues(alpha: 0.25),
                                   width: 1,
@@ -421,15 +425,11 @@ class SidebarPanelState extends State<SidebarPanel> {
                               ),
                               child: ListTile(
                                 dense: true,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
                                 leading: Icon(Icons.add_circle_outline, color: themeNotifier.accentInk, size: 20),
                                 title: Text(
                                   "Add '$query' to Favorites",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: themeNotifier.accentInk,
-                                    fontSize: 13,
-                                  ),
+                                  style: NeuType.headingSm(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                                 ),
                                 trailing: widget.isAdding
                                     ? SizedBox(
@@ -488,7 +488,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 
                 // Settings bottom bar
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s12),
                   decoration: BoxDecoration(
                     border: Border(top: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1)),
                   ),
@@ -500,7 +500,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         onPressed: widget.onShowSettings,
                         style: NeuActionStyle.flat,
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: NeuSpace.s16),
                       NeuIconAction(
                         icon: Icons.video_library_outlined,
                         tooltip: 'Library (downloads & history)',
@@ -520,7 +520,7 @@ class SidebarPanelState extends State<SidebarPanel> {
     
     return Column(
       children: [
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         Tooltip(
           message: 'Dashboard Hub (Return Home)',
           child: MouseRegion(
@@ -530,14 +530,14 @@ class SidebarPanelState extends State<SidebarPanel> {
               child: widget.authenticatedUserAvatar != null
                   ? NeuAvatar(
                       url: widget.authenticatedUserAvatar,
-                      radius: 16,
+                      radius: NeuRadius.r16,
                       isDark: themeNotifier.isDarkTheme,
                     )
                   : Container(
-                      padding: const EdgeInsets.all(6),
+                      padding: const EdgeInsets.all(NeuSpace.s6),
                       decoration: BoxDecoration(
                         color: theme.primaryColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(NeuRadius.r8),
                         border: Border.all(color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
                       ),
                       child: Icon(Icons.dashboard_outlined, color: themeNotifier.accentInk, size: 18),
@@ -545,7 +545,7 @@ class SidebarPanelState extends State<SidebarPanel> {
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: NeuSpace.s8),
         IconButton(
           icon: Icon(Icons.keyboard_double_arrow_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 20),
           tooltip: 'Expand sidebar',
@@ -553,9 +553,9 @@ class SidebarPanelState extends State<SidebarPanel> {
           hoverColor: theme.primaryColor.withValues(alpha: 0.2),
           splashRadius: 20,
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: NeuSpace.s8),
         Divider(color: NeuTheme.border(themeNotifier.isDarkTheme), height: 1.5, thickness: 1.5),
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         
         // Three real buttons. This was a control that CYCLED through the
         // three tabs on click and revealed its purpose only by swapping to a
@@ -571,18 +571,18 @@ class SidebarPanelState extends State<SidebarPanel> {
           isAuthenticated: widget.settings.twitchOauthToken.trim().isNotEmpty,
         ),
         
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
 
         // Compact layouts previously had no way to search/add channels or to
         // reach the automation manager at all.
         _buildSearchPopoverTrigger(theme),
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         if (widget.sidebarTab == 0) ...[
           _PinnedFavoritesAutomationButton(
             onPressed: _openFavoritesAutomationDialog,
             enabled: widget.sidebarTab == 0,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: NeuSpace.s12),
         ],
 
         Tooltip(
@@ -603,14 +603,14 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
         ),
         
-        const SizedBox(height: 10),
+        const SizedBox(height: NeuSpace.s8),
         Divider(color: NeuTheme.border(themeNotifier.isDarkTheme), height: 1, thickness: 1),
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         
         Expanded(
           child: ListView.builder(
             itemCount: activeList.length,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
             itemBuilder: (context, index) {
               final ch = activeList[index];
               final isSelected = widget.selectedChannel?.username == ch.username;
@@ -618,7 +618,7 @@ class SidebarPanelState extends State<SidebarPanel> {
               final itemWidget = MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: NeuSpace.s8),
                   child: Tooltip(
                     message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
                     child: GestureDetector(
@@ -668,7 +668,7 @@ class SidebarPanelState extends State<SidebarPanel> {
         ),
         
         Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: NeuSpace.s12),
           width: double.infinity,
           decoration: BoxDecoration(
             border: Border(top: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1)),
@@ -681,7 +681,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         onPressed: widget.onShowLibrary,
                         style: NeuActionStyle.flat,
                       ),
-              const SizedBox(height: 14),
+              const SizedBox(height: NeuSpace.s12),
               NeuIconAction(
                         icon: Icons.settings,
                         tooltip: 'Settings',
@@ -779,7 +779,7 @@ class SidebarPanelState extends State<SidebarPanel> {
         child: Container(
           width: size,
           height: size,
-          decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
+          decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r8),
           child: Icon(Icons.search, size: size * 0.5, color: NeuTheme.text(themeNotifier.isDarkTheme)),
         ),
       ),
@@ -793,7 +793,7 @@ class SidebarPanelState extends State<SidebarPanel> {
       height: 60,
       width: double.infinity,
       color: themeNotifier.surfaceColor,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16),
       child: Row(
         children: [
           NavScopeRow(
@@ -801,9 +801,9 @@ class SidebarPanelState extends State<SidebarPanel> {
                   onChanged: (tab) => widget.onTabChanged(tab.index),
                   isAuthenticated: widget.settings.twitchOauthToken.trim().isNotEmpty,
                 ),
-          const SizedBox(width: 8),
+          const SizedBox(width: NeuSpace.s8),
           _buildSearchPopoverTrigger(theme, size: 32),
-          const SizedBox(width: 8),
+          const SizedBox(width: NeuSpace.s8),
           Tooltip(
             message: widget.sidebarTab == 0
                 ? 'Refresh Favorites'
@@ -821,9 +821,9 @@ class SidebarPanelState extends State<SidebarPanel> {
               splashRadius: 20,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: NeuSpace.s8),
           Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
-          const SizedBox(width: 8),
+          const SizedBox(width: NeuSpace.s8),
           Expanded(
             child: Listener(
               onPointerSignal: (pointerSignal) {
@@ -855,7 +855,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                   final itemWidget = MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                      margin: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s8),
                       child: Tooltip(
                         message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
                         child: GestureDetector(
@@ -906,15 +906,15 @@ class SidebarPanelState extends State<SidebarPanel> {
             ),
           ),
           if (widget.sidebarTab == 0) ...[
-            const SizedBox(width: 6),
+            const SizedBox(width: NeuSpace.s6),
             _PinnedFavoritesAutomationButton(
               onPressed: _openFavoritesAutomationDialog,
               enabled: widget.sidebarTab == 0,
             ),
           ],
-          const SizedBox(width: 8),
+          const SizedBox(width: NeuSpace.s8),
           Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
-          const SizedBox(width: 8),
+          const SizedBox(width: NeuSpace.s8),
           IconButton(
             icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
             tooltip: 'Library (downloads & history)',
@@ -922,7 +922,7 @@ class SidebarPanelState extends State<SidebarPanel> {
             hoverColor: theme.primaryColor.withValues(alpha: 0.2),
             splashRadius: 20,
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: NeuSpace.s4),
           IconButton(
             icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
             tooltip: 'Settings',
@@ -977,7 +977,7 @@ class _PinnedFavoritesAutomationButton extends StatelessWidget {
 
     return NeuButton(
       onPressed: enabled ? onPressed : null,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
       borderRadius: BorderRadius.circular(NeuRadius.r8),
       tooltip: 'Auto-play and auto-download for favorite channels',
       child: Row(
@@ -990,7 +990,7 @@ class _PinnedFavoritesAutomationButton extends StatelessWidget {
                   : NeuTheme.disabledText(isDark)),
           const SizedBox(width: NeuSpace.s6),
           Text('Automation',
-              style: NeuTheme.bodyStyle(isDark, fontSize: 12).copyWith(
+              style: NeuType.bodySm(isDark).copyWith(
                   color: enabled
                       ? NeuTheme.text(isDark)
                       : NeuTheme.disabledText(isDark))),
@@ -1069,7 +1069,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
         onTap: () => widget.onToggleFavorite(channel),
       );
     } else {
-      starSlot = const SizedBox(width: 40);
+      starSlot = const SizedBox(width: NeuSpace.s40);
     }
 
     return MouseRegion(
@@ -1077,18 +1077,18 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
       onExit: (_) => setState(() => _hovered = false),
       cursor: SystemMouseCursors.click,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        margin: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s4),
         decoration: widget.isSelected
             ? NeuTheme.raisedDecoration(
                 isDark,
-                radius: 10,
+                radius: NeuRadius.r12,
                 border: Border.all(color: themeNotifier.accentInk, width: 1.5),
               )
             : (_hovered
-                ? NeuTheme.raisedDecoration(isDark, radius: 10)
+                ? NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r12)
                 : BoxDecoration(
                     color: NeuTheme.surface(isDark),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(NeuRadius.r12),
                   )),
         child: NeuContextMenu(
           // The app had no right-click menus at all, so every action lived in
@@ -1114,7 +1114,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
           onDoubleTap:
               channel.isLive ? () => widget.onDoubleTapped(channel) : null,
           child: ListTile(
-            contentPadding: const EdgeInsets.only(left: 12, right: 4),
+            contentPadding: const EdgeInsets.only(left: NeuSpace.s12, right: NeuSpace.s4),
             leading: Stack(
               children: [
                 widget.leading,
@@ -1138,12 +1138,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                 Expanded(
                   child: Text(
                     channel.username,
-                    style: TextStyle(
-                      fontWeight:
-                          widget.isSelected ? FontWeight.bold : FontWeight.w600,
-                      color: themeNotifier.textColor,
-                      fontSize: 14,
-                    ),
+                    style: NeuType.headingSm(themeNotifier.isDarkTheme,
+                            color: themeNotifier.textColor)
+                        .copyWith(
+                            fontWeight: widget.isSelected
+                                ? FontWeight.w700
+                                : FontWeight.w600),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -1152,11 +1152,11 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                     animation: widget.pulseController,
                     builder: (context, child) {
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s2),
                         decoration: BoxDecoration(
                           color: NeuTheme.live
                               .withValues(alpha: 0.7 + 0.3 * widget.pulseController.value),
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(NeuRadius.r4),
                           boxShadow: [
                             BoxShadow(
                               color: NeuTheme.live
@@ -1171,6 +1171,9 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                     child: Text(
                       'LIVE',
                       style: TextStyle(
+                        // Intentional: 8px. The rail's LIVE pill is 20px tall
+                        // and cannot hold micro's 10px without clipping; the
+                        // expanded sidebar uses the real badge.
                         fontSize: 8,
                         fontWeight: FontWeight.bold,
                         // Computed ink on the solid mint pill.
@@ -1182,12 +1185,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
             ),
             subtitle: channel.isLoading
                 ? const Padding(
-                    padding: EdgeInsets.only(top: 4),
+                    padding: EdgeInsets.only(top: NeuSpace.s4),
                     child: NeuProgressBar(size: NeuProgressSize.xs, semanticLabel: 'Loading'),
                   )
                 : Text(
                     channel.isLive ? (channel.game ?? 'Playing...') : 'Offline',
-                    style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                    style: NeuType.caption(isDark),
                     overflow: TextOverflow.ellipsis,
                   ),
             trailing: Row(

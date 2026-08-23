@@ -70,6 +70,11 @@ class LibraryView extends StatefulWidget {
 class _LibraryViewState extends State<LibraryView> {
   final TextEditingController _search = TextEditingController();
   String? _channelFilter;
+
+  /// Separate from [_channelFilter] because "no channel" is not a channel
+  /// name. It used to be one - entries fell back to the literal 'VOD' or
+  /// 'Streamed', which then appeared as chips alongside real channels.
+  bool _unknownOnly = false;
   LibrarySort _sort = LibrarySort.newest;
 
   @override
@@ -78,9 +83,20 @@ class _LibraryViewState extends State<LibraryView> {
     super.dispose();
   }
 
+  bool get _isFiltered =>
+      _search.text.isNotEmpty || _channelFilter != null || _unknownOnly;
+
+  void _clearFilters() => setState(() {
+        _search.clear();
+        _channelFilter = null;
+        _unknownOnly = false;
+      });
+
   List<LibraryEntry> get _visible {
     var list = filterLibraryEntries(widget.entries, _search.text);
-    if (_channelFilter != null) {
+    if (_unknownOnly) {
+      list = list.where((e) => e.channel == null).toList();
+    } else if (_channelFilter != null) {
       list = list.where((e) => e.channel == _channelFilter).toList();
     }
     switch (_sort) {
@@ -100,18 +116,49 @@ class _LibraryViewState extends State<LibraryView> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = themeNotifier.isDarkTheme;
-    final downloaded = widget.entries.where((e) => e.isDownloaded).toList();
+    final visible = _visible;
+    // The stats describe what is ON SCREEN. They used to describe the whole
+    // library regardless of the filter, so narrowing to one channel left the
+    // header claiming 152 GB over a list showing 4 GB.
+    final downloaded = visible.where((e) => e.isDownloaded).toList();
     final totalBytes =
         downloaded.fold<int>(0, (sum, e) => sum + (e.sizeBytes ?? 0));
-    final channels = widget.entries.map((e) => e.channel).toSet().toList()
+    final channels = widget.entries
+        .map((e) => e.channel)
+        .whereType<String>()
+        .toSet()
+        .toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    final visible = _visible;
+    final hasUnknown = widget.entries.any((e) => e.channel == null);
 
+    // Capped and centred. Below 1280 this changes nothing; above it, rows stop
+    // stretching to the window's full width, which was leaving 400px of dead
+    // space between a title and its own buttons at 1400 and much worse at
+    // 2560. Nothing here benefits from being wider than a page of text.
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1280),
+        child: _body(context, theme, isDark, visible, downloaded, totalBytes,
+            channels, hasUnknown),
+      ),
+    );
+  }
+
+  Widget _body(
+    BuildContext context,
+    ThemeData theme,
+    bool isDark,
+    List<LibraryEntry> visible,
+    List<LibraryEntry> downloaded,
+    int totalBytes,
+    List<String> channels,
+    bool hasUnknown,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+          padding: const EdgeInsets.fromLTRB(NeuSpace.s24, NeuSpace.s20, NeuSpace.s24, 0),
           // A Wrap is no good here: it hands children unbounded width, so a
           // mainAxisSize.min Row inside one reports its intrinsic size and
           // overflows anyway (which is exactly what happened - 248px and 24px
@@ -129,7 +176,7 @@ class _LibraryViewState extends State<LibraryView> {
                   NeuButton(
                     padding: EdgeInsets.symmetric(
                         horizontal: tight ? 8 : 10, vertical: 8),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(NeuRadius.r8),
                     tooltip: 'Back to ${widget.backLabel ?? 'where you were'} (Esc)',
                     onPressed: widget.onBack,
                     child: Row(
@@ -140,38 +187,46 @@ class _LibraryViewState extends State<LibraryView> {
                         // The label is the point of the control - it names the
                         // destination - so it is the last thing dropped.
                         if (widget.backLabel != null && !tight) ...[
-                          const SizedBox(width: 6),
+                          const SizedBox(width: NeuSpace.s6),
                           ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 140),
                             child: Text(
                               widget.backLabel!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: NeuTheme.bodyStyle(isDark, fontSize: 12),
+                              style: NeuType.bodySm(isDark),
                             ),
                           ),
                         ],
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: NeuSpace.s12),
                 ],
                 Icon(Icons.video_library,
                     color: themeNotifier.accentInk, size: 22),
-                const SizedBox(width: 10),
-                Text('Library', style: NeuTheme.titleStyle(isDark, fontSize: 18)),
+                const SizedBox(width: NeuSpace.s8),
+                Text('Library', style: NeuType.headingLg(isDark)),
                 // The count/size chip is the first thing to go: it is
                 // information, not a control.
                 if (!tight) ...[
-                  const SizedBox(width: 12),
+                  const SizedBox(width: NeuSpace.s12),
                   Flexible(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: NeuTheme.sunkenDecoration(isDark, radius: 8),
+                          horizontal: NeuSpace.s12, vertical: NeuSpace.s6),
+                      decoration:
+                          NeuTheme.sunkenDecoration(isDark, radius: NeuRadius.r8),
                       child: Text(
-                        '${downloaded.length} download${downloaded.length == 1 ? '' : 's'} \u00B7 ${formatBytes(totalBytes)}',
-                        style: NeuTheme.subtextStyle(isDark, fontSize: 11),
+                        [
+                          if (_isFiltered)
+                            '${visible.length} of ${widget.entries.length}'
+                          else
+                            '${visible.length} item${visible.length == 1 ? '' : 's'}',
+                          if (downloaded.isNotEmpty)
+                            '${formatBytes(totalBytes)} on disk',
+                        ].join(' \u00B7 '),
+                        style: NeuType.caption(isDark),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -185,14 +240,14 @@ class _LibraryViewState extends State<LibraryView> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _sortButton(LibrarySort.newest, 'Newest'),
-                const SizedBox(width: 6),
+                const SizedBox(width: NeuSpace.s6),
                 _sortButton(LibrarySort.largest, 'Largest'),
-                const SizedBox(width: 6),
+                const SizedBox(width: NeuSpace.s6),
                 _sortButton(LibrarySort.progress, 'Progress'),
-                const SizedBox(width: 12),
+                const SizedBox(width: NeuSpace.s12),
                 NeuButton(
-                  padding: const EdgeInsets.all(8),
-                  borderRadius: BorderRadius.circular(8),
+                  padding: const EdgeInsets.all(NeuSpace.s8),
+                  borderRadius: BorderRadius.circular(NeuRadius.r8),
                   tooltip: 'Rescan the download folder',
                   onPressed: widget.onRefresh,
                   child: Icon(Icons.refresh,
@@ -205,7 +260,7 @@ class _LibraryViewState extends State<LibraryView> {
               return Row(
                 children: [
                   Flexible(child: leading),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: NeuSpace.s12),
                   trailing,
                 ],
               );
@@ -217,7 +272,7 @@ class _LibraryViewState extends State<LibraryView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 leading,
-                const SizedBox(height: 10),
+                const SizedBox(height: NeuSpace.s8),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: trailing,
@@ -227,7 +282,7 @@ class _LibraryViewState extends State<LibraryView> {
           }),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+          padding: const EdgeInsets.fromLTRB(NeuSpace.s24, NeuSpace.s12, NeuSpace.s24, 0),
           child: Row(
             children: [
               // A hard 280 plus a 12 gap needs 292px of the 332 available at
@@ -246,7 +301,7 @@ class _LibraryViewState extends State<LibraryView> {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: NeuSpace.s12),
               Expanded(
                 child: SizedBox(
                   height: 34,
@@ -255,6 +310,10 @@ class _LibraryViewState extends State<LibraryView> {
                     children: [
                       _channelChip(null, 'All'),
                       for (final ch in channels) _channelChip(ch, ch),
+                      // Only offered when there is something behind it, and
+                      // named for what it is rather than pretending to be a
+                      // channel called 'Streamed'.
+                      if (hasUnknown) _unknownChip(),
                     ],
                   ),
                 ),
@@ -269,7 +328,7 @@ class _LibraryViewState extends State<LibraryView> {
               final live = [...snapshot.downloading, ...snapshot.queued];
               if (live.isEmpty) return const SizedBox.shrink();
               return Padding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                padding: const EdgeInsets.fromLTRB(NeuSpace.s24, NeuSpace.s12, NeuSpace.s24, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -277,14 +336,14 @@ class _LibraryViewState extends State<LibraryView> {
                       title: 'In progress',
                       density: SectionDensity.inline,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: NeuSpace.s6),
                     for (final item in live) _liveRow(item, theme, isDark),
                   ],
                 ),
               );
             },
           ),
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         Expanded(
           child: visible.isEmpty
               ? (widget.entries.isEmpty
@@ -300,19 +359,16 @@ class _LibraryViewState extends State<LibraryView> {
                       message: 'Nothing in the Library matches the current '
                           'search or filter.',
                       action: NeuButton(
-                        onPressed: () => setState(() {
-                          _search.clear();
-                          _channelFilter = null;
-                        }),
+                        onPressed: _clearFilters,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        borderRadius: BorderRadius.circular(8),
+                            horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+                        borderRadius: BorderRadius.circular(NeuRadius.r8),
                         child: const Text('Clear filters',
-                            style: TextStyle(fontSize: 12)),
+                            style: NeuType.bodySmMetrics),
                       ),
                     ))
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+                  padding: const EdgeInsets.fromLTRB(NeuSpace.s24, 0, NeuSpace.s24, NeuSpace.s16),
                   itemCount: visible.length,
                   itemBuilder: (context, index) =>
                       _LibraryRow(
@@ -335,18 +391,18 @@ class _LibraryViewState extends State<LibraryView> {
   Widget _liveRow(ActivityItem item, ThemeData theme, bool isDark) {
     final queued = item.kind == ActivityKind.queued;
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.only(bottom: NeuSpace.s6),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
       decoration: NeuTheme.raisedDecoration(
         isDark,
-        radius: 10,
+        radius: NeuRadius.r12,
         border: Border.all(color: theme.primaryColor.withValues(alpha: 0.35)),
       ),
       child: Row(
         children: [
           Icon(queued ? Icons.schedule : Icons.downloading,
               size: 16, color: themeNotifier.accentInk),
-          const SizedBox(width: 12),
+          const SizedBox(width: NeuSpace.s12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -355,12 +411,11 @@ class _LibraryViewState extends State<LibraryView> {
                 Text(item.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: NeuTheme.bodyStyle(isDark,
-                        fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
+                    style: NeuType.bodyStrong(isDark)),
+                const SizedBox(height: NeuSpace.s4),
                 if (queued)
                   Text('Waiting to start',
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 11))
+                      style: NeuType.caption(isDark))
                 else
                   Row(
                     children: [
@@ -372,32 +427,32 @@ class _LibraryViewState extends State<LibraryView> {
                         ),
                       ),
                       if (item.status != null) ...[
-                        const SizedBox(width: 10),
+                        const SizedBox(width: NeuSpace.s8),
                         Text(item.status!,
                             style:
-                                NeuTheme.subtextStyle(isDark, fontSize: 10)),
+                                NeuType.caption(isDark)),
                       ],
                     ],
                   ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: NeuSpace.s12),
           StatusBadge(
             label: queued ? 'Queued' : 'Downloading',
             tone: BadgeTone.accent,
           ),
           if (widget.onStopActivity != null) ...[
-            const SizedBox(width: 10),
+            const SizedBox(width: NeuSpace.s8),
             Tooltip(
               message: 'Cancel download',
               child: InkWell(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(NeuRadius.r8),
                 onTap: () => widget.onStopActivity!(item),
                 child: Container(
                   width: 30,
                   height: 30,
-                  decoration: NeuTheme.raisedDecoration(isDark, radius: 8),
+                  decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8),
                   child: Icon(Icons.close,
                       size: 15, color: NeuTheme.dangerText(isDark)),
                 ),
@@ -411,28 +466,54 @@ class _LibraryViewState extends State<LibraryView> {
 
   Widget _sortButton(LibrarySort sort, String label) {
     return NeuButton(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      borderRadius: BorderRadius.circular(8),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
+      borderRadius: BorderRadius.circular(NeuRadius.r8),
       isSelected: _sort == sort,
       onPressed: () => setState(() => _sort = sort),
-      child: Text(label, style: const TextStyle(fontSize: 11)),
+      child: Text(label, style: NeuType.captionMetrics),
     );
   }
 
   Widget _channelChip(String? channel, String label) {
-    final isSelected = _channelFilter == channel;
+    final isSelected = !_unknownOnly && _channelFilter == channel;
     return Padding(
-      padding: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.only(right: NeuSpace.s6),
       child: NeuButton(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        borderRadius: BorderRadius.circular(16),
+        padding: const EdgeInsets.symmetric(
+            horizontal: NeuSpace.s12, vertical: NeuSpace.s6),
+        borderRadius: BorderRadius.circular(NeuRadius.pill),
         isSelected: isSelected,
-        onPressed: () => setState(() => _channelFilter = channel),
-        child: Text(label, style: const TextStyle(fontSize: 11)),
+        onPressed: () => setState(() {
+          _channelFilter = channel;
+          _unknownOnly = false;
+        }),
+        child: Text(label, style: NeuType.captionMetrics),
+      ),
+    );
+  }
+
+  Widget _unknownChip() {
+    return Padding(
+      padding: const EdgeInsets.only(right: NeuSpace.s6),
+      child: NeuButton(
+        padding: const EdgeInsets.symmetric(
+            horizontal: NeuSpace.s12, vertical: NeuSpace.s6),
+        borderRadius: BorderRadius.circular(NeuRadius.pill),
+        isSelected: _unknownOnly,
+        tooltip: 'Watched or downloaded without a channel on record',
+        onPressed: () => setState(() {
+          _unknownOnly = !_unknownOnly;
+          _channelFilter = null;
+        }),
+        child: const Text('No channel', style: NeuType.captionMetrics),
       ),
     );
   }
 }
+
+/// Laid-out width of a [NeuIconAction] - its face is 28px at [NeuActionSize.sm]
+/// but the hit target is always 40, and it is the hit target that takes space.
+const double _actionSlot = 40;
 
 class _LibraryRow extends StatefulWidget {
   const _LibraryRow({
@@ -474,126 +555,199 @@ class _LibraryRowState extends State<_LibraryRow> {
             .replaceAll('%{height}', '90')
         : null;
 
+    final sizeLabel =
+        entry.sizeBytes != null ? formatBytes(entry.sizeBytes!) : null;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        // 12, not 8: the watched bar runs along this row's bottom edge, so an
+        // 8px gap put it exactly as far from its own content as from the next
+        // row and it read as a divider between the two.
+        margin: const EdgeInsets.only(bottom: NeuSpace.s12),
         decoration: NeuTheme.raisedDecoration(
           isDark,
-          radius: 10,
+          radius: NeuRadius.r12,
           border: _hovered
               ? Border.all(color: theme.primaryColor.withValues(alpha: 0.5))
               : null,
         ),
-        child: Row(
+        // clipBehavior so the watched bar can reach the row's rounded corners
+        // instead of floating in a 90px column of its own mid-row.
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: SizedBox(
-                width: 72,
-                height: 40,
-                child: thumbUrl != null
-                    ? Image.network(
-                        thumbUrl,
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                        errorBuilder: (context, error, stack) =>
-                            _thumbFallback(isDark),
-                      )
-                    : _thumbFallback(isDark),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    entry.title,
-                    style: NeuTheme.bodyStyle(isDark, fontSize: 13,
-                        fontWeight: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    [
-                      entry.channel,
-                      if (entry.sortDate != null) _dateLabel(entry.sortDate!),
-                      if (entry.sizeBytes != null) formatBytes(entry.sizeBytes!),
-                    ].join(' · '),
-                    style: NeuTheme.subtextStyle(isDark, fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            if (progress != null) ...[
-              SizedBox(
-                width: 90,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
+            // Measured against the ROW's width, not the window's: the same row
+            // is 1232px wide on the capped desktop list and 309 at the app's
+            // 380px minimum. At 309 the thumbnail, the size column and three
+            // 40px buttons wanted 316 between them, so the title's Expanded
+            // collapsed to zero and every row rendered as artwork, a file size
+            // and some buttons, with no title at all.
+            LayoutBuilder(builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final showThumb = width >= 460;
+              final showSizeColumn = width >= 560;
+              final showFolder = width >= 400;
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+                child: Row(
                   children: [
-                    Text('${(progress * 100).round()}% watched',
-                        style: NeuTheme.subtextStyle(isDark, fontSize: 10)),
-                    const SizedBox(height: 3),
-                    NeuProgressBar(
-                      value: progress.clamp(0.0, 1.0),
-                      size: NeuProgressSize.sm,
-                      semanticLabel: 'Watched',
+                    if (showThumb) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                            NeuRadius.inner(NeuRadius.r12, NeuSpace.s4)),
+                        // 16:9. The old 72x40 was 1.8:1, so every real
+                        // thumbnail was cropped top and bottom.
+                        child: SizedBox(
+                          width: 96,
+                          height: 54,
+                          child: thumbUrl != null
+                              ? Image.network(
+                                  thumbUrl,
+                                  fit: BoxFit.cover,
+                                  gaplessPlayback: true,
+                                  errorBuilder: (context, error, stack) =>
+                                      _thumbFallback(isDark),
+                                )
+                              : _thumbFallback(isDark),
+                        ),
+                      ),
+                      const SizedBox(width: NeuSpace.s12),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            entry.title,
+                            style: NeuType.bodyStrong(isDark),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: NeuSpace.s4),
+                          Row(
+                            children: [
+                              // Replaces a "DOWNLOADED" badge that sat on nine
+                              // rows out of eleven. A badge carried by almost
+                              // everything says nothing, and it claimed a
+                              // column to say it.
+                              Icon(
+                                entry.isDownloaded
+                                    ? Icons.save_alt
+                                    : Icons.history,
+                                size: 12,
+                                color: entry.isDownloaded
+                                    ? NeuTheme.liveText(isDark)
+                                    : NeuTheme.subtext(isDark),
+                              ),
+                              const SizedBox(width: NeuSpace.s6),
+                              Expanded(
+                                child: Text(
+                                  [
+                                    entry.channel ?? 'No channel',
+                                    if (entry.sortDate != null)
+                                      _dateLabel(entry.sortDate!),
+                                    // Folded back into the line when there is
+                                    // no room for a column of its own.
+                                    if (!showSizeColumn && sizeLabel != null)
+                                      sizeLabel,
+                                    if (progress != null)
+                                      '${(progress * 100).round()}% watched',
+                                  ].join(' \u00B7 '),
+                                  style: NeuType.caption(isDark),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
+                    // A fixed column, not merely right-aligned text: sizes
+                    // scan as a column only if 9.7 GB and 20.1 GB start at the
+                    // same x. Reserved even when empty so the buttons do not
+                    // shift between downloaded and streamed rows.
+                    if (showSizeColumn) ...[
+                      const SizedBox(width: NeuSpace.s12),
+                      SizedBox(
+                        width: 64,
+                        child: Text(
+                          sizeLabel ?? '',
+                          textAlign: TextAlign.right,
+                          style: NeuType.caption(isDark)
+                              .copyWith(fontFeatures: const [
+                            FontFeature.tabularFigures()
+                          ]),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: NeuSpace.s12),
+                    _actionButton(
+                      icon: Icons.play_arrow,
+                      tooltip: entry.isDownloaded
+                          ? 'Play local file'
+                          : 'Stream from Twitch',
+                      tone: NeuActionTone.accent,
+                      onPressed: () => widget.onPlay(entry),
+                    ),
+                    if (entry.isDownloaded) ...[
+                      if (showFolder) ...[
+                        const SizedBox(width: NeuSpace.s6),
+                        _actionButton(
+                          icon: Icons.folder_open,
+                          tooltip: 'Show in Explorer',
+                          tone: NeuActionTone.neutral,
+                          onPressed: () => widget.onOpenFolder(entry),
+                        ),
+                      ],
+                      const SizedBox(width: NeuSpace.s6),
+                      _actionButton(
+                        icon: Icons.delete_outline,
+                        tooltip: 'Delete download',
+                        tone: NeuActionTone.danger,
+                        onPressed: () => widget.onDelete(entry),
+                      ),
+                    ] else ...[
+                      // Streamed rows have no folder to open, but the slot is
+                      // held anyway so Play and the destructive action stay in
+                      // the same two columns down the whole list instead of
+                      // sliding 46px right on every streamed row.
+                      if (showFolder)
+                        const SizedBox(width: NeuSpace.s6 + _actionSlot),
+                      const SizedBox(width: NeuSpace.s6),
+                      _actionButton(
+                        icon: Icons.history_toggle_off,
+                        tooltip: 'Remove from watch history',
+                        tone: NeuActionTone.danger,
+                        onPressed: () => widget.onRemoveFromHistory(entry),
+                      ),
+                    ],
                   ],
                 ),
+              );
+            }),
+            if (progress != null)
+              // Along the row's own bottom edge, the way the VOD cards do it.
+              SizedBox(
+                height: 3,
+                child: NeuProgressBar(
+                  value: progress.clamp(0.0, 1.0),
+                  size: NeuProgressSize.sm,
+                  semanticLabel: 'Watched',
+                ),
               ),
-              const SizedBox(width: 12),
-            ],
-            StatusBadge(
-              label: entry.isDownloaded ? 'Downloaded' : 'Streamed',
-              tone: entry.isDownloaded ? BadgeTone.live : BadgeTone.neutral,
-            ),
-            const SizedBox(width: 10),
-            _actionButton(
-              icon: Icons.play_arrow,
-              tooltip:
-                  entry.isDownloaded ? 'Play local file' : 'Stream from Twitch',
-              tone: NeuActionTone.accent,
-              onPressed: () => widget.onPlay(entry),
-            ),
-            if (entry.isDownloaded) ...[
-              const SizedBox(width: 6),
-              _actionButton(
-                icon: Icons.folder_open,
-                tooltip: 'Show in Explorer',
-                tone: NeuActionTone.neutral,
-                onPressed: () => widget.onOpenFolder(entry),
-              ),
-              const SizedBox(width: 6),
-              _actionButton(
-                icon: Icons.delete_outline,
-                tooltip: 'Delete download',
-                tone: NeuActionTone.danger,
-                onPressed: () => widget.onDelete(entry),
-              ),
-            ] else ...[
-              const SizedBox(width: 6),
-              _actionButton(
-                icon: Icons.history_toggle_off,
-                tooltip: 'Remove from watch history',
-                tone: NeuActionTone.danger,
-                onPressed: () => widget.onRemoveFromHistory(entry),
-              ),
-            ],
           ],
         ),
       ),
     );
   }
+
 
   Widget _thumbFallback(bool isDark) {
     return Container(

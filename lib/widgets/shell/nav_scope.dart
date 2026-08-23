@@ -101,7 +101,7 @@ class NavScope extends StatelessWidget {
             isSelected: tab == current,
             size: NeuActionSize.sm,
           ),
-          if (tab != NavScopeTab.values.last) const SizedBox(height: 2),
+          if (tab != NavScopeTab.values.last) const SizedBox(height: NeuSpace.s2),
         ],
       ],
     );

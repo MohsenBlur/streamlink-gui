@@ -79,7 +79,7 @@ class NeuContextMenu extends StatelessWidget {
                 const SizedBox(width: NeuSpace.s8),
                 Text(
                   items[i].label,
-                  style: NeuTheme.bodyStyle(isDark, fontSize: 12).copyWith(
+                  style: NeuType.bodySm(isDark).copyWith(
                     color: !items[i].enabled
                         ? NeuTheme.disabledText(isDark)
                         : items[i].isDestructive

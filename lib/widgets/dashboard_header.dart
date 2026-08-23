@@ -49,10 +49,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
   /// LIVE (pulsing) / OFFLINE status pill, shared by both header layouts.
   Widget _buildStatusBadge({required bool compact}) {
-    final fontSize = compact ? 9.0 : 10.0;
     final padding = compact
-        ? const EdgeInsets.symmetric(horizontal: 8, vertical: 3)
-        : const EdgeInsets.symmetric(horizontal: 10, vertical: 4);
+        ? const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4)
+        : const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4);
     final radius = BorderRadius.circular(compact ? 10 : 12);
     final isDark = themeNotifier.isDarkTheme;
 
@@ -67,12 +66,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         ),
         child: Text(
           'OFFLINE',
-          style: TextStyle(
-            color: subtext,
-            fontSize: fontSize,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
+          style: NeuType.micro(isDark, color: subtext),
         ),
       );
     }
@@ -97,12 +91,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       },
       child: Text(
         'LIVE',
-        style: TextStyle(
-          color: NeuTheme.liveText(isDark),
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.5,
-        ),
+        style: NeuType.micro(isDark, color: NeuTheme.liveText(isDark)),
       ),
     );
   }
@@ -126,25 +115,17 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         SizedBox(width: compact ? 4 : 6),
         Text(
           'OPEN',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: compact ? 10 : 11,
-            color: subtext,
-          ),
+          style: NeuType.micro(isDark, color: subtext),
         ),
       ];
     } else if (!live) {
       final disabled = NeuTheme.disabledText(isDark);
       content = [
         Icon(Icons.videocam_off, size: compact ? 12 : 14, color: disabled),
-        const SizedBox(width: 4),
+        const SizedBox(width: NeuSpace.s4),
         Text(
           'OFFLINE',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: compact ? 10 : 11,
-            color: disabled,
-          ),
+          style: NeuType.micro(isDark, color: disabled),
         ),
       ];
     } else {
@@ -153,10 +134,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         SizedBox(width: compact ? 2 : 4),
         Text(
           'PLAY',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: compact ? 11 : 12,
-          ),
+          // No ink: ElevatedButton supplies the foreground, including its
+          // disabled and hover states.
+          style: NeuType.microMetrics,
         ),
       ];
     }
@@ -171,9 +151,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         foregroundColor:
             (live && !playing) ? themeNotifier.onPrimaryColor : subtext,
         padding: compact
-            ? const EdgeInsets.symmetric(horizontal: 10)
+            ? const EdgeInsets.symmetric(horizontal: NeuSpace.s8)
             : EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeuRadius.r6)),
         elevation: (live && !playing) ? (compact ? 2 : 4) : 0,
       ),
       onPressed: (playing || !live) ? null : widget.onPlay,
@@ -193,12 +173,12 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         style: TextButton.styleFrom(
           alignment: Alignment.centerLeft,
           foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeuRadius.r4)),
         ),
         onPressed: onPressed,
         icon: Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-        label: Text(label, style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+        label: Text(label, style: NeuType.bodySm(themeNotifier.isDarkTheme)),
       ),
     );
   }
@@ -218,7 +198,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     }
 
     return Container(
-      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
+      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
       child: IconButton(
         icon: iconWidget,
         tooltip: tooltip,
@@ -232,16 +212,16 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
   Widget _buildHeaderChip({required IconData icon, required Color color, required String label}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 8),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s6),
+      decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 12, color: color),
-          const SizedBox(width: 6),
+          const SizedBox(width: NeuSpace.s6),
           Text(
             label,
-            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+            style: NeuType.caption(themeNotifier.isDarkTheme),
           ),
         ],
       ),
@@ -295,8 +275,8 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
     if (isCompact) {
       return NeuContainer(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        borderRadius: BorderRadius.circular(16),
+        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+        borderRadius: BorderRadius.circular(NeuRadius.r16),
         style: NeuStyle.raised,
         color: themeNotifier.surfaceColor,
         child: Column(
@@ -306,24 +286,24 @@ class _DashboardHeaderState extends State<DashboardHeader> {
             Row(
               children: [
                 _withLivePreview(_buildAvatar(radius: 18, strokeWidth: 2.0)),
-                const SizedBox(width: 10),
+                const SizedBox(width: NeuSpace.s8),
                 Expanded(
                   child: Row(
                     children: [
                       Flexible(
                         child: Text(
                           widget.channel.username,
-                          style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 15),
+                          style: NeuType.headingMd(themeNotifier.isDarkTheme),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: NeuSpace.s8),
                       _buildStatusBadge(compact: true),
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: NeuSpace.s8),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -332,52 +312,52 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       tooltip: 'Open Twitch channel',
                       onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}'),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: NeuSpace.s6),
                     _buildMiniActionBtn(
                       icon: Icons.chat_bubble_outline,
                       tooltip: 'Open Twitch chat popout',
                       onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat'),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: NeuSpace.s6),
                     _buildMiniActionBtn(
                       icon: Icons.refresh,
                       tooltip: 'Refresh statistics',
                       isLoading: widget.channel.isLoading,
                       onPressed: widget.channel.isLoading ? null : widget.onRefresh,
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: NeuSpace.s6),
                     InteractivePopover(
                       targetAnchor: Alignment.bottomRight,
                       followerAnchor: Alignment.topRight,
                       offset: const Offset(0, 6),
                       popover: Container(
                         width: 200,
-                        padding: const EdgeInsets.all(10),
-                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
+                        padding: const EdgeInsets.all(NeuSpace.s8),
+                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r8),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: statsChips.map((chip) => Padding(
-                            padding: const EdgeInsets.only(bottom: 6.0),
+                            padding: const EdgeInsets.only(bottom: NeuSpace.s6),
                             child: chip,
                           )).toList(),
                         ),
                       ),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
+                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.analytics_outlined, size: 12, color: themeNotifier.accentInk),
-                            const SizedBox(width: 4),
-                            Text('Stats', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 10)),
+                            const SizedBox(width: NeuSpace.s4),
+                            Text('Stats', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
                           ],
                         ),
                       ),
                     ),
 
-                    const SizedBox(width: 6),
+                    const SizedBox(width: NeuSpace.s6),
                     _withLivePreview(SizedBox(
                       height: 28,
                       child: _buildPlayButton(compact: true),
@@ -387,31 +367,31 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               ],
             ),
             if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: NeuSpace.s6),
               _withLivePreview(Text(
                 '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
-                style: TextStyle(fontSize: 12, color: NeuTheme.subtext(themeNotifier.isDarkTheme), fontWeight: FontWeight.w500),
+                style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               )),
             ],
             if (widget.channel.errorMessage != null) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: NeuSpace.s6),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
                 decoration: BoxDecoration(
                   color: NeuTheme.danger.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(NeuRadius.r6),
                   border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   children: [
                     Icon(Icons.error_outline, size: 12, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: NeuSpace.s6),
                     Expanded(
                       child: Text(
                         widget.channel.errorMessage!,
-                        style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 10),
+                        style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -444,12 +424,12 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   Flexible(
                     child: Text(
                       widget.channel.username,
-                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
+                      style: NeuType.display(themeNotifier.isDarkTheme),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: NeuSpace.s8),
                   _buildStatusBadge(compact: false),
                 ],
               ),
@@ -461,8 +441,8 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     offset: const Offset(0, 6),
                     popover: Container(
                       width: 160,
-                      padding: const EdgeInsets.all(8),
-                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
+                      padding: const EdgeInsets.all(NeuSpace.s8),
+                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r8),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -473,7 +453,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                               widget.openExternalLink('https://twitch.tv/${widget.channel.username}');
                             },
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: NeuSpace.s4),
                           _buildOverlayActionItem(
                             icon: Icons.chat_bubble_outline,
                             label: 'Open Chat',
@@ -481,7 +461,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                               widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat');
                             },
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: NeuSpace.s4),
                           _buildOverlayActionItem(
                             icon: Icons.refresh,
                             label: 'Refresh Stats',
@@ -491,14 +471,14 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       ),
                     ),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s6),
+                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.more_vert, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 16),
-                          const SizedBox(width: 4),
-                          Text('Actions', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                          const SizedBox(width: NeuSpace.s4),
+                          Text('Actions', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
                         ],
                       ),
                     ),
@@ -512,13 +492,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         tooltip: 'Open Twitch channel',
                         onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}'),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: NeuSpace.s8),
                       _buildMiniActionBtn(
                         icon: Icons.chat_bubble_outline,
                         tooltip: 'Open Twitch chat popout',
                         onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat'),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: NeuSpace.s8),
                       _buildMiniActionBtn(
                         icon: Icons.refresh,
                         tooltip: 'Refresh statistics',
@@ -528,26 +508,27 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                   ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: NeuSpace.s8),
         if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
           Text(
             widget.channel.streamTitle!,
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
+            style: NeuType.headingSm(themeNotifier.isDarkTheme),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: NeuSpace.s6),
         ],
         Text(
           widget.channel.isLive
               ? 'Streaming: ${widget.channel.game ?? "Unknown Game"}'
               : 'Channel is currently offline',
-          style: TextStyle(
-            fontSize: 13,
+          // Both branches were w500 and normal, which Segoe renders
+          // identically - the distinction was colour all along.
+          style: NeuType.body(
+            themeNotifier.isDarkTheme,
             color: widget.channel.isLive
                 ? NeuTheme.text(themeNotifier.isDarkTheme)
                 : NeuTheme.subtext(themeNotifier.isDarkTheme),
-            fontWeight: widget.channel.isLive ? FontWeight.w500 : FontWeight.normal,
           ),
         ),
       ],
@@ -560,8 +541,8 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       child: MouseRegion(
         cursor: (widget.channel.isLive && !widget.isPlaying) ? SystemMouseCursors.click : SystemMouseCursors.basic,
         child: NeuCard(
-          padding: const EdgeInsets.all(20),
-          borderRadius: BorderRadius.circular(20),
+          padding: const EdgeInsets.all(NeuSpace.s20),
+          borderRadius: BorderRadius.circular(NeuRadius.r20),
           baseColor: themeNotifier.surfaceColor,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -575,13 +556,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       child: _withLivePreview(avatarContainer),
                     ),
                   ),
-                  const SizedBox(width: 20),
+                  const SizedBox(width: NeuSpace.s20),
                   Expanded(
                     child: _withLivePreview(profileDetails),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: NeuSpace.s12),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -590,7 +571,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     height: 32,
                     child: _withLivePreview(playButton),
                   ),
-                  const SizedBox(width: 20),
+                  const SizedBox(width: NeuSpace.s20),
                   Expanded(
                     child: Wrap(
                       spacing: 8,
@@ -602,27 +583,29 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 ],
               ),
               if (widget.channel.errorMessage != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: NeuSpace.s12),
                 Row(
                   children: [
+                    // Intentional: 90px reserves the width of the action cluster so the
+                    // two header layouts keep their titles on the same x.
                     const SizedBox(width: 90),
-                    const SizedBox(width: 20),
+                    const SizedBox(width: NeuSpace.s20),
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
                         decoration: BoxDecoration(
                           color: NeuTheme.danger.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(NeuRadius.r6),
                           border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.2)),
                         ),
                         child: Row(
                           children: [
                             Icon(Icons.error_outline, size: 14, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: NeuSpace.s8),
                             Expanded(
                               child: Text(
                                 widget.channel.errorMessage!,
-                                style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 11),
+                                style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                               ),
                             ),
                           ],

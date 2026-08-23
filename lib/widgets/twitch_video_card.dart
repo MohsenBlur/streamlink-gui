@@ -11,7 +11,14 @@ class TwitchVideoCard extends StatefulWidget {
   final ThemeData theme;
   final VoidCallback onPlay;
   final String Function(String) formatNumber;
-  final double fontSize;
+  /// The rendered title size, in logical pixels.
+  ///
+  /// It used to be a base that the card multiplied by 1.0-1.8 depending on
+  /// [scale], so the number in Settings was never the number on screen - at
+  /// the shipped defaults it read 14 and rendered 18.2, and at scale 600 with
+  /// the slider at 20 it reached 36. Stored values are migrated to their
+  /// effective size on load, so nobody's cards change size.
+  final double titleFontSize;
   final bool isPlaying;
   final AnimationController? pulseController;
   final bool showGamesOnThumbnails;
@@ -36,7 +43,7 @@ class TwitchVideoCard extends StatefulWidget {
     required this.theme,
     required this.onPlay,
     required this.formatNumber,
-    required this.fontSize,
+    required this.titleFontSize,
     required this.isPlaying,
     required this.pulseController,
     required this.showGamesOnThumbnails,
@@ -78,11 +85,11 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(NeuRadius.r16),
           hoverColor: Colors.white.withValues(alpha: 0.2),
           splashColor: Colors.white.withValues(alpha: 0.3),
           child: Container(
-            padding: const EdgeInsets.all(5),
+            padding: const EdgeInsets.all(NeuSpace.s4),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: backgroundColor,
@@ -133,19 +140,19 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
     final hasMultiple = _games!.length > 1;
     
     final mainBadge = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s4),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(NeuRadius.r4),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.sports_esports, size: 10, color: Colors.white70),
-          const SizedBox(width: 4),
+          const SizedBox(width: NeuSpace.s4),
           Text(
             firstGame,
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+            style: NeuType.micro(true, color: Colors.white),
           ),
         ],
       ),
@@ -164,7 +171,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           child: Container(
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(NeuRadius.r4),
             ),
           ),
         ),
@@ -176,7 +183,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           child: Container(
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(NeuRadius.r4),
             ),
           ),
         ),
@@ -220,7 +227,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
             transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
             decoration: NeuTheme.raisedDecoration(
               themeNotifier.isDarkTheme,
-              radius: 16,
+              radius: NeuRadius.r16,
               border: widget.isSelected || widget.isPlaying
                   ? Border.all(
                       color: widget.theme.primaryColor,
@@ -329,14 +336,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s4),
                                 decoration: BoxDecoration(
                                   color: Colors.black.withValues(alpha: 0.75),
-                                  borderRadius: BorderRadius.circular(4),
+                                  borderRadius: BorderRadius.circular(NeuRadius.r4),
                                 ),
                                 child: Text(
                                   _formatTwitchStyleDuration(widget.vod.duration),
-                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                  style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: Colors.white),
                                 ),
                               ),
                             ],
@@ -354,12 +361,12 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                   decoration: widget.isSelected
                                       ? NeuTheme.raisedDecoration(
                                           themeNotifier.isDarkTheme,
-                                          radius: 12,
+                                          radius: NeuRadius.r12,
                                           border: Border.all(color: themeNotifier.accentInk, width: 2),
                                         )
                                       : NeuTheme.sunkenDecoration(
                                           themeNotifier.isDarkTheme,
-                                          radius: 12,
+                                          radius: NeuRadius.r12,
                                         ),
                                   child: widget.isSelected
                                       ? Icon(Icons.check_rounded, size: 14, color: themeNotifier.accentInk)
@@ -379,19 +386,21 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             alignment: WrapAlignment.end,
                                             children: _games!.map((game) {
                                               return Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+                                                // Intentional: sub-grid. A 2px scrim pill over artwork; 4 would
+                                                    // swallow the 10px label it wraps.
+                                                    padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s4, vertical: 2.5),
                                                 decoration: BoxDecoration(
                                                   color: Colors.black.withValues(alpha: 0.75),
-                                                  borderRadius: BorderRadius.circular(4),
+                                                  borderRadius: BorderRadius.circular(NeuRadius.r4),
                                                 ),
                                                 child: Row(
                                                   mainAxisSize: MainAxisSize.min,
                                                   children: [
                                                     const Icon(Icons.sports_esports, size: 9, color: Colors.white70),
-                                                    const SizedBox(width: 4),
+                                                    const SizedBox(width: NeuSpace.s4),
                                                     Text(
                                                       game,
-                                                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                                      style: NeuType.micro(themeNotifier.isDarkTheme, color: Colors.white),
                                                     ),
                                                   ],
                                                 ),
@@ -404,7 +413,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                           message: _games!.join('\n'),
                                           decoration: BoxDecoration(
                                             color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                            borderRadius: BorderRadius.circular(6),
+                                            borderRadius: BorderRadius.circular(NeuRadius.r6),
                                             border: Border.all(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                                             boxShadow: [
                                               BoxShadow(
@@ -413,12 +422,12 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               ),
                                             ],
                                           ),
-                                          textStyle: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                          textStyle: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)).copyWith(height: 1.3),
+                                          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
                                           preferBelow: true,
                                           child: _buildGameBadge(widget.theme),
                                         ),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: NeuSpace.s8),
                                     ],
                                     if (widget.isPlaying && widget.pulseController != null)
                                       RepaintBoundary(
@@ -426,10 +435,10 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                         animation: widget.pulseController!,
                                         builder: (context, child) {
                                           return Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                            padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s4),
                                             decoration: BoxDecoration(
                                               color: widget.theme.primaryColor.withValues(alpha: 0.85 + 0.15 * widget.pulseController!.value),
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius: BorderRadius.circular(NeuRadius.r4),
                                               boxShadow: [
                                                 BoxShadow(
                                                   color: widget.theme.primaryColor.withValues(alpha: 0.5 * widget.pulseController!.value),
@@ -444,10 +453,10 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             Icon(Icons.play_arrow, size: 10, color: themeNotifier.onPrimaryColor),
-                                            const SizedBox(width: 4),
+                                            const SizedBox(width: NeuSpace.s4),
                                             Text(
                                               'NOW PLAYING',
-                                              style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: themeNotifier.onPrimaryColor, letterSpacing: 0.5),
+                                              style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.onPrimaryColor),
                                             ),
                                           ],
                                         ),
@@ -467,7 +476,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Container(
-                                      padding: const EdgeInsets.all(10),
+                                      padding: const EdgeInsets.all(NeuSpace.s8),
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
                                         color: Colors.black.withValues(alpha: 0.6),
@@ -480,14 +489,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       ),
                                     ),
                                     if (!widget.showGamesOnThumbnails && _games != null && _games!.isNotEmpty) ...[
-                                      const SizedBox(height: 12),
+                                      const SizedBox(height: NeuSpace.s12),
                                       Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                                        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16),
                                         child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
                                           decoration: BoxDecoration(
                                             color: Colors.black.withValues(alpha: 0.85),
-                                            borderRadius: BorderRadius.circular(6),
+                                            borderRadius: BorderRadius.circular(NeuRadius.r6),
                                             border: Border.all(color: Colors.white24, width: 0.5),
                                           ),
                                           child: Text(
@@ -495,12 +504,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             textAlign: TextAlign.center,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 9.5,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
-                                              letterSpacing: 0.2,
-                                            ),
+                                            style: NeuType.micro(themeNotifier.isDarkTheme, color: Colors.white),
                                           ),
                                         ),
                                       ),
@@ -515,14 +519,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                           bottom: 8,
                           left: 8,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s4),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.75),
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: BorderRadius.circular(NeuRadius.r4),
                             ),
                             child: Text(
                               '${widget.formatNumber(widget.vod.viewCount)} views',
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: Colors.white),
                             ),
                           ),
                         ),
@@ -537,10 +541,10 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
                                           decoration: BoxDecoration(
                                             color: Colors.black.withValues(alpha: 0.9),
-                                            borderRadius: BorderRadius.circular(6),
+                                            borderRadius: BorderRadius.circular(NeuRadius.r6),
                                             border: Border.all(color: NeuTheme.live.withValues(alpha: 0.5), width: 1.0),
                                           ),
                                           child: Row(
@@ -553,21 +557,17 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                   color: NeuTheme.live,
                                                   semanticLabel: 'Downloading',
                                                 ),
-                                                const SizedBox(width: 8),
+                                                const SizedBox(width: NeuSpace.s8),
                                               ],
                                               Text(
                                                 widget.downloadStatus!,
-                                                style: const TextStyle(
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: NeuTheme.live,
-                                                ),
+                                                style: NeuType.micro(themeNotifier.isDarkTheme, color: NeuTheme.live),
                                               ),
                                             ],
                                           ),
                                         ),
                                         if (_isHovered) ...[
-                                          const SizedBox(width: 6),
+                                          const SizedBox(width: NeuSpace.s6),
                                           _buildCardButton(
                                             onTap: widget.onCancel,
                                             icon: Icons.close,
@@ -589,7 +589,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                   tooltip: 'Play Local VOD',
                                                 ),
                                                 if (widget.onOpenFolder != null) ...[
-                                                  const SizedBox(width: 6),
+                                                  const SizedBox(width: NeuSpace.s6),
                                                   _buildCardButton(
                                                     onTap: widget.onOpenFolder!,
                                                     icon: Icons.folder_open,
@@ -597,7 +597,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                     tooltip: 'Show in Explorer',
                                                   ),
                                                 ],
-                                                const SizedBox(width: 6),
+                                                const SizedBox(width: NeuSpace.s6),
                                                 _buildCardButton(
                                                   onTap: widget.onDeleteDownload,
                                                   icon: Icons.delete,
@@ -607,10 +607,10 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               ],
                                             )
                                           : Container(
-                                              padding: const EdgeInsets.all(5),
+                                              padding: const EdgeInsets.all(NeuSpace.s4),
                                               decoration: NeuTheme.raisedDecoration(
                                                 themeNotifier.isDarkTheme,
-                                                radius: 12,
+                                                radius: NeuRadius.r12,
                                                 border: Border.all(color: NeuTheme.liveText(themeNotifier.isDarkTheme), width: 1.5),
                                               ),
                                               child: Icon(
@@ -627,11 +627,11 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               tooltip: 'Download VOD',
                                             )
                                           : Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                              decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 4),
+                                              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s4),
+                                              decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r4),
                                               child: Text(
                                                 timeAgo(widget.vod.publishedAt),
-                                                style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold),
+                                                style: NeuType.captionStrong(themeNotifier.isDarkTheme),
                                               ),
                                             )))),
                         ),
@@ -641,19 +641,21 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                 ),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
                         widget.vod.title,
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: widget.fontSize * (1.0 + (widget.scale - 200.0) / 400.0 * 0.8), 
-                          fontWeight: FontWeight.bold, 
-                          color: themeNotifier.textColor, 
-                          height: 1.25
-                        ),
+                        style: NeuType.bodyStrong(themeNotifier.isDarkTheme,
+                                color: themeNotifier.textColor)
+                            // Intentional: the one user-settable size in the
+                            // app. The step supplies the weight and ink.
+                            .copyWith(
+                                fontSize: widget.titleFontSize,
+                                fontWeight: FontWeight.w700,
+                                height: 1.25),
                       ),
                     ),
                   ),

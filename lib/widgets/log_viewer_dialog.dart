@@ -6,6 +6,7 @@ import '../state/log_line_kind.dart';
 import '../theme/neu_theme.dart';
 import '../theme/theme_notifier.dart';
 import '../utils/time_utils.dart';
+import 'shell/neu_dialog.dart';
 
 /// On-demand process logs.
 ///
@@ -18,8 +19,10 @@ class LogViewerDialog {
     required LogNotifier logs,
     String? initialKey,
   }) {
-    return showDialog(
-      context: context,
+    // Dismissible: it is read-only, and nothing is staged or in flight.
+    return NeuDialog.show<void>(
+      context,
+      dismissible: true,
       builder: (context) =>
           _LogViewerDialog(logs: logs, initialKey: initialKey),
     );
@@ -113,89 +116,87 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
     final lines = _selected == null ? const <String>[] : widget.logs.getLogs(_selected!);
     _followTail();
 
-    return AlertDialog(
-      backgroundColor: themeNotifier.surfaceColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Row(
-        children: [
-          Icon(Icons.terminal, color: themeNotifier.accentInk, size: 18),
-          const SizedBox(width: 10),
-          Text('Diagnostics Log',
-              style: NeuTheme.titleStyle(isDark, fontSize: 16)),
-          const Spacer(),
-          if (_selected != null) ...[
-            TextButton.icon(
-              onPressed: lines.isEmpty
-                  ? null
-                  : () {
-                      Clipboard.setData(ClipboardData(text: lines.join('\n')));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Log copied')),
-                      );
-                    },
-              icon: const Icon(Icons.copy_all, size: 14),
-              label: const Text('Copy all', style: TextStyle(fontSize: 11)),
-            ),
-            TextButton.icon(
-              onPressed: lines.isEmpty
-                  ? null
-                  : () => widget.logs.clear(_selected!),
-              icon: const Icon(Icons.delete_outline, size: 14),
-              label: const Text('Clear', style: TextStyle(fontSize: 11)),
-            ),
-          ],
-        ],
-      ),
-      contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-      content: SizedBox(
-        width: 760,
-        height: 460,
-        child: sessions.isEmpty
-            ? Center(
+    // The widest dialog in the app: two panes side by side, so it asks for
+    // 900 and NeuDialog clamps it to whatever the window can actually hold.
+    return NeuDialog(
+      title: 'Diagnostics log',
+      subtitle: sessions.isEmpty
+          ? null
+          : '${sessions.length} ${sessions.length == 1 ? 'session' : 'sessions'} this run',
+      icon: Icons.terminal,
+      width: 900,
+      maxHeight: 620,
+      scrollable: false,
+      // Copy and Clear act on the selected log rather than on the dialog, so
+      // they sit at the far left of the footer, away from Close. They used to
+      // be crammed into the title bar beside the heading.
+      leadingActions: _selected == null
+          ? const <Widget>[]
+          : [
+              TextButton.icon(
+                onPressed: lines.isEmpty
+                    ? null
+                    : () {
+                        Clipboard.setData(
+                            ClipboardData(text: lines.join('\n')));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Log copied')),
+                        );
+                      },
+                icon: const Icon(Icons.copy_all, size: 14),
+                label: const Text('Copy all', style: NeuType.captionMetrics),
+              ),
+              TextButton.icon(
+                onPressed:
+                    lines.isEmpty ? null : () => widget.logs.clear(_selected!),
+                icon: const Icon(Icons.delete_outline, size: 14),
+                label: const Text('Clear', style: NeuType.captionMetrics),
+              ),
+            ],
+      content: sessions.isEmpty
+          ? SizedBox(
+              height: 200,
+              child: Center(
                 child: Text(
                   'Nothing has run yet this session.',
-                  style: NeuTheme.subtextStyle(isDark, fontSize: 13),
+                  style: NeuType.body(isDark, color: NeuTheme.subtext(isDark)),
                 ),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_requestedGone)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        'That log is no longer available; showing the most recent instead.',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: NeuTheme.dangerText(isDark)),
-                      ),
-                    ),
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          width: 210,
-                          child: ListView.builder(
-                            itemCount: sessions.length,
-                            itemBuilder: (context, i) =>
-                                _sessionTile(sessions[i], isDark, theme),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(child: _logBody(lines, isDark, theme)),
-                      ],
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_requestedGone)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: NeuSpace.s8),
+                    child: Text(
+                      'That log is no longer available; showing the most recent instead.',
+                      style: NeuType.caption(isDark, color: NeuTheme.dangerText(isDark)),
                     ),
                   ),
-                ],
-              ),
-      ),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: 210,
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: sessions.length,
+                          itemBuilder: (context, i) =>
+                              _sessionTile(sessions[i], isDark, theme),
+                        ),
+                      ),
+                      const SizedBox(width: NeuSpace.s12),
+                      Expanded(child: _logBody(lines, isDark, theme)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Close',
-              style: TextStyle(color: NeuTheme.subtext(isDark))),
-        ),
+        NeuDialogAction.secondary('Close', () => Navigator.pop(context)),
       ],
     );
   }
@@ -203,20 +204,20 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
   Widget _sessionTile(LogSession s, bool isDark, ThemeData theme) {
     final selected = s.key == _selected;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: NeuSpace.s4),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(NeuRadius.r8),
         onTap: () => setState(() {
           _selected = s.key;
           _requestedGone = false;
         }),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
           decoration: selected
               ? NeuTheme.sunkenDecoration(isDark,
-                  radius: 8,
+                  radius: NeuRadius.r8,
                   border: Border.all(color: themeNotifier.accentInk, width: 1.5))
-              : NeuTheme.raisedDecoration(isDark, radius: 8),
+              : NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8),
           child: Row(
             children: [
               Icon(_iconFor(s),
@@ -226,7 +227,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                       : (s.isRunning
                           ? NeuTheme.liveText(isDark)
                           : NeuTheme.subtext(isDark))),
-              const SizedBox(width: 8),
+              const SizedBox(width: NeuSpace.s8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,10 +237,9 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                       s.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
+                      style: NeuType.caption(isDark).copyWith(
                         fontWeight:
-                            selected ? FontWeight.bold : FontWeight.w500,
+                            selected ? FontWeight.w700 : FontWeight.w400,
                         color: selected
                             ? theme.primaryColor
                             : NeuTheme.text(isDark),
@@ -251,7 +251,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                           : (s.failed
                               ? 'exit ${s.exitCode} · ${timeAgo(s.startedAt)}'
                               : timeAgo(s.startedAt)),
-                      style: NeuTheme.subtextStyle(isDark, fontSize: 9.5),
+                      style: NeuType.caption(isDark),
                     ),
                   ],
                 ),
@@ -276,14 +276,14 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
     return Container(
       decoration: BoxDecoration(
         color: NeuTheme.terminalBg(isDark),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(NeuRadius.r8),
         border: Border.all(color: NeuTheme.border(isDark)),
       ),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(NeuSpace.s8),
       child: lines.isEmpty
           ? Center(
               child: Text('No output.',
-                  style: NeuTheme.subtextStyle(isDark, fontSize: 12)))
+                  style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark))))
           : SelectionArea(
               child: ListView.builder(
                 controller: _scroll,
@@ -291,16 +291,17 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                 itemBuilder: (context, i) {
                   final line = lines[i];
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
+                    padding: const EdgeInsets.only(bottom: NeuSpace.s4),
                     child: Text(
                       line,
-                      style: TextStyle(
-                        fontFamily: 'Consolas',
-                        fontSize: 11,
-                        height: 1.35,
+                      // 11px rather than mono's 12: a log pane fits a
+                      // meaningful amount more per line, and it is scanned
+                      // rather than read.
+                      style: NeuType.mono(
+                        isDark,
                         color: _colorFor(
                             classifyLogLine(line), isDark, theme.primaryColor),
-                      ),
+                      ).copyWith(fontSize: 11, height: 1.35), // Intentional: 11px
                     ),
                   );
                 },

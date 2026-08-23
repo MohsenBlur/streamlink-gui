@@ -120,7 +120,7 @@ class AppSettings {
     this.disableVodPostProcessing = true,
     this.customVodArgs = '',
     this.vodCardScale = 350.0,
-    this.vodTitleFontSize = 14.0,
+    this.vodTitleFontSize = 18.2,
     this.closeAction = 'tray',
     this.minimizeAction = 'taskbar',
     this.launchAtStartup = false,
@@ -285,7 +285,8 @@ class AppSettings {
         'disable_vod_post_processing': disableVodPostProcessing,
         'custom_vod_args': customVodArgs,
         'vod_card_scale': vodCardScale,
-        'vod_title_font_size': vodTitleFontSize,
+        // The px suffix marks a migrated value; see _vodTitleFontSize.
+        'vod_title_font_size_px': vodTitleFontSize,
         'close_action': closeAction,
         'minimize_action': minimizeAction,
         'launch_at_startup': launchAtStartup,
@@ -311,6 +312,35 @@ class AppSettings {
   static double _clampDouble(dynamic value, double fallback, double min, double max) {
     final n = value is num ? value.toDouble() : fallback;
     return n.clamp(min, max);
+  }
+
+  /// Smallest and largest VOD card title, in logical pixels.
+  ///
+  /// The ceiling is 36 rather than the old slider's 20 because the card used
+  /// to multiply the stored value by up to 1.8x - 20 at scale 600 rendered at
+  /// 36. Narrowing the range would silently shrink the cards of anyone who had
+  /// turned it up.
+  static const double minVodTitleFontSize = 11.0;
+  static const double maxVodTitleFontSize = 36.0;
+
+  /// The rendered VOD title size, migrating a pre-1.6 stored value.
+  ///
+  /// The card multiplied this by `1.0 + (vodCardScale - 200) / 400 * 0.8`, so
+  /// the number in Settings was never the number on screen: at the shipped
+  /// defaults (14, scale 350) titles rendered at 18.2. The multiplier is gone,
+  /// so a value written by an older build is converted to the size it was
+  /// actually rendering and cards keep the size their owner chose.
+  static double _vodTitleFontSize(Map<String, dynamic> json) {
+    final migrated = json['vod_title_font_size_px'];
+    if (migrated != null) {
+      return _clampDouble(migrated, 18.2, minVodTitleFontSize,
+          maxVodTitleFontSize);
+    }
+    final legacy = _clampDouble(json['vod_title_font_size'], 14.0, 11.0, 20.0);
+    final scale = _clampDouble(json['vod_card_scale'], 350.0, 200.0, 600.0);
+    final factor = 1.0 + (scale - 200.0) / 400.0 * 0.8;
+    return (legacy * factor)
+        .clamp(minVodTitleFontSize, maxVodTitleFontSize);
   }
 
   static String _oneOf(dynamic value, List<String> allowed, String fallback) {
@@ -375,8 +405,7 @@ class AppSettings {
         disableVodPostProcessing: _flag(json['disable_vod_post_processing'], true),
         customVodArgs: _str(json['custom_vod_args'], ''),
         vodCardScale: _clampDouble(json['vod_card_scale'], 350.0, 200.0, 600.0),
-        vodTitleFontSize:
-            _clampDouble(json['vod_title_font_size'], 14.0, 11.0, 20.0),
+        vodTitleFontSize: _vodTitleFontSize(json),
         closeAction: _oneOf(json['close_action'], ['tray', 'exit'], 'tray'),
         minimizeAction:
             _oneOf(json['minimize_action'], ['taskbar', 'tray'], 'taskbar'),

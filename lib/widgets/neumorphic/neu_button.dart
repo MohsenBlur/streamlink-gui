@@ -24,7 +24,7 @@ class NeuButton extends StatefulWidget {
     this.onPressed,
     this.width,
     this.height,
-    this.padding = const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    this.padding = const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s12),
     this.borderRadius,
     this.isCircle = false,
     this.isSelected = false,
@@ -99,7 +99,7 @@ class _NeuButtonState extends State<NeuButton> {
             width: widget.width,
             height: widget.height,
             padding: widget.padding,
-            borderRadius: widget.borderRadius ?? BorderRadius.circular(20),
+            borderRadius: widget.borderRadius ?? BorderRadius.circular(NeuRadius.r20),
             isCircle: widget.isCircle,
             style: effectiveStyle,
             color: widget.isSelected

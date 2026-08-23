@@ -22,7 +22,7 @@ class NeuCard extends StatelessWidget {
     required this.child,
     this.width,
     this.height,
-    this.padding = const EdgeInsets.all(16.0),
+    this.padding = const EdgeInsets.all(NeuSpace.s16),
     this.margin = EdgeInsets.zero,
     this.borderRadius,
     this.onTap,
@@ -51,7 +51,7 @@ class NeuCard extends StatelessWidget {
       height: height,
       padding: padding,
       margin: margin,
-      borderRadius: borderRadius ?? BorderRadius.circular(20),
+      borderRadius: borderRadius ?? BorderRadius.circular(NeuRadius.r20),
       style: NeuStyle.raised,
       depth: depth,
       color: baseColor ?? themeNotifier.surfaceColor,
@@ -62,7 +62,7 @@ class NeuCard extends StatelessWidget {
     if (onTap != null) {
       return NeuFocusable(
         onActivate: onTap,
-        focusRadius: (borderRadius ?? BorderRadius.circular(20)).topLeft.x,
+        focusRadius: (borderRadius ?? BorderRadius.circular(NeuRadius.r20)).topLeft.x,
         child: GestureDetector(
           onTap: onTap,
           child: MouseRegion(

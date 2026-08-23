@@ -56,7 +56,7 @@ class NeuContainer extends StatelessWidget {
 
     final effectiveRadius = isCircle
         ? null
-        : (borderRadius ?? BorderRadius.circular(16));
+        : (borderRadius ?? BorderRadius.circular(NeuRadius.r16));
 
     // One recipe, shared with NeuTheme.raised/sunken. This file used to carry
     // its own divergent copy under a comment claiming they matched.

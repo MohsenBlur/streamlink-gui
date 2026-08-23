@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import '../../theme/neu_tokens.dart';
 
 /// How much room the window has, as one shared answer.
 ///
@@ -73,7 +74,7 @@ class AppLayoutData {
 
   /// Page padding, tightened when space is short.
   EdgeInsets get pagePadding =>
-      EdgeInsets.all(isRail ? 12 : 24);
+      EdgeInsets.all(isRail ? NeuSpace.s12 : NeuSpace.s24);
 
   @override
   bool operator ==(Object other) =>
