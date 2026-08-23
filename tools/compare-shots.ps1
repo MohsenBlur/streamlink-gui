@@ -57,8 +57,12 @@ try {
         "region             : ${rx},${ry} ${rw}x${rh}"
     }
 
+    # Counting exact mismatches cannot tell "every pixel shifted by 10 units of
+    # grey" from "the layout broke" - both report ~100%. Magnitude separates
+    # them: a tint change has a small mean delta, a structural change a large
+    # one, because structure means text landing where background was.
     function DiffAt([int]$shift) {
-        $d = 0; $t = 0
+        $d = 0; $t = 0; $sumDelta = 0.0; $big = 0
         $yStart = [Math]::Max($ry, $ry - $shift)
         $yEnd = [Math]::Min($ry + $rh, $a.Height - [Math]::Max(0, $shift))
         for ($y = $yStart; $y -lt $yEnd; $y += $Step) {
@@ -66,36 +70,55 @@ try {
                 if ($ig -and $x -ge $ig.x -and $x -lt ($ig.x + $ig.w) -and
                     $y -ge $ig.y -and $y -lt ($ig.y + $ig.h)) { continue }
                 $t++
-                if ($a.GetPixel($x, $y + $shift).ToArgb() -ne $b.GetPixel($x, $y).ToArgb()) { $d++ }
+                $pa = $a.GetPixel($x, $y + $shift)
+                $pb = $b.GetPixel($x, $y)
+                if ($pa.ToArgb() -ne $pb.ToArgb()) {
+                    $d++
+                    $delta = [Math]::Abs($pa.R - $pb.R) + [Math]::Abs($pa.G - $pb.G) + [Math]::Abs($pa.B - $pb.B)
+                    $sumDelta += $delta
+                    if ($delta -gt 90) { $big++ }   # ~30 per channel: a real repaint
+                }
             }
         }
-        if ($t -eq 0) { return 0.0 }
-        return 100.0 * $d / $t
+        if ($t -eq 0) { return @{ pct = 0.0; meanDelta = 0.0; bigPct = 0.0 } }
+        return @{
+            pct       = 100.0 * $d / $t
+            meanDelta = if ($d -gt 0) { $sumDelta / $d } else { 0.0 }
+            bigPct    = 100.0 * $big / $t
+        }
     }
 
     $direct = DiffAt 0
-    "direct diff        : {0:N2}%" -f $direct
+    "pixels differing   : {0:N2}%" -f $direct.pct
+    "mean delta         : {0:N1} / 765  (small = a tint shift)" -f $direct.meanDelta
+    "substantially diff : {0:N2}%  (large = structure moved)" -f $direct.bigPct
 
-    $best = @{ shift = 0; diff = $direct }
+    $best = @{ shift = 0; r = $direct }
     for ($s = -$MaxShift; $s -le $MaxShift; $s++) {
         if ($s -eq 0) { continue }
         $v = DiffAt $s
-        if ($v -lt $best.diff) { $best = @{ shift = $s; diff = $v } }
+        if ($v.pct -lt $best.r.pct) { $best = @{ shift = $s; r = $v } }
+    }
+    if ($best.shift -ne 0 -and $best.r.pct -lt $direct.pct) {
+        "best shift         : {0}px -> {1:N2}%" -f $best.shift, $best.r.pct
     }
 
-    if ($best.shift -ne 0) {
-        "best shift         : {0}px -> {1:N2}%" -f $best.shift, $best.diff
-    }
-
-    if ($best.diff -lt 0.5 -and $best.shift -ne 0) {
+    if ($best.r.pct -lt 0.5 -and $best.shift -ne 0) {
         Write-Host ("VERDICT: content identical, moved {0}px vertically." -f $best.shift) -ForegroundColor Green
-    } elseif ($direct -lt 0.5) {
+    } elseif ($direct.pct -lt 0.5) {
         Write-Host 'VERDICT: effectively unchanged.' -ForegroundColor Green
-    } elseif ($best.diff -lt 5) {
-        Write-Host ("VERDICT: mostly a {0}px shift, with {1:N2}% real change - inspect." -f $best.shift, $best.diff) -ForegroundColor Yellow
+    } elseif ($direct.meanDelta -lt 30 -and $direct.bigPct -lt 1.0) {
+        # Both conditions matter. A localised layout change touches few pixels
+        # (low bigPct) but moves them a lot (high meanDelta); a tint change
+        # touches many pixels and moves each of them barely.
+        Write-Host ("LIKELY: a uniform tint change - mean delta {0:N1}, only {1:N2}% moved substantially. Still worth a glance." -f $direct.meanDelta, $direct.bigPct) -ForegroundColor Green
+    } elseif ($best.r.pct -lt 5) {
+        Write-Host ("VERDICT: mostly a {0}px shift, with {1:N2}% real change - inspect." -f $best.shift, $best.r.pct) -ForegroundColor Yellow
     } else {
-        Write-Host 'VERDICT: real visual change - look at the capture.' -ForegroundColor Yellow
+        Write-Host ("LIKELY: a real visual change - mean delta {0:N1}, {1:N2}% moved substantially." -f $direct.meanDelta, $direct.bigPct) -ForegroundColor Yellow
     }
+
+    Write-Host 'These numbers narrow down WHERE to look; they do not decide whether it is correct.' -ForegroundColor DarkGray
 } finally {
     $a.Dispose(); $b.Dispose()
 }
