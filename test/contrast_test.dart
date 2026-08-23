@@ -351,9 +351,17 @@ void main() {
       // stale, and it covers all eleven presets on every material.
       for (final m in materialsUnderTest) {
         for (final isDark in [false, true]) {
-          final ground = NeuTheme.palette(isDark, material: m).inkGround;
+          final p = NeuTheme.palette(isDark, material: m);
           kAccentPresets.forEach((name, accent) {
-            if (NeuTheme.contrastRatio(accent, ground) < kTextAA) return;
+            // The SAME set the derivation walks against, including the accent's
+            // own 15% wash - a selected control's ground. Checking a narrower
+            // set makes the derivation look like it restyled something that
+            // was already fine.
+            final grounds = NeuTheme.accentGrounds(accent, p);
+            if (grounds
+                .any((g) => NeuTheme.contrastRatio(accent, g) < kTextAA)) {
+              return;
+            }
             expect(
               NeuTheme.accentInk(accent, isDark, material: m),
               accent,
@@ -371,9 +379,12 @@ void main() {
       // the headroom, so at least one must.
       var untouched = 0;
       for (final m in materialsUnderTest) {
-        final ground = NeuTheme.palette(true, material: m).inkGround;
+        final p = NeuTheme.palette(true, material: m);
         for (final accent in kAccentPresets.values) {
-          if (NeuTheme.contrastRatio(accent, ground) >= kTextAA) untouched++;
+          final grounds = NeuTheme.accentGrounds(accent, p);
+          if (grounds.every((g) => NeuTheme.contrastRatio(accent, g) >= kTextAA)) {
+            untouched++;
+          }
         }
       }
       expect(untouched, greaterThan(0),
@@ -504,6 +515,55 @@ void main() {
               'screen is still emissive',
         );
       }
+    });
+  });
+
+  group('a raw accent is never used as a foreground', () {
+    // The bug this catches shipped three times over. `accentInk` exists
+    // precisely because the raw presets are unusable as ink - Cyan measures
+    // 1.04:1 on the light well - and the app derives it correctly in most
+    // places. But a *selected* control paints its label on that same accent at
+    // 15% alpha, so ink and ground are the same hue at close lightness, and
+    // NeuButton used the raw value there: Cyan on the Library tab's
+    // always-selected sort button measured 1.015:1.
+    //
+    // The existing accent group could not see it, because it only ever
+    // measures `accentInk`'s OUTPUT. This measures the input against the
+    // ground a selected control actually paints.
+    for (final m in materialsUnderTest) {
+      for (final isDark in [false, true]) {
+        final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
+
+        test('a selected control is legible on its own accent tint — $mode',
+            () {
+          final p = NeuTheme.palette(isDark, material: m);
+          kAccentPresets.forEach((name, accent) {
+            // NeuButton fills a selected surface with the accent at 15% over
+            // the sunken ground, then paints the label on top of that.
+            for (final role in [SurfaceRole.sunken, SurfaceRole.raised]) {
+              final tint = Color.alphaBlend(
+                  accent.withValues(alpha: 0.15), p.worstGround(role));
+              final ink = NeuTheme.accentInk(accent, isDark, material: m);
+              final ratio = NeuTheme.contrastRatio(ink, tint);
+              expect(ratio, greaterThanOrEqualTo(kTextAA),
+                  reason: 'selected $name on its own 15% tint over $role '
+                      '($mode) measured ${ratio.toStringAsFixed(2)}:1');
+            }
+          });
+        });
+      }
+    }
+
+    test('the raw preset really is unusable, so this is not vacuous', () {
+      // If the raw accent happened to be readable on its own tint, the guard
+      // above would pass whether or not the app derived anything.
+      final p = NeuTheme.palette(false, material: materialsUnderTest.first);
+      const cyan = Color(0xFF00F2FE);
+      final tint = Color.alphaBlend(
+          cyan.withValues(alpha: 0.15), p.worstGround(SurfaceRole.sunken));
+      expect(NeuTheme.contrastRatio(cyan, tint), lessThan(kTextAA),
+          reason: 'the raw accent is readable on its own tint, so nothing in '
+              'this group is proving that deriving it mattered');
     });
   });
 

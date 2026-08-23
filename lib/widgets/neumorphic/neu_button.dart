@@ -47,7 +47,21 @@ class _NeuButtonState extends State<NeuButton> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // The RAW accent, used as a fill and a border tint below.
     final accentColor = widget.activeColor ?? theme.primaryColor;
+    // The readable form of it, for anything drawn as a foreground.
+    //
+    // The selected label used to take `accentColor` directly, on a ground that
+    // is that same accent at 15% - so the ink and its background were the same
+    // hue at close lightness. Cyan (#00F2FE), a shipped preset, measured
+    // 1.015:1 on the Library tab's always-selected sort button; Twitch Purple
+    // on dark, 2.17:1. The app already solved this three times over
+    // (`NeuTheme.accentInk`, `neu_focusable`, `neu_text_field`); these two call
+    // sites were simply missed, and `contrast_test` never caught it because it
+    // only ever measures `accentInk`'s OUTPUT, never a raw preset used as ink.
+    final accentInk = widget.activeColor == null
+        ? themeNotifier.accentInk
+        : NeuTheme.accentInk(widget.activeColor!, themeNotifier.isDarkTheme);
 
     final effectiveStyle = (widget.isSelected || _isPressed)
         ? NeuStyle.sunken
@@ -66,7 +80,7 @@ class _NeuButtonState extends State<NeuButton> {
         color: !_enabled
             ? NeuTheme.disabledText(themeNotifier.isDarkTheme)
             : widget.isSelected
-                ? accentColor
+                ? accentInk
                 : themeNotifier.textColor,
         fontWeight: widget.isSelected ? FontWeight.bold : FontWeight.w600,
       ),
@@ -103,7 +117,7 @@ class _NeuButtonState extends State<NeuButton> {
             isCircle: widget.isCircle,
             style: effectiveStyle,
             color: widget.isSelected
-                ? accentColor.withValues(alpha: 0.15)
+                ? accentColor.withValues(alpha: NeuTheme.selectedTintAlpha)
                 : widget.baseColor,
             // Scale-relative, so a state always lands on a real elevation
             // step. The old arithmetic - depth * 0.35 clamped to 1..3, and
@@ -172,9 +186,12 @@ class NeuIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    // Readable, not raw - see the note in NeuButton.build. A selected icon sits
+    // on the same 15% tint of the same hue as a selected label does.
     final effectiveIconColor = isSelected
-        ? (activeColor ?? theme.primaryColor)
+        ? (activeColor == null
+            ? themeNotifier.accentInk
+            : NeuTheme.accentInk(activeColor!, themeNotifier.isDarkTheme))
         : (iconColor ?? themeNotifier.textColor);
 
     return NeuButton(

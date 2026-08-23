@@ -2086,7 +2086,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           // w600: w500 is not a real weight in Segoe UI, so this snackbar
           // has always rendered at w400. A notification should stand out.
           style: TextStyle(
-            color: isError ? Colors.white : themeNotifier.onPrimaryColor,
+            color: isError
+                ? NeuTheme.onAccent(NeuTheme.danger)
+                : themeNotifier.onPrimaryColor,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -2107,7 +2109,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   SnackBarAction _viewLogAction(String logKey) {
     return SnackBarAction(
       label: 'View log',
-      textColor: Colors.white,
+      // Sits on the danger fill; see the note in NeuDialog._primaryButton.
+      textColor: NeuTheme.onAccent(NeuTheme.danger),
       onPressed: () => LogViewerDialog.show(context,
           logs: _logNotifier, initialKey: logKey),
     );

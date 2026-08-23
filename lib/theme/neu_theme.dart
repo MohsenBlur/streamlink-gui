@@ -133,9 +133,74 @@ class NeuTheme {
   ///
   /// Cost is a short loop, so callers should cache — see
   /// `AppThemeNotifier.accentInk`.
+  /// How much of the accent a SELECTED control washes over its ground.
+  ///
+  /// Shared with `NeuButton` so the derivation and the fill cannot drift: the
+  /// ink has to be readable on the exact wash the control paints, and a
+  /// constant in one file and a literal in the other is how that stops being
+  /// true without anything failing.
+  static const double selectedTintAlpha = 0.15;
+
   static Color accentInk(Color accent, bool isDark, {AppMaterial? material}) {
     final p = palette(isDark, material: material);
-    return readableOn(accent, p, ground: p.inkGround);
+    // An accent lands on two kinds of ground, and deriving against only the
+    // first is how a *selected* control ends up with its label at 4.07:1.
+    //
+    // Ordinary surfaces are one. The other is the accent's own wash: a
+    // selected control fills with `accent @ selectedTintAlpha` and then paints
+    // the label on top, so ink and ground are the same hue at close lightness -
+    // the hardest case there is, and the one nobody thinks to measure because
+    // the ground is not in the palette.
+    return readableOnAll(accent, p, grounds: accentGrounds(accent, p));
+  }
+
+  /// Every ground the accent is drawn on, as a foreground.
+  ///
+  /// Public because the contrast tests have to measure against exactly this
+  /// set. A test that checks a narrower set will report an ink as "already
+  /// readable" when the derivation can see that it is not, which reads as the
+  /// derivation restyling something it should have left alone.
+  static List<Color> accentGrounds(Color accent, MaterialPalette p) => <Color>[
+        p.inkGround,
+        for (final role in const [
+          SurfaceRole.sunken,
+          SurfaceRole.raised,
+          SurfaceRole.panel,
+        ])
+          Color.alphaBlend(
+              accent.withValues(alpha: selectedTintAlpha), p.worstGround(role)),
+      ];
+
+  /// [readableOn], but the result has to clear the bar on **every** ground.
+  ///
+  /// Walking against the single worst ground is not enough once the grounds
+  /// are not ordered the same way for every candidate: darkening ink helps it
+  /// on a light surface and hurts it on the accent's own dark wash, so the
+  /// "worst" ground changes as the walk proceeds. Checking all of them at each
+  /// step is the only formulation that terminates on the right value.
+  static Color readableOnAll(
+    Color source,
+    MaterialPalette p, {
+    required List<Color> grounds,
+    double target = _inkTarget,
+  }) {
+    bool clears(Color c) =>
+        grounds.every((g) => contrastRatio(c, g) >= target);
+    if (clears(source)) return source;
+
+    final hsl = HSLColor.fromColor(source);
+    final darken = p.isLight;
+    final saturation =
+        darken ? (hsl.saturation * 1.10).clamp(0.0, 1.0) : hsl.saturation;
+    for (var i = 1; i <= 200; i++) {
+      final lightness = darken
+          ? (hsl.lightness - i * 0.005).clamp(0.03, 1.0)
+          : (hsl.lightness + i * 0.005).clamp(0.0, 0.97);
+      final candidate =
+          hsl.withSaturation(saturation).withLightness(lightness).toColor();
+      if (clears(candidate)) return candidate;
+    }
+    return p.text;
   }
 
   /// The accent made readable on a [SurfaceRole.screen].

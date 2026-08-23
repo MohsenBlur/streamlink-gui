@@ -8,6 +8,7 @@ import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/dashboard_header.dart';
 import 'package:streamlink_gui/widgets/library_view.dart';
+import 'package:streamlink_gui/widgets/shell/app_chassis.dart';
 import 'package:streamlink_gui/widgets/shell/app_layout.dart';
 import 'package:streamlink_gui/widgets/shell/neu_dialog.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
@@ -75,7 +76,15 @@ void main() {
         ),
         home: AppLayout(
           data: AppLayoutData.fromSize(size),
-          child: Scaffold(body: build()),
+          // Wrapped in AppChassis, exactly as main.dart wraps the Scaffold
+          // body. Omitting it is how a 2px discrepancy shipped: the chassis was
+          // a `Container` whose decoration reported `EdgeInsets.all(1)` of
+          // padding, so the app body was 378 wide in a 380 window while this
+          // sweep measured a full 380 and passed.
+          //
+          // Anything that wraps every surface in the app belongs in the
+          // harness that claims to sweep every surface.
+          child: Scaffold(body: AppChassis(child: build())),
         ),
       ));
       // Long enough for every entrance animation in these surfaces to settle;

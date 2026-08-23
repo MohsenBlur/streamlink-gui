@@ -62,15 +62,42 @@ class AppChassis extends StatelessWidget {
     final spec = MaterialSpec.of(NeuTheme.activeMaterial);
     final showOrnament = showsFurniture(context);
 
-    return Container(
-      decoration: NeuTheme.panel(isDark, radius: 0, base: NeuTheme.canvas(isDark)),
-      foregroundDecoration: showOrnament
-          ? ChassisFurniture(
-              furniture: spec.furniture,
-              palette: NeuTheme.palette(isDark),
-            )
-          : null,
-      child: child,
+    // DecoratedBox, not Container, and that is not a style preference.
+    //
+    // `Container` folds `decoration.padding` into layout, and
+    // `SkeuoDecoration.padding` is `EdgeInsets.all(bevelWidth)` - correct for a
+    // control, which really does inset its content by its own edge, and wrong
+    // for the window, which has no content to inset. It cost the app body two
+    // logical pixels: 378 inside a 380 window, so the portrait rail overflowed
+    // its Row by exactly 2.0px at the enforced minimum, in every material,
+    // independent of any data. Debug drew the striped banner; release clips
+    // nothing and simply painted the trailing control past the window edge.
+    //
+    // The real-surface sweep never mounted this widget, so it measured 380
+    // where the app had 378.
+    // Two nested DecoratedBoxes rather than one Container: `DecoratedBox` has
+    // no `foregroundDecoration`, and `position: DecorationPosition.foreground`
+    // is the same thing spelled as a parameter.
+    final ornament = showOrnament
+        ? ChassisFurniture(
+            furniture: spec.furniture,
+            palette: NeuTheme.palette(isDark),
+          )
+        : null;
+
+    Widget body = child;
+    if (ornament != null) {
+      body = DecoratedBox(
+        decoration: ornament,
+        position: DecorationPosition.foreground,
+        child: body,
+      );
+    }
+
+    return DecoratedBox(
+      decoration:
+          NeuTheme.panel(isDark, radius: 0, base: NeuTheme.canvas(isDark)),
+      child: body,
     );
   }
 }

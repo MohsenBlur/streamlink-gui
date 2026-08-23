@@ -245,6 +245,32 @@ void main() {
       'Gold': Color(0xFFF59E0B),
     };
 
+    test('every brand FILL gets a readable ink on it', () {
+      // `onAccent` was only ever exercised against the eleven accent presets,
+      // so the four brand fills - which are used as button and snackbar
+      // backgrounds exactly like an accent is - were never measured. White on
+      // `danger` (#FF4565) is 3.34:1, and that is the confirm button on every
+      // destructive dialog in the app.
+      const fills = <String, Color>{
+        'danger': NeuTheme.danger,
+        'live': NeuTheme.live,
+        'warning': NeuTheme.warning,
+        'favorite': NeuTheme.favorite,
+      };
+      fills.forEach((name, fill) {
+        final ink = NeuTheme.onAccent(fill);
+        final ratio = NeuTheme.contrastRatio(ink, fill);
+        expect(ratio, greaterThanOrEqualTo(4.5),
+            reason: '$name fill gives ${ratio.toStringAsFixed(2)}:1');
+      });
+    });
+
+    test('white specifically is NOT readable on danger', () {
+      // The value that shipped, asserted as unusable so nobody puts it back.
+      expect(NeuTheme.contrastRatio(const Color(0xFFFFFFFF), NeuTheme.danger),
+          lessThan(4.5));
+    });
+
     test('every shipped accent gets a readable ink', () {
       // This asserts the PROPERTY, not the colour. The previous version listed
       // which accents "need white" and which "need dark ink", which encoded

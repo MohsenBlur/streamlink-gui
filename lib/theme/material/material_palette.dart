@@ -687,8 +687,24 @@ class MaterialPalette {
     return (hi + 0.05) / (lo + 0.05);
   }
 
-  Color worstGround(SurfaceRole role) {
-    final base = groundFor(RoleModifier.of(role).fill);
+  /// The darkest (or lightest) pixel a glyph can land on for [role].
+  ///
+  /// [depth] matters and used to be missing, which made this whole model
+  /// measure a surface the app never paints. `SkeuoDecoration.role` folds the
+  /// elevation overlay into the base **before** the gradient sees it, so on a
+  /// palette using [DarkDepth.elevationOverlay] - Rack dark, the shipped
+  /// default in the default theme - a raised surface at `NeuCard`'s depth 6
+  /// paints #55585E where this returned #444850. `subtext` measured 5.17:1
+  /// against the answer and 4.02:1 against the pixel, and because [inkGround]
+  /// is built from the same values, every derived ink in the app - including
+  /// the focus ring - was tuned against a ground that does not exist.
+  ///
+  /// Defaults to the deepest overlay the palette declares rather than to zero:
+  /// a caller that does not name a depth is asking "what is the worst case
+  /// anywhere", and the worst case is the most elevated surface.
+  Color worstGround(SurfaceRole role, {double? depth}) {
+    var base = groundFor(RoleModifier.of(role).fill);
+    base = withElevationOverlay(base, depth: depth);
     final stops = <Color>[base, for (final s in fill) shadeStop(base, s)];
     stops.sort((a, b) => a.computeLuminance().compareTo(b.computeLuminance()));
 
@@ -760,6 +776,26 @@ class MaterialPalette {
   /// canvas and a near-black screen is an empty set — the best any single
   /// colour reaches across that pair is about 3.73:1. Screen ink is derived
   /// separately.
+  /// The elevation overlay `SkeuoDecoration.role` blends into a base.
+  ///
+  /// Kept here rather than only in the painter so the contrast model and the
+  /// painter cannot disagree about what colour a surface actually starts from.
+  Color withElevationOverlay(Color base, {double? depth}) {
+    if (darkDepth != DarkDepth.elevationOverlay) return base;
+    final double a;
+    if (depth == null) {
+      // No depth named means "the worst case anywhere", which is the deepest
+      // overlay this palette declares.
+      a = elevationOverlay.values.isEmpty
+          ? 0.0
+          : elevationOverlay.values.reduce((x, y) => x > y ? x : y);
+    } else {
+      a = overlayFor(depth);
+    }
+    if (a <= 0) return base;
+    return Color.alphaBlend(const Color(0xFFFFFFFF).withValues(alpha: a), base);
+  }
+
   Color get inkGround {
     // EVERY non-screen role, not a hand-picked three. `flat` fills from the
     // canvas and `well` from the well, and a derivation that skipped them

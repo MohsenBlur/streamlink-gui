@@ -74,7 +74,12 @@ void main() {
           // away from its worst case entirely.
           for (final role in SurfaceRole.values) {
             final worst = p.worstGround(role).computeLuminance();
-            final base = p.groundFor(RoleModifier.of(role).fill);
+            // The SAME base the painter starts from, overlay included. Reading
+            // the raw ground here is precisely the bug this contract exists to
+            // catch: it made the assertion compare the model against a surface
+            // neither it nor the painter produces.
+            final base = p.withElevationOverlay(
+                p.groundFor(RoleModifier.of(role).fill));
             final stops = [base, for (final s in p.fill) p.shadeStop(base, s)];
             final lum = stops.map((c) => c.computeLuminance()).toList()..sort();
             final amp = p.texture?.amplitudeFor(role) ?? 0;

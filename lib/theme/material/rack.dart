@@ -95,8 +95,19 @@ const MaterialPalette _rackDark = MaterialPalette(
   screen: Color(0xFF0C0F13),
   screenIsEmissive: true,
   text: Color(0xFFE8EBEF),
-  subtext: Color(0xFFB9C3D2),
-  disabledText: Color(0xFF8F99A8),
+  // Both lightened after `worstGround` learned about the elevation overlay.
+  //
+  // This palette carries its depth by blending white INTO the base before the
+  // gradient sees it - up to 11% at depth 8 - so an elevated surface paints far
+  // lighter than its token. The contrast model did not know that, so it
+  // measured #444850 where a NeuCard actually paints #55585E: subtext read
+  // 5.17:1 against the answer and 3.69:1 against the pixel, and disabledText
+  // 2.28:1 against a 3:1 bar.
+  //
+  // These are the measured minima on the worst ground the app can produce, not
+  // round numbers - see the note on `worstGround`.
+  subtext: Color(0xFFD0D7E1),
+  disabledText: Color(0xFFA8B0BC),
   border: Color(0xFF737A88),
   // The legacy highlight/shadow pair, still read by eight sites outside the
   // engine - the switch knob, the LED collar, the avatar frame. Graphite

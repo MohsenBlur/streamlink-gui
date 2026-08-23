@@ -226,8 +226,11 @@ class _VodsGridState extends State<VodsGrid> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               // Selected chips sit on NeuButton's translucent
-                              // accent TINT, so the readable color is the accent
-                              // itself (NeuButton's own selected text style).
+                              // accent TINT - the same hue as the ink - so the
+                              // readable colour is the DERIVED accent, not the
+                              // raw one. The comment here used to claim the
+                              // opposite and the label below followed it: Cyan
+                              // rendered at 1.015:1.
                               if (isSelected) ...[
                                 Icon(Icons.check, size: 13, color: themeNotifier.accentInk),
                                 const SizedBox(width: NeuSpace.s4),
@@ -241,7 +244,7 @@ class _VodsGridState extends State<VodsGrid> {
                                       ? FontWeight.w700
                                       : FontWeight.w600,
                                   color: isSelected
-                                      ? widget.theme.primaryColor
+                                      ? themeNotifier.accentInk
                                       : themeNotifier.textColor,
                                 ),
                               ),

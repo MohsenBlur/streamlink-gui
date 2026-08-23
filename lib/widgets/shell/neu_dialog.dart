@@ -421,7 +421,15 @@ class NeuDialog extends StatelessWidget {
       return ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: NeuTheme.danger,
-          foregroundColor: Colors.white,
+          // `onAccent`, not white. `danger` is #FF4565 and white on it is
+          // 3.34:1 - the label renders 14px w700, which is normal text under
+          // WCAG, so it needs 4.5. Near-black gives 5.82:1.
+          //
+          // This is the confirm button on every destructive dialog in the app:
+          // Exit anyway, Remove, Cancel download, Delete, Delete N VODs, Clear
+          // history. `danger` is a brand fill rather than a palette ground, so
+          // no amount of material work was ever going to reach it.
+          foregroundColor: NeuTheme.onAccent(NeuTheme.danger),
         ),
         onPressed: action.onPressed,
         child: Text(
