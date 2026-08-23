@@ -1,5 +1,5 @@
 name: streamlink_gui
-description: "A new Flutter project."
+description: "A Windows desktop app for watching Twitch live streams and past broadcasts in your own media player, with VOD downloads and favorites automation."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
