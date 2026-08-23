@@ -3252,8 +3252,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Widget _buildDashboard(ThemeData theme, TwitchChannel channel) {
-    final layout = AppLayout.of(context);
-    final isSmall = !layout.hasWideControls;
+    // maybeOf, not of. This method is CALLED from build() with the State's own
+    // context, which sits ABOVE the AppLayout that build() returns - so
+    // AppLayout.of asserted "No AppLayout ancestor" and took the entire
+    // channel dashboard down. maybeOf measures the media query instead, which
+    // yields the same values.
+    final layout = AppLayout.maybeOf(context);
+    // isSmall is gone: the VOD toolbar no longer has a wide-only variant to
+    // switch to, because the inline duplicate of the display controls was
+    // removed in favour of the single popover.
     final isCompact = layout.isRail;
     // CustomScrollView so the VOD grid renders as a real SliverGrid and
     // off-screen cards are culled; the old SingleChildScrollView +
@@ -3403,100 +3410,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         ],
                       ),
                       ),
+                      // One control path, not two. These settings used to be
+                      // rendered inline when the window was wide and in a
+                      // popover when it was narrow, and the two copies had
+                      // already drifted ('Font: ' versus 'Font Size: ', a
+                      // 110px slider versus an Expanded one). The popover is
+                      // the better layout and is what most windows already
+                      // showed, so it is now what every window shows.
                       if (!_isMultiSelectMode)
-                        isSmall
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  InteractivePopover(
-                                    popover: _buildVodsSettingMenu(theme),
-                                    child: _VodSettingsHoverButton(theme: theme),
-                                  ),
-                                ],
-                              )
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Tooltip(
-                                    message: 'Show all played games on thumbnails at a glance',
-                                    decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 6),
-                                    textStyle: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 10, fontWeight: FontWeight.bold),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                        const SizedBox(width: 4),
-                                        Text('Show All Games', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                                        const SizedBox(width: 8),
-                                        NeuSwitch(
-                                          value: _settings.showGamesOnThumbnails,
-                                          onChanged: (val) {
-                                            setState(() {
-                                              _settings.showGamesOnThumbnails = val;
-                                            });
-                                            _saveChannels();
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  SizedBox(
-                                    width: 160,
-                                    child: NeuTextField(
-                                      controller: _vodSearchController,
-                                      hintText: 'Filter VODs...',
-                                      prefixIcon: Icons.search,
-                                      size: NeuFieldSize.sm,
-                                      onChanged: (val) => setState(() {}),
-                                      onClear: () => setState(() {}),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Icon(Icons.photo_size_select_large, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                  const SizedBox(width: 6),
-                                  Text('Card Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                  SizedBox(
-                                    width: 110,
-                                    child: SliderTheme(
-                                      data: neuSliderTheme(context),
-                                      child: Slider(
-                                        value: _settings.vodCardScale,
-                                        min: 200.0,
-                                        max: 600.0,
-                                        onChanged: (val) {
-                                          setState(() {
-                                            _settings.vodCardScale = val;
-                                          });
-                                        },
-                                        onChangeEnd: (_) => _saveChannels(),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Icon(Icons.format_size, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                  const SizedBox(width: 6),
-                                  Text('Font: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                  SizedBox(
-                                    width: 90,
-                                    child: SliderTheme(
-                                      data: neuSliderTheme(context),
-                                      child: Slider(
-                                        value: _settings.vodTitleFontSize,
-                                        min: 11.0,
-                                        max: 20.0,
-                                        onChanged: (val) {
-                                          setState(() {
-                                            _settings.vodTitleFontSize = val;
-                                          });
-                                        },
-                                        onChangeEnd: (_) => _saveChannels(),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                        InteractivePopover(
+                          popover: _buildVodsSettingMenu(theme),
+                          child: _VodDisplayButton(theme: theme),
+                        ),
                       if (_isLoadingVods) ...[
                         const SizedBox(width: 12),
                         const SizedBox(
@@ -4146,52 +4071,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 }
 
-class _VodSettingsHoverButton extends StatefulWidget {
+/// The trigger for the VOD display settings.
+///
+/// Was a hover-morphing chip that only revealed its accent styling when the
+/// pointer was over it, and appeared ONLY when the window was narrow - so at
+/// wide widths the controls it opens had no button at all, and at narrow
+/// widths there was no static hint that a menu existed. It is now a plain
+/// labelled button, present at every width.
+class _VodDisplayButton extends StatelessWidget {
+  const _VodDisplayButton({required this.theme});
+
   final ThemeData theme;
-  const _VodSettingsHoverButton({Key? key, required this.theme}) : super(key: key);
-
-  @override
-  State<_VodSettingsHoverButton> createState() => _VodSettingsHoverButtonState();
-}
-
-class _VodSettingsHoverButtonState extends State<_VodSettingsHoverButton> {
-  bool isHovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => isHovered = true),
-      onExit: (_) => setState(() => isHovered = false),
-      cursor: SystemMouseCursors.click,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: isHovered
-            ? NeuTheme.raisedDecoration(
-                themeNotifier.isDarkTheme,
-                radius: 6,
-                border: Border.all(color: themeNotifier.accentInk, width: 1.5),
-              )
-            : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.tune,
-              color: isHovered ? themeNotifier.accentInk : NeuTheme.text(themeNotifier.isDarkTheme),
-              size: 16,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              'VOD Settings',
-              style: TextStyle(
-                color: isHovered ? themeNotifier.accentInk : NeuTheme.text(themeNotifier.isDarkTheme),
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
+    final isDark = themeNotifier.isDarkTheme;
+    return NeuButton(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      borderRadius: BorderRadius.circular(NeuRadius.r8),
+      tooltip: 'Card size, title size, filters and game badges',
+      onPressed: null,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.tune, size: 15, color: NeuTheme.text(isDark)),
+          const SizedBox(width: NeuSpace.s6),
+          Text('Display',
+              style: NeuTheme.bodyStyle(isDark, fontSize: 12)),
+          const SizedBox(width: NeuSpace.s2),
+          Icon(Icons.arrow_drop_down, size: 16, color: NeuTheme.subtext(isDark)),
+        ],
       ),
     );
   }

@@ -198,14 +198,17 @@ if ($ClickAt) {
 
     [Win32Shot]::ClickAbsolute($cx, $cy)
     Start-Sleep -Milliseconds 900
+    # NOTE: topmost is NOT dropped here. Doing so immediately after the click
+    # let the window fall behind, and PrintWindow then captured a released
+    # compositor surface - a uniformly #B5B5B5 rectangle that looks exactly
+    # like a crash. It is restored after the capture instead.
+    $script:restoreTopmost = $true
 
     # Park the cursor off the window before capturing. Leaving it where it
     # clicked leaves a hover highlight on whatever is under it, which shows up
     # as a real-looking difference when comparing two phases' captures.
     [Win32Shot]::SetCursorPos($rect0Right + 40, $r0.Top + 4) | Out-Null
     Start-Sleep -Milliseconds 500
-
-    [Win32Shot]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
 }
 
 # --- capture ---------------------------------------------------------------
@@ -247,6 +250,10 @@ try {
     }
     $uniform = ($seen.Count -le 1)
 } finally { $check.Dispose() }
+
+if ($script:restoreTopmost) {
+    [Win32Shot]::SetWindowPos($hwnd, (New-Object IntPtr(-2)), 0, 0, 0, 0, 0x0002 -bor 0x0001 -bor 0x0010) | Out-Null
+}
 
 Write-Host ("Saved {0} ({1}x{2})" -f $Out, $w, $h) -ForegroundColor Green
 if ($uniform) { Write-Warning 'Capture may be blank - two sampled pixels are identical. Check PW_RENDERFULLCONTENT and that the window is not occluded.' }

@@ -94,6 +94,20 @@ foreach ($dark in $themes) {
         }
         & (Join-Path $PSScriptRoot 'shoot.ps1') @args
     }
+
+    # Other screens, reached by clicking. Home alone is NOT enough coverage:
+    # a crash in the channel dashboard survived seven phases of this matrix
+    # because every capture showed the welcome screen, which never builds it.
+    & (Join-Path $PSScriptRoot 'shoot.ps1') @{
+        Out = "shots/$Phase/channel_1600x1000$suffix.png"
+        Width = 1600; Height = 1000; SettleMs = 3500
+        ClickAt = '120,400'          # first channel row in the sidebar
+    }
+    & (Join-Path $PSScriptRoot 'shoot.ps1') @{
+        Out = "shots/$Phase/library_1600x1000$suffix.png"
+        NoResize = $true; SettleMs = 2500
+        ClickAt = '44,960'           # Library button, sidebar footer
+    }
 }
 
 if (-not $KeepOpen) { Stop-App }

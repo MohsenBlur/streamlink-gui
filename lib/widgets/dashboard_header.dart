@@ -659,9 +659,17 @@ class _SpinningIconState extends State<_SpinningIcon>
   );
 
   @override
-  void initState() {
-    super.initState();
-    if (!NeuMotion.reduced(context)) _controller.repeat();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // NOT initState: reading MediaQuery there throws, and in a RELEASE build a
+    // thrown exception during build renders as a blank grey rectangle rather
+    // than the red error box - so this failed silently and looked like a
+    // crash. Exactly the same mistake as the LED indicator, made twice.
+    if (NeuMotion.reduced(context)) {
+      _controller.stop();
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   @override
