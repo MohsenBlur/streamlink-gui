@@ -8,6 +8,8 @@ import '../theme/neu_theme.dart';
 import 'neumorphic/neu_progress.dart';
 import 'neumorphic/neu_badge.dart';
 import 'neumorphic/neu_icon_action.dart';
+import 'shell/section_header.dart';
+import 'shell/empty_state.dart';
 import '../theme/theme_notifier.dart';
 import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
@@ -271,13 +273,10 @@ class _LibraryViewState extends State<LibraryView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('IN PROGRESS',
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.8,
-                          color: NeuTheme.subtext(isDark),
-                        )),
+                    const SectionHeader(
+                      title: 'In progress',
+                      density: SectionDensity.inline,
+                    ),
                     const SizedBox(height: 6),
                     for (final item in live) _liveRow(item, theme, isDark),
                   ],
@@ -288,15 +287,30 @@ class _LibraryViewState extends State<LibraryView> {
         const SizedBox(height: 12),
         Expanded(
           child: visible.isEmpty
-              ? Center(
-                  child: Text(
-                    widget.entries.isEmpty
-                        ? 'Nothing here yet. Downloaded VODs and your watch history will appear in the Library.'
-                        : 'No entries match the current search or filter.',
-                    style: NeuTheme.subtextStyle(isDark, fontSize: 13),
-                    textAlign: TextAlign.center,
-                  ),
-                )
+              ? (widget.entries.isEmpty
+                  ? const EmptyState(
+                      icon: Icons.video_library_outlined,
+                      title: 'Nothing here yet',
+                      message: 'VODs you download and broadcasts you watch will '
+                          'appear here.',
+                    )
+                  : EmptyState(
+                      icon: Icons.search_off,
+                      title: 'No matches',
+                      message: 'Nothing in the Library matches the current '
+                          'search or filter.',
+                      action: NeuButton(
+                        onPressed: () => setState(() {
+                          _search.clear();
+                          _channelFilter = null;
+                        }),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        borderRadius: BorderRadius.circular(8),
+                        child: const Text('Clear filters',
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                    ))
               : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
                   itemCount: visible.length,
