@@ -810,6 +810,20 @@ class SettingsDialog {
                                         ),
                                         onPressed: () {
                                           onConnectAccount();
+                                          // Restore before popping: this exits
+                                          // the dialog without saving, so the
+                                          // live theme edits from the
+                                          // Appearance tab have to come back
+                                          // the way Cancel brings them back.
+                                          // Without it the session runs on a
+                                          // material the config does not
+                                          // record and the next launch
+                                          // silently reverts - the exact
+                                          // symptom the restore exists to
+                                          // prevent. Escape and the scrim are
+                                          // both disabled, so this was the
+                                          // only unguarded exit.
+                                          restoreLiveThemeEdits();
                                           Navigator.pop(context);
                                         },
                                         icon: Icon(Icons.login, size: 12, color: NeuTheme.onAccent(themeNotifier.accentInk)),
@@ -1349,7 +1363,18 @@ class SettingsDialog {
                                 isDarkTheme: themeNotifier.isDarkTheme,
                                 lightAccentColorHex: colorToHex(themeNotifier.lightAccentColor),
                                 darkAccentColorHex: colorToHex(themeNotifier.darkAccentColor),
-                                material: themeNotifier.material.key,
+                                // Only written when the user actually changed
+                                // it. `themeNotifier.material` is the RESOLVED
+                                // value, and main.dart deliberately leaves it
+                                // at the fallback for a key this build does not
+                                // implement - so writing it unconditionally
+                                // turns "open Settings, press Save" into
+                                // "silently destroy the material a newer build
+                                // chose". Every autosave path already got this
+                                // right; this was the one that did not.
+                                material: themeNotifier.material == originalMaterial
+                                    ? settings.material
+                                    : themeNotifier.material.key,
                               );
 
                               onSave(updated);

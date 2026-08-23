@@ -172,9 +172,15 @@ MaterialPalette _soft(bool isDark) {
     surface: NeuTheme.rawSurface(isDark),
     well: NeuTheme.rawWellSurface(isDark),
     // Soft has no screen of its own; the well is the closest it has to a
-    // recessed display, and reusing it keeps the role total rather than
-    // inventing a colour this material never had.
-    screen: NeuTheme.rawWellSurface(isDark),
+    // The frozen v1.6.0 log-pane ground. `Soft` is contracted to be
+    // pixel-identical to what shipped, and the only surface the screen role
+    // paints is the log pane - which shipped on `terminalBg`. Reusing the well
+    // here rendered #D8E0EB where v1.6.0 rendered #F8FAFC (dark: #13151A vs
+    // #0F131E), and left `terminalBg` a dead accessor with zero call sites.
+    //
+    // Nothing looked: `soft_fidelity_test` paints only raised and sunken, and
+    // the contract test's raw-token group omitted `screen`.
+    screen: NeuTheme.rawTerminalBg(isDark),
     text: NeuTheme.rawText(isDark),
     subtext: NeuTheme.rawSubtext(isDark),
     border: NeuTheme.rawBorder(isDark),

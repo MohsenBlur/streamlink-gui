@@ -174,6 +174,28 @@ void main(List<String> args) async {
     await windowManager.setMinimumSize(const Size(380, 500));
   });
 
+  // Seed the look from the settings already parsed above, BEFORE the first
+  // frame.
+  //
+  // `NeuTheme.activeMaterial` defaults to rack and `themeNotifier.isDarkTheme`
+  // to true, and both were only corrected later, inside `_loadChannels`'s
+  // second config read. The window is shown from the first-frame callback
+  // (`flutter_window.cpp`), so a user on Soft, or on the light theme, saw at
+  // least one fully presented frame of the wrong look before it snapped -
+  // a flash of a different material, not just a different colour.
+  //
+  // The later `setMaterial`/`setDarkTheme` calls then no-op, because both
+  // setters early-return when the value is unchanged.
+  final storedMaterial = AppMaterial.fromKey(settings.material);
+  if (storedMaterial != null && MaterialSpec.isImplemented(storedMaterial)) {
+    NeuTheme.activeMaterial = storedMaterial;
+  }
+  themeNotifier.isDarkTheme = settings.isDarkTheme;
+  themeNotifier.lightAccentColor = parseHexColor(
+      settings.lightAccentColorHex, NeuTheme.defaultLightAccent);
+  themeNotifier.darkAccentColor =
+      parseHexColor(settings.darkAccentColorHex, NeuTheme.defaultDarkAccent);
+
   runApp(TwitchStreamlinkApp(isFirstRun: isFirstRun));
 }
 

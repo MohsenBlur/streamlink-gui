@@ -488,6 +488,27 @@ class _SkeuoPainter extends BoxPainter {
 
   final SkeuoDecoration decoration;
 
+  /// Set once this painter is torn down.
+  ///
+  /// `TextureCache` holds `onChanged` - which `RenderDecoratedBox` wires to its
+  /// own `markNeedsPaint` - in a static queue with no unregister path. A
+  /// textured surface that leaves the tree while its tile is generating (the
+  /// frame or two after launch, or after a material switch) therefore leaves a
+  /// dead callback behind, and the cache invokes it when the tile lands.
+  ///
+  /// In release that is harmless: `RenderDecoratedBox.detach` already set
+  /// `_needsPaint`, so `markNeedsPaint` early-returns. In debug it trips
+  /// `assert(!_debugDisposed)`, and the throw aborts the loop that notifies
+  /// everyone else in the queue - so a *live* surface behind the dead one is
+  /// left untextured until something unrelated repaints it.
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
     final size = configuration.size;
@@ -583,7 +604,12 @@ class _SkeuoPainter extends BoxPainter {
       // an untextured material until the tile lands, which is a frame later
       // and indistinguishable in practice.
       final notify = onChanged;
-      if (notify != null) TextureCache.request(key, notify);
+      if (notify != null) {
+        // Guarded, not raw: see `_disposed`.
+        TextureCache.request(key, () {
+          if (!_disposed) notify();
+        });
+      }
       return;
     }
 

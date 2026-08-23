@@ -74,10 +74,47 @@ void main() {
 
       // The widget still renders; it simply does not animate.
       expect(find.byType(NeuLedIndicator), findsOneWidget);
-      final transitions = tester.widgetList<FadeTransition>(ledFade());
-      for (final t in transitions) {
+
+      // Under reduced motion at FIRST build the animation is never created at
+      // all, so there is no FadeTransition. That is the correct behaviour and
+      // it is what this half asserts - the `for (final t in transitions)` loop
+      // that used to be here iterated zero times and asserted nothing, in a
+      // test whose name promised otherwise.
+      expect(ledFade(), findsNothing,
+          reason: 'reduced motion must not merely stop the pulse, it must not '
+              'build the transition at all');
+    });
+
+    testWidgets('an LED that had been pulsing settles BRIGHT when motion is '
+        'switched off mid-cycle', (tester) async {
+      Finder ledFade() => find.descendant(
+            of: find.byType(NeuLedIndicator),
+            matching: find.byType(FadeTransition),
+          );
+      // The case the previous version claimed to cover and could not reach:
+      // the FadeTransition already exists and is somewhere in its travel when
+      // reduced motion arrives. The controller is stopped, and it has to be
+      // parked at 1.0 rather than wherever the tween happened to be - a lamp
+      // frozen at its floor reads as offline.
+      //
+      // Mutating `_controller?.value = 1.0` to `0.4` left all 614 tests green
+      // before this existed.
+      await tester.pumpWidget(host(const NeuLedIndicator(isLive: true)));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(ledFade(), findsOneWidget, reason: 'precondition: it was pulsing');
+
+      await tester.pumpWidget(host(
+        const NeuLedIndicator(isLive: true),
+        reduceMotion: true,
+      ));
+      await tester.pump(const Duration(milliseconds: 16));
+
+      final still = tester.widgetList<FadeTransition>(ledFade()).toList();
+      expect(still, isNotEmpty,
+          reason: 'the transition survives the switch, so its value matters');
+      for (final t in still) {
         expect(t.opacity.value, 1.0,
-            reason: 'a stopped LED must settle bright, not at 40% - '
+            reason: 'a stopped LED must settle bright, not at its floor - '
                 'a dimmed dot reads as offline');
       }
     });

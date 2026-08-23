@@ -81,13 +81,44 @@ void main() {
               'guard is not proving anything — pick another pair');
     });
 
-    test('a switch does not leave the previous material grain resident', () {
-      // The tile is keyed on kind/size/amplitude/seed and NOT on the material,
-      // deliberately, so two materials asking for the same brushed tile share
-      // one image. That sharing is also why a switch has to evict: without it
-      // a material with no texture would keep painting the last one's.
+    testWidgets('a switch does not leave the previous material grain resident',
+        (tester) async {
+      // This used to compare 0 to 0. `residentCount` is zero before the switch
+      // as well as after, because constructing a SkeuoDecoration never paints
+      // and nothing here warmed a tile - so deleting `TextureCache.evictAll()`
+      // from the setter left this test, and the whole suite, green.
+      //
+      // It has to be a testWidgets: `evictAll` defers its dispose to a
+      // post-frame callback, so it reaches WidgetsBinding.instance the moment
+      // there is actually something to evict, and a plain `test()` throws
+      // "Binding has not yet been initialized" there.
+      const key = TileKey(
+          kind: TextureKind.brushed,
+          width: 32,
+          height: 32,
+          amplitude: 3,
+          seed: 11);
+
+      await tester.runAsync(() async {
+        var landed = false;
+        TextureCache.request(key, () => landed = true);
+        for (var i = 0; i < 40 && !landed; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+      });
+
+      expect(TextureCache.residentCount, greaterThan(0),
+          reason: 'precondition: a tile has to be resident for eviction to '
+              'mean anything - without this the assertion below is 0 == 0');
+
       themeNotifier.setMaterial(AppMaterial.soft);
-      expect(TextureCache.residentCount, 0);
+      await tester.pump();
+
+      expect(TextureCache.residentCount, 0,
+          reason: 'switching material left the previous grain resident. Tiles '
+              'are keyed on kind/size/amplitude/seed and NOT on the material, '
+              'so a material declaring no texture would keep painting the last '
+              "one's");
     });
 
     test('setting the same material again is inert', () {
@@ -107,11 +138,64 @@ void main() {
     // Persistence needs three, and missing any one produces the same symptom
     // from the user's side: the picker works, and the app forgets by morning.
 
-    test('Save persists it', () {
-      expect(settingsSource, contains('material: themeNotifier.material.key'),
+    test('Save persists it, without clobbering an unresolvable key', () {
+      // Two halves, and the second one is why this is not just
+      // `contains('material:')`.
+      //
+      // Save has to write the user's choice. It also has to NOT write when the
+      // user changed nothing, because `themeNotifier.material` is the RESOLVED
+      // value and main.dart deliberately leaves it at the fallback for a key
+      // this build cannot implement. Writing unconditionally turned "open
+      // Settings, press Save" into "silently destroy the material a newer
+      // build chose" - through a full no-merge config rewrite, with the picker
+      // showing the fallback as selected so there was no cue.
+      expect(settingsSource, contains('themeNotifier.material.key'),
           reason: "the Save button's copyWith does not carry the material, so "
               'the choice is lost the moment the dialog closes');
+      expect(settingsSource, contains('themeNotifier.material == originalMaterial'),
+          reason: 'Save writes the resolved material unconditionally, so it '
+              'overwrites a stored key this build could not resolve');
     });
+
+    test('every exit from the SETTINGS dialog either saves or restores', () {
+      // The Appearance tab applies material, theme mode and both accents live
+      // and unpersisted, so an exit that does neither leaves the session on
+      // settings the config does not record - and the next launch silently
+      // reverts, which reads as the app forgetting a choice.
+      //
+      // `NeuDialog.show(dismissible: false)` disables the scrim AND Escape, so
+      // the exits are exactly the three below. A blanket scan for
+      // `Navigator.pop` does not work here and was tried: this file also
+      // builds several NESTED confirm dialogs whose own pops return to
+      // settings rather than leaving it, and flagging those is noise.
+      //
+      // Named, therefore, and each one paired with what makes it safe.
+      expect(settingsSource, contains('restoreLiveThemeEdits();'),
+          reason: 'Cancel must put the live theme edits back');
+
+      // Connect Account pops without saving, so it needs the restore too. It
+      // was the only unguarded exit.
+      // Comments stripped first. Searching raw source for "the next N
+      // characters after onConnectAccount" is defeated by a long enough
+      // explanatory comment sitting between the call and the restore - which
+      // is exactly what happened when this was written.
+      final code = settingsSource
+          .split(String.fromCharCode(10))
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join(String.fromCharCode(10));
+      final connect = code.indexOf('onConnectAccount();');
+      expect(connect, greaterThan(-1));
+      final afterConnect = code.substring(connect, connect + 300);
+      expect(afterConnect, contains('restoreLiveThemeEdits()'),
+          reason: 'Connect Account leaves the dialog without saving and '
+              'without restoring, so the session keeps unpersisted theme '
+              'edits that the next launch will silently revert');
+
+      // And Save, which is safe because it persists rather than restores.
+      expect(settingsSource, contains('onSave('),
+          reason: 'the Save path must actually persist');
+    });
+
 
     test('Cancel restores it', () {
       expect(settingsSource, contains('setMaterial(originalMaterial)'),
