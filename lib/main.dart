@@ -16,6 +16,8 @@ import 'services/player_service.dart';
 import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
+import 'state/download_registry.dart';
+import 'state/vod_cache.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
@@ -28,7 +30,6 @@ import 'package:screen_retriever/screen_retriever.dart';
 
 import 'services/startup_service.dart';
 import 'state/library_entries.dart';
-import 'utils/image_utils.dart';
 import 'utils/window_bounds.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
@@ -40,6 +41,7 @@ import 'widgets/neumorphic/neu_title_bar.dart';
 import 'state/automation_decisions.dart';
 import 'theme/neu_material_themes.dart';
 import 'theme/neu_theme.dart';
+import 'widgets/neumorphic/neu_avatar.dart';
 import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
 
@@ -53,13 +55,21 @@ void main(List<String> args) async {
 
   await windowManager.ensureInitialized();
 
-  final config = await StorageService().loadConfig();
-  // First run = no config file at all. Computed once here so a returning user
-  // (config exists, even a partial one) can never see the wizard.
-  final bool isFirstRun = config == null;
+  final storage = StorageService();
+  // Existence is checked BEFORE loading: loadConfig() quarantines an unreadable
+  // file and returns null, which is indistinguishable from a first run - so a
+  // user whose config got corrupted was shown the onboarding wizard.
+  final bool isFirstRun = !storage.configExists();
+  final config = await storage.loadConfig();
   AppSettings settings = AppSettings();
   if (config != null && config['settings'] is Map<String, dynamic>) {
-    settings = AppSettings.fromJson(config['settings']);
+    // Runs before the first frame, so an unparseable config here would stop
+    // the app from starting at all rather than falling back to defaults.
+    try {
+      settings = AppSettings.fromJson(config['settings']);
+    } catch (e) {
+      print('[Config] Settings unreadable, using defaults: $e');
+    }
   }
 
   // Autostart launches pass --start-minimized; the manual-launch preference
@@ -277,6 +287,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   final Map<String, TwitchVideo> _activePlayingVideos = {};
   List<TwitchVideo> _recentWatchedVods = [];
 
+  /// Set when the user dismisses the save-failure banner, so a persistent
+  /// disk problem does not become an undismissable wall. Reset whenever a save
+  /// succeeds, so a NEW failure is reported again.
+  bool _saveWarningDismissed = false;
+
+  /// Re-arms the save-failure banner once a save succeeds, so a dismissal
+  /// covers the problem the user saw and not every future one.
+  void _watchSaveFailures() {
+    storageWriteFailure.addListener(() {
+      if (!mounted) return;
+      if (storageWriteFailure.value == null && _saveWarningDismissed) {
+        setState(() => _saveWarningDismissed = false);
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
   /// Library screen state. Entries are CACHED - built (with file stats) only
   /// on open/refresh/mutation, never inside build(), because download-progress
   /// setState storms would otherwise stat every file per frame.
@@ -310,8 +338,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // playback began - it must stay even though the console tab it used to
     // select is gone.
     _playerService.onPlayerStarted = (key, title) {
+      if (!mounted) return;
       _logNotifier.beginSession(key, title);
-      if (mounted) {
+      {
         _publishActivity();
         setState(() {});
       }
@@ -326,9 +355,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // subsequent pass, silently killing BOTH priority auto-play and VOD
       // auto-download until the app was restarted.
       _activePlayingVideos.remove(key);
+      if (!mounted) return;
       _logNotifier.endSession(key, exitCode);
 
-      if (mounted) {
+      {
         _publishActivity();
         setState(() {});
         // A player that never opened is otherwise silent: the console drawer
@@ -341,6 +371,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           final label = _logNotifier.session(key)?.label ?? 'playback';
           _showSnackBar('Playback failed for $label', isError: true,
               action: _viewLogAction(key));
+          // Only when the window is hidden, which is the auto-play case: a
+          // failure the user is watching happen does not need a tray popup
+          // on top of the message they can already see.
+          _windowIsHidden().then((hidden) {
+            if (hidden) _notify('Playback failed', label);
+          });
         }
       }
     };
@@ -396,6 +432,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     };
 
+    _playerService.onDownloadEnded = (vodId, exitCode) {
+      if (!mounted) return;
+      _logNotifier.endSession(logKeyForDownload(vodId), exitCode);
+    };
+
     _playerService.onDownloadCancelled = (vodId) {
       _progressBuckets.remove(vodId);
       _progressStatuses.remove(vodId);
@@ -423,16 +464,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         if (_showLibraryView) _refreshLibraryEntries();
         _showSnackBar('Download completed: $title', isError: false);
         if (_settings.notifyDownloadComplete) {
-          try {
-            final notification = LocalNotification(
-              title: 'VOD Download Completed',
-              body: title,
-              silent: false,
-            );
-            notification.show();
-          } catch (e) {
-            print('[Download Notification Error]: $e');
-          }
+          _notify('VOD Download Completed', title);
         }
       }
     };
@@ -444,10 +476,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _publishActivity();
         setState(() {});
         _showSnackBar('Download failed for: $title (Exit code $exitCode)',
-            isError: true, action: _viewLogAction('dl-$vodId'));
+            isError: true, action: _viewLogAction(logKeyForDownload(vodId)));
+      }
+      // A failure is at least as worth knowing about as a success, and
+      // downloads are exactly what runs while the app sits in the tray. No new
+      // setting: it rides the toggle that already governs the outcome of a
+      // download, now honestly labelled as covering both.
+      if (_settings.notifyDownloadComplete) {
+        _notify('VOD Download Failed', title);
       }
     };
 
+    _watchSaveFailures();
     _loadChannels();
     
     _downloadCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -647,15 +687,34 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         // binaries they were running from, and any in-flight downloads were
         // lost with no resume record.
         await _persistUnfinishedDownloadsForRestart();
+        // Same reasoning as the tray exit, without a second modal on top of
+        // the progress dialog: if the resume list did not reach disk, stop
+        // before killing the downloads it was meant to describe. The update
+        // is still there to apply once the disk problem is resolved.
+        final saveFailure = storageWriteFailure.value;
+        if (saveFailure != null) {
+          throw Exception(
+              'could not save the download queue (${saveFailure.path}), so the '
+              'update was not applied. Downloads in progress are untouched.');
+        }
         _playerService.stopAll();
 
         updateDialog(() => statusText = 'Applying update and restarting...');
         await updateService.applyUpdateAndRestart(extractDir);
       } catch (e) {
         _isUpdateInProgress = false;
+        // stopAll() may already have killed everything before the failure. The
+        // app survives this path, so any session still marked running would
+        // stay that way for the rest of the session - and eviction only
+        // reclaims finished ones.
+        _logNotifier.endAllRunning(-1);
         if (mounted) {
           Navigator.pop(context);
-          _showSnackBar('Update failed: $e', isError: true);
+          // Matches the VOD fetch path: the user reads this, and
+          // "Update failed: Exception: ..." is noise.
+          _showSnackBar(
+              'Update failed: ${e.toString().replaceFirst('Exception: ', '')}',
+              isError: true);
         }
       }
     });
@@ -700,6 +759,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _oauthServer?.close(force: true);
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
+    _windowSaveTimer?.cancel();
     _activity.dispose();
     _logNotifier.dispose();
     super.dispose();
@@ -825,6 +885,42 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
 
       await _persistUnfinishedDownloadsForRestart();
+
+      // They chose "Exit & Save Queue". If that save did not reach disk,
+      // exiting now loses the queue with no trace - and the banner that would
+      // normally report it goes with the window.
+      if (storageWriteFailure.value != null && mounted) {
+        final bool? exitAnyway = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text('Could not save the download queue',
+                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+            content: Text(
+              'Writing to ${storageWriteFailure.value?.path} failed, so the '
+              'queued downloads will not resume after a restart.'
+              '\n\nThis usually means the folder is full, read-only, or locked '
+              'by another program. Cancel to fix it and try again.',
+              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Cancel',
+                    style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Exit Anyway'),
+              ),
+            ],
+          ),
+        );
+        if (exitAnyway != true) return;
+      }
     }
 
     _playerService.stopAll();
@@ -930,59 +1026,64 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       return;
     }
 
-    final newDownloaded = <String>{};
-    bool registryChanged = false;
+    final inFlight = <String>{
+      ..._playerService.activeDownloadTasks.keys,
+      ..._playerService.activeDownloadProcesses.keys,
+      ..._playerService.downloadQueue,
+    };
 
-    // 1. Validate all files in the registry
-    _downloadedVodsRegistry.forEach((vodId, filePath) {
-      if (_playerService.activeDownloadTasks.containsKey(vodId) ||
-          _playerService.activeDownloadProcesses.containsKey(vodId) ||
-          _playerService.downloadQueue.contains(vodId)) {
-        return;
-      }
-
-      if (File(filePath).existsSync()) {
-        newDownloaded.add(vodId);
-      } else {
-        registryChanged = true;
-        _playerService.removeVodFromArchive(vodId);
-      }
-    });
-
-    if (registryChanged) {
-      _downloadedVodsRegistry.removeWhere((vodId, filePath) => !File(filePath).existsSync());
-    }
-    
-    // 2. Scan the current channel's VODs and pick up newly found downloads
+    // Resolve where each of the current channel's VODs would live, so files
+    // that arrived without going through this app get picked up.
+    final candidates = <String, String>{};
     for (final vod in _channelVods) {
-      if (newDownloaded.contains(vod.id)) continue;
-      
-      if (_playerService.activeDownloadTasks.containsKey(vod.id) ||
-          _playerService.activeDownloadProcesses.containsKey(vod.id) ||
-          _playerService.downloadQueue.contains(vod.id)) {
-        continue;
-      }
-      
-      final file = _playerService.getDownloadedVodFile(
-        vod.id,
-        _selectedChannel?.username ?? '',
-        _settings.vodDownloadFolder
-      );
-      if (file != null && file.existsSync()) {
-        newDownloaded.add(vod.id);
-        _downloadedVodsRegistry[vod.id] = file.path;
-        registryChanged = true;
-      }
+      try {
+        final file = _playerService.getDownloadedVodFile(
+            vod.id, _selectedChannel?.username ?? '', _settings.vodDownloadFolder);
+        if (file != null) candidates[vod.id] = file.path;
+      } catch (_) {}
     }
 
-    if (registryChanged) {
+    final plan = planRegistryScan(
+      registry: Map<String, String>.from(_downloadedVodsRegistry),
+      inFlightIds: inFlight,
+      candidates: candidates,
+      fileExists: _pathIsFile,
+      directoryExists: _pathIsDirectory,
+    );
+
+    for (final vodId in plan.stripFromArchive) {
+      _playerService.removeVodFromArchive(vodId);
+    }
+    _downloadedVodsRegistry.removeWhere((vodId, _) => plan.prune.contains(vodId));
+    _downloadedVodsRegistry.addAll(plan.additions);
+
+    if (plan.registryChanged) {
       _saveChannels();
     }
-    
+
     if (mounted) {
       setState(() {
-        _downloadedVodIds = newDownloaded;
+        // Unverified entries stay badged: their location is merely unreachable
+        // right now, and flickering the badge off for an unplugged drive is a
+        // worse lie than leaving it on.
+        _downloadedVodIds = {...plan.present, ...plan.unverified};
       });
+    }
+  }
+
+  static bool _pathIsFile(String path) {
+    try {
+      return File(path).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool _pathIsDirectory(String path) {
+    try {
+      return Directory(path).existsSync();
+    } catch (_) {
+      return false;
     }
   }
 
@@ -1098,6 +1199,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
         final settingsJson = config['settings'];
         if (settingsJson is Map<String, dynamic>) {
+          try {
           setState(() {
             _settings = AppSettings.fromJson(settingsJson);
             _sidebarCollapsed = _settings.sidebarCollapsed;
@@ -1130,6 +1232,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               watchedProgress: parseHexColor(_settings.watchedProgressColorHex, const Color(0x804CAF50)),
             );
           });
+          } catch (e) {
+            // Keep going with default settings rather than aborting the whole
+            // load - the outer catch would abandon the channel list too, and
+            // the next autosave would persist the loss.
+            print('[Config] Settings unreadable, using defaults: $e');
+          }
         }
         final localProgressJson = config['local_vods_progress'];
         if (localProgressJson is Map) {
@@ -1332,15 +1440,47 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  final Map<String, List<TwitchVideo>> _vodCache = {};
+  final VodCache _vodCache = VodCache();
+
+  /// Identifies the newest VOD request, so a slower earlier one cannot win.
+  ///
+  /// Selecting channel A then B fires two fetches; whichever the network
+  /// returns last used to be the one displayed, under B's header either way.
+  int _vodRequestId = 0;
+
+  /// Selects a channel and loads its VODs.
+  ///
+  /// The one path for this. It used to be open-coded in three places - the
+  /// sidebar, the welcome screen's live cards and the "went live" notification
+  /// - and each had forgotten something different: the game filter left over
+  /// from the previous channel, the stale error, the async fetch started from
+  /// inside setState.
+  void _selectChannel(TwitchChannel channel) {
+    setState(() {
+      _showLibraryView = false;
+      _selectedChannel = channel;
+      _channelVods = [];
+      _selectedGamesFilter.clear();
+      _selectedVodIds.clear();
+      _vodsError = null;
+    });
+    if (_settings.twitchOauthToken.trim().isNotEmpty) {
+      _fetchVodsForChannel(channel);
+    }
+  }
 
   Future<void> _fetchVodsForChannel(TwitchChannel channel, {bool loadMore = false}) async {
-    final cached = _vodCache[channel.username];
+    final cached = _vodCache.read(channel.username);
+    final int requestId = ++_vodRequestId;
     setState(() {
       _isLoadingVods = cached == null || loadMore;
       _vodsError = null;
       if (!loadMore) {
-        _channelVods = cached ?? [];
+        // A copy. _channelVods is mutated in place elsewhere (notably cleared
+        // on channel switch), and handing out the cache's own list meant that
+        // clear() emptied the cache entry too - so every channel visited once
+        // was permanently cached as "no past broadcasts".
+        _channelVods = List<TwitchVideo>.from(cached ?? const []);
         _vodPaginationCursor = null;
       }
     });
@@ -1353,28 +1493,35 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         afterCursor: loadMore ? _vodPaginationCursor : null,
       );
 
+      if (!mounted || requestId != _vodRequestId) return;
+
       setState(() {
         _vodPaginationCursor = result.nextCursor;
         _isWebTokenExpired = result.isWebTokenExpired;
         if (loadMore) {
           _channelVods.addAll(result.vods);
         } else {
-          _channelVods = result.vods;
-          _vodCache[channel.username] = result.vods;
+          _channelVods = List<TwitchVideo>.from(result.vods);
         }
+        _vodCache.store(channel.username, _channelVods);
       });
       _checkDownloadedVods();
       await _saveChannels();
     } catch (e) {
+      if (!mounted || requestId != _vodRequestId) return;
       if (_channelVods.isEmpty) {
         setState(() {
           _vodsError = e.toString().replaceFirst('Exception: ', '');
         });
       }
     } finally {
-      setState(() {
-        _isLoadingVods = false;
-      });
+      // Only the newest request may clear the spinner: a superseded one
+      // finishing later would otherwise report the live fetch as done.
+      if (mounted && requestId == _vodRequestId) {
+        setState(() {
+          _isLoadingVods = false;
+        });
+      }
     }
   }
 
@@ -1531,14 +1678,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   void _prefetchVodsInBackground(List<TwitchChannel> channels) async {
     if (_settings.twitchOauthToken.trim().isEmpty) return;
     for (final channel in channels.take(10)) {
-      if (!_vodCache.containsKey(channel.username)) {
+      if (!_vodCache.has(channel.username)) {
         try {
           final result = await _apiService.fetchVodsForChannel(
             channel: channel,
             settings: _settings,
             localVodsProgress: _localVodsProgress,
           );
-          _vodCache[channel.username] = result.vods;
+          _vodCache.store(channel.username, result.vods);
         } catch (_) {}
       }
     }
@@ -1573,11 +1720,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 await windowManager.show();
                 await windowManager.focus();
                 
-                setState(() {
-                  _showLibraryView = false;
-                  _selectedChannel = channel;
-                });
-                _fetchVodsForChannel(channel);
+                _selectChannel(channel);
 
                 _playerService.launchStreamlinkForLive(
                   channel.username,
@@ -1660,9 +1803,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _searchController.clear();
       _isAdding = false;
     });
+    _seedLiveTracking(newChannel);
 
     await _saveChannels();
     _showSnackBar('Channel "$cleanName" added successfully!', isError: false);
+  }
+
+  /// Records a channel that is ALREADY live at the moment it joins the list.
+  ///
+  /// The went-live check fires for any live channel missing from this set, so
+  /// starring or adding someone mid-broadcast produced an "is now LIVE!"
+  /// notification up to a minute later for a stream the user had just been
+  /// looking at - and, with auto-play configured, could launch it unasked.
+  void _seedLiveTracking(TwitchChannel channel) {
+    if (!channel.isLive) return;
+    _previouslyLiveFavoriteUsernames.add(channel.username.toLowerCase().trim());
   }
 
   Future<void> _toggleFavorite(TwitchChannel channel) async {
@@ -1732,6 +1887,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       setState(() {
         _channels.add(newFav);
       });
+      _seedLiveTracking(newFav);
       await _saveChannels();
       _showSnackBar('Added "${channel.username}" to Favorites.', isError: false);
       
@@ -1742,11 +1898,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _bulkUpdateSelectedVods(bool markAsWatched) async {
+    // No browser token required. The write that matters is local, and refusing
+    // without a token blocked the whole feature to protect a sync that Twitch
+    // rejects anyway; a token, when present, is used opportunistically.
     final webToken = _settings.twitchWebOauthToken.trim();
-    if (webToken.isEmpty) {
-      _showSnackBar('Twitch Browser Token is required in Settings to sync watch progress.', isError: true);
-      return;
-    }
 
     if (_selectedVodIds.isEmpty) {
       _showSnackBar('No VODs selected.', isError: true);
@@ -1776,9 +1931,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       });
       successCount++;
 
-      try {
-        _apiService.syncSingleVODProgressDirect(videoId, targetPosition, webToken).catchError((_) {});
-      } catch (_) {}
+      if (webToken.isNotEmpty) {
+        try {
+          _apiService.syncSingleVODProgressDirect(videoId, targetPosition, webToken).catchError((_) {});
+        } catch (_) {}
+      }
     }
 
     setState(() {
@@ -1789,8 +1946,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     if (successCount > 0) {
       await _saveChannels();
+      // Careful with this wording. Local progress is merged as
+      // max(local, remote) on the next fetch, so marking WATCHED sticks - it
+      // only ever raises the position - while marking UNWATCHED sets it to 0
+      // and is silently overwritten by the remote position on the next fetch
+      // whenever a browser token is present. Claiming a clean local update
+      // would just replace one over-claim with another.
+      final revertible = !markAsWatched && webToken.isNotEmpty;
       _showSnackBar(
-        'Successfully updated $successCount VODs locally! Note: Twitch blocks third-party watch history syncing on their website.',
+        revertible
+            ? 'Marked $successCount VODs unwatched here. Twitch still has a '
+                'position for them, so this may come back on the next refresh.'
+            : 'Marked $successCount VODs watched here. Twitch does not accept '
+                'watch history from third-party apps, so this stays local.',
         isError: false,
       );
     }
@@ -1815,6 +1983,27 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     } catch (e) {
       _showSnackBar('Failed to open link: $e', isError: true);
     }
+  }
+
+  /// Whether the window is somewhere the user can actually read a SnackBar.
+  ///
+  /// The app's normal state is minimised to the tray, where an in-app message
+  /// is shown to nobody - and auto-play and auto-download run precisely then.
+  Future<bool> _windowIsHidden() async {
+    try {
+      if (!await windowManager.isVisible()) return true;
+      return await windowManager.isMinimized();
+    } catch (_) {
+      // Unknown: prefer the OS notification over silence.
+      return true;
+    }
+  }
+
+  /// Raises an OS notification, ignoring a platform that refuses.
+  Future<void> _notify(String title, String body, {bool silent = false}) async {
+    try {
+      await LocalNotification(title: title, body: body, silent: silent).show();
+    } catch (_) {}
   }
 
   void _showSnackBar(String message,
@@ -2042,18 +2231,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       authenticatedUserAvatar: _authenticatedUserAvatar,
       pulseController: _pulseController!,
       searchController: _searchController,
-      onChannelSelected: (channel) {
-        setState(() {
-          _showLibraryView = false;
-          _selectedChannel = channel;
-          _channelVods.clear();
-          _selectedGamesFilter.clear();
-          _vodsError = null;
-        });
-        if (_settings.twitchOauthToken.trim().isNotEmpty) {
-          _fetchVodsForChannel(channel);
-        }
-      },
+      onChannelSelected: _selectChannel,
       onChannelDoubleTapped: _launchChannelStream,
       onChannelPlayPressed: _launchChannelStream,
       onAddChannel: _addChannel,
@@ -2155,6 +2333,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 _settings.isDarkTheme = isDark;
               });
               _saveChannels();
+            },
+          ),
+          ValueListenableBuilder<StorageWriteFailure?>(
+            valueListenable: storageWriteFailure,
+            builder: (context, failure, _) {
+              if (failure == null || _saveWarningDismissed) {
+                return const SizedBox.shrink();
+              }
+              return _buildSaveFailureBanner(failure);
             },
           ),
           Expanded(
@@ -2516,12 +2703,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               itemBuilder: (context, index) {
                 final channel = liveFavorites[index];
                 final itemCard = GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedChannel = channel;
-                      _fetchVodsForChannel(channel);
-                    });
-                  },
+                  onTap: () => _selectChannel(channel),
                   onDoubleTap: () {
                     if (_playerService.runningChannels.contains(channel.username)) return;
                     _playerService.launchStreamlinkForLive(
@@ -2544,15 +2726,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       children: [
                         Row(
                           children: [
-                            CircleAvatar(
+                            NeuAvatar(
+                              url: channel.avatarUrl,
                               radius: 18,
-                              backgroundImage: channel.avatarUrl != null && channel.avatarUrl!.isNotEmpty
-                                  ? resizedAvatar(channel.avatarUrl!)
-                                  : null,
+                              isDark: themeNotifier.isDarkTheme,
+                              // This one sits on a coloured card, so it keeps
+                              // its transparent ground and brighter icon.
                               backgroundColor: Colors.transparent,
-                              child: channel.avatarUrl == null || channel.avatarUrl!.isEmpty
-                                  ? Icon(Icons.person, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme))
-                                  : null,
+                              iconColor: NeuTheme.text(themeNotifier.isDarkTheme),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -2657,6 +2838,97 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 },
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Warns that changes are not reaching disk.
+  ///
+  /// A banner rather than a message: this is a CONDITION, not an event. It
+  /// clears itself the moment a save succeeds (which happens within seconds
+  /// during normal use), and a snackbar would be missed entirely while the app
+  /// sits minimised in the tray, which is its normal state.
+  Widget _buildSaveFailureBanner(StorageWriteFailure failure) {
+    final isDark = themeNotifier.isDarkTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: NeuTheme.danger.withValues(alpha: 0.12),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline,
+              size: 16, color: NeuTheme.dangerText(isDark)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Your settings could not be saved to disk. Recent changes may be '
+              'lost when the app closes.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: NeuTheme.dangerText(isDark),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => _showSaveFailureDetail(failure),
+            child: const Text('Details', style: TextStyle(fontSize: 11)),
+          ),
+          IconButton(
+            icon: Icon(Icons.close, size: 14, color: NeuTheme.subtext(isDark)),
+            tooltip: 'Dismiss',
+            onPressed: () => setState(() => _saveWarningDismissed = true),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSaveFailureDetail(StorageWriteFailure failure) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: themeNotifier.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Could not save settings',
+            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Writing to this file keeps failing. Common causes are a full '
+                'disk, antivirus or backup software holding the file open, or '
+                'the folder no longer being writable.',
+                style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: NeuTheme.sunkenDecoration(
+                    themeNotifier.isDarkTheme,
+                    radius: 8),
+                child: SelectableText(
+                  '${failure.path}\n\n${failure.error}',
+                  style: const TextStyle(fontFamily: 'Consolas', fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close',
+                style: TextStyle(
+                    color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
           ),
         ],
       ),
@@ -3485,6 +3757,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _playVod(TwitchVideo vod, String channelName) {
+    // The service refuses a second launch silently, which is right for the
+    // automation paths but reads as a broken button here: the card's corner
+    // play control is not visibly disabled while a VOD is playing.
+    if (_playerService.playingVodIds.contains(vod.id)) {
+      _showSnackBar('Already playing "${vod.title}".', isError: false);
+      return;
+    }
+
     final localPos = _localVodsProgress[vod.id];
     if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
       vod.watchPosition = localPos;
@@ -3511,11 +3791,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
 
     
-    if (file != null && file.existsSync()) {
-      _playerService.playDownloadedVod(file, vod, _settings);
-    } else {
-      _playerService.launchStreamlinkForVod(vod, channelName, _settings);
-    }
+    // _activePlayingVideos is what _isWatchingVod reads, and only
+    // onPlayerStopped clears it. If a launch fails before the service can
+    // arrange that callback, auto-play and auto-download stand down for the
+    // rest of the session - the exact failure already documented and fixed
+    // once for the live path.
+    final Future<void> launch = (file != null && file.existsSync())
+        ? _playerService.playDownloadedVod(file, vod, _settings)
+        : _playerService.launchStreamlinkForVod(vod, channelName, _settings);
+
+    launch.catchError((Object e) {
+      _activePlayingVideos.remove(vod.id);
+      if (mounted) {
+        _showSnackBar('Could not start playback: $e', isError: true);
+      }
+    });
   }
 
   void _queueVodDownload(TwitchVideo vod, String channelName) {
@@ -3635,13 +3925,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 subtitle: Text('Downloads the oldest broadcasts sequentially', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                 onTap: () => Navigator.pop(context, 'oldest'),
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.bolt, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                title: Text('Simultaneous Downloads', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                subtitle: Text('Starts all downloads in parallel (may consume high CPU/bandwidth)', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                onTap: () => Navigator.pop(context, 'parallel'),
-              ),
+              // "Simultaneous Downloads" used to sit here. It called the same
+              // queueVodDownload as the two branches above, which drains one
+              // download at a time, and only differed in skipping the sort -
+              // while announcing "Starting N parallel downloads...". Real
+              // concurrency is a feature, not a relabelling.
             ],
           ),
           actions: [
@@ -3658,22 +3946,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     final channelName = _selectedChannel?.username ?? 'VOD';
 
-    if (chosenOrder == 'parallel') {
-      _showSnackBar('Starting ${selectedVods.length} parallel downloads...', isError: false);
-      for (final vod in selectedVods) {
-        _playerService.queueVodDownload(vod, channelName, _settings);
-      }
+    final sortedVods = List<TwitchVideo>.from(selectedVods);
+    if (chosenOrder == 'newest') {
+      sortedVods.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
     } else {
-      final sortedVods = List<TwitchVideo>.from(selectedVods);
-      if (chosenOrder == 'newest') {
-        sortedVods.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-      } else {
-        sortedVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
-      }
-      _showSnackBar('Queueing ${selectedVods.length} sequential downloads...', isError: false);
-      for (final vod in sortedVods) {
-        _playerService.queueVodDownload(vod, channelName, _settings);
-      }
+      sortedVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
+    }
+    _showSnackBar('Queueing ${sortedVods.length} downloads...', isError: false);
+    for (final vod in sortedVods) {
+      _playerService.queueVodDownload(vod, channelName, _settings);
     }
     setState(() {});
   }

@@ -229,8 +229,11 @@ class SettingsDialog {
                                   children: [
                                     Text('Low Latency Streams', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                                     const SizedBox(height: 4),
+                                    // Streamlink's own help warns this can
+                                    // cause buffering, so the trade-off
+                                    // belongs on the switch, not in a wiki.
                                     Text(
-                                      'Reduces delay on Twitch streams',
+                                      'Cuts delay on live streams. May buffer more.',
                                       style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
                                     ),
                                   ],
@@ -437,7 +440,11 @@ class SettingsDialog {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Download completes', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                // Not "Download completes": it governs the
+                                // failure notification too, and none of these
+                                // rows can wrap, so the label has to be both
+                                // true and no longer than its siblings.
+                                Text('Download completes or fails', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                                 NeuSwitch(
                                   value: tempNotifyDownloadComplete,
                                   activeColor: themeNotifier.primaryColor,

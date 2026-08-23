@@ -13,7 +13,7 @@ import 'neumorphic/neu_text_field.dart';
 import 'neumorphic/neu_segmented_control.dart';
 import 'package:flutter/gestures.dart';
 import '../theme/neu_theme.dart';
-import '../utils/image_utils.dart';
+import 'neumorphic/neu_avatar.dart';
 import '../theme/theme_notifier.dart';
 
 class SidebarPanel extends StatefulWidget {
@@ -203,10 +203,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                                 child: Row(
                                   children: [
                                     widget.authenticatedUserAvatar != null
-                                         ? CircleAvatar(
+                                         ? NeuAvatar(
+                                             url: widget.authenticatedUserAvatar,
                                              radius: 18,
-                                             backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                             backgroundImage: resizedAvatar(widget.authenticatedUserAvatar!),
+                                             isDark: themeNotifier.isDarkTheme,
                                            )
                                         : Container(
                                             padding: const EdgeInsets.all(6),
@@ -457,13 +457,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                               channel: channel,
                               isSelected: isSelected,
                               theme: theme,
-                              child: CircleAvatar(
+                              child: NeuAvatar(
+                                url: channel.avatarUrl,
                                 radius: 18,
-                                backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                backgroundImage: channel.avatarUrl != null ? resizedAvatar(channel.avatarUrl!) : null,
-                                child: channel.avatarUrl == null
-                                    ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
-                                    : null,
+                                isDark: themeNotifier.isDarkTheme,
                               ),
                             ),
                             pulseController: widget.pulseController,
@@ -533,10 +530,10 @@ class SidebarPanelState extends State<SidebarPanel> {
             child: GestureDetector(
               onTap: widget.onGoToDashboard,
               child: widget.authenticatedUserAvatar != null
-                  ? CircleAvatar(
+                  ? NeuAvatar(
+                      url: widget.authenticatedUserAvatar,
                       radius: 16,
-                      backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                      backgroundImage: resizedAvatar(widget.authenticatedUserAvatar!),
+                      isDark: themeNotifier.isDarkTheme,
                     )
                   : Container(
                       padding: const EdgeInsets.all(6),
@@ -668,13 +665,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                       child: Stack(
                         alignment: Alignment.bottomRight,
                         children: [
-                          CircleAvatar(
+                          NeuAvatar(
+                            url: ch.avatarUrl,
                             radius: 18,
-                            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                            backgroundImage: ch.avatarUrl != null ? resizedAvatar(ch.avatarUrl!) : null,
-                            child: ch.avatarUrl == null
-                                ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
-                                : null,
+                            isDark: themeNotifier.isDarkTheme,
                           ),
                           if (ch.isLive)
                             Positioned(
@@ -954,13 +948,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                             child: Stack(
                               alignment: Alignment.bottomRight,
                               children: [
-                                CircleAvatar(
+                                NeuAvatar(
+                                  url: ch.avatarUrl,
                                   radius: 18,
-                                  backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                  backgroundImage: ch.avatarUrl != null ? resizedAvatar(ch.avatarUrl!) : null,
-                                  child: ch.avatarUrl == null
-                                      ? Icon(Icons.person, size: 18, color: NeuTheme.subtext(themeNotifier.isDarkTheme))
-                                      : null,
+                                  isDark: themeNotifier.isDarkTheme,
                                 ),
                                 if (ch.isLive)
                                   Positioned(

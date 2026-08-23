@@ -116,4 +116,64 @@ void main() {
     expect(args[args.length - 2], 'twitch.tv/videos/12345');
     expect(args.last, 'best');
   });
+  group('buildLiveStreamlinkArgs', () {
+    List<String> live({
+      String? playerExe = r'C:\Program Files\VideoLAN\VLC\vlc.exe',
+      String customPlayerArgs = '',
+      bool lowLatency = false,
+      String oauthToken = '',
+      String clientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+    }) {
+      return buildLiveStreamlinkArgs(
+        channelName: 'shroud',
+        titleString: 'shroud - Live',
+        quality: 'best',
+        oauthToken: oauthToken,
+        clientId: clientId,
+        playerExe: playerExe,
+        customPlayerArgs: customPlayerArgs,
+        lowLatency: lowLatency,
+      );
+    }
+
+    test('the URL and quality stay last, in that order', () {
+      final args = live();
+      expect(args[args.length - 2], 'twitch.tv/shroud');
+      expect(args.last, 'best');
+    });
+
+    test('low latency is opt-in and passed through when on', () {
+      // The flag IS supported by the bundled streamlink 8.4.0 - the comment
+      // that used to sit at this spot in the live path claimed otherwise, and
+      // the setting was simply never read.
+      expect(live(lowLatency: false), isNot(contains('--twitch-low-latency')));
+      expect(live(lowLatency: true), contains('--twitch-low-latency'));
+    });
+
+    test('an unresolved player emits no --player at all', () {
+      // Rather than a bare quoted string streamlink cannot run.
+      expect(live(playerExe: null), isNot(contains('--player')));
+    });
+
+    test('the resolved executable is passed verbatim', () {
+      // Quote stripping belongs to resolvePlayerExecutable, which the live
+      // path now shares with the VOD path; by here the value is already clean.
+      final args = live(playerExe: r'C:\Program Files\mpv\mpv.exe');
+      expect(args[args.indexOf('--player') + 1],
+          r'C:\Program Files\mpv\mpv.exe');
+    });
+
+    test('the api header rides only on the default client id', () {
+      expect(live(oauthToken: 'abc'), contains('--twitch-api-header'));
+      expect(live(oauthToken: 'abc', clientId: 'my-own-app'),
+          isNot(contains('--twitch-api-header')));
+      expect(live(), isNot(contains('--twitch-api-header')));
+    });
+
+    test('custom player args are omitted when blank', () {
+      expect(live(customPlayerArgs: '   '), isNot(contains('--player-args')));
+      final args = live(customPlayerArgs: '  --fullscreen  ');
+      expect(args[args.indexOf('--player-args') + 1], '--fullscreen');
+    });
+  });
 }

@@ -44,14 +44,26 @@ class ActivityItem {
 
   /// The log session key for this item, matching what PlayerService registers.
   String get logKey => switch (kind) {
-        ActivityKind.downloading || ActivityKind.queued => 'dl-$id',
-        ActivityKind.liveStream => 'stream_${id.toLowerCase()}',
+        ActivityKind.downloading || ActivityKind.queued =>
+          logKeyForDownload(id),
+        ActivityKind.liveStream => logKeyForLiveStream(id),
         ActivityKind.playingVod => id,
       };
 
   bool get isDownload =>
       kind == ActivityKind.downloading || kind == ActivityKind.queued;
 }
+
+/// The log session key for a download, as PlayerService registers it.
+///
+/// Hand-built as 'dl-$vodId' at several call sites; one spelling of it means a
+/// mismatch cannot silently point "View log" at a session that does not exist.
+String logKeyForDownload(String vodId) => 'dl-$vodId';
+
+/// The log session key for a live stream. Lowercased: Twitch logins are
+/// case-insensitive and reach this from sources that disagree about case.
+String logKeyForLiveStream(String channel) =>
+    'stream_${channel.toLowerCase()}';
 
 /// Everything currently happening, in the order the UI should show it.
 class ActivitySnapshot {

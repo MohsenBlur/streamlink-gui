@@ -1,9 +1,26 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
+
+/// The most recent failed save, or null when the last save succeeded.
+final ValueNotifier<StorageWriteFailure?> storageWriteFailure =
+    ValueNotifier<StorageWriteFailure?>(null);
+
+/// A save that did not reach disk.
+class StorageWriteFailure {
+  StorageWriteFailure(this.path, this.error, this.at);
+
+  final String path;
+  final Object error;
+  final DateTime at;
+
+  @override
+  String toString() => '$path: $error';
+}
 
 /// Serializes and coalesces writes to a single file.
 ///
@@ -22,7 +39,16 @@ class _SerialFileWriter {
   final File file;
   String? _pending;
   Future<void>? _running;
-  Object? lastError;
+
+  /// The most recent save failure, or null when the last save succeeded.
+  ///
+  /// Deliberately a notifier rather than a return value: `write()` has ~30
+  /// fire-and-forget callers, so completing with an error would turn every one
+  /// of them into an unhandled async error. Reporting through state instead
+  /// means the UI can show a banner for as long as the condition lasts, and
+  /// stop showing it the moment a save succeeds.
+  static final ValueNotifier<StorageWriteFailure?> writeFailure =
+      storageWriteFailure;
 
   Future<void> write(String content) {
     _pending = content;
@@ -39,9 +65,20 @@ class _SerialFileWriter {
         _pending = null;
         try {
           await _writeAtomic(data);
-          lastError = null;
+          writeFailure.value = null;
         } catch (e) {
-          lastError = e;
+          // Retry once. The common Windows cause is a transient lock from an
+          // antivirus scanner, the search indexer or a sync client, which
+          // clears in well under a second - and reporting those would make the
+          // warning meaningless.
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          try {
+            await _writeAtomic(data);
+            writeFailure.value = null;
+          } catch (e2) {
+            writeFailure.value =
+                StorageWriteFailure(file.path, e2, DateTime.now());
+          }
         }
       }
     } finally {
@@ -182,6 +219,20 @@ class StorageService {
     return getStorageFile('channels_config.json');
   }
 
+  /// Whether a config file is present, regardless of whether it can be parsed.
+  ///
+  /// `loadConfig` returns null both for "no config" and for "config was
+  /// unreadable and has been quarantined", and treating the second as a first
+  /// run showed the onboarding wizard to an existing user whose file had been
+  /// corrupted.
+  bool configExists() {
+    try {
+      return _getStorageFile().existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Moves an unreadable config aside so it is not silently overwritten by the
   /// next autosave, and can still be recovered by hand.
   void _quarantineCorruptFile(File file) {
@@ -190,10 +241,65 @@ class StorageService {
       final stamp = DateTime.now().millisecondsSinceEpoch;
       file.renameSync('${file.path}.corrupt-$stamp');
     } catch (_) {}
+    _pruneQuarantine(file);
+  }
+
+  /// Keeps only the newest few quarantined copies.
+  ///
+  /// Each one is a complete config including OAuth tokens, so they should not
+  /// accumulate indefinitely on disk.
+  static const int _maxQuarantineFiles = 3;
+
+  void _pruneQuarantine(File file) {
+    try {
+      final name = p.basename(file.path);
+      final dir = file.parent;
+      if (!dir.existsSync()) return;
+      final copies = dir
+          .listSync()
+          .whereType<File>()
+          .where((f) => p.basename(f.path).startsWith('$name.corrupt-'))
+          .toList()
+        ..sort((a, b) => b.path.compareTo(a.path)); // timestamp-suffixed
+      for (final stale in copies.skip(_maxQuarantineFiles)) {
+        try {
+          stale.deleteSync();
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  /// Removes temp files orphaned by a crash between write and rename.
+  ///
+  /// `_writeAtomic` deletes its own temp on a failed write, so anything left
+  /// behind is from a process that died mid-save - which the self-updater makes
+  /// a routine event. Only files matching the exact `<name>.<digits>.tmp` shape
+  /// are considered, and only once they are old enough that no live writer
+  /// could still own them.
+  static const Duration _tempFileGrace = Duration(hours: 1);
+
+  void sweepTempFiles(File file) {
+    try {
+      final name = p.basename(file.path);
+      final dir = file.parent;
+      if (!dir.existsSync()) return;
+      final pattern = RegExp('^' + RegExp.escape(name) + r'\.\d+\.tmp$');
+      final now = DateTime.now();
+      for (final entry in dir.listSync().whereType<File>()) {
+        if (!pattern.hasMatch(p.basename(entry.path))) continue;
+        try {
+          if (now.difference(entry.statSync().modified) < _tempFileGrace) {
+            continue;
+          }
+          entry.deleteSync();
+        } catch (_) {}
+      }
+    } catch (_) {}
   }
 
   Future<Map<String, dynamic>?> loadConfig() async {
     final file = _getStorageFile();
+    sweepTempFiles(file);
     try {
       if (!await file.exists()) return null;
       final content = await file.readAsString();

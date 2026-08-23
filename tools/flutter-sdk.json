@@ -1,0 +1,8 @@
+{
+  "_comment": "The single source of truth for the Flutter SDK this project builds with. setup.ps1 downloads and verifies it; .github/workflows/ci.yml and release.yml read the version from here so CI and a local build can never drift apart.",
+  "version": "3.44.2",
+  "channel": "stable",
+  "archive": "stable/windows/flutter_windows_3.44.2-stable.zip",
+  "sha256": "d79ae99807ba744b843e54f048308c629061456fdc7b0753251fb96eb5346a0e",
+  "_source": "https://storage.googleapis.com/flutter_infra_release/releases/releases_windows.json"
+}

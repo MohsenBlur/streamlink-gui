@@ -2,6 +2,13 @@ import 'dart:io';
 
 class AppSettings {
   String defaultQuality;
+  /// Passes `--twitch-low-latency` to streamlink when enabled.
+  ///
+  /// Defaults OFF: streamlink reduces `--hls-live-edge` to 2 and prefetches,
+  /// which its own help warns can cause buffering on regular streams. The
+  /// control was inert for a long time while every stored config carried
+  /// `true`, so honouring that value would have silently changed playback for
+  /// everyone on upgrade.
   bool twitchLowLatency;
   String twitchOauthToken;
   String twitchWebOauthToken;
@@ -81,7 +88,7 @@ class AppSettings {
 
   AppSettings({
     this.defaultQuality = 'best',
-    this.twitchLowLatency = true,
+    this.twitchLowLatency = false,
     this.twitchOauthToken = '',
     this.twitchWebOauthToken = '',
     this.playerType = 'default',
@@ -310,54 +317,77 @@ class AppSettings {
     return value is String && allowed.contains(value) ? value : fallback;
   }
 
+  /// The remaining readers, made total.
+  ///
+  /// `fromJson` is called on a file a user can hand-edit, and it runs in
+  /// `main()` before the first frame. A bare `json['x'] ?? default` returns the
+  /// wrong TYPE rather than the default when the value is present but wrong
+  /// (`"true"` for a bool, `"1"` for an int), which throws out of the
+  /// constructor and prevents the app starting at all.
+  static String _str(dynamic value, String fallback) =>
+      value is String ? value : fallback;
+
+  static bool _flag(dynamic value, bool fallback) =>
+      value is bool ? value : fallback;
+
+  static double? _maybeDouble(dynamic value) =>
+      value is num ? value.toDouble() : null;
+
+  static List<dynamic> _list(dynamic value) =>
+      value is List ? value : const [];
+
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
-        defaultQuality: json['default_quality'] ?? 'best',
-        twitchLowLatency: json['twitch_low_latency'] ?? true,
-        twitchOauthToken: json['twitch_oauth_token'] ?? '',
-        twitchWebOauthToken: json['twitch_web_oauth_token'] ?? '',
-        playerType: json['player_type'] ?? 'default',
-        customPlayerPath: json['custom_player_path'] ?? '',
-        customPlayerArgs: json['custom_player_args'] ?? '',
-        seekableVodStreaming: json['seekable_vod_streaming'] ?? true,
-        twitchClientId: json['twitch_client_id'] ?? 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+        defaultQuality: _str(json['default_quality'], 'best'),
+        twitchLowLatency: _flag(json['twitch_low_latency'], false),
+        twitchOauthToken: _str(json['twitch_oauth_token'], ''),
+        twitchWebOauthToken: _str(json['twitch_web_oauth_token'], ''),
+        playerType: _oneOf(json['player_type'],
+            const ['default', 'vlc', 'mpv', 'mpc-hc', 'custom'], 'default'),
+        customPlayerPath: _str(json['custom_player_path'], ''),
+        customPlayerArgs: _str(json['custom_player_args'], ''),
+        seekableVodStreaming: _flag(json['seekable_vod_streaming'], true),
+        twitchClientId: _str(
+            json['twitch_client_id'], 'kimne78kx3ncx6brgo4mv6wki5h1ko'),
         localServerPort: _clampInt(json['local_server_port'], 65432, 1, 65535),
         watchedThreshold: _clampInt(json['watched_threshold'], 96, 50, 100),
-        sidebarCollapsed: json['sidebar_collapsed'] ?? false,
-        activeProgressColorHex: json['active_progress_color_hex'] ?? '#9146FF',
-        watchedProgressColorHex: json['watched_progress_color_hex'] ?? '#804CAF50',
-        lightAccentColorHex: json['light_accent_color_hex'] ?? '#FF6584',
-        darkAccentColorHex: json['dark_accent_color_hex'] ?? '#FF3B30',
-        vodDownloadFolder: json['vod_download_folder'] ?? '',
+        sidebarCollapsed: _flag(json['sidebar_collapsed'], false),
+        activeProgressColorHex: _str(json['active_progress_color_hex'], '#9146FF'),
+        watchedProgressColorHex:
+            _str(json['watched_progress_color_hex'], '#804CAF50'),
+        lightAccentColorHex: _str(json['light_accent_color_hex'], '#FF6584'),
+        darkAccentColorHex: _str(json['dark_accent_color_hex'], '#FF3B30'),
+        vodDownloadFolder: _str(json['vod_download_folder'], ''),
         maxDownloadsToKeep: _clampInt(json['max_downloads_to_keep'], 0, 0, 1 << 30),
-        unfinishedDownloads: json['unfinished_downloads'] ?? const [],
+        unfinishedDownloads: _list(json['unfinished_downloads']),
         maxRecentlyWatched: _clampInt(json['max_recently_watched'], 8, 1, 20),
-        activeSidebarTab: json['active_sidebar_tab'] ?? 0,
-        windowWidth: (json['window_width'] as num?)?.toDouble() ?? 1280.0,
-        windowHeight: (json['window_height'] as num?)?.toDouble() ?? 720.0,
-        windowX: (json['window_x'] as num?)?.toDouble(),
-        windowY: (json['window_y'] as num?)?.toDouble(),
-        isWindowMaximized: json['is_window_maximized'] ?? false,
-        showGamesOnThumbnails: json['show_games_on_thumbnails'] ?? true,
+        activeSidebarTab: _clampInt(json['active_sidebar_tab'], 0, 0, 2),
+        windowWidth: _maybeDouble(json['window_width']) ?? 1280.0,
+        windowHeight: _maybeDouble(json['window_height']) ?? 720.0,
+        windowX: _maybeDouble(json['window_x']),
+        windowY: _maybeDouble(json['window_y']),
+        isWindowMaximized: _flag(json['is_window_maximized'], false),
+        showGamesOnThumbnails: _flag(json['show_games_on_thumbnails'], true),
         vodWatchExclusionThreshold:
             _clampInt(json['vod_watch_exclusion_threshold'], 15, 5, 90),
-        autoPlayPreemptLowerPriority: json['auto_play_preempt_lower_priority'] ?? false,
-        isDarkTheme: json['is_dark_theme'] ?? true,
-        disableVodPostProcessing: json['disable_vod_post_processing'] ?? true,
-        customVodArgs: json['custom_vod_args'] ?? '',
+        autoPlayPreemptLowerPriority:
+            _flag(json['auto_play_preempt_lower_priority'], false),
+        isDarkTheme: _flag(json['is_dark_theme'], true),
+        disableVodPostProcessing: _flag(json['disable_vod_post_processing'], true),
+        customVodArgs: _str(json['custom_vod_args'], ''),
         vodCardScale: _clampDouble(json['vod_card_scale'], 350.0, 200.0, 600.0),
         vodTitleFontSize:
             _clampDouble(json['vod_title_font_size'], 14.0, 11.0, 20.0),
         closeAction: _oneOf(json['close_action'], ['tray', 'exit'], 'tray'),
         minimizeAction:
             _oneOf(json['minimize_action'], ['taskbar', 'tray'], 'taskbar'),
-        launchAtStartup: json['launch_at_startup'] ?? false,
-        startMinimized: json['start_minimized'] ?? false,
-        trayNoticeShown: json['tray_notice_shown'] ?? false,
-        trayLiveMenuEnabled: json['tray_live_menu_enabled'] ?? true,
-        notifyWentLive: json['notify_went_live'] ?? true,
-        notifyAutoPlay: json['notify_auto_play'] ?? true,
-        notifyAutoDownloadStart: json['notify_auto_download_start'] ?? true,
-        notifyDownloadComplete: json['notify_download_complete'] ?? true,
-        onboardingCompleted: json['onboarding_completed'] ?? false,
+        launchAtStartup: _flag(json['launch_at_startup'], false),
+        startMinimized: _flag(json['start_minimized'], false),
+        trayNoticeShown: _flag(json['tray_notice_shown'], false),
+        trayLiveMenuEnabled: _flag(json['tray_live_menu_enabled'], true),
+        notifyWentLive: _flag(json['notify_went_live'], true),
+        notifyAutoPlay: _flag(json['notify_auto_play'], true),
+        notifyAutoDownloadStart: _flag(json['notify_auto_download_start'], true),
+        notifyDownloadComplete: _flag(json['notify_download_complete'], true),
+        onboardingCompleted: _flag(json['onboarding_completed'], false),
       );
 }

@@ -13,9 +13,6 @@ on:
 
 # Third-party actions are pinned to commit SHAs: this workflow holds `contents: write`,
 # so a compromised mutable tag would be a publish-capable supply-chain hole.
-env:
-  FLUTTER_VERSION: '3.44.2'
-
 jobs:
   build-release:
     name: Build Windows Release & Publish
@@ -27,6 +24,19 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+
+      - name: Read the pinned Flutter version
+        id: sdk
+        shell: bash
+        run: |
+          # tools/flutter-sdk.json is the single source of truth, shared with
+          # setup.ps1 - a version pinned here as well would silently drift.
+          version=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' tools/flutter-sdk.json | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+          if [ -z "$version" ]; then
+            echo 'Could not read version from tools/flutter-sdk.json' >&2
+            exit 1
+          fi
+          echo "flutter=$version" >> "$GITHUB_OUTPUT"
 
       - name: Verify tag matches pubspec version
         id: version
@@ -65,7 +75,7 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ steps.sdk.outputs.flutter }}
           cache: true
 
       - name: Install Dependencies

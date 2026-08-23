@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import '../models/app_settings.dart';
+import '../state/activity_state.dart';
 import '../utils/player_args.dart';
+import '../utils/player_progress.dart';
 import '../models/twitch_video.dart';
 import 'twitch_api_service.dart';
 
@@ -94,7 +96,7 @@ class PlayerService {
   /// lower-priority stream had been killed while it kept playing, and the
   /// preemption feature was entirely dead.
   static String liveStreamKey(String channelName) =>
-      'stream_' + channelName.toLowerCase().trim();
+      logKeyForLiveStream(channelName.trim());
 
   /// Stops the live stream for [channelName], if one is running.
   void killLiveStream(String channelName) {
@@ -110,6 +112,14 @@ class PlayerService {
   void Function(String vodId)? onDownloadCancelled;
   void Function(String vodId, String title, String filePath)? onDownloadCompleted;
   void Function(String vodId, String title, int exitCode)? onDownloadFailed;
+
+  /// Fires once per download process, whatever the outcome.
+  ///
+  /// Downloads announce their start through [onPlayerStarted] like players do,
+  /// but had no matching end, so their log session read "running" forever - and
+  /// eviction only reclaims finished sessions, so the session count grew
+  /// without bound for as long as the app ran.
+  void Function(String vodId, int exitCode)? onDownloadEnded;
   
   void Function(String key, String title)? onPlayerStarted;
   /// [userInitiated] is true when the process was stopped on purpose, so
@@ -383,7 +393,7 @@ class PlayerService {
       url
     ]);
 
-    final key = 'dl-$vodId';
+    final key = logKeyForDownload(vodId);
     final title = 'Download: ${vod.title}';
     onPlayerStarted?.call(key, title);
 
@@ -478,6 +488,9 @@ class PlayerService {
 
       final exitCode = await proc.exitCode;
       _cleanupDownloadState(vodId);
+      // Before every branch below, including the cancelled early return and
+      // the ffmpeg retry (which begins a fresh session of its own).
+      onDownloadEnded?.call(vodId, exitCode);
 
       // A cancelled download exits non-zero like a failed one. Without this
       // check the ffmpeg fallback below restarted it - after the user cancelled
@@ -518,6 +531,7 @@ class PlayerService {
     } catch (e) {
       log(key, '[System Error] Download failed to start: $e');
       _cleanupDownloadState(vodId);
+      onDownloadEnded?.call(vodId, -1);
       onDownloadFailed?.call(vodId, vod.title, -1);
     }
   }
@@ -611,6 +625,9 @@ class PlayerService {
 
     downloadQueue.remove(vodId);
     queuedDownloadTasks.remove(vodId);
+    // Otherwise a stale override outlives the download it was chosen for and
+    // silently applies to a later manual re-queue of the same VOD.
+    downloadTaskFastDownloadOverrides.remove(vodId);
     _cleanupDownloadState(vodId);
     onDownloadCancelled?.call(vodId);
     removeVodFromArchive(vodId);
@@ -677,44 +694,55 @@ class PlayerService {
       path.normalize(a).toLowerCase() == path.normalize(b).toLowerCase();
 
   Future<void> playDownloadedVod(File file, TwitchVideo vod, AppSettings settings) async {
-    final path = file.path;
-    final args = <String>[];
-    String exe = '';
+    // One player per VOD, mirroring launchStreamlinkForLive's guard on
+    // runningChannels. A second launch would clobber five maps keyed by vod.id
+    // - process, port, timer, file path, IPC bridge - so the first player's
+    // exit would then tear down the second player's tracking, and the
+    // displaced timer and PowerShell relay would run until the app quits.
+    if (playingVodIds.contains(vod.id)) return;
 
-    final finalSeek = resumeSeconds(
-      watchPosition: vod.watchPosition,
-      watchProgress: vod.watchProgress,
-      watchedThreshold: settings.watchedThreshold,
-    );
-
-    final port = getNextAvailablePlayerPort();
     final key = vod.id;
-    final title = 'Local: ${vod.title}';
 
-    final String effectivePlayerType = resolveEffectivePlayerType(settings);
-
-    final kind = classifyPlayer(effectivePlayerType, settings.customPlayerPath);
-    final resolvedExe = resolvePlayerExecutable(effectivePlayerType, settings);
-
-    if (resolvedExe == null) {
-      // No usable player: hand the file to the shell as before.
-      exe = 'cmd';
-      args.addAll(['/c', 'start', '/WAIT', '""', path]);
-    } else {
-      exe = resolvedExe;
-      // Local files are passed straight to Process.start, so no shlex quoting
-      // here - unlike the streamlink path, which parses --player-args.
-      args.addAll(buildPlayerArgs(
-        kind: kind,
-        startSeconds: finalSeek,
-        port: port,
-        ipcName: key,
-        isWindows: Platform.isWindows,
-      ));
-      args.add(path);
-    }
-
+    // Argument building lives inside the try for the same reason as the
+    // streaming path: resolving a player touches the filesystem, and a throw
+    // out here would skip the stop callback the caller depends on.
     try {
+      final path = file.path;
+      final args = <String>[];
+      String exe = '';
+
+      final finalSeek = resumeSeconds(
+        watchPosition: vod.watchPosition,
+        watchProgress: vod.watchProgress,
+        watchedThreshold: settings.watchedThreshold,
+      );
+
+      final port = getNextAvailablePlayerPort();
+      final title = 'Local: ${vod.title}';
+
+      final String effectivePlayerType = resolveEffectivePlayerType(settings);
+
+      final kind = classifyPlayer(effectivePlayerType, settings.customPlayerPath);
+      final resolvedExe = resolvePlayerExecutable(effectivePlayerType, settings);
+
+      if (resolvedExe == null) {
+        // No usable player: hand the file to the shell as before.
+        exe = 'cmd';
+        args.addAll(['/c', 'start', '/WAIT', '""', path]);
+      } else {
+        exe = resolvedExe;
+        // Local files are passed straight to Process.start, so no shlex quoting
+        // here - unlike the streamlink path, which parses --player-args.
+        args.addAll(buildPlayerArgs(
+          kind: kind,
+          startSeconds: finalSeek,
+          port: port,
+          ipcName: key,
+          isWindows: Platform.isWindows,
+        ));
+        args.add(path);
+      }
+
       playingVodIds.add(vod.id);
       // Recorded so retention never deletes the file being watched.
       playingVodFilePaths[vod.id] = file.path;
@@ -762,59 +790,67 @@ class PlayerService {
   }
 
   Future<void> launchStreamlinkForVod(TwitchVideo vod, String channelName, AppSettings settings) async {
-    String titleString = '$channelName - ${vod.title}';
-    // Resolve "default" to a real player before building arguments.
-    final playerType = resolveEffectivePlayerType(settings);
-    final kind = classifyPlayer(playerType, settings.customPlayerPath);
-    final playerExe = resolvePlayerExecutable(playerType, settings);
+    if (playingVodIds.contains(vod.id)) return;
 
-    final token = settings.twitchOauthToken.trim().startsWith('oauth:')
-        ? settings.twitchOauthToken.trim().substring(6)
-        : settings.twitchOauthToken.trim();
-
-    final clientId = settings.twitchClientId.trim().isNotEmpty
-        ? settings.twitchClientId.trim()
-        : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-
-    final port = getNextAvailablePlayerPort();
     final key = vod.id;
-    final title = 'VOD: ${vod.title}';
 
-    final cmd = buildVodStreamlinkArgs(
-      vodId: vod.id,
-      titleString: titleString,
-      quality: settings.defaultQuality,
-      oauthToken: token,
-      clientId: clientId,
-      kind: kind,
-      playerExe: playerExe,
-      customPlayerArgs: settings.customPlayerArgs,
-      port: port,
-      seekableStreaming: settings.seekableVodStreaming,
-      resume: resumeSeconds(
-        watchPosition: vod.watchPosition,
-        watchProgress: vod.watchProgress,
-        watchedThreshold: settings.watchedThreshold,
-      ),
-      isWindows: Platform.isWindows,
-    );
-    final args = cmd.args;
-
-    playingVodIds.add(vod.id);
-    activePlayerPorts[vod.id] = port;
-
-    onPlayerStarted?.call(key, title);
-    log(key, '[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${settings.defaultQuality}...');
-    log(key, cmd.passthrough
-        ? '[System] Seekable streaming: the player opens the HLS URL itself, so its seek bar works.'
-        : '[System] Piping mode: no seek bar. Streamlink skips ahead to ${cmd.appliedStart}s.');
-    if (cmd.resumeUnsupported) {
-      log(key, '[System] This player has no known start-position flag, so playback begins at 0. '
-          'Drag the seek bar to ${vod.watchPosition}s.');
-    }
-    log(key, '[System] Arguments: ${args.join(" ")}');
-
+    // Everything from here down sits inside the try, including the argument
+    // building. Resolving a player touches the filesystem and buildVodStreamlinkArgs
+    // parses user-supplied --player-args, so both can throw - and a throw out
+    // here left the caller's "now playing" marker set with no stop callback
+    // ever firing to clear it.
     try {
+      String titleString = '$channelName - ${vod.title}';
+      // Resolve "default" to a real player before building arguments.
+      final playerType = resolveEffectivePlayerType(settings);
+      final kind = classifyPlayer(playerType, settings.customPlayerPath);
+      final playerExe = resolvePlayerExecutable(playerType, settings);
+
+      final token = settings.twitchOauthToken.trim().startsWith('oauth:')
+          ? settings.twitchOauthToken.trim().substring(6)
+          : settings.twitchOauthToken.trim();
+
+      final clientId = settings.twitchClientId.trim().isNotEmpty
+          ? settings.twitchClientId.trim()
+          : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+      final port = getNextAvailablePlayerPort();
+      final title = 'VOD: ${vod.title}';
+
+      final cmd = buildVodStreamlinkArgs(
+        vodId: vod.id,
+        titleString: titleString,
+        quality: settings.defaultQuality,
+        oauthToken: token,
+        clientId: clientId,
+        kind: kind,
+        playerExe: playerExe,
+        customPlayerArgs: settings.customPlayerArgs,
+        port: port,
+        seekableStreaming: settings.seekableVodStreaming,
+        resume: resumeSeconds(
+          watchPosition: vod.watchPosition,
+          watchProgress: vod.watchProgress,
+          watchedThreshold: settings.watchedThreshold,
+        ),
+        isWindows: Platform.isWindows,
+      );
+      final args = cmd.args;
+
+      playingVodIds.add(vod.id);
+      activePlayerPorts[vod.id] = port;
+
+      onPlayerStarted?.call(key, title);
+      log(key, '[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${settings.defaultQuality}...');
+      log(key, cmd.passthrough
+          ? '[System] Seekable streaming: the player opens the HLS URL itself, so its seek bar works.'
+          : '[System] Piping mode: no seek bar. Streamlink skips ahead to ${cmd.appliedStart}s.');
+      if (cmd.resumeUnsupported) {
+        log(key, '[System] This player has no known start-position flag, so playback begins at 0. '
+            'Drag the seek bar to ${vod.watchPosition}s.');
+      }
+      log(key, '[System] Arguments: ${args.join(" ")}');
+
       final proc = await Process.start(
         _getExecutablePath('streamlink'),
         args,
@@ -878,41 +914,29 @@ class PlayerService {
       titleString = '$channelName - Offline Stream';
     }
 
-    final args = <String>[];
     // Resolve "default" to a real player before building arguments.
     final playerType = resolveEffectivePlayerType(settings);
-    args.addAll(['--title', titleString]);
 
-    final token = settings.twitchOauthToken.trim().startsWith('oauth:') 
+    final token = settings.twitchOauthToken.trim().startsWith('oauth:')
         ? settings.twitchOauthToken.trim().substring(6)
         : settings.twitchOauthToken.trim();
-    
+
     final clientId = settings.twitchClientId.trim().isNotEmpty
         ? settings.twitchClientId.trim()
         : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
-    if (token.isNotEmpty && clientId == 'kimne78kx3ncx6brgo4mv6wki5h1ko') {
-      args.addAll(['--twitch-api-header', 'Authorization=OAuth $token']);
-    }
-
-    // Note: --twitch-low-latency is deprecated/unrecognized in modern Streamlink versions
-
-    if (playerType == 'vlc') {
-      args.addAll(['--player', findVlcPath() ?? 'vlc']);
-    } else if (playerType == 'mpv') {
-      args.addAll(['--player', findMpvPath() ?? 'mpv']);
-    } else if (playerType == 'mpc-hc') {
-      args.addAll(['--player', findMpcHcPath() ?? 'mpc-hc64']);
-    } else if (playerType == 'custom' && settings.customPlayerPath.trim().isNotEmpty) {
-      args.addAll(['--player', settings.customPlayerPath.trim()]);
-    }
-
-    if (settings.customPlayerArgs.trim().isNotEmpty) {
-      args.addAll(['--player-args', settings.customPlayerArgs.trim()]);
-    }
-
-    args.add('twitch.tv/$channelName');
-    args.add(settings.defaultQuality);
+    final args = buildLiveStreamlinkArgs(
+      channelName: channelName,
+      titleString: titleString,
+      quality: settings.defaultQuality,
+      oauthToken: token,
+      clientId: clientId,
+      // The same resolver the VOD path uses, which strips the quotes an
+      // Explorer "Copy as path" leaves around a custom player path.
+      playerExe: resolvePlayerExecutable(playerType, settings),
+      customPlayerArgs: settings.customPlayerArgs,
+      lowLatency: settings.twitchLowLatency,
+    );
 
     final key = liveStreamKey(channelName);
     final title = '$channelName (Live)';
@@ -980,8 +1004,24 @@ class PlayerService {
     final isMpv = kind == PlayerKind.mpv;
     final isMpc = kind == PlayerKind.mpcHc;
 
-    final timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+    late final Timer timer;
+    bool tickInFlight = false;
 
+    // A tick is only allowed to write while it is still the current tracker's.
+    // Stopping cancels the Timer, but a tick already awaiting a socket or an
+    // HTTP reply keeps running to completion - and used to land its position
+    // after the player had exited, overwriting the final one, or worse, land
+    // on a VOD the user had since started playing again.
+    bool isLive() => identical(activePlayerTimers[vod.id], timer);
+
+    void syncIfLive(int seconds) {
+      if (!isLive()) return;
+      if ((seconds - lastSynced).abs() < 1) return;
+      lastSynced = seconds;
+      _syncProgress(vod, seconds, webToken);
+    }
+
+    Future<void> tick() async {
       if (isVlc) {
         try {
           final auth = 'Basic ' + base64Encode(utf8.encode(':streamlink'));
@@ -993,15 +1033,8 @@ class PlayerService {
           ).timeout(const Duration(seconds: 2));
 
           if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            final state = data['state'] as String?;
-            final time = data['time'] as int?;
-            if (state == 'playing' && time != null && time > 0) {
-              if ((time - lastSynced).abs() >= 1) {
-                lastSynced = time;
-                _syncProgress(vod, time, webToken);
-              }
-            }
+            final position = parseVlcPosition(response.body);
+            if (position != null) syncIfLive(position);
           }
         } catch (_) {}
       } else if (isMpv) {
@@ -1030,28 +1063,8 @@ class PlayerService {
           socket.write('{"command": ["get_property", "pause"]}\n');
           await Future.delayed(const Duration(milliseconds: 300));
 
-          final lines = responseBuffer.split('\n').where((l) => l.trim().isNotEmpty).toList();
-          if (lines.isNotEmpty) {
-            double? timePos;
-            bool isPaused = false;
-            for (final line in lines) {
-              try {
-                final parsed = json.decode(line);
-                if (parsed['data'] is num) {
-                  timePos = (parsed['data'] as num).toDouble();
-                } else if (parsed['data'] is bool) {
-                  isPaused = parsed['data'] as bool;
-                }
-              } catch (_) {}
-            }
-            if (timePos != null && !isPaused) {
-              final rounded = timePos.round();
-              if ((rounded - lastSynced).abs() >= 1) {
-                lastSynced = rounded;
-                _syncProgress(vod, rounded, webToken);
-              }
-            }
-          }
+          final position = parseMpvPosition(responseBuffer);
+          if (position != null) syncIfLive(position);
         } catch (_) {}
       } else if (isMpc) {
         try {
@@ -1060,25 +1073,36 @@ class PlayerService {
           ).timeout(const Duration(seconds: 2));
 
           if (response.statusCode == 200) {
-            final html = response.body;
-            final posMatch = RegExp(r'id="position">(\d+)<').firstMatch(html);
-            final stateMatch = RegExp(r'id="statestring">([^<]+)<').firstMatch(html);
-
-            final state = stateMatch?.group(1);
-            final posMs = posMatch != null ? int.tryParse(posMatch.group(1)!) : null;
-
-            if (state != null && state.toLowerCase().contains('play') && posMs != null && posMs > 0) {
-              final seconds = (posMs / 1000).round();
-              if ((seconds - lastSynced).abs() >= 1) {
-                lastSynced = seconds;
-                _syncProgress(vod, seconds, webToken);
-              }
-            }
+            final position = parseMpcHcPosition(response.body);
+            if (position != null) syncIfLive(position);
           }
         } catch (_) {}
       }
+    }
+
+    timer = Timer.periodic(const Duration(seconds: 2), (t) async {
+      // One tick at a time. Every branch of tick() awaits - up to a 2s HTTP
+      // timeout, or a socket connect plus a 300ms settle - so on a slow or
+      // unresponsive player the ticks overlapped, interleaved their writes to
+      // lastSynced and could sync positions out of order.
+      if (tickInFlight) return;
+      if (!isLive()) {
+        t.cancel();
+        return;
+      }
+      tickInFlight = true;
+      try {
+        await tick();
+      } finally {
+        // Load-bearing: one escaped throw without this would leave the flag
+        // set and freeze progress tracking for the rest of playback.
+        tickInFlight = false;
+      }
     });
 
+    // Belt and braces with the launch guards above: replacing an entry here
+    // without cancelling would leak a 2s poll for the rest of the session.
+    activePlayerTimers[vod.id]?.cancel();
     activePlayerTimers[vod.id] = timer;
   }
 
@@ -1154,6 +1178,10 @@ class PlayerService {
         ['-WindowStyle', 'Hidden', '-Command', bridgeScript],
         runInShell: false
       );
+      // A displaced relay is orphaned: nothing else holds its pid, so it would
+      // sit on the loopback port until the app exits, and the new relay's
+      // Start() would fail against the port it still holds.
+      _stopWindowsIpcBridge(vodId);
       _winIpcBridges[vodId] = proc;
     } catch (_) {}
   }
@@ -1199,6 +1227,12 @@ class PlayerService {
     downloadQueue.clear();
     queuedDownloadTasks.clear();
     downloadTaskFastDownloadOverrides.clear();
+
+    // A killed yt-dlp exits non-zero exactly like a failed one, so quitting or
+    // updating with downloads running reported "Download failed" for each -
+    // the same trap _cancelledDownloads already exists to close for the cancel
+    // button. Marked before the kill, since the exit handler can run at once.
+    _cancelledDownloads.addAll(activeDownloadProcesses.keys);
 
     _stoppedByUser.addAll(activePlayerProcesses.keys);
     for (final proc in activePlayerProcesses.values) {

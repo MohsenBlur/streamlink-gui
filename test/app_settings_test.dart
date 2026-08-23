@@ -6,7 +6,7 @@ import 'package:streamlink_gui/models/app_settings.dart';
 AppSettings buildNonDefaultSettings() {
   return AppSettings(
     defaultQuality: '720p60',
-    twitchLowLatency: false,
+    twitchLowLatency: true,
     twitchOauthToken: 'oauth:aaaaaaaaaaaaaaaa',
     twitchWebOauthToken: 'bbbbbbbbbbbbbbbb',
     playerType: 'mpv',
@@ -57,7 +57,7 @@ void main() {
       final restored = AppSettings.fromJson(buildNonDefaultSettings().toJson());
 
       expect(restored.defaultQuality, '720p60');
-      expect(restored.twitchLowLatency, isFalse);
+      expect(restored.twitchLowLatency, isTrue);
       expect(restored.playerType, 'mpv');
       expect(restored.customPlayerPath, r'C:\Players\mpv.exe');
       expect(restored.localServerPort, 54321);
@@ -237,6 +237,64 @@ void main() {
       // dependent, so assert only that it does not stay empty when a home
       // directory is available.
       expect(settings.vodDownloadFolder, isNotNull);
+    });
+  });
+  group('fromJson survives a hand-edited config', () {
+    test('wrong types everywhere fall back to defaults instead of throwing', () {
+      // Regression: fromJson runs in main() before the first frame, and a bare
+      // `json['x'] ?? default` yields the WRONG TYPE when the key is present
+      // but mistyped - which threw out of the constructor and stopped the app
+      // starting at all.
+      final hostile = <String, dynamic>{
+        'default_quality': 42,
+        'twitch_low_latency': 'yes',
+        'twitch_oauth_token': 99,
+        'player_type': 'not-a-player',
+        'custom_player_path': false,
+        'local_server_port': 'abc',
+        'watched_threshold': 'high',
+        'sidebar_collapsed': 'true',
+        'unfinished_downloads': 'not-a-list',
+        'active_sidebar_tab': '1',
+        'window_width': 'wide',
+        'window_x': 'left',
+        'is_dark_theme': 0,
+        'vod_card_scale': 'big',
+        'close_action': 'explode',
+        'notify_went_live': 'sometimes',
+      };
+
+      late AppSettings s;
+      expect(() => s = AppSettings.fromJson(hostile), returnsNormally);
+
+      expect(s.defaultQuality, 'best');
+      expect(s.twitchLowLatency, isFalse);
+      expect(s.twitchOauthToken, '');
+      expect(s.playerType, 'default');
+      expect(s.customPlayerPath, '');
+      expect(s.localServerPort, 65432);
+      expect(s.watchedThreshold, 96);
+      expect(s.sidebarCollapsed, isFalse);
+      expect(s.unfinishedDownloads, isEmpty);
+      expect(s.activeSidebarTab, 0);
+      expect(s.windowWidth, 1280.0);
+      expect(s.windowX, isNull);
+      expect(s.isDarkTheme, isTrue);
+      expect(s.vodCardScale, 350.0);
+      expect(s.closeAction, 'tray');
+      expect(s.notifyWentLive, isTrue);
+    });
+
+    test('an out-of-range sidebar tab cannot strand the user', () {
+      // The segmented control has three segments; anything else highlights none.
+      expect(AppSettings.fromJson({'active_sidebar_tab': 7}).activeSidebarTab, 2);
+      expect(AppSettings.fromJson({'active_sidebar_tab': -3}).activeSidebarTab, 0);
+    });
+
+    test('an empty config yields a fully default instance', () {
+      expect(() => AppSettings.fromJson(const {}), returnsNormally);
+      expect(AppSettings.fromJson(const {}).toJson(),
+          AppSettings().toJson());
     });
   });
 }
