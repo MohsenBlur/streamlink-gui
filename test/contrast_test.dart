@@ -15,11 +15,35 @@ const double kNonTextAA = 3.0;
 
 /// Every ground an ink can land on, per theme. An ink must clear its bar
 /// against the *worst* of these, not just the one it was designed against.
-List<({String name, Color color})> groundsFor(bool isDark) => [
-      (name: 'canvas', color: NeuTheme.canvas(isDark)),
-      (name: 'surface', color: NeuTheme.surface(isDark)),
-      (name: 'well', color: NeuTheme.wellSurface(isDark)),
-    ];
+///
+/// Each base appears twice: once flat, and once at the darkest point its
+/// gradient reaches. That second entry is the one that matters and the one
+/// this file used to omit.
+///
+/// WCAG technique F83 is explicit that contrast over a non-uniform background
+/// is judged against the worst pixel behind the letter - "the area of the
+/// image that is darkest (for dark text) or lightest (for light text)" - not
+/// against an average and not against the declared base colour. Because
+/// `NeuTheme.raised()` paints `[base, fillFloor(base)]`, no text in this app
+/// has ever actually sat on a flat token.
+///
+/// Checking only the bases hid seven real failures, all in the light theme,
+/// where darkening the fill costs dark ink contrast. The dark theme is immune
+/// for the same reason inverted: darkening the fill *helps* light ink. That
+/// asymmetry is why the light palette has so much less gradient headroom.
+List<({String name, Color color})> groundsFor(bool isDark) {
+  final bases = <({String name, Color color})>[
+    (name: 'canvas', color: NeuTheme.canvas(isDark)),
+    (name: 'surface', color: NeuTheme.surface(isDark)),
+    (name: 'well', color: NeuTheme.wellSurface(isDark)),
+  ];
+  return [
+    for (final b in bases) ...[
+      b,
+      (name: '${b.name} fill floor', color: NeuTheme.fillFloor(b.color)),
+    ],
+  ];
+}
 
 void expectInk(
   String label,
@@ -66,6 +90,44 @@ void main() {
             min: kNonTextAA);
       });
     }
+  });
+
+  group('the gradient floor is the real ground', () {
+    test('a fill floor is darker than its base, and by the declared amount', () {
+      // If this ever inverts, groundsFor is checking the wrong extreme and
+      // every assertion above becomes decorative.
+      for (final isDark in [false, true]) {
+        for (final base in [
+          NeuTheme.canvas(isDark),
+          NeuTheme.surface(isDark),
+          NeuTheme.wellSurface(isDark),
+        ]) {
+          final floor = NeuTheme.fillFloor(base);
+          expect(floor.computeLuminance(), lessThan(base.computeLuminance()),
+              reason: 'fillFloor must darken; the worst case for dark ink is '
+                  'the darkest point of the fill');
+        }
+      }
+    });
+
+    test('light inks survive the floor, which is where they used to fail', () {
+      // Named individually because these five are the ones that regressed:
+      // each cleared its bar against the flat token and missed it against the
+      // floor by between 0.05 and 0.25.
+      final worst = NeuTheme.fillFloor(NeuTheme.wellSurface(false));
+      for (final ink in <(String, Color, double)>[
+        ('liveText', NeuTheme.liveText(false), kTextAA),
+        ('dangerText', NeuTheme.dangerText(false), kTextAA),
+        ('warningText', NeuTheme.warningText(false), kTextAA),
+        ('disabledText', NeuTheme.disabledText(false), kNonTextAA),
+        ('favoriteText', NeuTheme.favoriteText(false), kNonTextAA),
+      ]) {
+        final ratio = NeuTheme.contrastRatio(ink.$2, worst);
+        expect(ratio, greaterThanOrEqualTo(ink.$3),
+            reason: '${ink.$1} measured ${ratio.toStringAsFixed(2)}:1 against '
+                'the well fill floor, needs ${ink.$3}:1');
+      }
+    });
   });
 
   group('surfaces are distinguishable from the page', () {

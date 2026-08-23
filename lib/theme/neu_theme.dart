@@ -56,19 +56,22 @@ class NeuTheme {
   static const Color favorite = Color(0xFFFFC24B);
 
   /// Text/icon variant of [live]: the base mint washes out on light grounds.
-  /// 4.60:1 at worst (the well). Was #008F66 = 3.47:1.
-  static Color liveText(bool isDark) => isDark ? live : const Color(0xFF00704F);
+  /// 4.55:1 against the fill floor. Was #00704F, which measured 4.60:1 against
+  /// the flat well but only 4.25:1 against the well's gradient floor.
+  static Color liveText(bool isDark) => isDark ? live : const Color(0xFF006B4B);
 
-  /// Text/icon variant of [danger]. 4.68:1 at worst. Was #D92645 = 4.12:1.
-  static Color dangerText(bool isDark) => isDark ? danger : const Color(0xFFC01230);
+  /// Text/icon variant of [danger]. 4.50:1 against the fill floor. Was
+  /// #C01230, which measured 4.68:1 flat but 4.33:1 against the floor.
+  static Color dangerText(bool isDark) => isDark ? danger : const Color(0xFFBB122F);
 
-  /// Text/icon variant of [warning]. 4.63:1 at worst.
-  static Color warningText(bool isDark) => isDark ? warning : const Color(0xFF8F5300);
+  /// Text/icon variant of [warning]. 4.52:1 against the fill floor. Was
+  /// #8F5300, which measured 4.63:1 flat but 4.28:1 against the floor.
+  static Color warningText(bool isDark) => isDark ? warning : const Color(0xFF8A5000);
 
   /// Text/icon variant of [favorite]. 3.20:1 at worst - held to the 3:1 bar
   /// for meaningful non-text graphics rather than the 4.5:1 body-text bar,
   /// because it is always an icon and never a label.
-  static Color favoriteText(bool isDark) => isDark ? favorite : const Color(0xFFA86F00);
+  static Color favoriteText(bool isDark) => isDark ? favorite : const Color(0xFFA56D00);
 
   /// Ink for content rendered ON an accent fill.
   ///
@@ -110,7 +113,13 @@ class NeuTheme {
   /// Cost is a short loop, so callers should cache — see
   /// `AppThemeNotifier.accentInk`.
   static Color accentInk(Color accent, bool isDark) {
-    final ground = isDark ? darkSurface : wellSurface(false);
+    // The worst ground, not the worst *token*. Light ink on a dark theme is
+    // hurt by the LIGHTEST ground, and a fill only ever darkens, so dark mode's
+    // worst case is the flat surface. Dark ink on a light theme is hurt by the
+    // DARKEST ground, which is the well's gradient floor - a fill floor this
+    // derivation used to ignore, leaving Soft Pink at 4.38:1 there while
+    // reporting it clear.
+    final ground = isDark ? darkSurface : fillFloor(wellSurface(false));
     if (contrastRatio(accent, ground) >= _inkTarget) return accent;
 
     final hsl = HSLColor.fromColor(accent);
@@ -187,7 +196,8 @@ class NeuTheme {
   /// This value is calibrated to be exactly as dim as it should be, so nothing
   /// may dim it further - the disabled affordance is carried by the flat
   /// (shadowless) treatment and the cursor, not by fading the label away.
-  static Color disabledText(bool isDark) => isDark ? const Color(0xFF64748B) : const Color(0xFF6E7C93);
+  static Color disabledText(bool isDark) =>
+      isDark ? const Color(0xFF64748B) : const Color(0xFF6C7A91);
   static Color highlight(bool isDark) => isDark ? darkHighlight : lightHighlight;
   static Color shadow(bool isDark) => isDark ? darkShadow : lightShadow;
 
@@ -233,6 +243,22 @@ class NeuTheme {
   /// uniform, clips at 0, and misbehaved on the translucent bases NeuButton
   /// passes for its selected state. On the dark well the old offset landed
   /// near-black; this stays proportional.
+  /// How far a raised fill's gradient darkens from its base, in HSL lightness.
+  ///
+  /// Public because it is not a private styling detail: it is the difference
+  /// between the colour a token declares and the colour text actually lands
+  /// on, and WCAG F83 judges contrast against the latter.
+  static const double fillSpread = 0.030;
+
+  /// The darkest point a raised fill reaches - the real ground under text.
+  ///
+  /// A gradient means an ink sits on a *range* of colours, and F83's rule is
+  /// the worst pixel behind the letter, not the declared base. Checking the
+  /// base alone hid seven genuine failures in the light theme: liveText,
+  /// dangerText, warningText, disabledText and favoriteText all cleared their
+  /// bar against the flat token and missed it by 0.05-0.25 against the floor.
+  static Color fillFloor(Color base) => _shade(base, -fillSpread);
+
   static Color _shade(Color base, double delta) {
     final hsl = HSLColor.fromColor(base);
     return hsl.withLightness((hsl.lightness + delta).clamp(0.0, 1.0)).toColor();
@@ -256,7 +282,7 @@ class NeuTheme {
           LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [b, _shade(b, -0.030)],
+            colors: [b, fillFloor(b)],
           ),
       shape: circle ? BoxShape.circle : BoxShape.rectangle,
       borderRadius: circle ? null : BorderRadius.circular(radius),
