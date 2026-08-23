@@ -429,7 +429,18 @@ class SidebarPanelState extends State<SidebarPanel> {
                                   width: 1,
                                 ),
                               ),
-                              child: ListTile(
+                              // Transparent Material, because a ListTile paints
+                              // its background and its ink splash on the
+                              // NEAREST Material ancestor - which here is the
+                              // Scaffold, behind this decorated Container. The
+                              // splash was being drawn under an opaque box and
+                              // was invisible. Flutter 3.44 asserts on the
+                              // arrangement; 3.41, which this repo builds
+                              // against locally, does not, so CI is the only
+                              // thing that sees it.
+                              child: Material(
+                                type: MaterialType.transparency,
+                                child: ListTile(
                                 dense: true,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
                                 leading: Icon(Icons.add_circle_outline, color: themeNotifier.accentInk, size: 20),
@@ -445,6 +456,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                       )
                                      : Icon(Icons.chevron_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
                                 onTap: widget.isAdding ? null : () => widget.onAddChannel(query),
+                              ),
                               ),
                             );
                           }
@@ -1163,7 +1175,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
           child: GestureDetector(
           onDoubleTap:
               channel.isLive ? () => widget.onDoubleTapped(channel) : null,
-          child: ListTile(
+          // See the note on the other ListTile in this file: the splash paints
+          // on the nearest Material ancestor, and the row's own decorated
+          // Container sits between them.
+          child: Material(
+            type: MaterialType.transparency,
+            child: ListTile(
             contentPadding: const EdgeInsets.only(left: NeuSpace.s12, right: NeuSpace.s4),
             leading: Stack(
               children: [
@@ -1248,6 +1265,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               children: [playSlot, starSlot],
             ),
             onTap: () => widget.onSelected(channel),
+          ),
           ),
         ),
         ),
