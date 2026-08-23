@@ -647,7 +647,25 @@ class MaterialPalette {
     final base = groundFor(RoleModifier.of(role).fill);
     final stops = <Color>[base, for (final s in fill) shadeStop(base, s)];
     stops.sort((a, b) => a.computeLuminance().compareTo(b.computeLuminance()));
-    return isLight ? stops.first : stops.last;
+    final worst = isLight ? stops.first : stops.last;
+
+    // The grain, in closed form. It only ever lightens - it composites with
+    // BlendMode.plus and its tile carries the positive deviation only - so on a
+    // dark palette the worst texel is the lightest stop plus the amplitude,
+    // and on a light palette the grain moves ink AWAY from its worst case and
+    // is simply ignored.
+    //
+    // Being able to write this as arithmetic rather than by rasterising and
+    // sampling is the whole reason the texture is lighten-only.
+    if (isLight) return worst;
+    final amp = texture?.amplitudeFor(role) ?? 0;
+    if (amp == 0) return worst;
+    return Color.from(
+      alpha: 1,
+      red: ((worst.r * 255 + amp) / 255).clamp(0.0, 1.0),
+      green: ((worst.g * 255 + amp) / 255).clamp(0.0, 1.0),
+      blue: ((worst.b * 255 + amp) / 255).clamp(0.0, 1.0),
+    );
   }
 
   /// True when this palette's own surface is light. Not a theme flag — an

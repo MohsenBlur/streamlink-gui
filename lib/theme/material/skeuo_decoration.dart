@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 import 'material_palette.dart';
+import 'texture_cache.dart';
 
 /// The paint half of the material engine.
 ///
@@ -95,6 +96,7 @@ class SkeuoDecoration extends Decoration {
         glossColour: palette.glossColour,
         texture: palette.texture,
         textureScale: m.textureScale,
+        textureAmplitude: palette.texture?.amplitudeFor(role) ?? 0,
         gradientOverride: gradient,
         blurOverride: blur,
       ),
@@ -235,6 +237,7 @@ class SurfaceParams {
     required this.glossHardTerminator,
     required this.glossColour,
     required this.textureScale,
+    this.textureAmplitude = 0,
     this.texture,
     this.circle = false,
     this.gradientOverride,
@@ -276,6 +279,10 @@ class SurfaceParams {
 
   final TextureSpec? texture;
   final double textureScale;
+
+  /// Peak deviation in sRGB levels for THIS role. Zero means no grain, which
+  /// is how a chip opts out without the material having to know about chips.
+  final int textureAmplitude;
 
   /// A fill supplied by the call site, replacing the material's own ramp.
   /// One caller uses it: `NeuContainer`, for the rainbow live-border case.
@@ -341,6 +348,7 @@ class SurfaceParams {
         glossColour: glossColour,
         texture: texture,
         textureScale: textureScale * t,
+        textureAmplitude: textureAmplitude,
         gradientOverride: gradientOverride,
         blurOverride: blurOverride,
       );
@@ -376,6 +384,9 @@ class SurfaceParams {
       glossColour: Color.lerp(a.glossColour, b.glossColour, t)!,
       texture: t < 0.5 ? a.texture : b.texture,
       textureScale: d(a.textureScale, b.textureScale),
+      textureAmplitude:
+          d(a.textureAmplitude.toDouble(), b.textureAmplitude.toDouble())
+              .round(),
       gradientOverride:
           Gradient.lerp(a.gradientOverride, b.gradientOverride, t),
       blurOverride: (a.blurOverride == null && b.blurOverride == null)
@@ -407,6 +418,7 @@ class SurfaceParams {
       other.glossColour == glossColour &&
       other.texture == texture &&
       other.textureScale == textureScale &&
+      other.textureAmplitude == textureAmplitude &&
       other.gradientOverride == gradientOverride &&
       other.blurOverride == blurOverride &&
       _same(other.contact, contact) &&
@@ -418,6 +430,7 @@ class SurfaceParams {
         insetStrength, fillRamp, recessStyle, bevelColour, bevelWidth,
         bevelSweepExponent, bevelAmbientFloor, gloss, glossBreak,
         glossHardTerminator, glossColour, texture, textureScale,
+        textureAmplitude,
         gradientOverride, blurOverride,
         Object.hashAll(fill.map((s) => Object.hash(s.at, s.dh, s.ds, s.dl))),
         Object.hashAll(contact), Object.hashAll(inset),
@@ -470,8 +483,8 @@ class _SkeuoPainter extends BoxPainter {
     // currently exists: Soft declares neither. They are branches rather than
     // stubs — the tile cache plugs into the first, and a palette with gloss
     // lights up the second with no change here.
-    if (p.textureScale > 0 && p.texture != null) {
-      _paintTexture(canvas, rect, p);
+    if (p.textureScale > 0 && p.texture != null && p.textureAmplitude > 0) {
+      _paintTexture(canvas, rect, p, configuration);
     }
     if (p.gloss > 0) _paintGloss(canvas, rect, p);
     if (p.bevelWidth > 0) _paintBevel(canvas, rect, p);
@@ -526,9 +539,57 @@ class _SkeuoPainter extends BoxPainter {
     _draw(canvas, rect, p, Paint()..shader = gradient.createShader(rect));
   }
 
-  void _paintTexture(Canvas canvas, Rect rect, SurfaceParams p) {
-    // The tile cache lands with the first textured material. Until then this
-    // branch is unreachable: no palette declares a texture.
+  void _paintTexture(Canvas canvas, Rect rect, SurfaceParams p,
+      ImageConfiguration configuration) {
+    final spec = p.texture!;
+
+    // Below this the structure aliases into something that reads as JPEG
+    // damage rather than as material, so a chip gets the plain fill.
+    if (rect.shortestSide < spec.dropBelowPx) return;
+
+    final dpr = configuration.devicePixelRatio ?? 1.0;
+    final key = TileKey(
+      kind: spec.kind,
+      width: spec.tileDevicePx.width.round(),
+      height: spec.tileDevicePx.height.round(),
+      amplitude: (p.textureAmplitude * p.textureScale).round(),
+      seed: spec.seed,
+    );
+
+    final tile = TextureCache.lookup(key);
+    if (tile == null) {
+      // Miss: paint no grain this frame and ask for it. The surface reads as
+      // an untextured material until the tile lands, which is a frame later
+      // and indistinguishable in practice.
+      final notify = onChanged;
+      if (notify != null) TextureCache.request(key, notify);
+      return;
+    }
+
+    // The matrix is anchored to the BOX, not to the layer. A RepaintBoundary
+    // repaints its child at Offset.zero, so an identity matrix would make the
+    // grain jump phase the moment a boundary is added for performance - a
+    // change that has nothing to do with texture and would be very hard to
+    // connect to it.
+    final matrix = Matrix4.identity()
+      ..translateByDouble(rect.left, rect.top, 0, 1)
+      ..rotateZ(spec.grainAngleDeg * math.pi / 180.0)
+      ..scaleByDouble(1.0 / dpr, 1.0 / dpr, 1, 1);
+
+    final paint = Paint()
+      // Adds exactly: result = dst + deviation, independent of the ground and
+      // of the gradient under it. See TextureCache for why this is not srcOver.
+      ..blendMode = BlendMode.plus
+      ..shader = ImageShader(
+          tile, TileMode.repeated, TileMode.repeated, matrix.storage);
+
+    canvas.save();
+    try {
+      canvas.clipPath(decoration.getClipPath(rect, TextDirection.ltr));
+      canvas.drawRect(rect, paint);
+    } finally {
+      canvas.restore();
+    }
   }
 
   /// Layer 4 — the specular sweep, with a terminator.

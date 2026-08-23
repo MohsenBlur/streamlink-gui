@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../widgets/settings_dialog.dart' show ThemeUpdateListener;
 import 'material/app_material.dart';
+import 'material/texture_cache.dart';
 import 'neu_theme.dart';
 
 /// App-wide theme state.
@@ -81,6 +82,10 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
     if (NeuTheme.activeMaterial == next) return;
     NeuTheme.activeMaterial = next;
     _invalidateDerivedColors();
+    // The previous material's grain is now wrong for every surface. Eviction
+    // defers the actual dispose by a frame, because a painter built this frame
+    // may still hold a shader over one of these tiles.
+    TextureCache.evictAll();
     notifyListeners();
   }
 

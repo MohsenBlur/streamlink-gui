@@ -54,17 +54,34 @@ void main() {
         });
 
         test('$label — worstGround picks the extreme that actually hurts', () {
-          // Asymmetric on purpose: a fill that darkens hurts dark ink and
-          // helps light ink. Getting this backwards would make every contrast
+          // Asymmetric twice over, and both directions matter.
+          //
+          // A fill that darkens hurts dark ink and helps light ink, so the
+          // worst stop is the darkest on a light palette and the lightest on a
+          // dark one. Getting that backwards would make every contrast
           // assertion in the app measure the friendly end.
+          //
+          // The grain is asymmetric the same way: it only lightens, so it
+          // pushes a dark palette's worst case further and moves a light
+          // palette's away from it entirely.
           for (final role in SurfaceRole.values) {
-            final worst = p.worstGround(role);
+            final worst = p.worstGround(role).computeLuminance();
             final base = p.groundFor(RoleModifier.of(role).fill);
             final stops = [base, for (final s in p.fill) p.shadeStop(base, s)];
             final lum = stops.map((c) => c.computeLuminance()).toList()..sort();
-            expect(worst.computeLuminance(),
-                closeTo(p.isLight ? lum.first : lum.last, 1e-9),
-                reason: '$label $role picked the wrong extreme');
+            final amp = p.texture?.amplitudeFor(role) ?? 0;
+
+            if (p.isLight) {
+              expect(worst, closeTo(lum.first, 1e-9),
+                  reason: '$label $role picked the wrong extreme');
+            } else if (amp == 0) {
+              expect(worst, closeTo(lum.last, 1e-9),
+                  reason: '$label $role picked the wrong extreme');
+            } else {
+              expect(worst, greaterThan(lum.last),
+                  reason: '$label $role must include the grain, which is the '
+                      'lightest thing a dark surface ever shows');
+            }
           }
         });
       }
