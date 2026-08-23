@@ -150,6 +150,25 @@ class NeuDialog extends StatelessWidget {
   final List<NeuDialogAction> actions;
 
   /// Rendered at the far left of the footer - a version chip, a help link.
+  ///
+  /// **Each entry is laid out in a `Wrap`, so none of them may be a
+  /// `Flexible`, an `Expanded`, or any other `ParentDataWidget` that expects a
+  /// `Flex` parent.** Pass the items individually and bound anything that can
+  /// run long with a `ConstrainedBox` plus an ellipsis; the Wrap is what makes
+  /// the footer safe at the 380px minimum window, where these three controls
+  /// plus two buttons do not fit on one line.
+  ///
+  /// The rule is enforced by [_assertNoFlexChildren] rather than left to
+  /// review, because the two build modes disagree about breaking it and only
+  /// one of them tells you. Debug spots the misplaced ParentDataWidget, logs
+  /// "Incorrect use of ParentDataWidget", **skips applying it** and renders on
+  /// looking perfectly fine. Release strips that check along with the assert
+  /// that guards it, so the cast to `FlexParentData` throws for real and
+  /// Flutter swaps in a grey `RenderErrorBox`.
+  ///
+  /// That is how v1.7.0 shipped a settings dialog whose entire body was a grey
+  /// rectangle in the release build, while every debug screenshot taken of it
+  /// looked correct.
   final List<Widget> leadingActions;
 
   /// Null sizes responsively. The old dialogs used a hard 520x520 and 720x650,
@@ -288,7 +307,36 @@ class NeuDialog extends StatelessWidget {
     );
   }
 
+  /// Fails fast on a `leadingActions` entry that needs a `Flex` parent.
+  ///
+  /// An assert rather than a throw: this is a caller mistake, it is caught by
+  /// the widget tests (which run in debug and route assertion failures into
+  /// test failures), and a release build should not pay for the check. What it
+  /// must NOT do is stay silent in debug the way the framework's own detection
+  /// does — that silence is the entire bug.
+  bool _assertNoFlexChildren() {
+    for (final action in leadingActions) {
+      if (action is Flexible || action is Expanded) {
+        throw FlutterError.fromParts(<DiagnosticsNode>[
+          ErrorSummary(
+              'NeuDialog.leadingActions contains a ${action.runtimeType}.'),
+          ErrorDescription(
+              'The leading group is laid out in a Wrap so it can break onto a '
+              'second line in a narrow window. A Flexible or Expanded there is '
+              'a ParentDataWidget without a Flex parent: debug logs it and '
+              'carries on, release throws and the dialog body becomes a grey '
+              'error box.'),
+          ErrorHint(
+              'Pass the items individually and bound anything that can run '
+              'long with a ConstrainedBox and TextOverflow.ellipsis.'),
+        ]);
+      }
+    }
+    return true;
+  }
+
   Widget _footer(bool isDark) {
+    assert(_assertNoFlexChildren());
     return Container(
       padding: const EdgeInsets.fromLTRB(
         NeuSpace.s20,

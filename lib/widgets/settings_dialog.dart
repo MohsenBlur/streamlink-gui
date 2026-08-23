@@ -1201,100 +1201,102 @@ class SettingsDialog {
                 // The version chip, repo link and update check act on the
                 // app rather than on this dialog, so they sit at the far
                 // left of the footer rather than beside Save.
+                // Three separate Wrap children, not one Row wrapped in a
+                // Flexible. The footer's leading group is a Wrap so it can
+                // break onto a second line at the 380px minimum window, and a
+                // Flexible in a Wrap is a ParentDataWidget with no Flex parent
+                // - debug logs that and renders on, release throws and the
+                // whole dialog body becomes a grey error box. See
+                // NeuDialog.leadingActions.
                 leadingActions: [
-                      Flexible(
-                        child: Row(
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
+                    decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
+                    child: Text(
+                      'v${UpdateService.currentVersion}',
+                      style: NeuType.captionStrong(themeNotifier.isDarkTheme),
+                    ),
+                  ),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(NeuRadius.r6),
+                    onTap: () => openExternalLink(UpdateService.githubRepoUrl),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s4),
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
-                            decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
-                            child: Text(
-                              'v${UpdateService.currentVersion}',
-                              style: NeuType.captionStrong(themeNotifier.isDarkTheme),
-                            ),
+                          Icon(Icons.code, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                          const SizedBox(width: NeuSpace.s4),
+                          Text(
+                            'GitHub Repo',
+                            style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                           ),
-                          const SizedBox(width: NeuSpace.s8),
-                          InkWell(
-                            borderRadius: BorderRadius.circular(NeuRadius.r6),
-                            onTap: () => openExternalLink(UpdateService.githubRepoUrl),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s4),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.code, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                  const SizedBox(width: NeuSpace.s4),
-                                  Text(
-                                    'GitHub Repo',
-                                    style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: NeuSpace.s8),
-                          TextButton.icon(
-                            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4)),
-                            onPressed: isCheckingUpdates
-                                ? null
-                                : () async {
-                                    setDialogState(() {
-                                      isCheckingUpdates = true;
-                                      updateCheckResult = null;
-                                    });
-                                    final updateInfo = await UpdateService().checkForUpdates();
-                                    if (!context.mounted) return;
-
-                                    // checkForUpdates returns a non-null UpdateInfo
-                                    // for any successful query and reports
-                                    // availability via isUpdateAvailable.
-                                    setDialogState(() {
-                                      isCheckingUpdates = false;
-                                      if (updateInfo == null) {
-                                        updateCheckResult = 'Check failed - no connection?';
-                                        updateCheckIsError = true;
-                                      } else if (updateInfo.isUpdateAvailable) {
-                                        updateCheckResult =
-                                            'v${updateInfo.version} available - close Settings to install';
-                                        updateCheckIsError = false;
-                                      } else {
-                                        updateCheckResult = 'Up to date (v${UpdateService.currentVersion})';
-                                        updateCheckIsError = false;
-                                      }
-                                    });
-
-                                    if (updateInfo != null && updateInfo.isUpdateAvailable) {
-                                      onUpdateAvailable?.call(updateInfo);
-                                    }
-                                  },
-                            icon: isCheckingUpdates
-                                ? SizedBox(
-                                    width: 12,
-                                    height: 12,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 1.5,
-                                        color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                  )
-                                : Icon(Icons.refresh, size: 13, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                            label: Text('Check for Updates', style: NeuType.caption(themeNotifier.isDarkTheme)),
-                          ),
-                          if (updateCheckResult != null) ...[
-                            const SizedBox(width: NeuSpace.s6),
-                            Flexible(
-                              child: Text(
-                                updateCheckResult!,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: NeuType.plate(themeNotifier.isDarkTheme, color: updateCheckIsError
-                                      ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
-                                      : NeuTheme.liveText(themeNotifier.isDarkTheme)),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4)),
+                    onPressed: isCheckingUpdates
+                        ? null
+                        : () async {
+                            setDialogState(() {
+                              isCheckingUpdates = true;
+                              updateCheckResult = null;
+                            });
+                            final updateInfo = await UpdateService().checkForUpdates();
+                            if (!context.mounted) return;
+
+                            // checkForUpdates returns a non-null UpdateInfo
+                            // for any successful query and reports
+                            // availability via isUpdateAvailable.
+                            setDialogState(() {
+                              isCheckingUpdates = false;
+                              if (updateInfo == null) {
+                                updateCheckResult = 'Check failed - no connection?';
+                                updateCheckIsError = true;
+                              } else if (updateInfo.isUpdateAvailable) {
+                                updateCheckResult =
+                                    'v${updateInfo.version} available - close Settings to install';
+                                updateCheckIsError = false;
+                              } else {
+                                updateCheckResult = 'Up to date (v${UpdateService.currentVersion})';
+                                updateCheckIsError = false;
+                              }
+                            });
+
+                            if (updateInfo != null && updateInfo.isUpdateAvailable) {
+                              onUpdateAvailable?.call(updateInfo);
+                            }
+                          },
+                    icon: isCheckingUpdates
+                        ? SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                          )
+                        : Icon(Icons.refresh, size: 13, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                    label: Text('Check for Updates', style: NeuType.caption(themeNotifier.isDarkTheme)),
+                  ),
+                  // Bounded rather than Flexible, for the reason above. 240 is
+                  // wide enough for the longest message this can produce
+                  // ("vX.Y.Z available - close Settings to install") on two
+                  // lines, and narrow enough to leave the buttons a line of
+                  // their own at 380.
+                  if (updateCheckResult != null)
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 240),
+                      child: Text(
+                        updateCheckResult!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: NeuType.plate(themeNotifier.isDarkTheme, color: updateCheckIsError
+                              ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
+                              : NeuTheme.liveText(themeNotifier.isDarkTheme)),
                       ),
+                    ),
                 ],
                 actions: [
                   NeuDialogAction.secondary('Cancel', () {

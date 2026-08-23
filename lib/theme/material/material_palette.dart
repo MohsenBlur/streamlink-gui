@@ -395,6 +395,17 @@ class Furniture {
   bool get isNone =>
       !screws && !seams && !plates && !bezels && rim == RimStyle.none;
 
+  /// Whether anything is drawn on the WINDOW itself, as opposed to on a
+  /// surface inside it.
+  ///
+  /// Separate from [isNone] because the two answer different questions and
+  /// conflating them costs the title bar 26 logical pixels of inset for a
+  /// screw that is not there. A bezel is drawn around a thumbnail by the
+  /// widget that owns it; screws, seams and a rim are drawn on the chassis by
+  /// `AppChassis`, and only those force the window's own chrome to leave room.
+  bool get hasChassisOrnament =>
+      screws || seams || rim != RimStyle.none;
+
   @override
   bool operator ==(Object other) =>
       other is Furniture &&

@@ -27,7 +27,31 @@ const MaterialSpec rackSpec = MaterialSpec(
   blurb: 'Milled aluminium, engraved legends, indicator lamps.',
   light: _rackLight,
   dark: _rackDark,
-  furniture: Furniture(screws: true, seams: true, plates: true, bezels: true),
+  // No screws and no edge groove, and this is a finding rather than a taste
+  // call. Both shipped in v1.7.0 and both were wrong on this window.
+  //
+  // The screws sat in the four window corners, 12px across with a horizontal
+  // slot - which at that size is indistinguishable from a minimise button. The
+  // top-right one landed immediately beside the real close button and read as
+  // a fourth, disabled window control. "No ornament obscuring a control" was
+  // the rule; the one it needed was "no ornament IMITATING a control".
+  //
+  // The groove was a hairline rectangle inset from the window edge, painted as
+  // a foregroundDecoration over everything. A milled groove reads as a groove
+  // because it is cut into a plate with a margin around it. This window's
+  // chrome reaches its own edges - the sidebar starts at x=0 and the title bar
+  // spans the full width - so there is no margin for it to be cut into, and it
+  // read as a stray line drawn across the UI.
+  //
+  // The tell was there during implementation and I explained it away: the
+  // screws collided with the close button, and I "fixed" that by insetting the
+  // title bar's contents by 26px. Needing to move the chrome to make room for
+  // ornament is the ornament telling you it does not belong.
+  //
+  // `plates` and `bezels` stay: those are drawn ON surfaces that genuinely
+  // have margins - the engraved legend on the title bar, the rim around a
+  // recessed thumbnail - rather than on the window.
+  furniture: Furniture(plates: true, bezels: true),
   type: MaterialType(
     labelFamily: 'Bahnschrift',
     labelWidth: 87.5,

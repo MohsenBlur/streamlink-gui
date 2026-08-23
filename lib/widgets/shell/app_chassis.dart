@@ -49,7 +49,7 @@ class AppChassis extends StatelessWidget {
   static bool showsFurniture(BuildContext context) {
     final layout = AppLayout.maybeOf(context);
     final f = MaterialSpec.of(NeuTheme.activeMaterial).furniture;
-    return !f.isNone && !layout.isRail;
+    return f.hasChassisOrnament && !layout.isRail;
   }
 
   @override

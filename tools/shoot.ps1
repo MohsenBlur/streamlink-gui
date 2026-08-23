@@ -38,7 +38,31 @@ param(
     [int]$LaunchTimeoutMs = 30000
 )
 
+# A Debug build is NOT a substitute for a Release one when reviewing the UI.
+#
+# v1.7.0 shipped a settings dialog whose entire body was a grey error box in
+# release, while every debug screenshot of it looked correct. The cause was a
+# Flexible inside a Wrap: Flutter detects that misplaced ParentDataWidget inside
+# an assert, so DEBUG logs it, declines to apply the parent data and renders on,
+# while RELEASE strips the check, throws on the cast, and swaps in a
+# RenderErrorBox. Debug is structurally incapable of showing that class of bug.
+function Assert-ReleaseBuild([string]$exePath) {
+    if ($exePath -and $exePath.ToLower().Contains('\debug\')) {
+        Write-Warning ("DEBUG BUILD WARNING: capturing '$exePath'. Debug masks " +
+            "misplaced ParentDataWidgets and other assert-guarded faults that " +
+            "only throw in release. Shoot the Release build before believing a " +
+            "screenshot.")
+    }
+}
+
 $ErrorActionPreference = 'Stop'
+
+# Best effort: shoot.ps1 attaches to a running window rather than launching one,
+# so it warns on the process it finds rather than on a path it was given.
+try {
+    $running = Get-Process streamlink_gui -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($running) { Assert-ReleaseBuild $running.Path }
+} catch {}
 
 Add-Type -AssemblyName System.Drawing
 

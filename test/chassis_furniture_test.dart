@@ -48,12 +48,27 @@ void main() {
           }),
         ));
 
-        // The predicate is `isRail`, not the width band. `compactMax` is 700,
-        // so a 900x1200 portrait window is `medium` — and cramped, which is
-        // the thing `isRail` exists to say. Keying on the band would put
-        // screws in the one window shape with least room for them.
-        expect(shows, !isRail,
-            reason: '$label: isRail=$isRail but showsFurniture=$shows');
+        // Two conditions, and the test states both because they fail
+        // differently. There must be chassis ornament to draw at all — and
+        // after v1.7.0 no shipped material declares any, for reasons recorded
+        // in rack.dart — and the window must not be a rail.
+        //
+        // The rail half is the one worth keeping honest: the predicate is
+        // `isRail`, not the width band. `compactMax` is 700, so a 900x1200
+        // portrait window is `medium` and cramped, which is the thing `isRail`
+        // exists to say. Keying on the band would put ornament in the window
+        // shape with least room for it.
+        final declares = MaterialSpec.of(AppMaterial.rack)
+            .furniture
+            .hasChassisOrnament;
+        expect(shows, declares && !isRail,
+            reason: '$label: declares=$declares isRail=$isRail but '
+                'showsFurniture=$shows');
+        if (isRail) {
+          expect(shows, isFalse,
+              reason: 'a rail has no room for ornament whatever the material '
+                  'declares');
+        }
       });
     }
 
@@ -146,7 +161,11 @@ void main() {
     }
 
     for (final spec in MaterialSpec.available) {
-      if (spec.furniture.isNone) continue;
+      // Only materials that put something on the WINDOW. A material declaring
+      // only `plates` and `bezels` draws on surfaces instead, and asking this
+      // painter to produce pixels for it would assert on a claim it never
+      // made — which is what happened when the predicate was `isNone`.
+      if (!spec.furniture.hasChassisOrnament) continue;
       for (final isDark in [false, true]) {
         test('${spec.id.key} ${isDark ? 'dark' : 'light'} draws something', () {
           // A material that declares furniture and paints nothing is the
@@ -166,6 +185,31 @@ void main() {
         });
       }
     }
+
+    test('the painter still works for a material that does declare it', () {
+      // Every shipped material now draws its ornament on surfaces rather than
+      // on the window, so nothing exercises this painter through the registry.
+      // It stays covered anyway: v1.9.0's chrome rim is the reason the code is
+      // still here, and a painter nothing calls is a painter nobody notices
+      // has rotted.
+      final d = ChassisFurniture(
+        furniture: const Furniture(screws: true, seams: true),
+        palette: MaterialSpec.of(AppMaterial.rack).palette(true),
+      );
+      expect(markedPixels(d, const Size(400, 300)), completion(greaterThan(200)),
+          reason: 'the chassis painter has stopped drawing anything');
+    });
+
+    test('a surface-only material asks the painter for nothing', () {
+      // The other half: declaring plates and bezels must NOT put a groove or a
+      // screw on the window. This is the assertion that would have caught the
+      // v1.7.0 arrangement, where `isNone` conflated the two and the title bar
+      // gave up 26 logical pixels to clear a screw.
+      final f = MaterialSpec.of(AppMaterial.rack).furniture;
+      expect(f.isNone, isFalse, reason: 'rack does declare furniture');
+      expect(f.hasChassisOrnament, isFalse,
+          reason: 'rack draws on surfaces, not on the window');
+    });
 
     test('equal specs compare equal', () {
       // `RenderDecoratedBox` early-outs on `==`. Identity equality here would

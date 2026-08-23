@@ -12,6 +12,7 @@ Widget host(Widget child) => MaterialApp(
     );
 
 void main() {
+  _footerContract();
   group('NeuDialog', () {
     testWidgets('a dismissed dialog returns null, never a value',
         (tester) async {
@@ -144,6 +145,75 @@ void main() {
       await tester.tap(find.text('Save'), warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(pressed, 0);
+    });
+  });
+}
+
+/// The footer's ParentDataWidget contract.
+///
+/// Kept apart from the layout sweep on purpose: this is the one class of
+/// defect a screenshot and a size measurement can BOTH miss, because debug and
+/// release disagree about it and only release is wrong.
+///
+/// `Flexible` is a `ParentDataWidget<FlexParentData>`. Put one in a `Wrap` and
+/// `RenderObjectElement._updateParentData` notices — inside an `assert`. Debug
+/// therefore logs "Incorrect use of ParentDataWidget", **declines to apply the
+/// parent data**, and renders on looking entirely correct. Release strips the
+/// assert along with the check it guards, `Flexible.applyParentData` casts
+/// `WrapParentData` to `FlexParentData`, and the throw takes out the whole
+/// subtree — Flutter swaps in a grey `RenderErrorBox`.
+///
+/// v1.7.0 shipped exactly that: a settings dialog whose entire body was a grey
+/// rectangle in the release build, while every debug screenshot of it looked
+/// right. Nothing in the suite could see it, because the suite runs in debug
+/// and the sweep's test dialog passed plain `Text` leading actions.
+void _footerContract() {
+  group('the footer footgun', () {
+    testWidgets('a Flexible leading action is rejected loudly, in debug',
+        (tester) async {
+      // The assert has to fire where it can be seen. Silence here is the bug:
+      // the framework's own detection is silent in debug by design, so the
+      // dialog carries its own check rather than relying on it.
+      await tester.pumpWidget(host(Center(
+        child: NeuDialog(
+          title: 'Settings',
+          content: const Text('body'),
+          leadingActions: [
+            Flexible(child: Row(mainAxisSize: MainAxisSize.min, children: const [Text('v1')])),
+          ],
+          actions: [NeuDialogAction.primary('Save', () {})],
+        ),
+      )));
+
+      final thrown = tester.takeException();
+      expect(thrown, isNotNull,
+          reason: 'a Flexible leading action must fail the build in debug. If '
+              'this passes silently, the contract is unenforced and the next '
+              'one ships as a grey box in release.');
+      expect(thrown.toString(), contains('leadingActions'));
+    });
+
+    testWidgets('plain leading actions build clean', (tester) async {
+      // The control case. Without it the test above would still pass if
+      // NeuDialog threw on everything.
+      await tester.pumpWidget(host(Center(
+        child: NeuDialog(
+          title: 'Settings',
+          content: const Text('body'),
+          leadingActions: [
+            const Text('v9.9.9'),
+            const Text('GitHub Repo'),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 240),
+              child: const Text('Up to date',
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+            ),
+          ],
+          actions: [NeuDialogAction.primary('Save', () {})],
+        ),
+      )));
+      expect(tester.takeException(), isNull);
+      expect(find.text('GitHub Repo'), findsOneWidget);
     });
   });
 }

@@ -184,10 +184,27 @@ void main() {
         icon: Icons.settings,
         width: 600,
         content: const Text('Body copy.'),
-        leadingActions: const [
-          Text('v0.0.0-dev'),
-          Text('GitHub Repo'),
-          Text('Check for updates'),
+        // Four leading actions and the longest status string the updater can
+        // produce, which is what the settings dialog actually passes. The
+        // earlier version of this used three bare Texts and therefore tested a
+        // configuration nothing ships - it sailed through every size while the
+        // real dialog overflowed.
+        //
+        // The ParentDataWidget half of that bug is guarded separately, in
+        // neu_dialog_test: it cannot be caught by measuring, because debug
+        // renders it correctly and only release throws.
+        leadingActions: [
+          const Text('v9.9.9-dev'),
+          const Text('GitHub Repo'),
+          const Text('Check for Updates'),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 240),
+            child: const Text(
+              'v9.9.9 available - close Settings to install',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
         actions: [
           const NeuDialogAction.secondary('Cancel', null),

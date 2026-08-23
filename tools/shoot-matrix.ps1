@@ -22,6 +22,23 @@ param(
     [switch]$KeepOpen
 )
 
+# A Debug build is NOT a substitute for a Release one when reviewing the UI.
+#
+# v1.7.0 shipped a settings dialog whose entire body was a grey error box in
+# release, while every debug screenshot of it looked correct. The cause was a
+# Flexible inside a Wrap: Flutter detects that misplaced ParentDataWidget inside
+# an assert, so DEBUG logs it, declines to apply the parent data and renders on,
+# while RELEASE strips the check, throws on the cast, and swaps in a
+# RenderErrorBox. Debug is structurally incapable of showing that class of bug.
+function Assert-ReleaseBuild([string]$exePath) {
+    if ($exePath -and $exePath.ToLower().Contains('\debug\')) {
+        Write-Warning ("DEBUG BUILD WARNING: capturing '$exePath'. Debug masks " +
+            "misplaced ParentDataWidgets and other assert-guarded faults that " +
+            "only throw in release. Shoot the Release build before believing a " +
+            "screenshot.")
+    }
+}
+
 $ErrorActionPreference = 'Stop'
 
 # w, h, label. Both sides of the 1180 boundary: a one-pixel difference must not
@@ -34,6 +51,8 @@ $SIZES = @(
     @{ w = 1181; h = 720;  label = '1181x720' }
     @{ w = 1600; h = 1000; label = '1600x1000' }
 )
+
+Assert-ReleaseBuild $Exe
 
 $repo = Split-Path -Parent $PSScriptRoot
 $relDir = Split-Path -Parent (Join-Path $repo $Exe)
