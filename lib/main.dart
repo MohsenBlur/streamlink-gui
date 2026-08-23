@@ -687,6 +687,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         // binaries they were running from, and any in-flight downloads were
         // lost with no resume record.
         await _persistUnfinishedDownloadsForRestart();
+        // Same reasoning as the tray exit, without a second modal on top of
+        // the progress dialog: if the resume list did not reach disk, stop
+        // before killing the downloads it was meant to describe. The update
+        // is still there to apply once the disk problem is resolved.
+        final saveFailure = storageWriteFailure.value;
+        if (saveFailure != null) {
+          throw Exception(
+              'could not save the download queue (${saveFailure.path}), so the '
+              'update was not applied. Downloads in progress are untouched.');
+        }
         _playerService.stopAll();
 
         updateDialog(() => statusText = 'Applying update and restarting...');
@@ -700,7 +710,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _logNotifier.endAllRunning(-1);
         if (mounted) {
           Navigator.pop(context);
-          _showSnackBar('Update failed: $e', isError: true);
+          // Matches the VOD fetch path: the user reads this, and
+          // "Update failed: Exception: ..." is noise.
+          _showSnackBar(
+              'Update failed: ${e.toString().replaceFirst('Exception: ', '')}',
+              isError: true);
         }
       }
     });
@@ -871,6 +885,42 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
 
       await _persistUnfinishedDownloadsForRestart();
+
+      // They chose "Exit & Save Queue". If that save did not reach disk,
+      // exiting now loses the queue with no trace - and the banner that would
+      // normally report it goes with the window.
+      if (storageWriteFailure.value != null && mounted) {
+        final bool? exitAnyway = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Text('Could not save the download queue',
+                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+            content: Text(
+              'Writing to ${storageWriteFailure.value?.path} failed, so the '
+              'queued downloads will not resume after a restart.'
+              '\n\nThis usually means the folder is full, read-only, or locked '
+              'by another program. Cancel to fix it and try again.',
+              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text('Cancel',
+                    style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Exit Anyway'),
+              ),
+            ],
+          ),
+        );
+        if (exitAnyway != true) return;
+      }
     }
 
     _playerService.stopAll();
