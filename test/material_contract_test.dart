@@ -57,21 +57,30 @@ void main() {
           // Asymmetric twice over, and both directions matter.
           //
           // A fill that darkens hurts dark ink and helps light ink, so the
-          // worst stop is the darkest on a light palette and the lightest on a
-          // dark one. Getting that backwards would make every contrast
-          // assertion in the app measure the friendly end.
+          // worst stop is the darkest where the ink is dark and the lightest
+          // where it is light. Getting that backwards would make every
+          // contrast assertion in the app measure the friendly end.
+          //
+          // The polarity is the INK's, not the palette's, and the two part
+          // company on exactly one role: an emissive screen stays dark inside
+          // a light material, so it carries light ink while every other
+          // surface in that palette carries dark. Asking `p.isLight` here
+          // returned the darkest screen stop — the friendliest ground there
+          // is — and the log pane's contrast matrix passed on the worst stop
+          // while failing on the flat token.
           //
           // The grain is asymmetric the same way: it only lightens, so it
-          // pushes a dark palette's worst case further and moves a light
-          // palette's away from it entirely.
+          // pushes a light-ink worst case further and moves a dark-ink one
+          // away from its worst case entirely.
           for (final role in SurfaceRole.values) {
             final worst = p.worstGround(role).computeLuminance();
             final base = p.groundFor(RoleModifier.of(role).fill);
             final stops = [base, for (final s in p.fill) p.shadeStop(base, s)];
             final lum = stops.map((c) => c.computeLuminance()).toList()..sort();
             final amp = p.texture?.amplitudeFor(role) ?? 0;
+            final inkIsDark = p.inkIsDarkOn(role);
 
-            if (p.isLight) {
+            if (inkIsDark) {
               expect(worst, closeTo(lum.first, 1e-9),
                   reason: '$label $role picked the wrong extreme');
             } else if (amp == 0) {
@@ -80,8 +89,25 @@ void main() {
             } else {
               expect(worst, greaterThan(lum.last),
                   reason: '$label $role must include the grain, which is the '
-                      'lightest thing a dark surface ever shows');
+                      'lightest thing a textured surface ever shows');
             }
+          }
+        });
+
+        test('$label — the screen is the role that breaks with the palette',
+            () {
+          // Guards the rule rather than the value. An emissive screen does not
+          // track the theme, so in a light palette its ink polarity is
+          // inverted relative to every other role — and that inversion is what
+          // `worstGround` and `inkOnScreen` both key off. If a material ever
+          // makes them agree, this says so out loud instead of quietly
+          // deleting the distinction.
+          expect(p.inkIsDarkOn(SurfaceRole.panel), p.isLight,
+              reason: 'a surface role must follow the palette');
+          if (p.screenIsEmissive && p.isLight) {
+            expect(p.inkIsDarkOn(SurfaceRole.screen), isFalse,
+                reason: '$label declares an emissive screen, so it must be '
+                    'dark enough to carry light ink even in a light material');
           }
         });
       }

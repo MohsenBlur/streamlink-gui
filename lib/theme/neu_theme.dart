@@ -147,10 +147,8 @@ class NeuTheme {
   /// walk would exhaust its 200 steps and fall through to the plain text ink,
   /// silently discarding the accent the user picked.
   static Color accentInkOnScreen(Color accent, bool isDark,
-      {AppMaterial? material}) {
-    final p = palette(isDark, material: material);
-    return readableOn(accent, p, ground: p.screen);
-  }
+          {AppMaterial? material}) =>
+      inkOnScreen(accent, isDark, material: material);
 
   /// Any brand colour walked until it is readable on a given ground.
   ///
@@ -169,6 +167,7 @@ class NeuTheme {
     MaterialPalette p, {
     double target = _inkTarget,
     Color? ground,
+    bool? darken,
   }) {
     final g = ground ?? p.inkGround;
     if (contrastRatio(source, g) >= target) return source;
@@ -179,12 +178,15 @@ class NeuTheme {
     // darkened the well - Rack's is #B3B1AB - and choosing by the ground's own
     // luminance would then try to *lighten* ink that has to stay dark, walk
     //200 steps without clearing, and fall through to the plain text colour.
-    final darken = p.isLight;
+    // Overridable, because the default is a statement about the palette's
+    // *surface* family and one ground in the app is not part of it. See
+    // `inkOnScreen`.
+    final goDark = darken ?? p.isLight;
     final saturation =
-        darken ? (hsl.saturation * 1.10).clamp(0.0, 1.0) : hsl.saturation;
+        goDark ? (hsl.saturation * 1.10).clamp(0.0, 1.0) : hsl.saturation;
 
     for (var i = 1; i <= 200; i++) {
-      final lightness = darken
+      final lightness = goDark
           ? (hsl.lightness - i * 0.005).clamp(0.03, 1.0)
           : (hsl.lightness + i * 0.005).clamp(0.0, 0.97);
       final candidate =
@@ -457,6 +459,84 @@ class NeuTheme {
       );
 
   /// Inset glass — a display set into a bezel.
+  /// The rim around a recessed display, painted **over** what it surrounds.
+  ///
+  /// Null when the material declares no bezel, which is how Soft opts out
+  /// without the call site knowing Soft exists. A null `foregroundDecoration`
+  /// paints nothing, so the site is `foregroundDecoration: NeuTheme.bezel(...)`
+  /// with no conditional around it.
+  ///
+  /// It is the `screen` role minus its fill: the same inverted bevel, the same
+  /// inset band and the same edge, over a picture that has to survive. Painting
+  /// the fill would obliterate the thumbnail this exists to frame.
+  static Decoration? bezel(
+    bool isDark, {
+    double radius = NeuRadius.r12,
+    double depth = NeuElevation.d2,
+    Border? border,
+    AppMaterial? material,
+  }) {
+    final id = material ?? activeMaterial;
+    if (!MaterialSpec.of(id).furniture.bezels) return null;
+    return SkeuoDecoration.role(
+      palette: palette(isDark, material: id),
+      role: SurfaceRole.screen,
+      depth: depth,
+      radius: radius,
+      border: border,
+      fillOpacity: 0,
+    );
+  }
+
+  /// Ink for text drawn on a [SurfaceRole.screen].
+  ///
+  /// Not the same as [text], and the gap is not cosmetic. A lit readout stays
+  /// dark in a lit room, so a material's screen is dark in **both**
+  /// brightnesses — which means in light mode `text` and `screen` are both
+  /// dark and measure as little as 1.08:1 against each other. Every string
+  /// inside a log pane or a readout takes this instead.
+  static Color screenText(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).screenText;
+
+  static Color screenSubtext(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).screenSubtext;
+
+  /// Any colour walked until it is readable on the screen ground.
+  ///
+  /// The semantic inks need this for exactly the reason above: `dangerText` is
+  /// calibrated against the surface, and a log line coloured by severity lands
+  /// on the screen instead.
+  /// Any colour walked until it is readable on the screen ground.
+  ///
+  /// Two things here are not the obvious ones, and the contrast matrix caught
+  /// both the first time it ran.
+  ///
+  /// The ground is the screen's **worst stop**, not the flat `screen` token.
+  /// The screen role carries a fill like every other role, so no log line has
+  /// ever sat on the declared colour — this is the same F83 correction the
+  /// ordinary grounds got, applied to the one ground that had been left out.
+  /// Against the flat token the dark theme derived inks measuring 4.09:1.
+  ///
+  /// The direction is read from the ground rather than from the palette. That
+  /// is the opposite of [readableOn]'s default, and deliberately: the default
+  /// exists because a light material's worst *surface* ground can be mid-tone
+  /// and choosing by luminance would try to lighten ink that has to stay dark.
+  /// A screen is not a family of surfaces, it is one surface, and an emissive
+  /// one is dark inside a light material — so the palette's own direction is
+  /// exactly wrong there. Left as the default, every light material's log ink
+  /// walked *darker* against a near-black screen, exhausted its 200 steps and
+  /// fell through to the plain text colour at 1.08:1.
+  static Color inkOnScreen(Color source, bool isDark,
+      {AppMaterial? material}) {
+    final p = palette(isDark, material: material);
+    return readableOn(
+      source,
+      p,
+      ground: p.worstGround(SurfaceRole.screen),
+      darken: p.inkIsDarkOn(SurfaceRole.screen),
+    );
+  }
+
   static Decoration screen(
     bool isDark, {
     Color? base,

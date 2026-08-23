@@ -368,6 +368,7 @@ class Furniture {
     this.screws = false,
     this.seams = false,
     this.plates = false,
+    this.bezels = false,
     this.rim = RimStyle.none,
   });
 
@@ -375,12 +376,24 @@ class Furniture {
       : screws = false,
         seams = false,
         plates = false,
+        bezels = false,
         rim = RimStyle.none;
 
   final bool screws, seams, plates;
+
+  /// Whether a recessed display gets a rim around it.
+  ///
+  /// Its own flag rather than a consequence of the `screen` role, because a
+  /// bezel is drawn *over* the picture it surrounds and Soft has no business
+  /// putting a ring around a video thumbnail that has never had one. A
+  /// material that declares no bezel gets a null decoration and the call site
+  /// paints nothing at all.
+  final bool bezels;
+
   final RimStyle rim;
 
-  bool get isNone => !screws && !seams && !plates && rim == RimStyle.none;
+  bool get isNone =>
+      !screws && !seams && !plates && !bezels && rim == RimStyle.none;
 
   @override
   bool operator ==(Object other) =>
@@ -388,10 +401,11 @@ class Furniture {
       other.screws == screws &&
       other.seams == seams &&
       other.plates == plates &&
+      other.bezels == bezels &&
       other.rim == rim;
 
   @override
-  int get hashCode => Object.hash(screws, seams, plates, rim);
+  int get hashCode => Object.hash(screws, seams, plates, bezels, rim);
 }
 
 enum RimStyle { none, chrome, brass, moulded }
@@ -643,21 +657,52 @@ class MaterialPalette {
   ///
   /// The full ground including texture and gloss is *measured*, not derived;
   /// this is the analytic floor that measurement must not fall below.
+  /// Whether the ink that lands on [role] is dark ink.
+  ///
+  /// Follows the palette for every role whose ground belongs to the surface
+  /// family, and the ground itself for the screen — which is the one surface
+  /// in the app whose brightness is independent of the theme's.
+  bool inkIsDarkOn(SurfaceRole role) {
+    if (RoleModifier.of(role).fill != Ground.screen) return isLight;
+    // Ask which pole the screen affords rather than testing luminance against
+    // a threshold, which has no correct value for a mid-tone.
+    return _contrast(const Color(0xFF000000), screen) >
+        _contrast(const Color(0xFFFFFFFF), screen);
+  }
+
+  static double _contrast(Color a, Color b) {
+    final la = a.computeLuminance(), lb = b.computeLuminance();
+    final hi = la > lb ? la : lb, lo = la > lb ? lb : la;
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
   Color worstGround(SurfaceRole role) {
     final base = groundFor(RoleModifier.of(role).fill);
     final stops = <Color>[base, for (final s in fill) shadeStop(base, s)];
     stops.sort((a, b) => a.computeLuminance().compareTo(b.computeLuminance()));
-    final worst = isLight ? stops.first : stops.last;
+
+    // Which extreme hurts depends on the polarity of the ink that lands here,
+    // and for one role that is not the palette's polarity.
+    //
+    // Everywhere else it is: a light palette carries dark ink, and a darker
+    // stop is what closes the gap. The screen breaks the rule because an
+    // emissive screen stays dark inside a light material, so the ink on it is
+    // light and the *lightest* stop is its worst case. Choosing by palette
+    // brightness here returned the darkest stop - the friendliest ground on
+    // the surface - and the matrix passed on the worst stop while failing on
+    // the flat token, which is the tell that the extremes were swapped.
+    final inkIsDark = inkIsDarkOn(role);
+    final worst = inkIsDark ? stops.first : stops.last;
 
     // The grain, in closed form. It only ever lightens - it composites with
-    // BlendMode.plus and its tile carries the positive deviation only - so on a
-    // dark palette the worst texel is the lightest stop plus the amplitude,
-    // and on a light palette the grain moves ink AWAY from its worst case and
-    // is simply ignored.
+    // BlendMode.plus and its tile carries the positive deviation only - so
+    // where the ink is light the worst texel is the lightest stop plus the
+    // amplitude, and where the ink is dark the grain moves the ground AWAY
+    // from its worst case and is simply ignored.
     //
     // Being able to write this as arithmetic rather than by rasterising and
     // sampling is the whole reason the texture is lighten-only.
-    if (isLight) return worst;
+    if (inkIsDark) return worst;
     final amp = texture?.amplitudeFor(role) ?? 0;
     if (amp == 0) return worst;
     return Color.from(

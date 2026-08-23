@@ -27,7 +27,7 @@ const MaterialSpec rackSpec = MaterialSpec(
   blurb: 'Milled aluminium, engraved legends, indicator lamps.',
   light: _rackLight,
   dark: _rackDark,
-  furniture: Furniture(screws: true, seams: true, plates: true),
+  furniture: Furniture(screws: true, seams: true, plates: true, bezels: true),
   type: MaterialType(
     labelFamily: 'Bahnschrift',
     labelWidth: 87.5,

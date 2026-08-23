@@ -85,20 +85,32 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
     });
   }
 
+  /// Log-line ink, resolved against the **screen**, not the surface.
+  ///
+  /// Every one of these used to be a colour calibrated against a panel, drawn
+  /// on a near-black terminal. In the dark theme that was survivable by luck -
+  /// both grounds are dark, so inks meant for one worked on the other. In a
+  /// light material it is not: a lit readout stays dark in a lit room, so
+  /// `text(false)` and `screen` are both dark and the plain lines measured
+  /// 1.08:1. The two hand-picked hexes are the source colours the walk starts
+  /// from, and it only moves them if they do not already clear the bar.
   Color _colorFor(LogLineKind kind, bool isDark, Color accent) {
+    Color onScreen(Color c) => NeuTheme.inkOnScreen(c, isDark);
     switch (kind) {
       case LogLineKind.error:
-        return NeuTheme.dangerText(isDark);
+        return onScreen(NeuTheme.danger);
       case LogLineKind.system:
-        return isDark ? const Color(0xFF38BDF8) : const Color(0xFF0369A1);
+        return onScreen(
+            isDark ? const Color(0xFF38BDF8) : const Color(0xFF0369A1));
       case LogLineKind.streamlink:
-        return accent;
+        return NeuTheme.accentInkOnScreen(accent, isDark);
       case LogLineKind.cliInfo:
-        return isDark ? const Color(0xFF10B981) : const Color(0xFF047857);
+        return onScreen(
+            isDark ? const Color(0xFF10B981) : const Color(0xFF047857));
       case LogLineKind.download:
-        return NeuTheme.liveText(isDark);
+        return onScreen(NeuTheme.live);
       case LogLineKind.plain:
-        return NeuTheme.text(isDark);
+        return NeuTheme.screenText(isDark);
     }
   }
 
@@ -274,16 +286,16 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
 
   Widget _logBody(List<String> lines, bool isDark, ThemeData theme) {
     return Container(
-      decoration: BoxDecoration(
-        color: NeuTheme.terminalBg(isDark),
-        borderRadius: BorderRadius.circular(NeuRadius.r8),
-        border: Border.all(color: NeuTheme.border(isDark)),
-      ),
+      // The `screen` role, which is what this always was: a display set into a
+      // bezel. It carries its own recess and edge, so the hand-rolled border
+      // goes with the BoxDecoration.
+      decoration: NeuTheme.screen(isDark, radius: NeuRadius.r8),
       padding: const EdgeInsets.all(NeuSpace.s8),
       child: lines.isEmpty
           ? Center(
               child: Text('No output.',
-                  style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark))))
+                  style: NeuType.bodySm(isDark,
+                      color: NeuTheme.screenSubtext(isDark))))
           : SelectionArea(
               child: ListView.builder(
                 controller: _scroll,

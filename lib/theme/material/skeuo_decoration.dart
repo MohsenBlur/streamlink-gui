@@ -50,6 +50,7 @@ class SkeuoDecoration extends Decoration {
     Border? border,
     Gradient? gradient,
     double? blur,
+    double fillOpacity = 1.0,
   }) {
     final m = RoleModifier.of(role);
     // The dark-side depth cue, folded into the base before the gradient sees
@@ -82,6 +83,7 @@ class SkeuoDecoration extends Decoration {
                 m.insetScale > 0)
             ? 0.0
             : 1.0,
+        fillOpacity: fillOpacity,
         recessStyle: palette.recessStyle,
         bevelColour: m.invertBevel ? palette.bevelShade : palette.bevelLight,
         // A caller-supplied border REPLACES the material's own edge, exactly as
@@ -228,6 +230,7 @@ class SurfaceParams {
     required this.insetStrength,
     required this.recessStyle,
     this.fillRamp = 1.0,
+    this.fillOpacity = 1.0,
     required this.bevelColour,
     required this.bevelWidth,
     required this.bevelSweepExponent,
@@ -269,6 +272,17 @@ class SurfaceParams {
   /// it: a checkbox animating raised to sunken would otherwise snap from a
   /// gradient to a flat colour at the midpoint.
   final double fillRamp;
+
+  /// How opaque the fill is, 0 = paint no fill at all.
+  ///
+  /// Distinct from [fillRamp], which flattens the ramp but still paints the
+  /// base. This is for a surface drawn *over* content that has to survive: a
+  /// screen bezel around a video thumbnail is the same inset, bevel and edge
+  /// as a screen, minus the one layer that would obliterate the picture.
+  ///
+  /// A double rather than a bool so a cross-role lerp can cross it, on the
+  /// same reasoning as [fillRamp].
+  final double fillOpacity;
 
   final Color bevelColour;
   final double bevelWidth, bevelSweepExponent, bevelAmbientFloor;
@@ -337,6 +351,7 @@ class SurfaceParams {
         inset: ShadowLayer.lerpList(const [], inset, t),
         insetStrength: insetStrength * t,
         fillRamp: fillRamp,
+        fillOpacity: fillOpacity,
         recessStyle: recessStyle,
         bevelColour: bevelColour.withValues(alpha: bevelColour.a * t),
         bevelWidth: bevelWidth,
@@ -372,6 +387,7 @@ class SurfaceParams {
       inset: ShadowLayer.lerpList(a.inset, b.inset, t),
       insetStrength: d(a.insetStrength, b.insetStrength),
       fillRamp: d(a.fillRamp, b.fillRamp),
+      fillOpacity: d(a.fillOpacity, b.fillOpacity),
       recessStyle: t < 0.5 ? a.recessStyle : b.recessStyle,
       bevelColour: Color.lerp(a.bevelColour, b.bevelColour, t)!,
       bevelWidth: d(a.bevelWidth, b.bevelWidth),
@@ -407,6 +423,7 @@ class SurfaceParams {
       other.circle == circle &&
       other.insetStrength == insetStrength &&
       other.fillRamp == fillRamp &&
+      other.fillOpacity == fillOpacity &&
       other.recessStyle == recessStyle &&
       other.bevelColour == bevelColour &&
       other.bevelWidth == bevelWidth &&
@@ -427,7 +444,8 @@ class SurfaceParams {
   @override
   int get hashCode => Object.hashAll([
         base, lightAzimuthDeg, diagonalCompensation, depth, radius, circle,
-        insetStrength, fillRamp, recessStyle, bevelColour, bevelWidth,
+        insetStrength, fillRamp, fillOpacity, recessStyle, bevelColour,
+        bevelWidth,
         bevelSweepExponent, bevelAmbientFloor, gloss, glossBreak,
         glossHardTerminator, glossColour, texture, textureScale,
         textureAmplitude,
@@ -522,6 +540,9 @@ class _SkeuoPainter extends BoxPainter {
 
   /// Layer 2 — the form gradient along the light axis.
   void _paintFill(Canvas canvas, Rect rect, SurfaceParams p) {
+    // A bezel: every other layer, and not this one. Returning early rather
+    // than painting at alpha 0 also skips building a shader nothing samples.
+    if (p.fillOpacity <= 0) return;
     final override = p.gradientOverride;
     if (override != null) {
       _draw(canvas, rect, p, Paint()..shader = override.createShader(rect));

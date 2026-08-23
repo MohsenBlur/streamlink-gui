@@ -63,6 +63,61 @@ List<({String name, Color color})> groundsFor(
 List<AppMaterial> get materialsUnderTest =>
     MaterialSpec.available.map((s) => s.id).toList();
 
+/// Every accent the picker offers.
+const Map<String, Color> kAccentPresets = <String, Color>{
+  'Soft Pink': Color(0xFFFF6584),
+  'Twitch Purple': Color(0xFF7C3AED),
+  'Cyan': Color(0xFF00F2FE),
+  'Emerald': Color(0xFF10B981),
+  'Orange': Color(0xFFFF7A00),
+  'Rose': Color(0xFFF43F5E),
+  'Vibrant Red': Color(0xFFFF3B30),
+  'Electric Purple': Color(0xFF8B5CF6),
+  'Sky Blue': Color(0xFF38BDF8),
+  'Magenta': Color(0xFFFF2A85),
+  'Gold': Color(0xFFF59E0B),
+};
+
+/// The screen's own grounds - flat, and the worst point its fill reaches.
+///
+/// Kept apart from [groundsFor] on purpose. A screen is dark in **both**
+/// brightnesses, so it is not a ground the ordinary inks are ever asked to
+/// survive, and folding it in would make every light palette unsatisfiable. It
+/// is the ground for exactly one family of inks, and this is that family's
+/// matrix.
+List<({String name, Color color})> screenGroundsFor(
+  bool isDark, {
+  AppMaterial? material,
+}) {
+  final p = NeuTheme.palette(isDark, material: material);
+  final worst = p.worstGround(SurfaceRole.screen);
+  return [
+    (name: 'screen', color: p.screen),
+    if (worst.toARGB32() != p.screen.toARGB32())
+      (name: 'screen worst stop', color: worst),
+  ];
+}
+
+void expectInkOnScreen(
+  String label,
+  Color ink,
+  bool isDark, {
+  double min = kTextAA,
+  AppMaterial? material,
+}) {
+  for (final ground in screenGroundsFor(isDark, material: material)) {
+    final ratio = NeuTheme.contrastRatio(ink, ground.color);
+    expect(
+      ratio,
+      greaterThanOrEqualTo(min),
+      reason:
+          '$label on ${ground.name} '
+          '(${material?.key ?? 'active'}, ${isDark ? 'dark' : 'light'}) '
+          'measured ${ratio.toStringAsFixed(2)}:1, needs $min:1',
+    );
+  }
+}
+
 void expectInk(
   String label,
   Color ink,
@@ -260,32 +315,25 @@ void main() {
     });
   });
   group('accentInk', () {
-    // Every accent the picker offers.
-    const presets = <String, Color>{
-      'Soft Pink': Color(0xFFFF6584),
-      'Twitch Purple': Color(0xFF7C3AED),
-      'Cyan': Color(0xFF00F2FE),
-      'Emerald': Color(0xFF10B981),
-      'Orange': Color(0xFFFF7A00),
-      'Rose': Color(0xFFF43F5E),
-      'Vibrant Red': Color(0xFFFF3B30),
-      'Electric Purple': Color(0xFF8B5CF6),
-      'Sky Blue': Color(0xFF38BDF8),
-      'Magenta': Color(0xFFFF2A85),
-      'Gold': Color(0xFFF59E0B),
-    };
-
     test('every preset becomes readable on every ground', () {
       // Raw, several of these are unusable as a foreground: Cyan measures
       // 1.04:1 against the light well, and even the default Soft Pink 2.12:1.
-      for (final isDark in [false, true]) {
-        presets.forEach((name, accent) {
-          expectInk(
-            'accentInk($name)',
-            NeuTheme.accentInk(accent, isDark),
-            isDark,
-          );
-        });
+      //
+      // Run per material, not once. Without the parameter this derived the ink
+      // against the ACTIVE material and then measured it against that same
+      // material's grounds, so every other material reported green whatever it
+      // declared - the matrix was decorative for four fifths of its axis.
+      for (final m in materialsUnderTest) {
+        for (final isDark in [false, true]) {
+          kAccentPresets.forEach((name, accent) {
+            expectInk(
+              'accentInk($name)',
+              NeuTheme.accentInk(accent, isDark, material: m),
+              isDark,
+              material: m,
+            );
+          });
+        }
       }
     });
 
@@ -350,4 +398,82 @@ void main() {
       );
     });
   });
+  group('screen inks clear AA on the screen', () {
+    // The hole this closes was live and total. A log pane paints on the
+    // material's `screen`, which stays dark in a lit room because a lit
+    // readout does - so in a LIGHT material both `text` and `screen` are dark,
+    // and the plain log lines measured 1.08:1. Nothing saw it: `groundsFor`
+    // deliberately excludes the screen, so the ordinary matrix could not, and
+    // no other assertion in the suite looked at this ground at all.
+    //
+    // The colours below are the sources the log pane walks FROM, not the inks
+    // themselves. Asserting a walk's output against the ground it walked
+    // toward can only ever pass; what is asserted here is that the walk
+    // actually clears the bar for every source the app feeds it.
+    const logSources = <String, Color>{
+      'error': NeuTheme.danger,
+      'download': NeuTheme.live,
+      'system dark': Color(0xFF38BDF8),
+      'system light': Color(0xFF0369A1),
+      'cliInfo dark': Color(0xFF10B981),
+      'cliInfo light': Color(0xFF047857),
+    };
+
+    for (final m in materialsUnderTest) {
+      for (final isDark in [false, true]) {
+        final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
+
+        test('screenText and screenSubtext - $mode', () {
+          expectInkOnScreen('screenText',
+              NeuTheme.screenText(isDark, material: m), isDark, material: m);
+          expectInkOnScreen('screenSubtext',
+              NeuTheme.screenSubtext(isDark, material: m), isDark,
+              material: m);
+        });
+
+        test('every log-line source survives the walk - $mode', () {
+          logSources.forEach((name, source) {
+            expectInkOnScreen(
+              'inkOnScreen($name)',
+              NeuTheme.inkOnScreen(source, isDark, material: m),
+              isDark,
+              material: m,
+            );
+          });
+        });
+
+        test('every accent preset survives the walk - $mode', () {
+          kAccentPresets.forEach((name, accent) {
+            expectInkOnScreen(
+              'accentInkOnScreen($name)',
+              NeuTheme.accentInkOnScreen(accent, isDark, material: m),
+              isDark,
+              material: m,
+            );
+          });
+        });
+      }
+    }
+
+    test('the screen ink is not interchangeable with the surface ink', () {
+      // The assertion that would have caught the 1.08:1 bug before it shipped,
+      // stated as the rule rather than as a number: on any material whose
+      // screen does not track the theme, `text` on it is a failure. If some
+      // future material makes the two safely identical this goes green by
+      // being true, not by being weakened - the reason string says how to tell
+      // the difference.
+      for (final m in materialsUnderTest) {
+        final p = NeuTheme.palette(false, material: m);
+        if (!p.screenIsEmissive) continue;
+        expect(
+          NeuTheme.contrastRatio(NeuTheme.text(false, material: m), p.screen),
+          lessThan(kTextAA),
+          reason: '${m.key} light: `text` happens to be readable on the '
+              'screen, so this guard proves nothing - check whether the '
+              'screen is still emissive',
+        );
+      }
+    });
+  });
+
 }
