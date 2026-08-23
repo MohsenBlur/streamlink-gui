@@ -186,7 +186,13 @@ class SidebarPanelState extends State<SidebarPanel> {
 
     return Container(
       width: sidebarWidth,
-      color: themeNotifier.surfaceColor,
+      // The faceplate. A flat `color:` was the right call while every material
+      // was the same soft plastic; a panel carries the material's grain and its
+      // bevelled edge, which is where a rack's brush actually reads.
+      //
+      // Radius zero: this panel is the full height of the window and its edges
+      // are the window's own, so rounding them would float it inside itself.
+      decoration: NeuTheme.panel(themeNotifier.isDarkTheme, radius: 0),
       child: widget.sidebarCollapsed
           ? _buildCollapsedSidebar(theme)
           : Column(
@@ -792,7 +798,10 @@ class SidebarPanelState extends State<SidebarPanel> {
     return Container(
       height: 60,
       width: double.infinity,
-      color: themeNotifier.surfaceColor,
+      // The portrait branch, reached by the early return above. It is easy to
+      // miss - the expanded sidebar and this rail are two separate roots - and
+      // missing it would leave the top bar flat in every material.
+      decoration: NeuTheme.panel(themeNotifier.isDarkTheme, radius: 0),
       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16),
       child: Row(
         children: [

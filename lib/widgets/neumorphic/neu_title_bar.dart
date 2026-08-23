@@ -34,8 +34,13 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 40.0,
-      decoration: BoxDecoration(
-        color: NeuTheme.background(isDarkTheme),
+      // The device's top edge. It takes the panel treatment rather than a flat
+      // canvas fill, and keeps its hairline: the seam where the faceplate meets
+      // the chassis is a real edge, not a decoration.
+      decoration: NeuTheme.panel(
+        isDarkTheme,
+        radius: 0,
+        base: NeuTheme.canvas(isDarkTheme),
         border: Border(
           bottom: BorderSide(
             color: NeuTheme.shadow(isDarkTheme).withValues(alpha: 0.3),
