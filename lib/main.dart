@@ -19,6 +19,9 @@ import 'state/activity_state.dart';
 import 'state/download_registry.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
+import 'widgets/shell/section_header.dart';
+import 'widgets/shell/empty_state.dart';
+import 'widgets/neumorphic/neu_button.dart';
 import 'widgets/shell/neu_dialog.dart';
 import 'widgets/neumorphic/neu_progress.dart';
 import 'widgets/neumorphic/neu_text_field.dart';
@@ -2452,117 +2455,181 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 // Title Header
                 Row(
                   children: [
-                    Icon(Icons.dashboard_outlined, size: 28, color: themeNotifier.accentInk),
-                    const SizedBox(width: 10),
+                    Icon(Icons.home_outlined, size: 26, color: themeNotifier.accentInk),
+                    const SizedBox(width: NeuSpace.s12),
                     Text(
-                      'Dashboard Hub',
-                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 24),
+                      'Home',
+                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Welcome back! Select a channel or choose a quick action below.',
+                  'Pick a channel from the sidebar, or jump back into something below.',
                   style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
                 ),
                 const SizedBox(height: 24),
 
-          // Active Downloads card (Conditional)
-          if (runningDownloads.isNotEmpty) ...[
+          // Order matters here. This screen used to lead with the
+          // downloader and put live channels third, which is the priority
+          // order of a download manager rather than of a Twitch client.
+          // What is live is the most perishable thing on the page, so it
+          // goes first; downloads are long-running and can wait.
+          // Live Channels Section
+          SectionHeader(
+            title: 'Live now',
+            count: liveFavorites.isEmpty ? null : liveFavorites.length,
+          ),
+          const SizedBox(height: 12),
+          if (liveFavorites.isEmpty)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    theme.primaryColor.withValues(alpha: 0.15),
-                    themeNotifier.surfaceColor,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primaryColor.withValues(alpha: 0.05),
-                    blurRadius: 12,
-                    spreadRadius: 2,
-                  ),
-                ],
+              decoration: NeuTheme.sunkenDecoration(
+                  themeNotifier.isDarkTheme,
+                  radius: NeuRadius.r12),
+              child: _channels.isEmpty
+                  // Two different situations that shared one sentence. With no
+                  // channels at all the answer is an action, not information.
+                  ? EmptyState(
+                      icon: Icons.person_add_alt,
+                      title: 'No channels yet',
+                      message: 'Add a streamer to see when they go live and to '
+                          'browse their past broadcasts.',
+                      compact: true,
+                      action: NeuButton(
+                        onPressed: () =>
+                            _sidebarSearchFocus.requestFocus(),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        borderRadius: BorderRadius.circular(NeuRadius.r8),
+                        child: const Text('Add a channel',
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                    )
+                  : const EmptyState(
+                      icon: Icons.bedtime_outlined,
+                      title: 'Nobody is live',
+                      message: 'None of your favorite channels are streaming '
+                          'right now.',
+                      compact: true,
+                    ),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 220,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                mainAxisExtent: 130,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.downloading, color: themeNotifier.accentInk, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Active Downloads Running',
-                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
+              itemCount: liveFavorites.length,
+              itemBuilder: (context, index) {
+                final channel = liveFavorites[index];
+                final itemCard = GestureDetector(
+                  onTap: () => _selectChannel(channel),
+                  onDoubleTap: () {
+                    if (_playerService.runningChannels.contains(channel.username)) return;
+                    _playerService.launchStreamlinkForLive(
+                      channel.username,
+                      channel.isLive,
+                      channel.streamTitle,
+                      channel.game,
+                      _settings,
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: NeuTheme.raisedDecoration(
+                      themeNotifier.isDarkTheme,
+                      radius: 12,
+                      border: Border.all(color: theme.primaryColor.withValues(alpha: 0.25)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            NeuAvatar(
+                              url: channel.avatarUrl,
+                              radius: 18,
+                              isDark: themeNotifier.isDarkTheme,
+                              // This one sits on a coloured card, so it keeps
+                              // its transparent ground and brighter icon.
+                              backgroundColor: Colors.transparent,
+                              iconColor: NeuTheme.text(themeNotifier.isDarkTheme),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                channel.username,
+                                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: Text(
+                            channel.streamTitle ?? 'No Stream Title',
+                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ],
-                      ),
-                      TextButton.icon(
-                        onPressed: _openLibrary,
-                        icon: const Icon(Icons.open_in_new, size: 14),
-                        label: const Text('Open Library', style: TextStyle(fontSize: 12)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  ...runningDownloads.take(2).map((item) {
-                    final progress = item.progress ?? 0.0;
-                    final taskText = item.status ?? 'Downloading...';
-                    final title = item.label;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Expanded, not a bare Text. `overflow: ellipsis`
+                            // can only engage when the Text is given a bounded
+                            // width; in an unconstrained Row it reports its
+                            // full intrinsic width instead and the ROW
+                            // overflows. These tiles are maxCrossAxisExtent
+                            // 220 and the window minimum is 380 wide, so a
+                            // long game name overflowed in the normal case,
+                            // not an exotic one.
+                            Expanded(
+                              child: Text(
+                                channel.game ?? 'Unknown Game',
+                                style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
+                                Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
+                                const SizedBox(width: 4),
                                 Text(
-                                  title,
-                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 4),
-                                NeuProgressBar(
-                                  value: progress,
-                                  size: NeuProgressSize.sm,
-                                  semanticLabel: 'Download progress',
+                                  channel.viewerCount != null ? '${channel.viewerCount}' : '0',
+                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10, fontWeight: FontWeight.bold),
                                 ),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 16),
-                          Text(
-                            taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
-                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ],
-              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+
+                return HoverOverlayMenu(
+                  trigger: itemCard,
+                  menu: LivePreviewPopup(channel: channel),
+                );
+              },
             ),
-            const SizedBox(height: 24),
-          ],
+          const SizedBox(height: 32),
 
           // Recently Watched VODs (Conditional)
           if (_recentWatchedVods.isNotEmpty) ...[
-            Text(
-              'Recently Watched Past Broadcasts',
-              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
-            ),
+            const SectionHeader(title: 'Continue watching'),
             const SizedBox(height: 12),
             SizedBox(
               height: 155,
@@ -2736,150 +2803,98 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: 24),
           ],
 
-          // Live Channels Section
-          Text(
-            'Live Favorite Channels',
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
-          ),
-          const SizedBox(height: 12),
-          if (liveFavorites.isEmpty)
+          // Active Downloads card (Conditional)
+          if (runningDownloads.isNotEmpty) ...[
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 12),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.portable_wifi_off, size: 36, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                  const SizedBox(height: 10),
-                  Text(
-                    _channels.isEmpty
-                        ? 'Add your first channel: open the sidebar search (Ctrl+F), type a name, press Enter.'
-                        : 'No favorite channels are currently live.',
-                    style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                    textAlign: TextAlign.center,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    theme.primaryColor.withValues(alpha: 0.15),
+                    themeNotifier.surfaceColor,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.primaryColor.withValues(alpha: 0.05),
+                    blurRadius: 12,
+                    spreadRadius: 2,
                   ),
                 ],
               ),
-            )
-          else
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 220,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                mainAxisExtent: 130,
-              ),
-              itemCount: liveFavorites.length,
-              itemBuilder: (context, index) {
-                final channel = liveFavorites[index];
-                final itemCard = GestureDetector(
-                  onTap: () => _selectChannel(channel),
-                  onDoubleTap: () {
-                    if (_playerService.runningChannels.contains(channel.username)) return;
-                    _playerService.launchStreamlinkForLive(
-                      channel.username,
-                      channel.isLive,
-                      channel.streamTitle,
-                      channel.game,
-                      _settings,
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: NeuTheme.raisedDecoration(
-                      themeNotifier.isDarkTheme,
-                      radius: 12,
-                      border: Border.all(color: theme.primaryColor.withValues(alpha: 0.25)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            NeuAvatar(
-                              url: channel.avatarUrl,
-                              radius: 18,
-                              isDark: themeNotifier.isDarkTheme,
-                              // This one sits on a coloured card, so it keeps
-                              // its transparent ground and brighter icon.
-                              backgroundColor: Colors.transparent,
-                              iconColor: NeuTheme.text(themeNotifier.isDarkTheme),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                channel.username,
-                                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Expanded(
-                          child: Text(
-                            channel.streamTitle ?? 'No Stream Title',
-                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.downloading, color: themeNotifier.accentInk, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Active Downloads Running',
+                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            // Expanded, not a bare Text. `overflow: ellipsis`
-                            // can only engage when the Text is given a bounded
-                            // width; in an unconstrained Row it reports its
-                            // full intrinsic width instead and the ROW
-                            // overflows. These tiles are maxCrossAxisExtent
-                            // 220 and the window minimum is 380 wide, so a
-                            // long game name overflowed in the normal case,
-                            // not an exotic one.
-                            Expanded(
-                              child: Text(
-                                channel.game ?? 'Unknown Game',
-                                style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
+                        ],
+                      ),
+                      TextButton.icon(
+                        onPressed: _openLibrary,
+                        icon: const Icon(Icons.open_in_new, size: 14),
+                        label: const Text('Open Library', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ...runningDownloads.take(2).map((item) {
+                    final progress = item.progress ?? 0.0;
+                    final taskText = item.status ?? 'Downloading...';
+                    final title = item.label;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
-                                const SizedBox(width: 4),
                                 Text(
-                                  channel.viewerCount != null ? '${channel.viewerCount}' : '0',
-                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10, fontWeight: FontWeight.bold),
+                                  title,
+                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                NeuProgressBar(
+                                  value: progress,
+                                  size: NeuProgressSize.sm,
+                                  semanticLabel: 'Download progress',
                                 ),
                               ],
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-
-                return HoverOverlayMenu(
-                  trigger: itemCard,
-                  menu: LivePreviewPopup(channel: channel),
-                );
-              },
+                          ),
+                          const SizedBox(width: 16),
+                          Text(
+                            taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
+                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ],
+              ),
             ),
-          const SizedBox(height: 32),
+            const SizedBox(height: 24),
+          ],
 
           // Quick Action Cards
-          Text(
-            'Quick Action Control Room',
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
-          ),
+          const SectionHeader(title: 'Quick actions'),
           const SizedBox(height: 12),
           GridView(
             shrinkWrap: true,
