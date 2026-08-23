@@ -83,3 +83,4 @@ shots/
 # Scratch files written by audit subagents; never part of the suite.
 test/zz*_test.dart
 test/tmp_*_test.dart
+test/zzz*_test.dart

@@ -707,10 +707,26 @@ class _SkeuoPainter extends BoxPainter {
         final shifted = rect
             .shift(Offset(l.dx * p.depth * k, l.dy * p.depth * k))
             .inflate(l.spread * p.depth);
-        final hole = Path()
-          ..addRRect(RRect.fromRectAndRadius(
-              shifted, Radius.circular(p.radius)));
-        final outer = Path()..addRect(rect.inflate(sigma * 4 + p.radius));
+        // Circle-aware, like every other layer. This one was not, and it is
+        // the layer where it shows most: a circular sunken surface got a
+        // ROUNDED-RECT hole punched in it, clipped to a circle. The band that
+        // remains is then thickest at the diagonals - where the rect's corner
+        // arc falls furthest inside the circle - so a lens bezel read as an
+        // oval pressed into a round hole. Every channel avatar in the sidebar
+        // and the rail is one of these, and so is the circular add button.
+        //
+        // `_draw` cannot be reused here because this is a Path for
+        // `Path.combine`, not a fill.
+        final hole = Path();
+        if (p.circle) {
+          hole.addOval(shifted);
+        } else {
+          hole.addRRect(
+              RRect.fromRectAndRadius(shifted, Radius.circular(p.radius)));
+        }
+        final outer = Path()
+          ..addRect(rect.inflate(
+              sigma * 4 + (p.circle ? rect.shortestSide / 2 : p.radius)));
         final band = Path.combine(PathOperation.difference, outer, hole);
         canvas.drawPath(
           band,

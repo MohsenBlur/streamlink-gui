@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,92 @@ import 'package:streamlink_gui/theme/neu_theme.dart';
 /// compiler error, one is a paint-time crash, one moves layout app-wide, and
 /// one makes unrelated animations re-run. This file is the thing that notices.
 void main() {
+  group('a circular surface is circular in every layer', () {
+    /// The whole rendered surface, as bytes.
+    Future<Uint8List> render(Decoration d, double side) async {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final size = Size(side, side);
+      canvas.drawRect(
+          Offset.zero & size, Paint()..color = const Color(0xFF808080));
+      final painter = d.createBoxPainter();
+      painter.paint(canvas, Offset.zero, ImageConfiguration(size: size));
+      painter.dispose();
+      final image =
+          await recorder.endRecording().toImage(side.round(), side.round());
+      final bytes = (await image.toByteData())!.buffer.asUint8List();
+      image.dispose();
+      return bytes;
+    }
+
+    test('a circle ignores the corner radius, in every layer', () async {
+      // The invariant, stated exactly: a circle's shape is fixed by its box,
+      // so `radius` cannot reach the output when `circle` is true. Six of the
+      // seven layers honoured that. Layer 6 - the recess - built its hole as
+      // `RRect.fromRectAndRadius(shifted, Radius.circular(p.radius))`
+      // regardless, so a round sunken surface got a rounded-RECT recess
+      // clipped to a circle, and the corner radius leaked into a shape that
+      // has no corners.
+      //
+      // Every channel avatar in the sidebar and the rail is one of these
+      // (NeuAvatarFrame passes isCircle), and so is the circular add button.
+      //
+      // Asserted as byte equality rather than as a shading tolerance because
+      // the visible error is only about two sRGB levels - a threshold that
+      // catches it would be brittle, while this is exact and cannot drift.
+      final palette = MaterialSpec.of(AppMaterial.rack).palette(true);
+
+      for (final depth in [NeuElevation.d1, NeuElevation.d3, NeuElevation.d5]) {
+        for (final role in [SurfaceRole.sunken, SurfaceRole.well]) {
+          Decoration at(double radius) => SkeuoDecoration.role(
+                palette: palette,
+                role: role,
+                depth: depth,
+                radius: radius,
+                circle: true,
+              );
+
+          final a = await render(at(NeuRadius.r4), 48);
+          final b = await render(at(NeuRadius.r16), 48);
+
+          var worst = 0;
+          for (var i = 0; i < a.length; i++) {
+            final d = (a[i] - b[i]).abs();
+            if (d > worst) worst = d;
+          }
+          expect(worst, 0,
+              reason: '$role at depth $depth renders differently at radius 4 '
+                  'and radius 16 while circle is true - worst channel delta '
+                  '$worst. Some layer is still building a rounded rect.');
+        }
+      }
+    });
+
+    test('the comparison can tell two shapes apart', () async {
+      // Without this, byte equality would also pass on a painter that drew
+      // nothing at all, or on a comparison that read the same buffer twice.
+      final palette = MaterialSpec.of(AppMaterial.rack).palette(true);
+      Decoration at(double radius) => SkeuoDecoration.role(
+            palette: palette,
+            role: SurfaceRole.sunken,
+            depth: NeuElevation.d3,
+            radius: radius,
+            circle: false,
+          );
+
+      final r4 = await render(at(NeuRadius.r4), 48);
+      final r16 = await render(at(NeuRadius.r16), 48);
+      var worst = 0;
+      for (var i = 0; i < r4.length; i++) {
+        final d = (r4[i] - r16[i]).abs();
+        if (d > worst) worst = d;
+      }
+      expect(worst, greaterThan(8),
+          reason: 'radius has no effect on a NON-circular surface either, so '
+              'the test above is comparing something that never varies');
+    });
+  });
+
   final soft = softSpec.palette(true);
 
   SkeuoDecoration deco(SurfaceRole role,
