@@ -66,7 +66,7 @@ class EmptyState extends StatelessWidget {
                   : NeuType.headingMd(isDark),
             ),
             if (message != null) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: NeuSpace.s6),
               ConstrainedBox(
                 // Keeps the line length readable instead of stretching a
                 // sentence across a 2560px window.

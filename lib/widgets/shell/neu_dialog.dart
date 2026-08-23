@@ -184,9 +184,9 @@ class NeuDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: NeuTheme.surface(isDark),
       surfaceTintColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(24),
+      insetPadding: const EdgeInsets.all(NeuSpace.s24),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(NeuRadius.r16),
         side: BorderSide(color: NeuTheme.border(isDark), width: 1),
       ),
       child: ConstrainedBox(
@@ -202,7 +202,7 @@ class NeuDialog extends StatelessWidget {
             ?headerBottom,
             Flexible(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                padding: const EdgeInsets.fromLTRB(NeuSpace.s20, NeuSpace.s4, NeuSpace.s20, NeuSpace.s16),
                 child: scrollable
                     ? SingleChildScrollView(child: content)
                     : content,
@@ -218,7 +218,7 @@ class NeuDialog extends StatelessWidget {
 
   Widget _header(bool isDark) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+      padding: const EdgeInsets.fromLTRB(NeuSpace.s20, NeuSpace.s16, NeuSpace.s20, NeuSpace.s12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -228,7 +228,7 @@ class NeuDialog extends StatelessWidget {
                 color: tone == DialogTone.destructive
                     ? NeuTheme.dangerText(isDark)
                     : themeNotifier.accentInk),
-            const SizedBox(width: 10),
+            const SizedBox(width: NeuSpace.s8),
           ],
           Expanded(
             child: Column(
@@ -240,7 +240,7 @@ class NeuDialog extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis),
                 if (subtitle != null) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: NeuSpace.s4),
                   Text(subtitle!,
                       style: NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark))),
                 ],
@@ -254,7 +254,7 @@ class NeuDialog extends StatelessWidget {
 
   Widget _footer(bool isDark) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      padding: const EdgeInsets.fromLTRB(NeuSpace.s20, NeuSpace.s12, NeuSpace.s20, NeuSpace.s16),
       // A hairline, always. Long dialogs scroll their content behind the
       // footer, and without a boundary the last visible line just stops
       // mid-sentence above the buttons and reads as a clipping bug.
@@ -273,7 +273,7 @@ class NeuDialog extends StatelessWidget {
               child: Text(action.label,
                   style: TextStyle(color: NeuTheme.subtext(isDark))),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: NeuSpace.s8),
           ],
           for (final action in actions.where((a) => a.isPrimary))
             _primaryButton(action, isDark),
@@ -297,8 +297,8 @@ class NeuDialog extends StatelessWidget {
     }
     return NeuButton(
       onPressed: action.onPressed,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      borderRadius: BorderRadius.circular(8),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s8),
+      borderRadius: BorderRadius.circular(NeuRadius.r8),
       child: Text(action.label,
           style: NeuType.headingSm(isDark, color: themeNotifier.accentInk)),
     );

@@ -61,7 +61,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
 
     return Container(
       width: LivePreviewPopup.estimatedSize.width,
-      decoration: NeuTheme.raisedDecoration(isDark, radius: 12),
+      decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -88,7 +88,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(NeuSpace.s12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -103,7 +103,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: NeuSpace.s6),
                     Expanded(
                       child: Text(
                         channel.username,
@@ -115,7 +115,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                         channel.viewerCount != '0') ...[
                       Icon(Icons.remove_red_eye,
                           color: NeuTheme.subtext(isDark), size: 12),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: NeuSpace.s4),
                       Text(
                         channel.viewerCount!,
                         style: NeuType.caption(isDark),
@@ -123,7 +123,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                     ],
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: NeuSpace.s6),
                 Text(
                   channel.streamTitle ?? 'Streaming Live!',
                   maxLines: 2,
@@ -131,7 +131,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                   style: NeuType.bodySm(isDark),
                 ),
                 if (channel.game != null && channel.game != 'Offline') ...[
-                  const SizedBox(height: 6),
+                  const SizedBox(height: NeuSpace.s6),
                   Text(
                     channel.game!,
                     style: NeuType.captionStrong(isDark, color: themeNotifier.accentInk),

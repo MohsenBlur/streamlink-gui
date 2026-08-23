@@ -68,7 +68,7 @@ class SectionHeader extends StatelessWidget {
           Icon(icon,
               size: density == SectionDensity.page ? 18 : 14,
               color: NeuTheme.subtext(isDark)),
-          const SizedBox(width: 8),
+          const SizedBox(width: NeuSpace.s8),
         ],
         Flexible(
           child: Column(
@@ -85,7 +85,7 @@ class SectionHeader extends StatelessWidget {
                         overflow: TextOverflow.ellipsis),
                   ),
                   if (count != null) ...[
-                    const SizedBox(width: 8),
+                    const SizedBox(width: NeuSpace.s8),
                     Text('$count',
                         style: density == SectionDensity.page
                             ? NeuType.body(isDark,
@@ -96,7 +96,7 @@ class SectionHeader extends StatelessWidget {
               ),
               if (subtitle != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 2),
+                  padding: const EdgeInsets.only(top: NeuSpace.s2),
                   child: Text(subtitle!,
                       style: NeuType.caption(isDark),
                       maxLines: 2,

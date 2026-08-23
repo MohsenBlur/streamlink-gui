@@ -66,10 +66,10 @@ class StatusBadge extends StatelessWidget {
     final base = tone.base(isDark);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
       decoration: BoxDecoration(
         color: base.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(NeuRadius.r6),
         border: Border.all(color: base.withValues(alpha: 0.4), width: 1),
       ),
       child: Row(
@@ -77,7 +77,7 @@ class StatusBadge extends StatelessWidget {
         children: [
           if (icon != null) ...[
             Icon(icon, size: 10, color: ink),
-            const SizedBox(width: 4),
+            const SizedBox(width: NeuSpace.s4),
           ],
           Text(
             label.toUpperCase(),

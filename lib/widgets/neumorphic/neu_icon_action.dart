@@ -117,16 +117,16 @@ class NeuIconAction extends StatelessWidget {
     switch (style) {
       case NeuActionStyle.raised:
         decoration = isSelected
-            ? NeuTheme.sunkenDecoration(isDark, radius: 8)
-            : NeuTheme.raisedDecoration(isDark, radius: 8);
+            ? NeuTheme.sunkenDecoration(isDark, radius: NeuRadius.r8)
+            : NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8);
       case NeuActionStyle.flat:
         decoration = isSelected
-            ? NeuTheme.sunkenDecoration(isDark, radius: 8)
+            ? NeuTheme.sunkenDecoration(isDark, radius: NeuRadius.r8)
             : null;
       case NeuActionStyle.overlay:
         decoration = BoxDecoration(
           color: Colors.black.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(NeuRadius.r8),
         );
     }
 

@@ -15,7 +15,7 @@ class NeuSegmentedControl<T> extends StatelessWidget {
     required this.selectedValue,
     required this.onValueChanged,
     this.height = 42.0,
-    this.padding = const EdgeInsets.all(4.0),
+    this.padding = const EdgeInsets.all(NeuSpace.s4),
   }) : super(key: key);
 
   @override

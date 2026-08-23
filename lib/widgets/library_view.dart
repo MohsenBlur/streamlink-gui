@@ -158,7 +158,7 @@ class _LibraryViewState extends State<LibraryView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+          padding: const EdgeInsets.fromLTRB(NeuSpace.s24, NeuSpace.s20, NeuSpace.s24, 0),
           // A Wrap is no good here: it hands children unbounded width, so a
           // mainAxisSize.min Row inside one reports its intrinsic size and
           // overflows anyway (which is exactly what happened - 248px and 24px
@@ -176,7 +176,7 @@ class _LibraryViewState extends State<LibraryView> {
                   NeuButton(
                     padding: EdgeInsets.symmetric(
                         horizontal: tight ? 8 : 10, vertical: 8),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(NeuRadius.r8),
                     tooltip: 'Back to ${widget.backLabel ?? 'where you were'} (Esc)',
                     onPressed: widget.onBack,
                     child: Row(
@@ -187,7 +187,7 @@ class _LibraryViewState extends State<LibraryView> {
                         // The label is the point of the control - it names the
                         // destination - so it is the last thing dropped.
                         if (widget.backLabel != null && !tight) ...[
-                          const SizedBox(width: 6),
+                          const SizedBox(width: NeuSpace.s6),
                           ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 140),
                             child: Text(
@@ -201,11 +201,11 @@ class _LibraryViewState extends State<LibraryView> {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: NeuSpace.s12),
                 ],
                 Icon(Icons.video_library,
                     color: themeNotifier.accentInk, size: 22),
-                const SizedBox(width: 10),
+                const SizedBox(width: NeuSpace.s8),
                 Text('Library', style: NeuType.headingLg(isDark)),
                 // The count/size chip is the first thing to go: it is
                 // information, not a control.
@@ -240,14 +240,14 @@ class _LibraryViewState extends State<LibraryView> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _sortButton(LibrarySort.newest, 'Newest'),
-                const SizedBox(width: 6),
+                const SizedBox(width: NeuSpace.s6),
                 _sortButton(LibrarySort.largest, 'Largest'),
-                const SizedBox(width: 6),
+                const SizedBox(width: NeuSpace.s6),
                 _sortButton(LibrarySort.progress, 'Progress'),
-                const SizedBox(width: 12),
+                const SizedBox(width: NeuSpace.s12),
                 NeuButton(
-                  padding: const EdgeInsets.all(8),
-                  borderRadius: BorderRadius.circular(8),
+                  padding: const EdgeInsets.all(NeuSpace.s8),
+                  borderRadius: BorderRadius.circular(NeuRadius.r8),
                   tooltip: 'Rescan the download folder',
                   onPressed: widget.onRefresh,
                   child: Icon(Icons.refresh,
@@ -260,7 +260,7 @@ class _LibraryViewState extends State<LibraryView> {
               return Row(
                 children: [
                   Flexible(child: leading),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: NeuSpace.s12),
                   trailing,
                 ],
               );
@@ -272,7 +272,7 @@ class _LibraryViewState extends State<LibraryView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 leading,
-                const SizedBox(height: 10),
+                const SizedBox(height: NeuSpace.s8),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: trailing,
@@ -282,7 +282,7 @@ class _LibraryViewState extends State<LibraryView> {
           }),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+          padding: const EdgeInsets.fromLTRB(NeuSpace.s24, NeuSpace.s12, NeuSpace.s24, 0),
           child: Row(
             children: [
               // A hard 280 plus a 12 gap needs 292px of the 332 available at
@@ -301,7 +301,7 @@ class _LibraryViewState extends State<LibraryView> {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: NeuSpace.s12),
               Expanded(
                 child: SizedBox(
                   height: 34,
@@ -328,7 +328,7 @@ class _LibraryViewState extends State<LibraryView> {
               final live = [...snapshot.downloading, ...snapshot.queued];
               if (live.isEmpty) return const SizedBox.shrink();
               return Padding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                padding: const EdgeInsets.fromLTRB(NeuSpace.s24, NeuSpace.s12, NeuSpace.s24, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -336,14 +336,14 @@ class _LibraryViewState extends State<LibraryView> {
                       title: 'In progress',
                       density: SectionDensity.inline,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: NeuSpace.s6),
                     for (final item in live) _liveRow(item, theme, isDark),
                   ],
                 ),
               );
             },
           ),
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         Expanded(
           child: visible.isEmpty
               ? (widget.entries.isEmpty
@@ -361,14 +361,14 @@ class _LibraryViewState extends State<LibraryView> {
                       action: NeuButton(
                         onPressed: _clearFilters,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        borderRadius: BorderRadius.circular(8),
+                            horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+                        borderRadius: BorderRadius.circular(NeuRadius.r8),
                         child: const Text('Clear filters',
                             style: NeuType.bodySmMetrics),
                       ),
                     ))
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+                  padding: const EdgeInsets.fromLTRB(NeuSpace.s24, 0, NeuSpace.s24, NeuSpace.s16),
                   itemCount: visible.length,
                   itemBuilder: (context, index) =>
                       _LibraryRow(
@@ -391,18 +391,18 @@ class _LibraryViewState extends State<LibraryView> {
   Widget _liveRow(ActivityItem item, ThemeData theme, bool isDark) {
     final queued = item.kind == ActivityKind.queued;
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.only(bottom: NeuSpace.s6),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
       decoration: NeuTheme.raisedDecoration(
         isDark,
-        radius: 10,
+        radius: NeuRadius.r12,
         border: Border.all(color: theme.primaryColor.withValues(alpha: 0.35)),
       ),
       child: Row(
         children: [
           Icon(queued ? Icons.schedule : Icons.downloading,
               size: 16, color: themeNotifier.accentInk),
-          const SizedBox(width: 12),
+          const SizedBox(width: NeuSpace.s12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -412,7 +412,7 @@ class _LibraryViewState extends State<LibraryView> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: NeuType.bodyStrong(isDark)),
-                const SizedBox(height: 4),
+                const SizedBox(height: NeuSpace.s4),
                 if (queued)
                   Text('Waiting to start',
                       style: NeuType.caption(isDark))
@@ -427,7 +427,7 @@ class _LibraryViewState extends State<LibraryView> {
                         ),
                       ),
                       if (item.status != null) ...[
-                        const SizedBox(width: 10),
+                        const SizedBox(width: NeuSpace.s8),
                         Text(item.status!,
                             style:
                                 NeuType.caption(isDark)),
@@ -437,22 +437,22 @@ class _LibraryViewState extends State<LibraryView> {
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: NeuSpace.s12),
           StatusBadge(
             label: queued ? 'Queued' : 'Downloading',
             tone: BadgeTone.accent,
           ),
           if (widget.onStopActivity != null) ...[
-            const SizedBox(width: 10),
+            const SizedBox(width: NeuSpace.s8),
             Tooltip(
               message: 'Cancel download',
               child: InkWell(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(NeuRadius.r8),
                 onTap: () => widget.onStopActivity!(item),
                 child: Container(
                   width: 30,
                   height: 30,
-                  decoration: NeuTheme.raisedDecoration(isDark, radius: 8),
+                  decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8),
                   child: Icon(Icons.close,
                       size: 15, color: NeuTheme.dangerText(isDark)),
                 ),
@@ -466,8 +466,8 @@ class _LibraryViewState extends State<LibraryView> {
 
   Widget _sortButton(LibrarySort sort, String label) {
     return NeuButton(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      borderRadius: BorderRadius.circular(8),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
+      borderRadius: BorderRadius.circular(NeuRadius.r8),
       isSelected: _sort == sort,
       onPressed: () => setState(() => _sort = sort),
       child: Text(label, style: NeuType.captionMetrics),

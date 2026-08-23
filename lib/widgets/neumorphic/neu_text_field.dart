@@ -156,7 +156,7 @@ class _NeuTextFieldState extends State<NeuTextField> {
               : NeuTheme.border(isDark),
           width: _isFocused ? 1.8 : 1.0,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
         child: Row(
           children: [
             if (widget.prefixIcon != null) ...[
@@ -168,7 +168,7 @@ class _NeuTextFieldState extends State<NeuTextField> {
                 // 1.04:1 against the well behind it.
                 color: _isFocused ? themeNotifier.accentInk : NeuTheme.subtext(isDark),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: NeuSpace.s8),
             ],
             Expanded(
               child: TextField(
@@ -216,7 +216,7 @@ class _NeuTextFieldState extends State<NeuTextField> {
                 ),
               ),
             if (widget.suffixIcon != null) ...[
-              const SizedBox(width: 6),
+              const SizedBox(width: NeuSpace.s6),
               widget.suffixIcon!,
             ],
           ],

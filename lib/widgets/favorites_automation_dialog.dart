@@ -125,12 +125,12 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
           children: [
             // Threshold Setting Bar
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
+              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s12),
+              decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r12),
               child: Row(
                 children: [
                   Icon(Icons.tune, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: NeuSpace.s12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,14 +175,14 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: NeuSpace.s12),
 
             // Preempt Switch Toggle
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
               decoration: BoxDecoration(
                 color: themeNotifier.surfaceColor,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(NeuRadius.r12),
                 border: Border.all(color: NeuTheme.border(themeNotifier.isDarkTheme)),
               ),
               child: Row(
@@ -195,7 +195,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                           'Switch to a higher priority channel',
                           style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: NeuSpace.s2),
                         Text(
                           'When one goes live while a lower-priority stream is playing.',
                           style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
@@ -215,7 +215,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: NeuSpace.s16),
 
             // Content List
             Expanded(
@@ -230,7 +230,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                       children: [
                         if (priorityChannels.isNotEmpty) ...[
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.only(bottom: NeuSpace.s8),
                             child: Text(
                               'Auto-play order - drag to reorder',
                               style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.favoriteText(themeNotifier.isDarkTheme)),
@@ -239,7 +239,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                           Container(
                             decoration: BoxDecoration(
                               color: themeNotifier.surfaceColor,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(NeuRadius.r12),
                               border: Border.all(color: NeuTheme.favorite.withValues(alpha: 0.3)),
                             ),
                             child: ReorderableListView(
@@ -253,7 +253,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                     return Material(
                                       elevation: 8,
                                       color: themeNotifier.surfaceColor,
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: BorderRadius.circular(NeuRadius.r8),
                                       shadowColor: Colors.black.withValues(alpha: 0.5),
                                       child: child,
                                     );
@@ -283,7 +283,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                 final ch = entry.value;
                                 return Container(
                                   key: ValueKey('priority_${ch.originalChannel.username}'),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
                                   decoration: BoxDecoration(
                                     border: Border(bottom: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 0.5)),
                                   ),
@@ -294,18 +294,18 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         child: MouseRegion(
                                           cursor: SystemMouseCursors.grab,
                                           child: Container(
-                                            padding: const EdgeInsets.all(4),
+                                            padding: const EdgeInsets.all(NeuSpace.s4),
                                             child: Icon(Icons.drag_handle, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
                                           ),
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: NeuSpace.s8),
                                       NeuAvatar(
                                         url: ch.originalChannel.avatarUrl,
                                         radius: 14,
                                         isDark: themeNotifier.isDarkTheme,
                                       ),
-                                      const SizedBox(width: 10),
+                                      const SizedBox(width: NeuSpace.s8),
                                       Expanded(
                                         child: Text(
                                           ch.originalChannel.username,
@@ -313,10 +313,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         ),
                                       ),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s2),
                                         decoration: BoxDecoration(
                                           color: theme.primaryColor.withValues(alpha: 0.2),
-                                          borderRadius: BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(NeuRadius.r12),
                                           border: Border.all(color: themeNotifier.accentInk, width: 1),
                                         ),
                                         child: Text(
@@ -330,11 +330,11 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                               }).toList(),
                             ),
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: NeuSpace.s20),
                         ],
 
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.only(bottom: NeuSpace.s8),
                           child: Text(
                             'Every favourite',
                             style: NeuType.headingSm(themeNotifier.isDarkTheme),
@@ -343,11 +343,11 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
 
                         ..._favChannels.map((ch) {
                           return Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: NeuSpace.s8),
+                            padding: const EdgeInsets.all(NeuSpace.s12),
                             decoration: NeuTheme.raisedDecoration(
                               themeNotifier.isDarkTheme,
-                              radius: 12,
+                              radius: NeuRadius.r12,
                               border: Border.all(
                                 color: (ch.autoPlayLive || ch.autoDownloadVods)
                                     ? theme.primaryColor.withValues(alpha: 0.4)
@@ -361,10 +361,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                   children: [
                                     NeuAvatar(
                                       url: ch.originalChannel.avatarUrl,
-                                      radius: 16,
+                                      radius: NeuRadius.r16,
                                       isDark: themeNotifier.isDarkTheme,
                                     ),
-                                    const SizedBox(width: 12),
+                                    const SizedBox(width: NeuSpace.s12),
                                     Expanded(
                                       child: Text(
                                         ch.originalChannel.username,
@@ -373,7 +373,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 10),
+                                const SizedBox(height: NeuSpace.s8),
                                 Wrap(
                                   crossAxisAlignment: WrapCrossAlignment.center,
                                   spacing: 16,
@@ -403,7 +403,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                               });
                                             },
                                           ),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: NeuSpace.s8),
                                           Text(
                                             'Play when live',
                                             style: NeuType.bodySm(themeNotifier.isDarkTheme),
@@ -432,7 +432,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                               });
                                             },
                                           ),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(width: NeuSpace.s8),
                                           Text(
                                             'Download VODs',
                                             style: NeuType.bodySm(themeNotifier.isDarkTheme),
@@ -491,7 +491,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                                 });
                                               },
                                             ),
-                                            const SizedBox(width: 8),
+                                            const SizedBox(width: NeuSpace.s8),
                                             Text(
                                               // The cutoff is the exclusion
                                               // threshold above, not a fixed 5%:
@@ -527,7 +527,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                                 });
                                               },
                                             ),
-                                            const SizedBox(width: 8),
+                                            const SizedBox(width: NeuSpace.s8),
                                             Text(
                                               'Fast Download (Skip post-processing)',
                                               style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),

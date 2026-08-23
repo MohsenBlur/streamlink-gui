@@ -204,20 +204,20 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
   Widget _sessionTile(LogSession s, bool isDark, ThemeData theme) {
     final selected = s.key == _selected;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: NeuSpace.s4),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(NeuRadius.r8),
         onTap: () => setState(() {
           _selected = s.key;
           _requestedGone = false;
         }),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
           decoration: selected
               ? NeuTheme.sunkenDecoration(isDark,
-                  radius: 8,
+                  radius: NeuRadius.r8,
                   border: Border.all(color: themeNotifier.accentInk, width: 1.5))
-              : NeuTheme.raisedDecoration(isDark, radius: 8),
+              : NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8),
           child: Row(
             children: [
               Icon(_iconFor(s),
@@ -227,7 +227,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                       : (s.isRunning
                           ? NeuTheme.liveText(isDark)
                           : NeuTheme.subtext(isDark))),
-              const SizedBox(width: 8),
+              const SizedBox(width: NeuSpace.s8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -276,10 +276,10 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
     return Container(
       decoration: BoxDecoration(
         color: NeuTheme.terminalBg(isDark),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(NeuRadius.r8),
         border: Border.all(color: NeuTheme.border(isDark)),
       ),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(NeuSpace.s8),
       child: lines.isEmpty
           ? Center(
               child: Text('No output.',
@@ -291,7 +291,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                 itemBuilder: (context, i) {
                   final line = lines[i];
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
+                    padding: const EdgeInsets.only(bottom: NeuSpace.s4),
                     child: Text(
                       line,
                       // 11px rather than mono's 12: a log pane fits a

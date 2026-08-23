@@ -135,7 +135,7 @@ class _VodsGridState extends State<VodsGrid> {
       return const SliverToBoxAdapter(
         child: Center(
           child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 40),
+            padding: EdgeInsets.symmetric(vertical: NeuSpace.s40),
             child: NeuProgressRing(semanticLabel: 'Loading broadcasts'),
           ),
         ),
@@ -145,10 +145,10 @@ class _VodsGridState extends State<VodsGrid> {
     if (widget.vodsError != null) {
       return SliverToBoxAdapter(
         child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(NeuSpace.s16),
         decoration: BoxDecoration(
           color: NeuTheme.danger.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(NeuRadius.r8),
           border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.3)),
         ),
         child: Text(
@@ -183,7 +183,7 @@ class _VodsGridState extends State<VodsGrid> {
       
       return Container(
         height: 38,
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: NeuSpace.s16),
         child: NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             _updateScrollIndicators();
@@ -216,8 +216,8 @@ class _VodsGridState extends State<VodsGrid> {
                             }
                           },
                           isSelected: isSelected,
-                          borderRadius: BorderRadius.circular(18),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          borderRadius: BorderRadius.circular(NeuRadius.pill),
+                          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -226,7 +226,7 @@ class _VodsGridState extends State<VodsGrid> {
                               // itself (NeuButton's own selected text style).
                               if (isSelected) ...[
                                 Icon(Icons.check, size: 13, color: themeNotifier.accentInk),
-                                const SizedBox(width: 4),
+                                const SizedBox(width: NeuSpace.s4),
                               ],
                               Text(
                                 game,
@@ -312,8 +312,8 @@ class _VodsGridState extends State<VodsGrid> {
               '${widget.selectedGamesFilter.join(', ')}.',
           action: NeuButton(
             onPressed: widget.onClearGameFilter,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            borderRadius: BorderRadius.circular(8),
+            padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+            borderRadius: BorderRadius.circular(NeuRadius.r8),
             child: const Text('Show all categories',
                 style: NeuType.bodySmMetrics),
           ),

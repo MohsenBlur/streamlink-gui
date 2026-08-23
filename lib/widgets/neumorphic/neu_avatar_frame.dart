@@ -40,13 +40,15 @@ class NeuAvatarFrame extends StatelessWidget {
               isCircle: true,
               style: NeuStyle.raised,
               depth: 4.0,
+              // Intentional: sub-grid. These are the two concentric ring widths of
+              // the avatar frame, not spacing between things.
               padding: const EdgeInsets.all(3.0),
               child: // Inner Sunken Aperture Well
                   NeuContainer(
                 isCircle: true,
                 style: NeuStyle.sunken,
                 depth: 3.0,
-                padding: const EdgeInsets.all(2.0),
+                padding: const EdgeInsets.all(2.0), // Intentional: inner ring width
                 child: ClipOval(
                   child: imageUrl != null && imageUrl!.isNotEmpty
                       ? Image.network(
@@ -73,7 +75,7 @@ class NeuAvatarFrame extends StatelessWidget {
                 bottom: -2,
                 right: -2,
                 child: Container(
-                  padding: const EdgeInsets.all(2),
+                  padding: const EdgeInsets.all(NeuSpace.s2),
                   decoration: BoxDecoration(
                     color: NeuTheme.surface(isDark),
                     shape: BoxShape.circle,

@@ -2041,8 +2041,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         ),
         backgroundColor: isError ? NeuTheme.danger : themeNotifier.primaryColor,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        margin: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeuRadius.r8)),
+        margin: const EdgeInsets.all(NeuSpace.s12),
         // Long enough to read and act on, short enough to get out of the way.
         duration: Duration(seconds: action != null ? 8 : 3),
         showCloseIcon: true,
@@ -2341,7 +2341,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 onStop: _stopActivity,
                 compact: isNarrow,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: NeuSpace.s12),
             ],
             isDarkTheme: themeNotifier.isDarkTheme,
             onThemeToggle: (isDark) {
@@ -2389,7 +2389,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final runningDownloads = _activity.value.downloading;
 
     return SingleChildScrollView(
-            padding: const EdgeInsets.all(28.0),
+            padding: const EdgeInsets.all(NeuSpace.s32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2404,12 +2404,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: NeuSpace.s6),
                 Text(
                   'Pick a channel from the sidebar, or jump back into something below.',
                   style: NeuType.body(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: NeuSpace.s24),
 
           // Order matters here. This screen used to lead with the
           // downloader and put live channels third, which is the priority
@@ -2421,7 +2421,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             title: 'Live now',
             count: liveFavorites.isEmpty ? null : liveFavorites.length,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: NeuSpace.s12),
           if (liveFavorites.isEmpty)
             Container(
               width: double.infinity,
@@ -2441,7 +2441,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         onPressed: () =>
                             _sidebarSearchFocus.requestFocus(),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
+                            horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
                         borderRadius: BorderRadius.circular(NeuRadius.r8),
                         child: const Text('Add a channel',
                             style: NeuType.bodySmMetrics),
@@ -2481,10 +2481,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     );
                   },
                   child: Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(NeuSpace.s12),
                     decoration: NeuTheme.raisedDecoration(
                       themeNotifier.isDarkTheme,
-                      radius: 12,
+                      radius: NeuRadius.r12,
                       border: Border.all(color: theme.primaryColor.withValues(alpha: 0.25)),
                     ),
                     child: Column(
@@ -2501,7 +2501,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               backgroundColor: Colors.transparent,
                               iconColor: NeuTheme.text(themeNotifier.isDarkTheme),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: NeuSpace.s8),
                             Expanded(
                               child: Text(
                                 channel.username,
@@ -2512,7 +2512,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: NeuSpace.s8),
                         Expanded(
                           child: Text(
                             channel.streamTitle ?? 'No Stream Title',
@@ -2521,7 +2521,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: NeuSpace.s4),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -2541,12 +2541,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: NeuSpace.s8),
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
-                                const SizedBox(width: 4),
+                                const SizedBox(width: NeuSpace.s4),
                                 Text(
                                   channel.viewerCount != null ? '${channel.viewerCount}' : '0',
                                   style: NeuType.caption(themeNotifier.isDarkTheme),
@@ -2566,12 +2566,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 );
               },
             ),
-          const SizedBox(height: 32),
+          const SizedBox(height: NeuSpace.s32),
 
           // Recently Watched VODs (Conditional)
           if (_recentWatchedVods.isNotEmpty) ...[
             const SectionHeader(title: 'Continue watching'),
-            const SizedBox(height: 12),
+            const SizedBox(height: NeuSpace.s12),
             SizedBox(
               height: 155,
               child: HorizontalMouseScrollable(
@@ -2603,17 +2603,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 child: Container(
                                   width: w.toDouble(),
                                   height: h.toDouble(),
-                                  margin: const EdgeInsets.only(right: 12),
+                                  margin: const EdgeInsets.only(right: NeuSpace.s12),
                                   decoration: NeuTheme.raisedDecoration(
                                     themeNotifier.isDarkTheme,
-                                    radius: 12,
+                                    radius: NeuRadius.r12,
                                     border: Border.all(
                                       color: isHovered ? theme.primaryColor : Colors.transparent,
                                       width: isHovered ? 1.5 : 0.0,
                                     ),
                                   ),
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(11),
+                                    borderRadius: BorderRadius.circular(NeuRadius.inner(NeuRadius.r12, NeuSpace.s2)),
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
@@ -2642,7 +2642,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                     color: Colors.black45,
                                                     child: Center(
                                                       child: Container(
-                                                        padding: const EdgeInsets.all(8),
+                                                        padding: const EdgeInsets.all(NeuSpace.s8),
                                                         decoration: BoxDecoration(
                                                           color: theme.primaryColor,
                                                           shape: BoxShape.circle,
@@ -2663,10 +2663,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                 right: 6,
                                                 // Intentional: white-on-black pill over video artwork, theme-independent.
                                                 child: Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                                  padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s4, vertical: NeuSpace.s2),
                                                   decoration: BoxDecoration(
                                                     color: Colors.black.withValues(alpha: 0.75),
-                                                    borderRadius: BorderRadius.circular(4),
+                                                    borderRadius: BorderRadius.circular(NeuRadius.r4),
                                                   ),
                                                   child: Text(
                                                     video.duration,
@@ -2699,7 +2699,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                         ),
                                         Container(
                                           color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                          padding: const EdgeInsets.all(8),
+                                          padding: const EdgeInsets.all(NeuSpace.s8),
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
@@ -2709,7 +2709,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
-                                              const SizedBox(height: 2),
+                                              const SizedBox(height: NeuSpace.s2),
                                               Row(
                                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                 children: [
@@ -2741,14 +2741,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: NeuSpace.s24),
           ],
 
           // Active Downloads card (Conditional)
           if (runningDownloads.isNotEmpty) ...[
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(NeuSpace.s16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -2758,7 +2758,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(NeuRadius.r12),
                 border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3), width: 1.5),
                 boxShadow: [
                   BoxShadow(
@@ -2777,7 +2777,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       Row(
                         children: [
                           Icon(Icons.downloading, color: themeNotifier.accentInk, size: 20),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: NeuSpace.s8),
                           Text(
                             'Active Downloads Running',
                             style: NeuType.headingSm(themeNotifier.isDarkTheme),
@@ -2791,13 +2791,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: NeuSpace.s12),
                   ...runningDownloads.take(2).map((item) {
                     final progress = item.progress ?? 0.0;
                     final taskText = item.status ?? 'Downloading...';
                     final title = item.label;
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
+                      padding: const EdgeInsets.only(bottom: NeuSpace.s8),
                       child: Row(
                         children: [
                           Expanded(
@@ -2810,7 +2810,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: NeuSpace.s4),
                                 NeuProgressBar(
                                   value: progress,
                                   size: NeuProgressSize.sm,
@@ -2819,7 +2819,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ],
                             ),
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(width: NeuSpace.s16),
                           Text(
                             taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
                             style: NeuType.caption(themeNotifier.isDarkTheme),
@@ -2831,12 +2831,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: NeuSpace.s24),
           ],
 
           // Quick Action Cards
           const SectionHeader(title: 'Quick actions'),
-          const SizedBox(height: 12),
+          const SizedBox(height: NeuSpace.s12),
           GridView(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -2895,13 +2895,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final isDark = themeNotifier.isDarkTheme;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s8),
       color: NeuTheme.danger.withValues(alpha: 0.12),
       child: Row(
         children: [
           Icon(Icons.error_outline,
               size: 16, color: NeuTheme.dangerText(isDark)),
-          const SizedBox(width: 10),
+          const SizedBox(width: NeuSpace.s8),
           Expanded(
             child: Text(
               'Your settings could not be saved to disk. Recent changes may be '
@@ -2944,13 +2944,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               'the folder no longer being writable.',
               style: NeuType.body(themeNotifier.isDarkTheme),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: NeuSpace.s12),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(NeuSpace.s8),
               decoration: NeuTheme.sunkenDecoration(
                   themeNotifier.isDarkTheme,
-                  radius: 8),
+                  radius: NeuRadius.r8),
               child: SelectableText(
                 '${failure.path}\n\n${failure.error}',
                 style: NeuType.mono(themeNotifier.isDarkTheme),
@@ -3137,14 +3137,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           cursor: SystemMouseCursors.click,
           child: InkWell(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(NeuRadius.r12),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               transform: Matrix4.translationValues(0, isHovered ? -2 : 0, 0),
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(NeuSpace.s12),
               decoration: NeuTheme.raisedDecoration(
                 themeNotifier.isDarkTheme,
-                radius: 12,
+                radius: NeuRadius.r12,
                 border: Border.all(
                   color: isHovered ? theme.primaryColor : Colors.transparent,
                   width: isHovered ? 1.5 : 0.0,
@@ -3153,14 +3153,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(NeuSpace.s8),
                     decoration: BoxDecoration(
                       color: theme.primaryColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(NeuRadius.r8),
                     ),
                     child: Icon(icon, size: 20, color: themeNotifier.accentInk),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: NeuSpace.s12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3172,7 +3172,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: NeuSpace.s2),
                         Text(
                           subtitle,
                           style: NeuType.caption(themeNotifier.isDarkTheme),
@@ -3208,7 +3208,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     return CustomScrollView(
             slivers: [
               SliverPadding(
-                padding: EdgeInsets.all(isCompact ? 12 : 24),
+                padding: EdgeInsets.all(isCompact ? NeuSpace.s12 : NeuSpace.s24),
                 sliver: SliverMainAxisGroup(slivers: [
                 // Real-time Stats Card Widget
                 SliverToBoxAdapter(child: DashboardHeader(
@@ -3302,7 +3302,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             _selectedVodIds.clear();
                           }),
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
+                              horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
                           borderRadius: BorderRadius.circular(NeuRadius.r8),
                           tooltip: 'Pick several VODs to download or mark',
                           child: Row(
@@ -3312,7 +3312,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   size: 15,
                                   color: NeuTheme.text(
                                       themeNotifier.isDarkTheme)),
-                              const SizedBox(width: 6),
+                              const SizedBox(width: NeuSpace.s6),
                               Text('Select',
                                   style: NeuType.captionStrong(
                                       themeNotifier.isDarkTheme,
@@ -3330,7 +3330,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 size: NeuProgressRingSize.sm,
                                 semanticLabel: 'Loading'),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: NeuSpace.s12),
                         ],
                         // One control path, not two. These settings used to be
                         // rendered inline when the window was wide and in a
@@ -3343,39 +3343,39 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         ),
                       ],
                     ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: NeuSpace.s16),
                   if (_isWebTokenExpired) ...[
                     Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      margin: const EdgeInsets.only(bottom: NeuSpace.s16),
+                      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s12),
                       // Intentional: translucent warning tint, readable over both themes.
                       decoration: BoxDecoration(
                         color: NeuTheme.warning.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(NeuRadius.r8),
                         border: Border.all(color: NeuTheme.warning.withValues(alpha: 0.3)),
                       ),
                       child: Row(
                         children: [
                           Icon(Icons.warning_amber_rounded,
                               color: NeuTheme.warningText(themeNotifier.isDarkTheme), size: 20),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: NeuSpace.s12),
                           Expanded(
                             child: Text(
                               'Your Twitch Browser OAuth Token has expired. VOD watch progress tracking is currently paused.',
                               style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: NeuSpace.s12),
                           TextButton(
                             style: TextButton.styleFrom(
                               backgroundColor: NeuTheme.warning.withValues(alpha: 0.2),
                               foregroundColor: NeuTheme.warningText(themeNotifier.isDarkTheme),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
                             ),
                             onPressed: _showSettingsDialog,
                             child: const Text('Update Token', style: NeuType.labelMetrics),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: NeuSpace.s8),
                           IconButton(
                             icon: Icon(Icons.close, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 16),
                             onPressed: () {
@@ -3442,7 +3442,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   
                   if (_vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty && _channelVods.isNotEmpty) ...[
                     SliverToBoxAdapter(child: Column(children: [
-                    const SizedBox(height: 24),
+                    const SizedBox(height: NeuSpace.s24),
                     Center(
                       child: SizedBox(
                         width: 180,
@@ -3452,7 +3452,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
                             foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(NeuRadius.r8),
                               side: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                             ),
                             elevation: 0,
@@ -3470,7 +3470,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(Icons.expand_more, size: 18),
-                                    SizedBox(width: 6),
+                                    SizedBox(width: NeuSpace.s6),
                                     Text('Load More VODs', style: NeuType.labelMetrics),
                                   ],
                                 ),
@@ -3492,8 +3492,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.75,
       ),
-      padding: const EdgeInsets.all(16),
-      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 12),
+      padding: const EdgeInsets.all(NeuSpace.s16),
+      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r12),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -3507,7 +3507,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     Row(
                       children: [
                         Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: NeuSpace.s6),
                         Text('Show All Games on Thumbnails', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
                       ],
                     ),
@@ -3525,9 +3525,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 );
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: NeuSpace.s12),
             Text('Filter Broadcasts:', style: NeuType.captionStrong(themeNotifier.isDarkTheme)),
-            const SizedBox(height: 6),
+            const SizedBox(height: NeuSpace.s6),
             NeuTextField(
               controller: _vodSearchController,
               hintText: 'Filter VODs...',
@@ -3536,7 +3536,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               onChanged: (val) => setState(() {}),
               onClear: () => setState(() {}),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: NeuSpace.s12),
             StatefulBuilder(
               builder: (context, setMenuState) {
                 final uniqueGames = _channelVods.expand((vod) => vod.games).toSet().toList()..sort();
@@ -3566,13 +3566,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: NeuSpace.s8),
                     Container(
                       constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 6),
+                      decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
                       child: ListView(
                         shrinkWrap: true,
-                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.symmetric(vertical: NeuSpace.s4),
                         children: uniqueGames.map((game) {
                           final isChecked = _selectedGamesFilter.contains(game);
                           return InkWell(
@@ -3587,7 +3587,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               setMenuState(() {});
                             },
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s6),
                               child: Row(
                                 children: [
                                   NeuCheckbox(
@@ -3605,7 +3605,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                       setMenuState(() {});
                                     },
                                   ),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: NeuSpace.s8),
                                   Expanded(
                                     child: Text(
                                       game,
@@ -3623,11 +3623,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 );
               },
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: NeuSpace.s16),
             Row(
               children: [
                 Icon(Icons.photo_size_select_large, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                const SizedBox(width: 6),
+                const SizedBox(width: NeuSpace.s6),
                 Text('Card Size: ', style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
                 Expanded(
                   child: SliderTheme(
@@ -3647,11 +3647,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: NeuSpace.s8),
             Row(
               children: [
                 Icon(Icons.format_size, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                const SizedBox(width: 6),
+                const SizedBox(width: NeuSpace.s6),
                 Text('Font Size: ', style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
                 Expanded(
                   child: SliderTheme(
@@ -3992,7 +3992,7 @@ class _VodDisplayButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = themeNotifier.isDarkTheme;
     return NeuButton(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
       borderRadius: BorderRadius.circular(NeuRadius.r8),
       tooltip: 'Card size, title size, filters and game badges',
       onPressed: null,

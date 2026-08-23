@@ -164,9 +164,9 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 4),
+          const SizedBox(height: NeuSpace.s4),
           Text(title, style: NeuType.headingMd(_isDark)),
-          const SizedBox(height: 14),
+          const SizedBox(height: NeuSpace.s12),
           ...children,
         ],
       ),
@@ -175,12 +175,12 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
 
   Widget _bullet(IconData icon, String text, ThemeData theme) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: NeuSpace.s8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, size: 16, color: themeNotifier.accentInk),
-          const SizedBox(width: 10),
+          const SizedBox(width: NeuSpace.s8),
           Expanded(child: Text(text, style: NeuType.bodySm(_isDark))),
         ],
       ),
@@ -195,7 +195,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
         _bullet(Icons.star, 'Track favorite channels, get notified when they go live, and auto-play or auto-download their streams.', theme),
         _bullet(Icons.download, 'Download past broadcasts with yt-dlp and manage them in the built-in Library.', theme),
         _bullet(Icons.speed, 'The app lives in your tray and keeps monitoring in the background.', theme),
-        const SizedBox(height: 6),
+        const SizedBox(height: NeuSpace.s6),
         Text('The next steps take about a minute. Everything can be changed later in Settings.',
             style: NeuType.caption(_isDark)),
       ],
@@ -214,16 +214,16 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       children: [
         for (final (value, label, detected) in options)
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: NeuSpace.s6),
             child: InkWell(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(NeuRadius.r8),
               onTap: () => setState(() => _playerType = value),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
                 decoration: _playerType == value
-                    ? NeuTheme.sunkenDecoration(_isDark, radius: 8,
+                    ? NeuTheme.sunkenDecoration(_isDark, radius: NeuRadius.r8,
                         border: Border.all(color: themeNotifier.accentInk, width: 1.5))
-                    : NeuTheme.raisedDecoration(_isDark, radius: 8),
+                    : NeuTheme.raisedDecoration(_isDark, radius: NeuRadius.r8),
                 child: Row(
                   children: [
                     Icon(
@@ -235,7 +235,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                           ? theme.primaryColor
                           : NeuTheme.subtext(_isDark),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: NeuSpace.s8),
                     Expanded(child: Text(label, style: NeuType.bodySm(_isDark))),
                     if (detected != null)
                       Text(
@@ -249,7 +249,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
               ),
             ),
           ),
-        const SizedBox(height: 6),
+        const SizedBox(height: NeuSpace.s6),
         Text('A custom player executable can be configured later under Settings > Player.',
             style: NeuType.caption(_isDark)),
       ],
@@ -262,14 +262,14 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       children: [
         Text('Optional - only needed if you download past broadcasts. Each channel gets its own subfolder.',
             style: NeuType.caption(_isDark)),
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: NeuTheme.sunkenDecoration(_isDark, radius: 8),
+          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+          decoration: NeuTheme.sunkenDecoration(_isDark, radius: NeuRadius.r8),
           child: Row(
             children: [
               Icon(Icons.folder, size: 16, color: NeuTheme.subtext(_isDark)),
-              const SizedBox(width: 10),
+              const SizedBox(width: NeuSpace.s8),
               Expanded(
                 child: Text(
                   _downloadFolder.trim().isEmpty
@@ -282,7 +282,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
             ],
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: NeuSpace.s8),
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
           onPressed: () async {
@@ -308,7 +308,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
           'Pasting an OAuth token unlocks your followed channels list, VOD browsing, subscriber streams and ad-free playback. You can paste one from any token tool (Settings has a guide), or skip this entirely.',
           style: NeuType.caption(_isDark),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: NeuSpace.s12),
         Row(
           children: [
             Expanded(
@@ -318,11 +318,11 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                 style: NeuType.bodySm(_isDark),
                 decoration: const InputDecoration(
                   hintText: 'oauth:xxxxxxxxxxxx or raw token',
-                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  contentPadding: EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: NeuSpace.s8),
             SizedBox(
               height: 38,
               child: ElevatedButton(
@@ -356,7 +356,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
           ],
         ),
         if (_tokenResult != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: NeuSpace.s8),
           Row(
             children: [
               Icon(
@@ -366,7 +366,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                     ? NeuTheme.liveText(_isDark)
                     : NeuTheme.dangerText(_isDark),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: NeuSpace.s6),
               Expanded(
                 child: Text(
                   _tokenResult!.message,
@@ -390,7 +390,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
           'Closing the window keeps the app running in the system tray so live notifications and automation keep working. Right-click the tray icon to exit for real. Both behaviors are configurable in Settings.',
           style: NeuType.caption(_isDark),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: NeuSpace.s12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -405,7 +405,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: NeuSpace.s8),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -420,7 +420,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: NeuSpace.s12),
         Text('All set - press Finish to start. Add channels with the sidebar search (Ctrl+F).',
             style: NeuType.bodySm(_isDark)),
       ],
