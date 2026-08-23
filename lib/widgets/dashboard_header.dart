@@ -279,7 +279,20 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         borderRadius: BorderRadius.circular(NeuRadius.r16),
         style: NeuStyle.raised,
         color: themeNotifier.surfaceColor,
-        child: Column(
+        // The compact header overflowed by 40px at the enforced 380px minimum,
+        // live, in the shipped build - the trailing action group is entirely
+        // fixed-width, so the Expanded beside it was handed less space than
+        // the status pill inside it needs.
+        //
+        // Below 440 the Stats control drops its label and the gaps between the
+        // mini actions halve. Nothing is removed: the popover still opens from
+        // the icon, and the word it loses is repeated inside the popover it
+        // opens. 440 is the measured point where the untightened row stops
+        // fitting.
+        child: LayoutBuilder(builder: (context, constraints) {
+        final tight = constraints.maxWidth < 440;
+        final miniGap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s6);
+        return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -298,8 +311,15 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: NeuSpace.s8),
-                      _buildStatusBadge(compact: true),
+                      // The status pill rides beside the name only where the
+                      // name has room for company. At 380 the Expanded around
+                      // this Row measured 28 logical pixels - less than the
+                      // pill alone - so the pill drops to the line below
+                      // rather than pushing a name that has nowhere to go.
+                      if (!tight) ...[
+                        const SizedBox(width: NeuSpace.s8),
+                        _buildStatusBadge(compact: true),
+                      ],
                     ],
                   ),
                 ),
@@ -312,20 +332,20 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       tooltip: 'Open Twitch channel',
                       onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}'),
                     ),
-                    const SizedBox(width: NeuSpace.s6),
+                    miniGap,
                     _buildMiniActionBtn(
                       icon: Icons.chat_bubble_outline,
                       tooltip: 'Open Twitch chat popout',
                       onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat'),
                     ),
-                    const SizedBox(width: NeuSpace.s6),
+                    miniGap,
                     _buildMiniActionBtn(
                       icon: Icons.refresh,
                       tooltip: 'Refresh statistics',
                       isLoading: widget.channel.isLoading,
                       onPressed: widget.channel.isLoading ? null : widget.onRefresh,
                     ),
-                    const SizedBox(width: NeuSpace.s6),
+                    miniGap,
                     InteractivePopover(
                       targetAnchor: Alignment.bottomRight,
                       followerAnchor: Alignment.topRight,
@@ -350,14 +370,16 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.analytics_outlined, size: 12, color: themeNotifier.accentInk),
-                            const SizedBox(width: NeuSpace.s4),
-                            Text('Stats', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
+                            if (!tight) ...[
+                              const SizedBox(width: NeuSpace.s4),
+                              Text('Stats', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
+                            ],
                           ],
                         ),
                       ),
                     ),
 
-                    const SizedBox(width: NeuSpace.s6),
+                    miniGap,
                     _withLivePreview(SizedBox(
                       height: 28,
                       child: _buildPlayButton(compact: true),
@@ -366,14 +388,30 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 ),
               ],
             ),
-            if (widget.channel.isLive && widget.channel.streamTitle != null) ...[
+            // The second line, which carries the stream title when there is
+            // one and the status pill whenever the top row could not. It has
+            // to render for the pill alone too: "OFFLINE" is the case with no
+            // title to sit beside, and it is exactly the case where dropping
+            // the pill would lose the only statement of state on the surface.
+            if (tight || (widget.channel.isLive && widget.channel.streamTitle != null)) ...[
               const SizedBox(height: NeuSpace.s6),
-              _withLivePreview(Text(
-                '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
-                style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              )),
+              Row(
+                children: [
+                  if (tight) ...[
+                    _buildStatusBadge(compact: true),
+                    const SizedBox(width: NeuSpace.s8),
+                  ],
+                  if (widget.channel.isLive && widget.channel.streamTitle != null)
+                    Expanded(
+                      child: _withLivePreview(Text(
+                        '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
+                        style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )),
+                    ),
+                ],
+              ),
             ],
             if (widget.channel.errorMessage != null) ...[
               const SizedBox(height: NeuSpace.s6),
@@ -387,7 +425,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 child: Row(
                   children: [
                     Icon(Icons.error_outline, size: 12, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
-                    const SizedBox(width: NeuSpace.s6),
+                    miniGap,
                     Expanded(
                       child: Text(
                         widget.channel.errorMessage!,
@@ -401,7 +439,8 @@ class _DashboardHeaderState extends State<DashboardHeader> {
               ),
             ],
           ],
-        ),
+        );
+        }),
       );
     }
 

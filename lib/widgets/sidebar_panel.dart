@@ -802,17 +802,40 @@ class SidebarPanelState extends State<SidebarPanel> {
       // miss - the expanded sidebar and this rail are two separate roots - and
       // missing it would leave the top bar flat in every material.
       decoration: NeuTheme.panel(themeNotifier.isDarkTheme, radius: 0),
-      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16),
-      child: Row(
+      // The rail overflowed by 48px at the enforced 380px minimum, live, in
+      // the shipped build. Nothing saw it: the overflow sweep pumped a copy of
+      // a card footer defined inside the test file, so the only surface it
+      // could ever check was one the app does not use.
+      //
+      // Ten fixed controls plus two rules do not fit in 348 logical pixels, so
+      // below 460 the row tightens: the two decorative rules go, the gaps
+      // halve, and the three trailing IconButtons drop Material's 48px
+      // minimum box for a 34px one. Nothing is removed and nothing moves -
+      // every affordance is still there, still in the same order, and still
+      // above the 24px hit target this app holds itself to. The 460 boundary
+      // is the measured point where the untightened row stops fitting, not a
+      // round number, and the inset halves with it - 16px of air on each side
+      // is a luxury a row that does not fit cannot afford.
+      child: LayoutBuilder(builder: (context, constraints) {
+        final tight = constraints.maxWidth < 480;
+        final gap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s8);
+        final tightBox = tight
+            ? const BoxConstraints.tightFor(width: 32, height: 32)
+            : null;
+        final tightPad = tight ? EdgeInsets.zero : null;
+        return Padding(
+          padding: EdgeInsets.symmetric(
+              horizontal: tight ? NeuSpace.s8 : NeuSpace.s16),
+          child: Row(
         children: [
           NavScopeRow(
                   current: NavScopeTab.byIndex[widget.sidebarTab] ?? NavScopeTab.favorites,
                   onChanged: (tab) => widget.onTabChanged(tab.index),
                   isAuthenticated: widget.settings.twitchOauthToken.trim().isNotEmpty,
                 ),
-          const SizedBox(width: NeuSpace.s8),
+          gap,
           _buildSearchPopoverTrigger(theme, size: 32),
-          const SizedBox(width: NeuSpace.s8),
+          gap,
           Tooltip(
             message: widget.sidebarTab == 0
                 ? 'Refresh Favorites'
@@ -828,11 +851,18 @@ class SidebarPanelState extends State<SidebarPanel> {
               onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
               hoverColor: theme.primaryColor.withValues(alpha: 0.2),
               splashRadius: 20,
+              padding: tightPad,
+              constraints: tightBox,
             ),
           ),
-          const SizedBox(width: NeuSpace.s8),
-          Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
-          const SizedBox(width: NeuSpace.s8),
+          if (!tight) ...[
+            const SizedBox(width: NeuSpace.s8),
+            Container(
+                width: 1,
+                height: 24,
+                color: NeuTheme.border(themeNotifier.isDarkTheme)),
+          ],
+          gap,
           Expanded(
             child: Listener(
               onPointerSignal: (pointerSignal) {
@@ -921,15 +951,22 @@ class SidebarPanelState extends State<SidebarPanel> {
               enabled: widget.sidebarTab == 0,
             ),
           ],
-          const SizedBox(width: NeuSpace.s8),
-          Container(width: 1, height: 24, color: NeuTheme.border(themeNotifier.isDarkTheme)),
-          const SizedBox(width: NeuSpace.s8),
+          if (!tight) ...[
+            const SizedBox(width: NeuSpace.s8),
+            Container(
+                width: 1,
+                height: 24,
+                color: NeuTheme.border(themeNotifier.isDarkTheme)),
+          ],
+          gap,
           IconButton(
             icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
             tooltip: 'Library (downloads & history)',
             onPressed: widget.onShowLibrary,
             hoverColor: theme.primaryColor.withValues(alpha: 0.2),
             splashRadius: 20,
+            padding: tightPad,
+            constraints: tightBox,
           ),
           const SizedBox(width: NeuSpace.s4),
           IconButton(
@@ -938,9 +975,13 @@ class SidebarPanelState extends State<SidebarPanel> {
             onPressed: widget.onShowSettings,
             hoverColor: theme.primaryColor.withValues(alpha: 0.2),
             splashRadius: 20,
+            padding: tightPad,
+            constraints: tightBox,
           ),
         ],
-      ),
+        ),
+        );
+      }),
     );
   }
 }

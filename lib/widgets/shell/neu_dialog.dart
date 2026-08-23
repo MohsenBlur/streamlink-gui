@@ -302,24 +302,44 @@ class NeuDialog extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: NeuTheme.border(isDark))),
       ),
+      // A Wrap rather than a Row, because two ordinary labels do not fit on
+      // one line in a 380px window: "Cancel" beside "Save changes" needed 307
+      // logical pixels of the 290 the footer has, and a Row's only answer to
+      // that is to overflow. Wrapping keeps both labels whole - truncating the
+      // word that says what a button does is the one outcome worse than a
+      // second line.
+      //
+      // The Spacer is gone with it: `Expanded` does the same job here, and a
+      // Spacer inside a Row alongside a Flexible would have split the free
+      // space with it rather than yielding all of it.
       child: Row(
         children: [
           ...leadingActions,
-          const Spacer(),
-          // Secondary first, primary last: the confirm sits where the eye
-          // finishes, and every dialog in the app now agrees on that.
-          for (final action in actions.where((a) => !a.isPrimary)) ...[
-            TextButton(
-              onPressed: action.onPressed,
-              child: Text(
-                action.label,
-                style: TextStyle(color: NeuTheme.subtext(isDark)),
-              ),
+          if (leadingActions.isNotEmpty) const SizedBox(width: NeuSpace.s8),
+          Expanded(
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: NeuSpace.s8,
+              runSpacing: NeuSpace.s8,
+              children: [
+                // Secondary first, primary last: the confirm sits where the
+                // eye finishes, and every dialog in the app agrees on that.
+                // Wrap lays out in order, so a wrapped footer puts the confirm
+                // on the lower line - still last in the reading order.
+                for (final action in actions.where((a) => !a.isPrimary))
+                  TextButton(
+                    onPressed: action.onPressed,
+                    child: Text(
+                      action.label,
+                      style: TextStyle(color: NeuTheme.subtext(isDark)),
+                    ),
+                  ),
+                for (final action in actions.where((a) => a.isPrimary))
+                  _primaryButton(action, isDark),
+              ],
             ),
-            const SizedBox(width: NeuSpace.s8),
-          ],
-          for (final action in actions.where((a) => a.isPrimary))
-            _primaryButton(action, isDark),
+          ),
         ],
       ),
     );
