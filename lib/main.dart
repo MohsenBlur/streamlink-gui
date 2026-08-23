@@ -20,6 +20,7 @@ import 'state/download_registry.dart';
 import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
 import 'theme/material/chassis_furniture.dart';
+import 'widgets/shell/edge_fade.dart';
 import 'widgets/shell/app_chassis.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
@@ -763,9 +764,34 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     await _saveChannels();
   }
 
+  /// Scroll state for the "Continue watching" strip, so its edges can fade.
+  ///
+  /// A horizontally scrolling row whose last card is hard-clipped at the window
+  /// edge reads as a rendering fault rather than as "there is more" - which is
+  /// exactly how it looked at 1181x720, one of the two sizes the screenshot
+  /// matrix checks on either side of the wide-controls boundary.
+  final ScrollController _recentScroll = ScrollController();
+  bool _recentFadeLeft = false;
+  bool _recentFadeRight = false;
+
+  void _updateRecentFades() {
+    if (!_recentScroll.hasClients) return;
+    final max = _recentScroll.position.maxScrollExtent;
+    final scrollable = max > 0.0;
+    final left = scrollable && _recentScroll.offset > 2.0;
+    final right = scrollable && _recentScroll.offset < max - 2.0;
+    if (left != _recentFadeLeft || right != _recentFadeRight) {
+      setState(() {
+        _recentFadeLeft = left;
+        _recentFadeRight = right;
+      });
+    }
+  }
+
   @override
   void dispose() {
     windowManager.removeListener(this);
+    _recentScroll.dispose();
     _vodSearchController.dispose();
     _pulseController?.dispose();
     _playerService.stopAll();
@@ -2620,7 +2646,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: NeuSpace.s12),
             SizedBox(
               height: 155,
-              child: HorizontalMouseScrollable(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (_) {
+                  _updateRecentFades();
+                  return false;
+                },
+                child: EdgeFade(
+                  left: _recentFadeLeft,
+                  right: _recentFadeRight,
+                  child: HorizontalMouseScrollable(
+                controller: _recentScroll,
                 child: Row(
                   children: List.generate(_recentWatchedVods.length, (index) {
                     final video = _recentWatchedVods[index];
@@ -2784,6 +2819,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       },
                     );
                   }),
+                ),
+              ),
                 ),
               ),
             ),
