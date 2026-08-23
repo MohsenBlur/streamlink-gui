@@ -72,9 +72,11 @@ class _NeuButtonState extends State<NeuButton> {
       ),
       child: widget.child,
     );
-    if (!_enabled) {
-      content = Opacity(opacity: 0.45, child: content);
-    }
+    // No extra Opacity here. NeuTheme.disabledText is calibrated to sit at
+    // exactly 3.18:1 - the dimmest a disabled label may legibly be - so
+    // multiplying it by 0.45 drove it back under 1.5:1 and made disabled
+    // controls in light mode effectively invisible. The disabled state is
+    // carried by the flat (shadowless) treatment, the cursor, and that ink.
 
     Widget buttonCore = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),

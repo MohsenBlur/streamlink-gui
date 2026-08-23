@@ -749,7 +749,7 @@ class SettingsDialog {
                                         children: [
                                           Icon(
                                             settings.twitchOauthToken.trim().isNotEmpty ? Icons.check_circle : Icons.error_outline,
-                                            color: settings.twitchOauthToken.trim().isNotEmpty ? NeuTheme.liveText(themeNotifier.isDarkTheme) : (themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
+                                            color: settings.twitchOauthToken.trim().isNotEmpty ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.warningText(themeNotifier.isDarkTheme),
                                             size: 16,
                                           ),
                                           const SizedBox(width: 8),
@@ -760,7 +760,7 @@ class SettingsDialog {
                                             style: TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.bold,
-                                              color: settings.twitchOauthToken.trim().isNotEmpty ? NeuTheme.liveText(themeNotifier.isDarkTheme) : (themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
+                                              color: settings.twitchOauthToken.trim().isNotEmpty ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.warningText(themeNotifier.isDarkTheme),
                                             ),
                                           ),
                                         ],
@@ -1460,7 +1460,7 @@ class SettingsDialog {
           decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 10),
           child: Text(
             number,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: NeuTheme.warningText(themeNotifier.isDarkTheme)),
           ),
         ),
         const SizedBox(width: 12),

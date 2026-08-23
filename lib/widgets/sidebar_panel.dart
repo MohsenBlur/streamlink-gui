@@ -1071,9 +1071,9 @@ class _PinnedFavoritesAutomationButtonState extends State<_PinnedFavoritesAutoma
                       color: NeuTheme.surface(themeNotifier.isDarkTheme),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.star,
-                      color: Colors.amber,
+                      color: NeuTheme.favoriteText(themeNotifier.isDarkTheme),
                       size: 9,
                     ),
                   ),
@@ -1153,7 +1153,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
     final Widget starSlot;
     if (widget.showFavoriteStarAlways || widget.isFavorite) {
       starSlot = IconButton(
-        icon: const Icon(Icons.star, color: Colors.amber, size: 18),
+        icon: Icon(Icons.star, color: NeuTheme.favoriteText(themeNotifier.isDarkTheme), size: 18),
         onPressed: () => widget.onToggleFavorite(channel),
         tooltip: 'Remove from Favorites',
         splashRadius: 18,

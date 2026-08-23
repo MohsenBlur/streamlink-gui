@@ -1099,7 +1099,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         return AlertDialog(
           title: Row(
             children: [
-              Icon(Icons.folder_copy, color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
+              Icon(Icons.folder_copy, color: NeuTheme.warningText(themeNotifier.isDarkTheme)),
               const SizedBox(width: 10),
               Text('Configure Download Folder', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
@@ -3415,14 +3415,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       // Intentional: translucent warning tint, readable over both themes.
                       decoration: BoxDecoration(
-                        color: Colors.orangeAccent.withValues(alpha: 0.1),
+                        color: NeuTheme.warning.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.3)),
+                        border: Border.all(color: NeuTheme.warning.withValues(alpha: 0.3)),
                       ),
                       child: Row(
                         children: [
                           Icon(Icons.warning_amber_rounded,
-                              color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800, size: 20),
+                              color: NeuTheme.warningText(themeNotifier.isDarkTheme), size: 20),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -3433,8 +3433,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           const SizedBox(width: 12),
                           TextButton(
                             style: TextButton.styleFrom(
-                              backgroundColor: Colors.orangeAccent.withValues(alpha: 0.2),
-                              foregroundColor: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800,
+                              backgroundColor: NeuTheme.warning.withValues(alpha: 0.2),
+                              foregroundColor: NeuTheme.warningText(themeNotifier.isDarkTheme),
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                             onPressed: _showSettingsDialog,

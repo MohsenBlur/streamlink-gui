@@ -275,7 +275,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         ),
         _buildHeaderChip(
           icon: Icons.schedule,
-          color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800,
+          color: NeuTheme.warningText(themeNotifier.isDarkTheme),
           label: widget.channel.uptime ?? 'Live',
         ),
       ],

@@ -129,7 +129,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                   alignment: Alignment.bottomRight,
                   children: [
                     Icon(Icons.play_arrow, color: theme.primaryColor, size: 28),
-                    const Icon(Icons.star, color: Colors.amber, size: 14),
+                    Icon(Icons.star, color: NeuTheme.favoriteText(themeNotifier.isDarkTheme), size: 14),
                   ],
                 ),
                 const SizedBox(width: 12),
@@ -269,7 +269,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: themeNotifier.isDarkTheme ? Colors.amberAccent : Colors.amber.shade800,
+                                color: NeuTheme.favoriteText(themeNotifier.isDarkTheme),
                               ),
                             ),
                           ),
@@ -277,7 +277,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                             decoration: BoxDecoration(
                               color: themeNotifier.surfaceColor,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                              border: Border.all(color: NeuTheme.favorite.withValues(alpha: 0.3)),
                             ),
                             child: ReorderableListView(
                               shrinkWrap: true,
