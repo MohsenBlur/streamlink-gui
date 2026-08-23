@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       - name: Read the pinned Flutter version
         id: sdk
@@ -35,8 +37,6 @@ jobs:
             exit 1
           fi
           echo "flutter=$version" >> "$GITHUB_OUTPUT"
-        with:
-          fetch-depth: 0
 
       - name: Verify tag matches pubspec version
         id: version
