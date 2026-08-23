@@ -17,6 +17,8 @@ import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
+import 'theme/material/chassis_furniture.dart';
+import 'widgets/shell/app_chassis.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
 import 'widgets/shell/section_header.dart';
@@ -2310,7 +2312,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     return AppLayout(
       data: layout,
       child: Scaffold(
-      body: CallbackShortcuts(
+      // The window chassis, which had no host until now. `titleBarStyle` is
+      // hidden and this Scaffold's own background was a flat colour, so every
+      // pixel of the frame is ours to paint and nothing was painting it.
+      body: AppChassis(
+      child: CallbackShortcuts(
         bindings: {
           // Esc leaves the Library. Dialogs sit on their own Navigator route
           // and consume Esc before it reaches here, so this cannot steal a
@@ -2340,6 +2346,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           child: Column(
         children: [
           NeuTitleBar(
+            // The corner screws land here. Asking the chassis rather than
+            // recomputing the predicate keeps the clearance and the ornament
+            // from ever disagreeing about whether there is a screw.
+            edgeInset: AppChassis.showsFurniture(context)
+                ? ChassisFurniture.edgeClearance
+                : 0,
             liveCount: _channels.where((c) => c.isLive).length,
             actions: [
               ActivityPill(
@@ -2370,12 +2382,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           Expanded(
             child: isVertical
                 ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       sidebar,
                       contentArea,
                     ],
                   )
                 : Row(
+                    // Stretch, not the default centre. The content area is an
+                    // Expanded Container whose child does not fill the height,
+                    // so under a centred Row it sized to its child and floated
+                    // in the middle of the window. That was invisible for as
+                    // long as everything behind it was the same flat colour;
+                    // the moment the chassis carried a fill ramp, the content
+                    // area became a lighter rectangle with two hard edges
+                    // across the middle of the app.
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       sidebar,
                       contentArea,
@@ -2385,6 +2407,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         ],
           ),
         ),
+      ),
       ),
       ),
     );
