@@ -74,12 +74,37 @@ class TextureCache {
       return;
     }
     _waiting[key] = <VoidCallback>[onReady];
+    _start(key);
+  }
 
+  /// Generates [key] for the CURRENT generation and serves whoever is waiting.
+  ///
+  /// Split out of [request] because of a race that leaves a surface permanently
+  /// untextured. `request` appends to whatever list is already in flight, and
+  /// that list survives a generation bump — so this sequence used to strand a
+  /// live requester:
+  ///
+  ///   1. surface A requests a tile; generation 0 starts.
+  ///   2. the user switches material; `evictAll` bumps to generation 1.
+  ///   3. surface B requests the same tile. `request` sees a list in flight and
+  ///      appends B's callback to it, starting nothing.
+  ///   4. generation 0 finishes, notices it is stale, and dropped the whole
+  ///      list — B included. Nobody is generating that tile and nobody will
+  ///      tell B to repaint.
+  ///
+  /// B's surface then paints without grain until something unrelated happens to
+  /// repaint it, which on an idle window is never. The fix is that a stale
+  /// completion **restarts** for the current generation rather than discarding
+  /// the queue: anyone still in the list asked after the bump and is owed a
+  /// tile. The keys are content-addressed, so re-running is always safe.
+  static void _start(TileKey key) {
     final generation = _generation;
     _generate(key).then((image) {
       if (generation != _generation) {
         image.dispose();
-        _waiting.remove(key);
+        // Only restart if somebody is still waiting. `evictAll` does not clear
+        // the queue precisely so that this can serve them.
+        if (_waiting.containsKey(key)) _start(key);
         return;
       }
       _tiles[key] = image;
@@ -99,7 +124,14 @@ class TextureCache {
     _generation++;
     final doomed = _tiles.values.toList();
     _tiles.clear();
-    _waiting.clear();
+    // The queue is deliberately NOT cleared. Every entry in it is a live
+    // surface waiting to be told to repaint, and dropping them is how one ends
+    // up with no tile and no callback. The in-flight generation notices it is
+    // stale and restarts for the new one; see `_start`.
+    //
+    // Re-generating a key that the new material happens not to want costs one
+    // tile and no correctness: keys are content-addressed, so a tile is either
+    // wanted by its key or ignored.
     if (doomed.isEmpty) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       for (final image in doomed) {

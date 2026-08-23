@@ -14,6 +14,52 @@ import 'package:streamlink_gui/theme/material/texture_cache.dart';
 /// rather than by sampling. A texture whose effect depended on the ground would
 /// make every ink assertion in the app approximate.
 void main() {
+  group('a request that races a material switch still gets its tile', () {
+    testWidgets('a requester that arrives after an eviction is not stranded',
+        (tester) async {
+      // The sequence that used to lose a surface permanently:
+      //
+      //   1. A requests the tile; generation 0 starts.
+      //   2. the material changes; evictAll bumps to generation 1.
+      //   3. B requests the SAME tile. `request` sees a list in flight and
+      //      appends to it, starting nothing of its own.
+      //   4. generation 0 completes, sees it is stale, and threw the list away
+      //      - B with it. No generation running, no callback owed to anyone.
+      //
+      // B's surface then paints with no grain until something unrelated
+      // repaints it, which on an idle window is never. This is not reachable
+      // by looking at a screenshot: the surface renders, it just renders as
+      // the untextured fallback, which is a legitimate frame in every other
+      // circumstance.
+      const key = TileKey(
+          kind: TextureKind.brushed,
+          width: 32,
+          height: 32,
+          amplitude: 3,
+          seed: 7);
+
+      var second = 0;
+      await tester.runAsync(() async {
+        TextureCache.evictAll();
+        TextureCache.request(key, () {});
+        TextureCache.evictAll();
+        TextureCache.request(key, () => second++);
+
+        // Long enough for both the stale generation and its restart to land.
+        for (var i = 0; i < 40 && second == 0; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+      });
+
+      expect(second, 1,
+          reason: 'the requester that arrived after the eviction was never '
+              'told its tile had landed, so its surface will paint untextured '
+              'until something unrelated repaints it');
+      expect(TextureCache.residentCount, greaterThan(0),
+          reason: 'and no tile was ever produced for it');
+    });
+  });
+
   Future<List<int>> pixelsOf(TileKey key) async {
     final image = await TextureCache.generateForTest(key);
     final data = await image.toByteData();
