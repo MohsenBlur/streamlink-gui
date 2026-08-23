@@ -4,6 +4,7 @@ import 'twitch_video_card.dart';
 import 'horizontal_mouse_scrollable.dart';
 import 'neumorphic/neu_button.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class VodsGrid extends StatefulWidget {
@@ -134,7 +135,7 @@ class _VodsGridState extends State<VodsGrid> {
         child: Center(
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: 40),
-            child: CircularProgressIndicator(),
+            child: NeuProgressRing(semanticLabel: 'Loading broadcasts'),
           ),
         ),
       );

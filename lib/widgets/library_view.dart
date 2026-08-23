@@ -238,6 +238,7 @@ class _LibraryViewState extends State<LibraryView> {
                     controller: _search,
                     hintText: 'Search library...',
                     prefixIcon: Icons.search,
+                    size: NeuFieldSize.md,
                     onChanged: (_) => setState(() {}),
                     onClear: () => setState(() {}),
                   ),
@@ -528,15 +529,10 @@ class _LibraryRowState extends State<_LibraryRow> {
                     Text('${(progress * 100).round()}% watched',
                         style: NeuTheme.subtextStyle(isDark, fontSize: 10)),
                     const SizedBox(height: 3),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(2),
-                      child: LinearProgressIndicator(
-                        value: progress.clamp(0.0, 1.0),
-                        minHeight: 3,
-                        backgroundColor: NeuTheme.border(isDark),
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(theme.primaryColor),
-                      ),
+                    NeuProgressBar(
+                      value: progress.clamp(0.0, 1.0),
+                      size: NeuProgressSize.sm,
+                      semanticLabel: 'Watched',
                     ),
                   ],
                 ),

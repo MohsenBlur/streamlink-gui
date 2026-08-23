@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import '../utils/time_utils.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class TwitchVideoCard extends StatefulWidget {
@@ -543,15 +544,11 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               if (widget.downloadProgress != null) ...[
-                                                SizedBox(
-                                                  width: 12,
-                                                  height: 12,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    value: widget.downloadProgress,
-                                                    valueColor: const AlwaysStoppedAnimation(NeuTheme.live),
-                                                    backgroundColor: Colors.white10,
-                                                  ),
+                                                NeuProgressRing(
+                                                  value: widget.downloadProgress,
+                                                  size: NeuProgressRingSize.xs,
+                                                  color: NeuTheme.live,
+                                                  semanticLabel: 'Downloading',
                                                 ),
                                                 const SizedBox(width: 8),
                                               ],

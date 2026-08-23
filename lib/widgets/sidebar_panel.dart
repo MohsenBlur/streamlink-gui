@@ -15,6 +15,7 @@ import 'package:flutter/gestures.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_avatar.dart';
 import 'neumorphic/neu_icon_action.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class SidebarPanel extends StatefulWidget {
@@ -337,7 +338,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                  SizedBox(
                                    width: 14,
                                    height: 14,
-                                   child: CircularProgressIndicator(strokeWidth: 1.8, color: theme.primaryColor),
+                                   child: NeuProgressRing(size: NeuProgressRingSize.xs, semanticLabel: 'Loading'),
                                  )
                               else
                                 const Icon(Icons.refresh, size: 14),
@@ -381,7 +382,8 @@ class SidebarPanelState extends State<SidebarPanel> {
                       final showAddPrompt = query.isNotEmpty && !hasExactMatch && widget.sidebarTab == 0;
 
                       if (isLoading && listToDisplay.isEmpty) {
-                        return const Center(child: CircularProgressIndicator());
+                        return const Center(
+                            child: NeuProgressRing(semanticLabel: 'Loading channels'));
                       }
 
                       if (listToDisplay.isEmpty && !showAddPrompt) {
@@ -432,7 +434,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                     ? SizedBox(
                                         width: 16,
                                         height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
+                                        child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
                                       )
                                      : Icon(Icons.chevron_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
                                 onTap: widget.isAdding ? null : () => widget.onAddChannel(query),
@@ -623,7 +625,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 ? SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
+                    child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
                   )
                 : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
             onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
@@ -882,7 +884,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                   ? SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
+                      child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
                     )
                   : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
               onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
@@ -1246,7 +1248,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
             subtitle: channel.isLoading
                 ? const Padding(
                     padding: EdgeInsets.only(top: 4),
-                    child: LinearProgressIndicator(minHeight: 1.5),
+                    child: NeuProgressBar(size: NeuProgressSize.xs, semanticLabel: 'Loading'),
                   )
                 : Text(
                     channel.isLive ? (channel.game ?? 'Playing...') : 'Offline',

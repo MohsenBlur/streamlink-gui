@@ -9,6 +9,7 @@ import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_card.dart';
 import '../theme/neu_theme.dart';
 import 'shell/app_layout.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -119,7 +120,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         SizedBox(
           width: compact ? 10 : 12,
           height: compact ? 10 : 12,
-          child: CircularProgressIndicator(strokeWidth: 1.5, color: subtext),
+          child: NeuProgressRing(size: NeuProgressRingSize.xs, color: subtext, semanticLabel: 'Refreshing'),
         ),
         SizedBox(width: compact ? 4 : 6),
         Text(

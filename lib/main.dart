@@ -19,6 +19,7 @@ import 'state/activity_state.dart';
 import 'state/download_registry.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/neumorphic/neu_progress.dart';
+import 'widgets/neumorphic/neu_text_field.dart';
 import 'state/vod_cache.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
@@ -3374,26 +3375,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   ),
                                   const SizedBox(width: 10),
                                   SizedBox(
-                                    width: 130,
-                                    height: 28,
-                                    child: TextField(
+                                    width: 160,
+                                    child: NeuTextField(
                                       controller: _vodSearchController,
-                                      style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                                      decoration: InputDecoration(
-                                        hintText: 'Filter VODs...',
-                                        hintStyle: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                                        prefixIcon: Icon(Icons.search, size: 12, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                        contentPadding: EdgeInsets.zero,
-                                        filled: true,
-                                        fillColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(6),
-                                          borderSide: BorderSide.none,
-                                        ),
-                                      ),
-                                      onChanged: (val) {
-                                        setState(() {});
-                                      },
+                                      hintText: 'Filter VODs...',
+                                      prefixIcon: Icons.search,
+                                      size: NeuFieldSize.sm,
+                                      onChanged: (val) => setState(() {}),
+                                      onClear: () => setState(() {}),
                                     ),
                                   ),
                                   const SizedBox(width: 14),
@@ -3445,7 +3434,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                         const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
                         ),
                       ],
                     ],
@@ -3571,7 +3560,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ? SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                                  child: NeuProgressRing(size: NeuProgressRingSize.sm, color: NeuTheme.text(themeNotifier.isDarkTheme), semanticLabel: 'Loading'),
                                 )
                               : const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -3635,27 +3624,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: 12),
             Text('Filter Broadcasts:', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
-            SizedBox(
-              height: 36,
-              child: TextField(
-                controller: _vodSearchController,
-                style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'Filter VODs...',
-                  hintStyle: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                  prefixIcon: Icon(Icons.search, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                  contentPadding: EdgeInsets.zero,
-                  filled: true,
-                  fillColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                onChanged: (val) {
-                  setState(() {});
-                },
-              ),
+            NeuTextField(
+              controller: _vodSearchController,
+              hintText: 'Filter VODs...',
+              prefixIcon: Icons.search,
+              size: NeuFieldSize.md,
+              onChanged: (val) => setState(() {}),
+              onClear: () => setState(() {}),
             ),
             const SizedBox(height: 12),
             StatefulBuilder(
