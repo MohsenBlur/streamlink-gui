@@ -173,6 +173,28 @@ void main() {
         onRemoveFromHistory: (_) {},
       );
 
+  /// A dialog with leading actions, which is what the settings dialog is.
+  ///
+  /// Added after the plain variant below sailed through every size while the
+  /// real settings sheet overflowed its own 600px footer by 27px. A sweep that
+  /// exercises the simplest configuration of a widget is testing the
+  /// configuration nothing ships.
+  Widget dialogWithLeading() => NeuDialog(
+        title: 'Settings',
+        icon: Icons.settings,
+        width: 600,
+        content: const Text('Body copy.'),
+        leadingActions: const [
+          Text('v0.0.0-dev'),
+          Text('GitHub Repo'),
+          Text('Check for updates'),
+        ],
+        actions: [
+          const NeuDialogAction.secondary('Cancel', null),
+          NeuDialogAction.primary('Save changes', () {}),
+        ],
+      );
+
   Widget dialog() => NeuDialog(
         title: 'A dialog title long enough to need the ellipsis it declares',
         subtitle: 'And a subtitle that is also longer than a 380px window',
@@ -219,6 +241,11 @@ void main() {
 
         testWidgets('the library — $label', (tester) async {
           await sweep(tester, size, m, library);
+        });
+
+        testWidgets('a dialog with leading actions — $label', (tester) async {
+          await sweep(
+              tester, size, m, () => Center(child: dialogWithLeading()));
         });
 
         testWidgets('a dialog — $label', (tester) async {

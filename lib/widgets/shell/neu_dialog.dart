@@ -312,33 +312,55 @@ class NeuDialog extends StatelessWidget {
       // The Spacer is gone with it: `Expanded` does the same job here, and a
       // Spacer inside a Row alongside a Flexible would have split the free
       // space with it rather than yielding all of it.
-      child: Row(
+      // One Wrap with two groups, not a Row with a Spacer.
+      //
+      // The Spacer version overflowed twice over. "Cancel" beside "Save
+      // changes" needs 307 of the 290 a 380px window leaves; and the settings
+      // dialog carries three leading actions - a version chip, a repo link and
+      // an update check - which together with the buttons overflowed its own
+      // 600px sheet by 27px in the shipped build. A Row's only answer to
+      // either is to overflow, and truncating the word that says what a button
+      // does is worse than a second line.
+      //
+      // `spaceBetween` is what keeps the left/right split on one line while
+      // still allowing two: on a single run the groups sit at the ends exactly
+      // as the Spacer put them, and on two runs the leading group takes the
+      // upper line. The groups are themselves Wraps, so a very narrow sheet
+      // breaks them internally rather than clipping.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: NeuSpace.s8,
+        runSpacing: NeuSpace.s8,
         children: [
-          ...leadingActions,
-          if (leadingActions.isNotEmpty) const SizedBox(width: NeuSpace.s8),
-          Expanded(
-            child: Wrap(
-              alignment: WrapAlignment.end,
+          if (leadingActions.isNotEmpty)
+            Wrap(
               crossAxisAlignment: WrapCrossAlignment.center,
               spacing: NeuSpace.s8,
               runSpacing: NeuSpace.s8,
-              children: [
-                // Secondary first, primary last: the confirm sits where the
-                // eye finishes, and every dialog in the app agrees on that.
-                // Wrap lays out in order, so a wrapped footer puts the confirm
-                // on the lower line - still last in the reading order.
-                for (final action in actions.where((a) => !a.isPrimary))
-                  TextButton(
-                    onPressed: action.onPressed,
-                    child: Text(
-                      action.label,
-                      style: TextStyle(color: NeuTheme.subtext(isDark)),
-                    ),
-                  ),
-                for (final action in actions.where((a) => a.isPrimary))
-                  _primaryButton(action, isDark),
-              ],
+              children: leadingActions,
             ),
+          Wrap(
+            alignment: WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: NeuSpace.s8,
+            runSpacing: NeuSpace.s8,
+            children: [
+              // Secondary first, primary last: the confirm sits where the eye
+              // finishes, and every dialog in the app agrees on that. Wrap
+              // lays out in order, so a wrapped footer puts the confirm on the
+              // lower line - still last in the reading order.
+              for (final action in actions.where((a) => !a.isPrimary))
+                TextButton(
+                  onPressed: action.onPressed,
+                  child: Text(
+                    action.label,
+                    style: TextStyle(color: NeuTheme.subtext(isDark)),
+                  ),
+                ),
+              for (final action in actions.where((a) => a.isPrimary))
+                _primaryButton(action, isDark),
+            ],
           ),
         ],
       ),

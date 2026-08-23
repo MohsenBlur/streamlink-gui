@@ -143,11 +143,17 @@ class SettingsDialog {
     final originalIsDarkTheme = themeNotifier.isDarkTheme;
     final originalLightAccent = themeNotifier.lightAccentColor;
     final originalDarkAccent = themeNotifier.darkAccentColor;
+    final originalMaterial = themeNotifier.material;
 
     void restoreLiveThemeEdits() {
       themeNotifier.setLightAccent(originalLightAccent);
       themeNotifier.setDarkAccent(originalDarkAccent);
       themeNotifier.setDarkTheme(originalIsDarkTheme);
+      // Cancel has to undo the material too. Without this, previewing a
+      // material and then cancelling left the app wearing it until the next
+      // launch, at which point it silently reverted - which reads as the app
+      // forgetting a choice rather than as Cancel working.
+      themeNotifier.setMaterial(originalMaterial);
     }
 
     // Not dismissible: the dialog stages every edit and applies theme changes
@@ -598,6 +604,20 @@ class SettingsDialog {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            Text('Material', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
+                            const SizedBox(height: NeuSpace.s4),
+                            Text(
+                              'What the app is made of. Changes the surfaces, '
+                              'the light and the ornament - never the layout.',
+                              style: NeuType.caption(themeNotifier.isDarkTheme,
+                                  color: themeNotifier.subtextColor),
+                            ),
+                            const SizedBox(height: NeuSpace.s12),
+                            _MaterialPicker(
+                              themeNotifier: themeNotifier,
+                              onChanged: () => setDialogState(() {}),
+                            ),
+                            const SizedBox(height: NeuSpace.s24),
                             Text('Application Theme Mode', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s4),
                             Text('Choose between Soft Light and Deep Dark Neumorphic themes.', style: NeuType.caption(themeNotifier.isDarkTheme, color: themeNotifier.subtextColor)),
@@ -1327,6 +1347,7 @@ class SettingsDialog {
                                 isDarkTheme: themeNotifier.isDarkTheme,
                                 lightAccentColorHex: colorToHex(themeNotifier.lightAccentColor),
                                 darkAccentColorHex: colorToHex(themeNotifier.darkAccentColor),
+                                material: themeNotifier.material.key,
                               );
 
                               onSave(updated);
@@ -1426,6 +1447,157 @@ class SettingsDialog {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The material picker: one tile per implemented material, each rendered by
+/// the shipping painter.
+///
+/// The preview is the real thing, not a swatch. Every tile paints with
+/// `SkeuoDecoration` at that material's own palette, so a tile cannot show a
+/// surface the app would not actually draw — which is the failure mode of a
+/// hand-drawn preview, and the one that survives longest because it looks
+/// fine right up until the material changes.
+///
+/// The previewed palette is taken at the **active brightness**, matching the
+/// convention the theme-mode tiles below already use in reverse: those show
+/// the other theme's own colours on purpose, and these show the current one,
+/// because brightness is a separate axis the user is not choosing here.
+///
+/// Selection applies immediately rather than on Save. That is deliberate and
+/// it is why Cancel restores the entry material: a material is a whole-app
+/// change and judging it from a 120px tile is not possible. What is **not**
+/// done is preview-on-hover by assigning `themeNotifier.material` and
+/// restoring it — that fires `notifyListeners()` and rebuilds the entire app
+/// on every pointer move across the row.
+class _MaterialPicker extends StatelessWidget {
+  const _MaterialPicker({
+    required this.themeNotifier,
+    required this.onChanged,
+  });
+
+  final ThemeUpdateListener themeNotifier;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = themeNotifier.isDarkTheme;
+    return Wrap(
+      spacing: NeuSpace.s12,
+      runSpacing: NeuSpace.s12,
+      children: [
+        for (final spec in MaterialSpec.available)
+          _MaterialTile(
+            spec: spec,
+            isDark: isDark,
+            selected: themeNotifier.material == spec.id,
+            accent: themeNotifier.accentInk,
+            onTap: () {
+              themeNotifier.setMaterial(spec.id);
+              onChanged();
+            },
+          ),
+      ],
+    );
+  }
+}
+
+class _MaterialTile extends StatelessWidget {
+  const _MaterialTile({
+    required this.spec,
+    required this.isDark,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final MaterialSpec spec;
+  final bool isDark;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${spec.name}. ${spec.blurb}',
+      child: Tooltip(
+        message: spec.blurb,
+        child: GestureDetector(
+          onTap: onTap,
+          child: SizedBox(
+            width: 168,
+            child: Container(
+              padding: const EdgeInsets.all(NeuSpace.s12),
+              // The tile IS the material — `panel` with that material's own
+              // palette, passed explicitly rather than read from the active
+              // one. Reading the active material here is the bug that makes
+              // every tile look identical and nobody notices until a second
+              // material ships.
+              decoration: NeuTheme.panel(
+                isDark,
+                radius: NeuRadius.r12,
+                material: spec.id,
+                border: selected
+                    ? Border.all(color: accent, width: 2)
+                    : Border.all(color: NeuTheme.border(isDark, material: spec.id)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // A raised chip and a recessed well side by side: the two
+                  // surfaces that carry almost every control in the app, and
+                  // the pair that actually distinguishes one material from
+                  // another. A flat swatch would show only the ground.
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 26,
+                          decoration: NeuTheme.raised(isDark,
+                              radius: NeuRadius.r8, material: spec.id),
+                        ),
+                      ),
+                      const SizedBox(width: NeuSpace.s8),
+                      Expanded(
+                        child: Container(
+                          height: 26,
+                          decoration: NeuTheme.sunken(isDark,
+                              radius: NeuRadius.r8, material: spec.id),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: NeuSpace.s8),
+                  Text(
+                    spec.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: NeuType.label(
+                      isDark,
+                      color: NeuTheme.text(isDark, material: spec.id),
+                    ),
+                  ),
+                  const SizedBox(height: NeuSpace.s2),
+                  Text(
+                    spec.blurb,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: NeuType.caption(
+                      isDark,
+                      color: NeuTheme.subtext(isDark, material: spec.id),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

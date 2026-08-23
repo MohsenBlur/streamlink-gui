@@ -17,6 +17,7 @@ import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
+import 'theme/material/app_material.dart';
 import 'theme/material/chassis_furniture.dart';
 import 'widgets/shell/app_chassis.dart';
 import 'widgets/shell/app_layout.dart';
@@ -1237,6 +1238,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 ? 0
                 : _settings.activeSidebarTab;
             themeNotifier.setDarkTheme(_settings.isDarkTheme);
+            // Resolved, not clamped. An unknown key - a material this build
+            // does not have, from a newer one that did - falls back for the
+            // session and is left alone in the file, rather than being
+            // rewritten to `rack` by the next window resize.
+            final storedMaterial = AppMaterial.fromKey(_settings.material);
+            if (storedMaterial != null &&
+                MaterialSpec.isImplemented(storedMaterial)) {
+              themeNotifier.setMaterial(storedMaterial);
+            }
              
             if (_settings.unfinishedDownloads.isNotEmpty) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
