@@ -170,11 +170,11 @@ class SettingsDialog {
                       isScrollable: true,
                       labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                       tabs: const [
-                        Tab(text: 'General'),
-                        Tab(text: 'Player'),
-                        Tab(text: 'Twitch Auth'),
-                        Tab(text: 'Styling'),
+                        Tab(text: 'Playback'),
                         Tab(text: 'Downloads'),
+                        Tab(text: 'Appearance'),
+                        Tab(text: 'Twitch'),
+                        Tab(text: 'System'),
                       ],
                     ),
                   ],
@@ -189,7 +189,7 @@ class SettingsDialog {
                   height: 520,
                   child: TabBarView(
                     children: [
-                      // TAB 1: GENERAL SETTINGS
+                      // PANEL 1: Playback - streamlink flags and the player itself
                       SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                         child: Column(
@@ -307,225 +307,6 @@ class SettingsDialog {
                             const SizedBox(height: 24),
                             Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                             const SizedBox(height: 12),
-                            Text('Window & Tray', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                            const SizedBox(height: 10),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Close button', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                DropdownButton<String>(
-                                  value: tempCloseAction,
-                                  underline: const SizedBox.shrink(),
-                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                                  dropdownColor: themeNotifier.surfaceColor,
-                                  items: const [
-                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
-                                    DropdownMenuItem(value: 'exit', child: Text('Exit the app')),
-                                  ],
-                                  onChanged: (val) {
-                                    if (val != null) setDialogState(() => tempCloseAction = val);
-                                  },
-                                ),
-                              ],
-                            ),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Minimize button', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                DropdownButton<String>(
-                                  value: tempMinimizeAction,
-                                  underline: const SizedBox.shrink(),
-                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                                  dropdownColor: themeNotifier.surfaceColor,
-                                  items: const [
-                                    DropdownMenuItem(value: 'taskbar', child: Text('Minimize to taskbar')),
-                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
-                                  ],
-                                  onChanged: (val) {
-                                    if (val != null) setDialogState(() => tempMinimizeAction = val);
-                                  },
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Launch at Windows startup', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                      Text('Starts minimized to the tray.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10)),
-                                    ],
-                                  ),
-                                ),
-                                NeuSwitch(
-                                  value: tempLaunchAtStartup,
-                                  activeColor: themeNotifier.primaryColor,
-                                  onChanged: (val) => setDialogState(() => tempLaunchAtStartup = val),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Start minimized to tray', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                NeuSwitch(
-                                  value: tempStartMinimized,
-                                  activeColor: themeNotifier.primaryColor,
-                                  onChanged: (val) => setDialogState(() => tempStartMinimized = val),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Live favorites in tray menu', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                      Text('Right-click the tray icon to launch a live favorite directly.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10)),
-                                    ],
-                                  ),
-                                ),
-                                NeuSwitch(
-                                  value: tempTrayLiveMenu,
-                                  activeColor: themeNotifier.primaryColor,
-                                  onChanged: (val) => setDialogState(() => tempTrayLiveMenu = val),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 24),
-                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
-                            const SizedBox(height: 12),
-                            Text('Notifications', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Favorite channel goes live', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                NeuSwitch(
-                                  value: tempNotifyWentLive,
-                                  activeColor: themeNotifier.primaryColor,
-                                  onChanged: (val) => setDialogState(() => tempNotifyWentLive = val),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Auto-play starts a stream', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                NeuSwitch(
-                                  value: tempNotifyAutoPlay,
-                                  activeColor: themeNotifier.primaryColor,
-                                  onChanged: (val) => setDialogState(() => tempNotifyAutoPlay = val),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Auto-download starts', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                NeuSwitch(
-                                  value: tempNotifyAutoDownloadStart,
-                                  activeColor: themeNotifier.primaryColor,
-                                  onChanged: (val) => setDialogState(() => tempNotifyAutoDownloadStart = val),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                // Not "Download completes": it governs the
-                                // failure notification too, and none of these
-                                // rows can wrap, so the label has to be both
-                                // true and no longer than its siblings.
-                                Text('Download completes or fails', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                NeuSwitch(
-                                  value: tempNotifyDownloadComplete,
-                                  activeColor: themeNotifier.primaryColor,
-                                  onChanged: (val) => setDialogState(() => tempNotifyDownloadComplete = val),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 24),
-                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
-                            const SizedBox(height: 12),
-                            Text('Watch History', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
-                                side: BorderSide(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), width: 1),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                              ),
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    title: Text('Clear Watch History?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-                                    backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                    content: Text('Are you sure you want to clear your local watch progress history for all VODs? This action cannot be undone.', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-                                      ),
-                                      TextButton(
-                                        style: TextButton.styleFrom(foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
-                                        onPressed: () {
-                                          Navigator.pop(context);
-                                          onClearWatchHistory();
-                                        },
-                                        child: const Text('Clear History'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.delete_forever, size: 18),
-                              label: const Text('Clear Local Watch History', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            ),
-                            const SizedBox(height: 24),
-                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
-                            const SizedBox(height: 12),
-                            Text('Diagnostics', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Output from downloads, streams and players. Useful when something fails.',
-                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                            ),
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
-                                side: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                              ),
-                              onPressed: onOpenLogs,
-                              icon: const Icon(Icons.terminal, size: 18),
-                              label: const Text('View Logs', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // TAB 2: PLAYER SETTINGS
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
                             Text('Player Type', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
@@ -730,8 +511,255 @@ class SettingsDialog {
                           ],
                         ),
                       ),
-
-                      // TAB 3: TWITCH AUTH
+                      // PANEL 2: Downloads
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('VOD Download Directory', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: downloadFolderController,
+                                    style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                                    decoration: const InputDecoration(
+                                      hintText: 'e.g. C:\\Downloads\\TwitchVODs',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: themeNotifier.primaryColor,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                                  ),
+                                  onPressed: () async {
+                                    final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+                                    if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
+                                      setDialogState(() {
+                                        downloadFolderController.text = selectedDirectory;
+                                      });
+                                    }
+                                  },
+                                  icon: Icon(Icons.folder_open, color: NeuTheme.onAccent(themeNotifier.accentInk), size: 16),
+                                  label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            Text('Maximum downloads to keep (Threshold)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('Delete oldest downloads automatically when limit is reached. Leave empty or set to 0 for unlimited.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: maxDownloadsController,
+                              keyboardType: TextInputType.number,
+                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                              onChanged: (val) => setDialogState(
+                                  () => maxDownloadsError = validateMaxDownloads(val)),
+                              decoration: InputDecoration(
+                                hintText: 'e.g. 5, 10, or leave empty',
+                                errorText: maxDownloadsError,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Fast VOD Downloads (Skip heavy post-processing)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Bypasses slow thumbnail/metadata container rewrites after download completion (prevents multi-gigabyte VODs from taking forever after 100%).',
+                                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                NeuSwitch(
+                              activeColor: themeNotifier.primaryColor,
+                              value: tempDisableVodPostProcessing,
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  tempDisableVodPostProcessing = val;
+                                });
+                              },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text('Custom yt-dlp VOD Download Arguments', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('Pass additional options directly to yt-dlp when downloading VODs.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: customVodArgsController,
+                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                              decoration: const InputDecoration(
+                                hintText: 'e.g. --concurrent-fragments 5 --no-mtime',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // PANEL 3: Appearance - theme, accent, styling
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Application Theme Mode', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14)),
+                            const SizedBox(height: 4),
+                            Text('Choose between Soft Light and Deep Dark Neumorphic themes.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      themeNotifier.setDarkTheme(false);
+                                      setDialogState(() {});
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: NeuTheme.raisedDecoration(
+                                        false,
+                                        radius: 12,
+                                        border: Border.all(
+                                          color: !themeNotifier.isDarkTheme ? themeNotifier.primaryColor : Colors.transparent,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      // Intentional: the preview card renders the LIGHT theme's own
+                                      // colors regardless of the active theme.
+                                      child: Column(
+                                        children: const [
+                                          Icon(Icons.light_mode, color: Color(0xFFFF6584), size: 24),
+                                          SizedBox(height: 6),
+                                          Text('Soft Light', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2D3748))),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      themeNotifier.setDarkTheme(true);
+                                      setDialogState(() {});
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: NeuTheme.raisedDecoration(
+                                        true,
+                                        radius: 12,
+                                        border: Border.all(
+                                          color: themeNotifier.isDarkTheme ? themeNotifier.primaryColor : Colors.transparent,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      // Intentional: the preview card renders the DARK theme's own
+                                      // colors regardless of the active theme.
+                                      child: Column(
+                                        children: const [
+                                          Icon(Icons.dark_mode, color: Color(0xFFFF3B30), size: 24),
+                                          SizedBox(height: 6),
+                                          Text('Deep Dark', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFE2E8F0))),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            Text('Light Theme Accent Color', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('Accent color used when Soft Light theme is active.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              // Intentional: these hexes ARE the selectable accent swatches.
+                              children: [
+                                const Color(0xFFFF6584), // Soft Pink
+                                const Color(0xFF7C3AED), // Twitch Purple
+                                const Color(0xFF00F2FE), // Cyan
+                                const Color(0xFF10B981), // Emerald
+                                const Color(0xFFFF7A00), // Orange
+                                const Color(0xFFF43F5E), // Rose
+                              ].map((color) {
+                                final isSelected = themeNotifier.lightAccentColor.toARGB32() == color.toARGB32();
+                                return GestureDetector(
+                                  onTap: () {
+                                    themeNotifier.setLightAccent(color);
+                                    setDialogState(() {});
+                                  },
+                                  child: Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isSelected ? NeuTheme.text(themeNotifier.isDarkTheme) : NeuTheme.border(themeNotifier.isDarkTheme),
+                                        width: isSelected ? 3.0 : 1.0,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 24),
+                            Text('Dark Theme Accent Color', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text('Accent color used when Deep Dark theme is active.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              // Intentional: these hexes ARE the selectable accent swatches.
+                              children: [
+                                const Color(0xFFFF3B30), // Vibrant Red
+                                const Color(0xFF8B5CF6), // Electric Purple
+                                const Color(0xFF38BDF8), // Sky Blue
+                                const Color(0xFFFF2A85), // Magenta
+                                const Color(0xFFF59E0B), // Gold
+                                const Color(0xFF10B981), // Emerald
+                              ].map((color) {
+                                final isSelected = themeNotifier.darkAccentColor.toARGB32() == color.toARGB32();
+                                return GestureDetector(
+                                  onTap: () {
+                                    themeNotifier.setDarkAccent(color);
+                                    setDialogState(() {});
+                                  },
+                                  child: Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isSelected ? NeuTheme.text(themeNotifier.isDarkTheme) : NeuTheme.border(themeNotifier.isDarkTheme),
+                                        width: isSelected ? 3.0 : 1.0,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // PANEL 4: Twitch - account and authentication
                       SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                         child: Column(
@@ -949,252 +977,220 @@ class SettingsDialog {
                         ),
                       ),
 
-                      // TAB 4: STYLING & COLORS
-                      // TAB 4: THEME & STYLING SETTINGS
+                      // PANEL 5: System - window, tray, notifications, history, diagnostics
                       SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Application Theme Mode', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14)),
-                            const SizedBox(height: 4),
-                            Text('Choose between Soft Light and Deep Dark Neumorphic themes.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
-                            const SizedBox(height: 12),
+                            Text('Window & Tray', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 10),
                             Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      themeNotifier.setDarkTheme(false);
-                                      setDialogState(() {});
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: NeuTheme.raisedDecoration(
-                                        false,
-                                        radius: 12,
-                                        border: Border.all(
-                                          color: !themeNotifier.isDarkTheme ? themeNotifier.primaryColor : Colors.transparent,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      // Intentional: the preview card renders the LIGHT theme's own
-                                      // colors regardless of the active theme.
-                                      child: Column(
-                                        children: const [
-                                          Icon(Icons.light_mode, color: Color(0xFFFF6584), size: 24),
-                                          SizedBox(height: 6),
-                                          Text('Soft Light', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2D3748))),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      themeNotifier.setDarkTheme(true);
-                                      setDialogState(() {});
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: NeuTheme.raisedDecoration(
-                                        true,
-                                        radius: 12,
-                                        border: Border.all(
-                                          color: themeNotifier.isDarkTheme ? themeNotifier.primaryColor : Colors.transparent,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      // Intentional: the preview card renders the DARK theme's own
-                                      // colors regardless of the active theme.
-                                      child: Column(
-                                        children: const [
-                                          Icon(Icons.dark_mode, color: Color(0xFFFF3B30), size: 24),
-                                          SizedBox(height: 6),
-                                          Text('Deep Dark', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFE2E8F0))),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
+                                Text('Close button', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                DropdownButton<String>(
+                                  value: tempCloseAction,
+                                  underline: const SizedBox.shrink(),
+                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                  dropdownColor: themeNotifier.surfaceColor,
+                                  items: const [
+                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
+                                    DropdownMenuItem(value: 'exit', child: Text('Exit the app')),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) setDialogState(() => tempCloseAction = val);
+                                  },
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 24),
-                            Text('Light Theme Accent Color', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                            const SizedBox(height: 4),
-                            Text('Accent color used when Soft Light theme is active.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              // Intentional: these hexes ARE the selectable accent swatches.
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Color(0xFFFF6584), // Soft Pink
-                                const Color(0xFF7C3AED), // Twitch Purple
-                                const Color(0xFF00F2FE), // Cyan
-                                const Color(0xFF10B981), // Emerald
-                                const Color(0xFFFF7A00), // Orange
-                                const Color(0xFFF43F5E), // Rose
-                              ].map((color) {
-                                final isSelected = themeNotifier.lightAccentColor.toARGB32() == color.toARGB32();
-                                return GestureDetector(
-                                  onTap: () {
-                                    themeNotifier.setLightAccent(color);
-                                    setDialogState(() {});
+                                Text('Minimize button', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                DropdownButton<String>(
+                                  value: tempMinimizeAction,
+                                  underline: const SizedBox.shrink(),
+                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                  dropdownColor: themeNotifier.surfaceColor,
+                                  items: const [
+                                    DropdownMenuItem(value: 'taskbar', child: Text('Minimize to taskbar')),
+                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) setDialogState(() => tempMinimizeAction = val);
                                   },
-                                  child: Container(
-                                    width: 32,
-                                    height: 32,
-                                    decoration: BoxDecoration(
-                                      color: color,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: isSelected ? NeuTheme.text(themeNotifier.isDarkTheme) : NeuTheme.border(themeNotifier.isDarkTheme),
-                                        width: isSelected ? 3.0 : 1.0,
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 24),
-                            Text('Dark Theme Accent Color', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                            const SizedBox(height: 4),
-                            Text('Accent color used when Deep Dark theme is active.', style: TextStyle(fontSize: 11, color: themeNotifier.subtextColor)),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              // Intentional: these hexes ARE the selectable accent swatches.
-                              children: [
-                                const Color(0xFFFF3B30), // Vibrant Red
-                                const Color(0xFF8B5CF6), // Electric Purple
-                                const Color(0xFF38BDF8), // Sky Blue
-                                const Color(0xFFFF2A85), // Magenta
-                                const Color(0xFFF59E0B), // Gold
-                                const Color(0xFF10B981), // Emerald
-                              ].map((color) {
-                                final isSelected = themeNotifier.darkAccentColor.toARGB32() == color.toARGB32();
-                                return GestureDetector(
-                                  onTap: () {
-                                    themeNotifier.setDarkAccent(color);
-                                    setDialogState(() {});
-                                  },
-                                  child: Container(
-                                    width: 32,
-                                    height: 32,
-                                    decoration: BoxDecoration(
-                                      color: color,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: isSelected ? NeuTheme.text(themeNotifier.isDarkTheme) : NeuTheme.border(themeNotifier.isDarkTheme),
-                                        width: isSelected ? 3.0 : 1.0,
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      // TAB 5: DOWNLOAD SETTINGS
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('VOD Download Directory', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 6),
                             Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: downloadFolderController,
-                                    style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                                    decoration: const InputDecoration(
-                                      hintText: 'e.g. C:\\Downloads\\TwitchVODs',
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: themeNotifier.primaryColor,
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-                                  ),
-                                  onPressed: () async {
-                                    final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-                                    if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
-                                      setDialogState(() {
-                                        downloadFolderController.text = selectedDirectory;
-                                      });
-                                    }
-                                  },
-                                  icon: Icon(Icons.folder_open, color: NeuTheme.onAccent(themeNotifier.accentInk), size: 16),
-                                  label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 18),
-                            Text('Maximum downloads to keep (Threshold)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                            const SizedBox(height: 4),
-                            Text('Delete oldest downloads automatically when limit is reached. Leave empty or set to 0 for unlimited.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: maxDownloadsController,
-                              keyboardType: TextInputType.number,
-                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                              onChanged: (val) => setDialogState(
-                                  () => maxDownloadsError = validateMaxDownloads(val)),
-                              decoration: InputDecoration(
-                                hintText: 'e.g. 5, 10, or leave empty',
-                                errorText: maxDownloadsError,
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text('Fast VOD Downloads (Skip heavy post-processing)', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        'Bypasses slow thumbnail/metadata container rewrites after download completion (prevents multi-gigabyte VODs from taking forever after 100%).',
-                                        style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                                      ),
+                                      Text('Launch at Windows startup', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                      Text('Starts minimized to the tray.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10)),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 10),
                                 NeuSwitch(
-                              activeColor: themeNotifier.primaryColor,
-                              value: tempDisableVodPostProcessing,
-                              onChanged: (val) {
-                                setDialogState(() {
-                                  tempDisableVodPostProcessing = val;
-                                });
-                              },
+                                  value: tempLaunchAtStartup,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempLaunchAtStartup = val),
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Start minimized to tray', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempStartMinimized,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempStartMinimized = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Live favorites in tray menu', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                      Text('Right-click the tray icon to launch a live favorite directly.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10)),
+                                    ],
+                                  ),
+                                ),
+                                NeuSwitch(
+                                  value: tempTrayLiveMenu,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempTrayLiveMenu = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                             const SizedBox(height: 12),
-                            Text('Custom yt-dlp VOD Download Arguments', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
-                            const SizedBox(height: 4),
-                            Text('Pass additional options directly to yt-dlp when downloading VODs.', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                            Text('Notifications', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
                             const SizedBox(height: 8),
-                            TextField(
-                              controller: customVodArgsController,
-                              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                              decoration: const InputDecoration(
-                                hintText: 'e.g. --concurrent-fragments 5 --no-mtime',
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Favorite channel goes live', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempNotifyWentLive,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyWentLive = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Auto-play starts a stream', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempNotifyAutoPlay,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyAutoPlay = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Auto-download starts', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempNotifyAutoDownloadStart,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyAutoDownloadStart = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                // Not "Download completes": it governs the
+                                // failure notification too, and none of these
+                                // rows can wrap, so the label has to be both
+                                // true and no longer than its siblings.
+                                Text('Download completes or fails', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
+                                NeuSwitch(
+                                  value: tempNotifyDownloadComplete,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyDownloadComplete = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            const SizedBox(height: 12),
+                            Text('Watch History', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                side: BorderSide(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), width: 1),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                               ),
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: Text('Clear Watch History?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
+                                    backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    content: Text('Are you sure you want to clear your local watch progress history for all VODs? This action cannot be undone.', style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
+                                      ),
+                                      TextButton(
+                                        style: TextButton.styleFrom(foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                        onPressed: () {
+                                          Navigator.pop(context);
+                                          onClearWatchHistory();
+                                        },
+                                        child: const Text('Clear History'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.delete_forever, size: 18),
+                              label: const Text('Clear Local Watch History', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(height: 24),
+                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            const SizedBox(height: 12),
+                            Text('Diagnostics', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Output from downloads, streams and players. Useful when something fails.',
+                              style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                            ),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
+                                side: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              onPressed: onOpenLogs,
+                              icon: const Icon(Icons.terminal, size: 18),
+                              label: const Text('View Logs', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                             ),
                           ],
                         ),
