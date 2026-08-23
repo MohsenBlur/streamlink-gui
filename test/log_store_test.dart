@@ -103,18 +103,6 @@ void main() {
           {'old-running', 'new'});
     });
 
-    test('removeKey and clearAll drop both buffer and session', () {
-      final logs = LogNotifier()..beginSession('k', 'x');
-      logs.appendLog('k', 'a');
-      logs.removeKey('k');
-      expect(logs.session('k'), isNull);
-      expect(logs.getLogs('k'), isEmpty);
-
-      logs.beginSession('z', 'z');
-      logs.clearAll();
-      expect(logs.isEmpty, isTrue);
-    });
-
     test('a session that ends becomes evictable', () {
       // Downloads announced their start but never their end, so their sessions
       // read "running" forever - and because eviction skips running sessions,

@@ -109,11 +109,11 @@ class _LibraryViewState extends State<LibraryView> {
                 ),
               ),
               const Spacer(),
-              _sortButton(theme, LibrarySort.newest, 'Newest'),
+              _sortButton(LibrarySort.newest, 'Newest'),
               const SizedBox(width: 6),
-              _sortButton(theme, LibrarySort.largest, 'Largest'),
+              _sortButton(LibrarySort.largest, 'Largest'),
               const SizedBox(width: 6),
-              _sortButton(theme, LibrarySort.progress, 'Progress'),
+              _sortButton(LibrarySort.progress, 'Progress'),
               const SizedBox(width: 12),
               NeuButton(
                 padding: const EdgeInsets.all(8),
@@ -147,8 +147,8 @@ class _LibraryViewState extends State<LibraryView> {
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     children: [
-                      _channelChip(theme, null, 'All'),
-                      for (final ch in channels) _channelChip(theme, ch, ch),
+                      _channelChip(null, 'All'),
+                      for (final ch in channels) _channelChip(ch, ch),
                     ],
                   ),
                 ),
@@ -308,7 +308,7 @@ class _LibraryViewState extends State<LibraryView> {
     );
   }
 
-  Widget _sortButton(ThemeData theme, LibrarySort sort, String label) {
+  Widget _sortButton(LibrarySort sort, String label) {
     return NeuButton(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       borderRadius: BorderRadius.circular(8),
@@ -318,7 +318,7 @@ class _LibraryViewState extends State<LibraryView> {
     );
   }
 
-  Widget _channelChip(ThemeData theme, String? channel, String label) {
+  Widget _channelChip(String? channel, String label) {
     final isSelected = _channelFilter == channel;
     return Padding(
       padding: const EdgeInsets.only(right: 6),

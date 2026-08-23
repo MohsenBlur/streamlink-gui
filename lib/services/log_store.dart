@@ -110,18 +110,6 @@ class LogNotifier extends ChangeNotifier {
     notifyListeners();
   }
 
-  void removeKey(String key) {
-    _logs.remove(key);
-    _sessions.remove(key);
-    notifyListeners();
-  }
-
-  void clearAll() {
-    _logs.clear();
-    _sessions.clear();
-    notifyListeners();
-  }
-
   void _evict() {
     if (_sessions.length <= maxSessions) return;
     final finished = _sessions.values.where((s) => !s.isRunning).toList()
