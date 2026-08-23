@@ -3056,7 +3056,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           viewCount: '0',
           publishedAt: entry.modified ?? DateTime.now(),
         );
-    _playVod(video, entry.channel);
+    // '' resolves to the download root itself, which is exactly where a file
+    // with no channel folder lives - that is the only way channel is null for
+    // a downloaded entry.
+    _playVod(video, entry.channel ?? '');
   }
 
   Future<void> _deleteLibraryEntry(LibraryEntry entry) async {
@@ -3082,7 +3085,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // != true, not == false: a dismissed dialog returns null, and null must
     // never mean "yes, delete it".
     if (confirmed != true) return;
-    await _deleteDownloadedVod(entry.vodId, entry.channel);
+    await _deleteDownloadedVod(entry.vodId, entry.channel ?? '');
     _refreshLibraryEntries();
   }
 
