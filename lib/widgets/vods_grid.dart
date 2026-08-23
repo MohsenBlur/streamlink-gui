@@ -4,6 +4,8 @@ import 'twitch_video_card.dart';
 import 'horizontal_mouse_scrollable.dart';
 import 'neumorphic/neu_button.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_progress.dart';
+import 'shell/empty_state.dart';
 import '../theme/theme_notifier.dart';
 
 class VodsGrid extends StatefulWidget {
@@ -134,7 +136,7 @@ class _VodsGridState extends State<VodsGrid> {
         child: Center(
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: 40),
-            child: CircularProgressIndicator(),
+            child: NeuProgressRing(semanticLabel: 'Loading broadcasts'),
           ),
         ),
       );
@@ -222,7 +224,7 @@ class _VodsGridState extends State<VodsGrid> {
                               // accent TINT, so the readable color is the accent
                               // itself (NeuButton's own selected text style).
                               if (isSelected) ...[
-                                Icon(Icons.check, size: 13, color: widget.theme.primaryColor),
+                                Icon(Icons.check, size: 13, color: themeNotifier.accentInk),
                                 const SizedBox(width: 4),
                               ],
                               Text(
@@ -295,19 +297,38 @@ class _VodsGridState extends State<VodsGrid> {
 
     Widget contentSliver;
     if (filteredVods.isEmpty) {
-      contentSliver = SliverToBoxAdapter(
-        child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        child: Center(
-          child: Text(
-            widget.selectedGamesFilter.isNotEmpty
-                ? 'No past broadcasts match game filter "${widget.selectedGamesFilter.join(', ')}".'
-                : (searchQuery.isEmpty ? 'No past broadcasts found.' : 'No VODs match "$searchQuery".'),
-            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
+      // Three distinct situations that used to read as one grey sentence.
+      // Only the filtered ones have a way out, so only they offer a button.
+      final Widget empty;
+      if (widget.selectedGamesFilter.isNotEmpty) {
+        empty = EmptyState(
+          icon: Icons.filter_alt_off,
+          title: 'No broadcasts in that category',
+          message: 'Nothing here matches '
+              '${widget.selectedGamesFilter.join(', ')}.',
+          action: NeuButton(
+            onPressed: widget.onClearGameFilter,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            borderRadius: BorderRadius.circular(8),
+            child: const Text('Show all categories',
+                style: TextStyle(fontSize: 12)),
           ),
-        ),
-        ),
-      );
+        );
+      } else if (searchQuery.isNotEmpty) {
+        empty = EmptyState(
+          icon: Icons.search_off,
+          title: 'No matches',
+          message: 'No past broadcast titles contain "$searchQuery".',
+        );
+      } else {
+        empty = const EmptyState(
+          icon: Icons.videocam_off_outlined,
+          title: 'No past broadcasts',
+          message: 'This channel has no VODs available, or they have expired. '
+              'Twitch removes them after 7-60 days depending on the channel.',
+        );
+      }
+      contentSliver = SliverToBoxAdapter(child: empty);
     } else {
       contentSliver = SliverGrid.builder(
         itemCount: filteredVods.length,

@@ -106,7 +106,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.auto_awesome, color: theme.primaryColor, size: 18),
+                  Icon(Icons.auto_awesome, color: themeNotifier.accentInk, size: 18),
                   const SizedBox(width: 8),
                   Text('Welcome to Twitch Streamlink GUI',
                       style: NeuTheme.titleStyle(_isDark, fontSize: 15)),
@@ -206,7 +206,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: theme.primaryColor),
+          Icon(icon, size: 16, color: themeNotifier.accentInk),
           const SizedBox(width: 10),
           Expanded(child: Text(text, style: NeuTheme.bodyStyle(_isDark, fontSize: 12))),
         ],
@@ -249,7 +249,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: _playerType == value
                     ? NeuTheme.sunkenDecoration(_isDark, radius: 8,
-                        border: Border.all(color: theme.primaryColor, width: 1.5))
+                        border: Border.all(color: themeNotifier.accentInk, width: 1.5))
                     : NeuTheme.raisedDecoration(_isDark, radius: 8),
                 child: Row(
                   children: [

@@ -27,6 +27,20 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
   /// dark ink where dark accents need white.
   Color get onPrimaryColor => NeuTheme.onAccent(primaryColor);
 
+  /// The accent, made safe to use as a *foreground* - text, icons, focus
+  /// rings, thin strokes. See [NeuTheme.accentInk].
+  ///
+  /// Cached because the derivation walks lightness in a loop and there are
+  /// dozens of call sites; recomputing per frame would be wasteful. The stored
+  /// accent is never modified - [primaryColor] still returns exactly what the
+  /// user chose, and fills, tints and glows keep using it.
+  @override
+  Color get accentInk =>
+      _accentInk ??= NeuTheme.accentInk(primaryColor, isDarkTheme);
+  Color? _accentInk;
+
+  void _invalidateDerivedColors() => _accentInk = null;
+
   @override
   Color get backgroundColor => NeuTheme.background(isDarkTheme);
 
@@ -55,6 +69,7 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
   void setDarkTheme(bool isDark) {
     if (isDarkTheme == isDark) return;
     isDarkTheme = isDark;
+    _invalidateDerivedColors();
     notifyListeners();
   }
 
@@ -62,6 +77,7 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
   void setLightAccent(Color color) {
     if (lightAccentColor == color) return;
     lightAccentColor = color;
+    _invalidateDerivedColors();
     notifyListeners();
   }
 
@@ -69,6 +85,7 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
   void setDarkAccent(Color color) {
     if (darkAccentColor == color) return;
     darkAccentColor = color;
+    _invalidateDerivedColors();
     notifyListeners();
   }
 

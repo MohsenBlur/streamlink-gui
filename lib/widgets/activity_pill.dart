@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../state/activity_state.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_progress.dart';
+import 'neumorphic/neu_icon_action.dart';
 import '../theme/theme_notifier.dart';
 import 'interactive_popover.dart';
 
@@ -93,7 +95,6 @@ class ActivityPill extends StatelessWidget {
 
   Widget _pill(BuildContext context, ActivitySnapshot s) {
     final theme = Theme.of(context);
-    final isDark = themeNotifier.isDarkTheme;
     final progress = s.meanDownloadProgress;
 
     return Tooltip(
@@ -114,7 +115,7 @@ class ActivityPill extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(_icon(s), size: 12, color: theme.primaryColor),
+                Icon(_icon(s), size: 12, color: themeNotifier.accentInk),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -124,7 +125,7 @@ class ActivityPill extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10.5,
                       fontWeight: FontWeight.bold,
-                      color: theme.primaryColor,
+                      color: themeNotifier.accentInk,
                     ),
                   ),
                 ),
@@ -132,18 +133,11 @@ class ActivityPill extends StatelessWidget {
             ),
             if (!compact && progress != null) ...[
               const SizedBox(height: 3),
-              SizedBox(
+              NeuProgressBar(
+                value: progress,
+                size: NeuProgressSize.xs,
                 width: 90,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 2,
-                    backgroundColor: NeuTheme.border(isDark),
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(theme.primaryColor),
-                  ),
-                ),
+                semanticLabel: 'Overall progress',
               ),
             ],
           ],
@@ -210,7 +204,6 @@ class ActivityPopover extends StatelessWidget {
   }
 
   Widget _row(BuildContext context, ActivityItem item, bool isDark) {
-    final theme = Theme.of(context);
     final isDownload = item.isDownload;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -234,15 +227,10 @@ class ActivityPopover extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: item.progress,
-                            minHeight: 3,
-                            backgroundColor: NeuTheme.border(isDark),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                theme.primaryColor),
-                          ),
+                        child: NeuProgressBar(
+                          value: item.progress,
+                          size: NeuProgressSize.sm,
+                          semanticLabel: item.label,
                         ),
                       ),
                       if (item.status != null) ...[
@@ -261,22 +249,12 @@ class ActivityPopover extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Tooltip(
-            message: isDownload ? 'Cancel download' : 'Stop playback',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => onStop(item),
-              child: Container(
-                width: 28,
-                height: 28,
-                decoration: NeuTheme.raisedDecoration(isDark, radius: 8),
-                child: Icon(
-                  isDownload ? Icons.close : Icons.stop_rounded,
-                  size: 14,
-                  color: NeuTheme.dangerText(isDark),
-                ),
-              ),
-            ),
+          NeuIconAction(
+            icon: isDownload ? Icons.close : Icons.stop_rounded,
+            tooltip: isDownload ? 'Cancel download' : 'Stop playback',
+            onPressed: () => onStop(item),
+            size: NeuActionSize.sm,
+            tone: NeuActionTone.danger,
           ),
         ],
       ),

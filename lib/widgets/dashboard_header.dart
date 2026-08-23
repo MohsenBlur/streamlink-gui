@@ -8,6 +8,9 @@ import 'neumorphic/neu_avatar_frame.dart';
 import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_card.dart';
 import '../theme/neu_theme.dart';
+import 'shell/app_layout.dart';
+import 'shell/motion.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -118,7 +121,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         SizedBox(
           width: compact ? 10 : 12,
           height: compact ? 10 : 12,
-          child: CircularProgressIndicator(strokeWidth: 1.5, color: subtext),
+          child: NeuProgressRing(size: NeuProgressRingSize.xs, color: subtext, semanticLabel: 'Refreshing'),
         ),
         SizedBox(width: compact ? 4 : 6),
         Text(
@@ -208,16 +211,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   }) {
     Widget iconWidget = Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme));
     if (isLoading) {
-      iconWidget = AnimatedBuilder(
-        animation: widget.pulseController,
-        builder: (context, child) {
-          return Transform.rotate(
-            angle: widget.pulseController.value * 2 * 3.141592653589793,
-            child: child,
-          );
-        },
-        child: iconWidget,
-      );
+      // Its own forward-only controller. It used to read the shared pulse,
+      // which runs `repeat(reverse: true)` - so the refresh icon spun forwards
+      // for a second and then spun BACKWARDS for a second, forever.
+      iconWidget = _SpinningIcon(child: iconWidget);
     }
 
     return Container(
@@ -263,8 +260,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isSmall = MediaQuery.of(context).size.width < 1180;
-    final isCompact = MediaQuery.of(context).size.width < 700 || MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    // Was a byte-identical copy of the two lines in main.dart's dashboard
+    // build, with nothing keeping them in step.
+    final layout = AppLayout.maybeOf(context);
+    final isSmall = !layout.hasWideControls;
+    final isCompact = layout.isRail;
 
     final statsChips = [
       if (widget.channel.isLive) ...[
@@ -275,7 +275,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         ),
         _buildHeaderChip(
           icon: Icons.schedule,
-          color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800,
+          color: NeuTheme.warningText(themeNotifier.isDarkTheme),
           label: widget.channel.uptime ?? 'Live',
         ),
       ],
@@ -369,7 +369,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.analytics_outlined, size: 12, color: theme.primaryColor),
+                            Icon(Icons.analytics_outlined, size: 12, color: themeNotifier.accentInk),
                             const SizedBox(width: 4),
                             Text('Stats', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 10)),
                           ],
@@ -433,18 +433,26 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  widget.channel.username,
-                  style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(width: 10),
-                _buildStatusBadge(compact: false),
-              ],
+            // Flexible for the same reason the compact branch above already
+            // had it: at 22px a long username in an unbounded Row reports its
+            // full intrinsic width, so the ellipsis never engages and the Row
+            // overflows instead. The two branches disagreed about this.
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      widget.channel.username,
+                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _buildStatusBadge(compact: false),
+                ],
+              ),
             ),
             isSmall
                 ? InteractivePopover(
@@ -631,5 +639,48 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     );
 
     return cardWidget;
+  }
+}
+
+/// A forward-only rotation, for "working" indicators.
+class _SpinningIcon extends StatefulWidget {
+  const _SpinningIcon({required this.child});
+  final Widget child;
+
+  @override
+  State<_SpinningIcon> createState() => _SpinningIconState();
+}
+
+class _SpinningIconState extends State<_SpinningIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // NOT initState: reading MediaQuery there throws, and in a RELEASE build a
+    // thrown exception during build renders as a blank grey rectangle rather
+    // than the red error box - so this failed silently and looked like a
+    // crash. Exactly the same mistake as the LED indicator, made twice.
+    if (NeuMotion.reduced(context)) {
+      _controller.stop();
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (NeuMotion.reduced(context)) return widget.child;
+    return RotationTransition(turns: _controller, child: widget.child);
   }
 }

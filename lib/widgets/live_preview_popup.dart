@@ -135,7 +135,7 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
                   Text(
                     channel.game!,
                     style: TextStyle(
-                      color: themeNotifier.primaryColor,
+                      color: themeNotifier.accentInk,
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                     ),

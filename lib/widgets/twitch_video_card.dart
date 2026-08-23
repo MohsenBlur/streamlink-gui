@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import '../utils/time_utils.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class TwitchVideoCard extends StatefulWidget {
@@ -235,9 +236,12 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                 AspectRatio(
                   aspectRatio: 16 / 9,
                   child: ClipRRect(
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(11),
-                      topRight: Radius.circular(11),
+                    // Concentric: the card is 16 with a 1px border, so a
+                    // flush child is 15. At 11 the corners left a visible
+                    // crescent of card colour inside the thumbnail's edge.
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(NeuRadius.inner(NeuRadius.r16, 1)),
+                      topRight: Radius.circular(NeuRadius.inner(NeuRadius.r16, 1)),
                     ),
                     child: Stack(
                       fit: StackFit.expand,
@@ -351,14 +355,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       ? NeuTheme.raisedDecoration(
                                           themeNotifier.isDarkTheme,
                                           radius: 12,
-                                          border: Border.all(color: widget.theme.primaryColor, width: 2),
+                                          border: Border.all(color: themeNotifier.accentInk, width: 2),
                                         )
                                       : NeuTheme.sunkenDecoration(
                                           themeNotifier.isDarkTheme,
                                           radius: 12,
                                         ),
                                   child: widget.isSelected
-                                      ? Icon(Icons.check_rounded, size: 14, color: widget.theme.primaryColor)
+                                      ? Icon(Icons.check_rounded, size: 14, color: themeNotifier.accentInk)
                                       : null,
                                 )
                               : Row(
@@ -543,15 +547,11 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               if (widget.downloadProgress != null) ...[
-                                                SizedBox(
-                                                  width: 12,
-                                                  height: 12,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    value: widget.downloadProgress,
-                                                    valueColor: const AlwaysStoppedAnimation(NeuTheme.live),
-                                                    backgroundColor: Colors.white10,
-                                                  ),
+                                                NeuProgressRing(
+                                                  value: widget.downloadProgress,
+                                                  size: NeuProgressRingSize.xs,
+                                                  color: NeuTheme.live,
+                                                  semanticLabel: 'Downloading',
                                                 ),
                                                 const SizedBox(width: 8),
                                               ],

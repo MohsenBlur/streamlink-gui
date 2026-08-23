@@ -17,6 +17,14 @@ import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
+import 'widgets/shell/app_layout.dart';
+import 'widgets/shell/motion.dart';
+import 'widgets/shell/section_header.dart';
+import 'widgets/shell/empty_state.dart';
+import 'widgets/neumorphic/neu_button.dart';
+import 'widgets/shell/neu_dialog.dart';
+import 'widgets/neumorphic/neu_progress.dart';
+import 'widgets/neumorphic/neu_text_field.dart';
 import 'state/vod_cache.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
@@ -322,10 +330,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     windowManager.addListener(this);
     _initSystemTray();
     
+    // Created stopped. It used to `..repeat(reverse: true)` here and was
+    // only ever touched again by dispose(), so it drove a 60fps rebuild for
+    // the entire life of the process - including while the app sat in the
+    // tray, which is its normal resting state, with nothing live to pulse.
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
-    )..repeat(reverse: true);
+    );
 
     // Initialize player service archive path and listener hooks
     _playerService.downloadArchiveFilePath = _storageService.getStorageFile('yt_dlp_archive.txt').path;
@@ -342,6 +354,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _logNotifier.beginSession(key, title);
       {
         _publishActivity();
+        _updatePulse();
         setState(() {});
       }
     };
@@ -360,6 +373,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
       {
         _publishActivity();
+        _updatePulse();
         setState(() {});
         // A player that never opened is otherwise silent: the console drawer
         // used to be the only hint. Surface it, with the log one tap away.
@@ -548,7 +562,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             children: [
-              Icon(Icons.system_update, color: themeNotifier.primaryColor),
+              Icon(Icons.system_update, color: themeNotifier.accentInk),
               const SizedBox(width: 10),
               Text('Update Available (${info.tagName})', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
@@ -634,7 +648,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
-                  Icon(Icons.downloading, color: themeNotifier.primaryColor),
+                  Icon(Icons.downloading, color: themeNotifier.accentInk),
                   const SizedBox(width: 10),
                   Text('Updating Application', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
                 ],
@@ -647,10 +661,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   children: [
                     Text(statusText, style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                     const SizedBox(height: 12),
-                    LinearProgressIndicator(
+                    NeuProgressBar(
                       value: progress > 0 ? progress : null,
-                      backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                      color: themeNotifier.primaryColor,
+                      semanticLabel: 'Update download',
                     ),
                     const SizedBox(height: 8),
                     Text('${(progress * 100).toStringAsFixed(1)}%', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
@@ -805,8 +818,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             onClicked: (menuItem) => _launchTrayChannel(name),
           ),
         if (liveNames.isNotEmpty) MenuSeparator(),
-        MenuItemLabel(label: 'Show App', onClicked: (menuItem) => windowManager.show()),
-        MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => windowManager.hide()),
+        MenuItemLabel(label: 'Show App', onClicked: (menuItem) => _showWindow()),
+        MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => _hideWindow()),
         MenuItemLabel(
           label: 'Open Library',
           onClicked: (menuItem) async {
@@ -927,6 +940,51 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     await windowManager.destroy();
   }
 
+  /// Runs the shared pulse only when something is actually pulsing and the
+  /// user can see it.
+  ///
+  /// Deliberately ONE controller rather than one per consumer: every pulse in
+  /// the app means the same thing ("this is live"), and independent
+  /// controllers would drift out of phase, so a sidebar of live channels would
+  /// shimmer instead of breathe.
+  void _updatePulse() {
+    final controller = _pulseController;
+    if (controller == null) return;
+
+    final somethingLive = _channels.any((c) => c.isLive) ||
+        _playerService.runningChannels.isNotEmpty ||
+        _playerService.playingVodIds.isNotEmpty;
+    // Gated here rather than in each consumer, so honouring the setting is not
+    // something five widgets each have to remember.
+    final reducedMotion = mounted && NeuMotion.reduced(context);
+    final shouldRun = somethingLive && _windowVisible && !reducedMotion;
+
+    if (shouldRun && !controller.isAnimating) {
+      controller.repeat(reverse: true);
+    } else if (!shouldRun && controller.isAnimating) {
+      controller.stop();
+      // Settle at full value rather than wherever it happened to stop, so a
+      // paused pulse does not leave a badge stuck at 40% opacity.
+      controller.value = 1.0;
+    }
+  }
+
+  Future<void> _showWindow() async {
+    await windowManager.show();
+    _windowVisible = true;
+    _updatePulse();
+  }
+
+  Future<void> _hideWindow() async {
+    await windowManager.hide();
+    _windowVisible = false;
+    _updatePulse();
+  }
+
+  /// Whether the window is on screen. Starts true; the tray/minimise paths
+  /// below keep it honest.
+  bool _windowVisible = true;
+
   Timer? _windowSaveTimer;
 
   Future<void> _saveWindowState() async {
@@ -980,11 +1038,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   @override
+  void onWindowRestore() {
+    _windowVisible = true;
+    _updatePulse();
+  }
+
+  @override
   void onWindowMinimize() async {
+    _windowVisible = false;
+    _updatePulse();
     // Default is the Windows convention (taskbar); 'tray' preserves the old
     // behavior for users who want it.
     if (_settings.minimizeAction == 'tray') {
-      await windowManager.hide();
+      await _hideWindow();
     }
   }
 
@@ -1099,7 +1165,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         return AlertDialog(
           title: Row(
             children: [
-              Icon(Icons.folder_copy, color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800),
+              Icon(Icons.folder_copy, color: NeuTheme.warningText(themeNotifier.isDarkTheme)),
               const SizedBox(width: 10),
               Text('Configure Download Folder', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
             ],
@@ -1742,6 +1808,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
 
     _checkFavoritesAutomation();
+    // Liveness just changed, so the pulse may need to start or stop.
+    _updatePulse();
 
     if (_selectedChannel != null) {
       final index = _channels.indexWhere((c) => c.username == _selectedChannel!.username);
@@ -2209,10 +2277,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final mediaQuery = MediaQuery.of(context);
-    final isVertical = mediaQuery.size.height > mediaQuery.size.width;
-    final isNarrow = mediaQuery.size.width < 700;
-    final effectiveSidebarCollapsed = (isNarrow || isVertical) ? true : _sidebarCollapsed;
+    // One measurement, published to the subtree. Everything below reads
+    // AppLayout.of(context) rather than re-deriving its own breakpoints.
+    final layout = AppLayoutData.fromSize(MediaQuery.sizeOf(context));
+    final isVertical = layout.isPortrait;
+    final isNarrow = layout.isCompact;
+    final effectiveSidebarCollapsed = layout.isRail ? true : _sidebarCollapsed;
     
     final sidebar = SidebarPanel(
       key: _sidebarKey,
@@ -2290,9 +2360,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       ),
     );
 
-    return Scaffold(
+    return AppLayout(
+      data: layout,
+      child: Scaffold(
       body: CallbackShortcuts(
         bindings: {
+          // Esc leaves the Library. Dialogs sit on their own Navigator route
+          // and consume Esc before it reaches here, so this cannot steal a
+          // dialog's dismiss.
+          const SingleActivator(LogicalKeyboardKey.escape): _closeLibrary,
           // Focus the sidebar search from anywhere. In layouts without the
           // inline field the search popover is the affordance instead.
           const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
@@ -2363,6 +2439,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -2378,118 +2455,181 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 // Title Header
                 Row(
                   children: [
-                    Icon(Icons.dashboard_outlined, size: 28, color: theme.primaryColor),
-                    const SizedBox(width: 10),
+                    Icon(Icons.home_outlined, size: 26, color: themeNotifier.accentInk),
+                    const SizedBox(width: NeuSpace.s12),
                     Text(
-                      'Dashboard Hub',
-                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 24),
+                      'Home',
+                      style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 22),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Welcome back! Select a channel or choose a quick action below.',
+                  'Pick a channel from the sidebar, or jump back into something below.',
                   style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
                 ),
                 const SizedBox(height: 24),
 
-          // Active Downloads card (Conditional)
-          if (runningDownloads.isNotEmpty) ...[
+          // Order matters here. This screen used to lead with the
+          // downloader and put live channels third, which is the priority
+          // order of a download manager rather than of a Twitch client.
+          // What is live is the most perishable thing on the page, so it
+          // goes first; downloads are long-running and can wait.
+          // Live Channels Section
+          SectionHeader(
+            title: 'Live now',
+            count: liveFavorites.isEmpty ? null : liveFavorites.length,
+          ),
+          const SizedBox(height: 12),
+          if (liveFavorites.isEmpty)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    theme.primaryColor.withValues(alpha: 0.15),
-                    themeNotifier.surfaceColor,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primaryColor.withValues(alpha: 0.05),
-                    blurRadius: 12,
-                    spreadRadius: 2,
-                  ),
-                ],
+              decoration: NeuTheme.sunkenDecoration(
+                  themeNotifier.isDarkTheme,
+                  radius: NeuRadius.r12),
+              child: _channels.isEmpty
+                  // Two different situations that shared one sentence. With no
+                  // channels at all the answer is an action, not information.
+                  ? EmptyState(
+                      icon: Icons.person_add_alt,
+                      title: 'No channels yet',
+                      message: 'Add a streamer to see when they go live and to '
+                          'browse their past broadcasts.',
+                      compact: true,
+                      action: NeuButton(
+                        onPressed: () =>
+                            _sidebarSearchFocus.requestFocus(),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        borderRadius: BorderRadius.circular(NeuRadius.r8),
+                        child: const Text('Add a channel',
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                    )
+                  : const EmptyState(
+                      icon: Icons.bedtime_outlined,
+                      title: 'Nobody is live',
+                      message: 'None of your favorite channels are streaming '
+                          'right now.',
+                      compact: true,
+                    ),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 220,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                mainAxisExtent: 130,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.downloading, color: theme.primaryColor, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Active Downloads Running',
-                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
+              itemCount: liveFavorites.length,
+              itemBuilder: (context, index) {
+                final channel = liveFavorites[index];
+                final itemCard = GestureDetector(
+                  onTap: () => _selectChannel(channel),
+                  onDoubleTap: () {
+                    if (_playerService.runningChannels.contains(channel.username)) return;
+                    _playerService.launchStreamlinkForLive(
+                      channel.username,
+                      channel.isLive,
+                      channel.streamTitle,
+                      channel.game,
+                      _settings,
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: NeuTheme.raisedDecoration(
+                      themeNotifier.isDarkTheme,
+                      radius: 12,
+                      border: Border.all(color: theme.primaryColor.withValues(alpha: 0.25)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            NeuAvatar(
+                              url: channel.avatarUrl,
+                              radius: 18,
+                              isDark: themeNotifier.isDarkTheme,
+                              // This one sits on a coloured card, so it keeps
+                              // its transparent ground and brighter icon.
+                              backgroundColor: Colors.transparent,
+                              iconColor: NeuTheme.text(themeNotifier.isDarkTheme),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                channel.username,
+                                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: Text(
+                            channel.streamTitle ?? 'No Stream Title',
+                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ],
-                      ),
-                      TextButton.icon(
-                        onPressed: _openLibrary,
-                        icon: const Icon(Icons.open_in_new, size: 14),
-                        label: const Text('Open Library', style: TextStyle(fontSize: 12)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  ...runningDownloads.take(2).map((item) {
-                    final progress = item.progress ?? 0.0;
-                    final taskText = item.status ?? 'Downloading...';
-                    final title = item.label;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Expanded, not a bare Text. `overflow: ellipsis`
+                            // can only engage when the Text is given a bounded
+                            // width; in an unconstrained Row it reports its
+                            // full intrinsic width instead and the ROW
+                            // overflows. These tiles are maxCrossAxisExtent
+                            // 220 and the window minimum is 380 wide, so a
+                            // long game name overflowed in the normal case,
+                            // not an exotic one.
+                            Expanded(
+                              child: Text(
+                                channel.game ?? 'Unknown Game',
+                                style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
+                                Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
+                                const SizedBox(width: 4),
                                 Text(
-                                  title,
-                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 4),
-                                LinearProgressIndicator(
-                                  value: progress,
-                                  backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                  valueColor: AlwaysStoppedAnimation<Color>(theme.primaryColor),
-                                  minHeight: 3,
+                                  channel.viewerCount != null ? '${channel.viewerCount}' : '0',
+                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10, fontWeight: FontWeight.bold),
                                 ),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 16),
-                          Text(
-                            taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
-                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ],
-              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+
+                return HoverOverlayMenu(
+                  trigger: itemCard,
+                  menu: LivePreviewPopup(channel: channel),
+                );
+              },
             ),
-            const SizedBox(height: 24),
-          ],
+          const SizedBox(height: 32),
 
           // Recently Watched VODs (Conditional)
           if (_recentWatchedVods.isNotEmpty) ...[
-            Text(
-              'Recently Watched Past Broadcasts',
-              style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
-            ),
+            const SectionHeader(title: 'Continue watching'),
             const SizedBox(height: 12),
             SizedBox(
               height: 155,
@@ -2639,7 +2779,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                   if (progressPct > 0)
                                                     Text(
                                                       '$progressPct%',
-                                                      style: TextStyle(fontSize: 9, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                                                      style: TextStyle(fontSize: 9, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
                                                     ),
                                                 ],
                                               ),
@@ -2663,138 +2803,98 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: 24),
           ],
 
-          // Live Channels Section
-          Text(
-            'Live Favorite Channels',
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
-          ),
-          const SizedBox(height: 12),
-          if (liveFavorites.isEmpty)
+          // Active Downloads card (Conditional)
+          if (runningDownloads.isNotEmpty) ...[
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 12),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.portable_wifi_off, size: 36, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                  const SizedBox(height: 10),
-                  Text(
-                    _channels.isEmpty
-                        ? 'Add your first channel: open the sidebar search (Ctrl+F), type a name, press Enter.'
-                        : 'No favorite channels are currently live.',
-                    style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                    textAlign: TextAlign.center,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    theme.primaryColor.withValues(alpha: 0.15),
+                    themeNotifier.surfaceColor,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.primaryColor.withValues(alpha: 0.05),
+                    blurRadius: 12,
+                    spreadRadius: 2,
                   ),
                 ],
               ),
-            )
-          else
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 220,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                mainAxisExtent: 130,
-              ),
-              itemCount: liveFavorites.length,
-              itemBuilder: (context, index) {
-                final channel = liveFavorites[index];
-                final itemCard = GestureDetector(
-                  onTap: () => _selectChannel(channel),
-                  onDoubleTap: () {
-                    if (_playerService.runningChannels.contains(channel.username)) return;
-                    _playerService.launchStreamlinkForLive(
-                      channel.username,
-                      channel.isLive,
-                      channel.streamTitle,
-                      channel.game,
-                      _settings,
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: NeuTheme.raisedDecoration(
-                      themeNotifier.isDarkTheme,
-                      radius: 12,
-                      border: Border.all(color: theme.primaryColor.withValues(alpha: 0.25)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            NeuAvatar(
-                              url: channel.avatarUrl,
-                              radius: 18,
-                              isDark: themeNotifier.isDarkTheme,
-                              // This one sits on a coloured card, so it keeps
-                              // its transparent ground and brighter icon.
-                              backgroundColor: Colors.transparent,
-                              iconColor: NeuTheme.text(themeNotifier.isDarkTheme),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                channel.username,
-                                style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 13),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Expanded(
-                          child: Text(
-                            channel.streamTitle ?? 'No Stream Title',
-                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.downloading, color: themeNotifier.accentInk, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Active Downloads Running',
+                            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 14),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              channel.game ?? 'Unknown Game',
-                              style: TextStyle(fontSize: 10, color: theme.primaryColor, fontWeight: FontWeight.bold),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Row(
+                        ],
+                      ),
+                      TextButton.icon(
+                        onPressed: _openLibrary,
+                        icon: const Icon(Icons.open_in_new, size: 14),
+                        label: const Text('Open Library', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ...runningDownloads.take(2).map((item) {
+                    final progress = item.progress ?? 0.0;
+                    final taskText = item.status ?? 'Downloading...';
+                    final title = item.label;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
-                                const SizedBox(width: 4),
                                 Text(
-                                  channel.viewerCount != null ? '${channel.viewerCount}' : '0',
-                                  style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 10, fontWeight: FontWeight.bold),
+                                  title,
+                                  style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                NeuProgressBar(
+                                  value: progress,
+                                  size: NeuProgressSize.sm,
+                                  semanticLabel: 'Download progress',
                                 ),
                               ],
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-
-                return HoverOverlayMenu(
-                  trigger: itemCard,
-                  menu: LivePreviewPopup(channel: channel),
-                );
-              },
+                          ),
+                          const SizedBox(width: 16),
+                          Text(
+                            taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
+                            style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ],
+              ),
             ),
-          const SizedBox(height: 32),
+            const SizedBox(height: 24),
+          ],
 
           // Quick Action Cards
-          Text(
-            'Quick Action Control Room',
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16),
-          ),
+          const SectionHeader(title: 'Quick actions'),
           const SizedBox(height: 12),
           GridView(
             shrinkWrap: true,
@@ -2889,47 +2989,40 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _showSaveFailureDetail(StorageWriteFailure failure) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: themeNotifier.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Could not save settings',
-            style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-        content: SizedBox(
-          width: 520,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Writing to this file keeps failing. Common causes are a full '
-                'disk, antivirus or backup software holding the file open, or '
-                'the folder no longer being writable.',
-                style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+    NeuDialog.show<void>(
+      context,
+      // Read-only detail: clicking away is a fine way to leave it.
+      dismissible: true,
+      builder: (context) => NeuDialog(
+        title: 'Could not save settings',
+        icon: Icons.error_outline,
+        tone: DialogTone.destructive,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Writing to this file keeps failing. Common causes are a full '
+              'disk, antivirus or backup software holding the file open, or '
+              'the folder no longer being writable.',
+              style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: NeuTheme.sunkenDecoration(
+                  themeNotifier.isDarkTheme,
+                  radius: 8),
+              child: SelectableText(
+                '${failure.path}\n\n${failure.error}',
+                style: const TextStyle(fontFamily: 'Consolas', fontSize: 11),
               ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: NeuTheme.sunkenDecoration(
-                    themeNotifier.isDarkTheme,
-                    radius: 8),
-                child: SelectableText(
-                  '${failure.path}\n\n${failure.error}',
-                  style: const TextStyle(fontFamily: 'Consolas', fontSize: 11),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close',
-                style: TextStyle(
-                    color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-          ),
+          NeuDialogAction.secondary('Close', () => Navigator.pop(context)),
         ],
       ),
     );
@@ -2943,6 +3036,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _showLibraryView = true;
     });
   }
+
+  /// Leaves the Library for whatever was showing before it.
+  ///
+  /// _selectedChannel is deliberately left alone by _openLibrary, so simply
+  /// lowering the flag lands back on that channel's dashboard - or the welcome
+  /// screen if no channel was selected. The state to return to was always
+  /// there; what was missing was any way to ask for it.
+  void _closeLibrary() {
+    if (!_showLibraryView) return;
+    setState(() {
+      _showLibraryView = false;
+    });
+  }
+
+  /// Where [_closeLibrary] would land, for the back control's label.
+  String get _libraryBackLabel => _selectedChannel?.username ?? 'Home';
 
   /// Rebuilds the cached Library rows (the only place file stats happen).
   void _refreshLibraryEntries() {
@@ -3013,30 +3122,27 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _deleteLibraryEntry(LibraryEntry entry) async {
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete Download?', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 16)),
-        backgroundColor: themeNotifier.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    final bool? confirmed = await NeuDialog.show<bool>(
+      context,
+      // Dismissible: clicking away is the same as Cancel here, and the
+      // destructive action requires a deliberate click either way.
+      dismissible: true,
+      builder: (context) => NeuDialog(
+        title: 'Delete download?',
+        icon: Icons.delete_outline,
+        tone: DialogTone.destructive,
         content: Text(
           'Delete the downloaded file for "${entry.title}"? This cannot be undone.',
           style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 13),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel', style: TextStyle(color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-          ),
-          ElevatedButton(
-            // White on the fixed danger red, theme-independent.
-            style: ElevatedButton.styleFrom(backgroundColor: NeuTheme.danger, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
+          NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
+          NeuDialogAction.primary('Delete', () => Navigator.pop(context, true)),
         ],
       ),
     );
+    // != true, not == false: a dismissed dialog returns null, and null must
+    // never mean "yes, delete it".
     if (confirmed != true) return;
     await _deleteDownloadedVod(entry.vodId, entry.channel);
     _refreshLibraryEntries();
@@ -3056,6 +3162,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Widget _buildLibraryView() {
     return LibraryView(
+            onBack: _closeLibrary,
+            backLabel: _libraryBackLabel,
             entries: _libraryEntries,
             onRefresh: () {
               _checkDownloadedVods();
@@ -3110,7 +3218,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       color: theme.primaryColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(icon, size: 20, color: theme.primaryColor),
+                    child: Icon(icon, size: 20, color: themeNotifier.accentInk),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -3144,8 +3252,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Widget _buildDashboard(ThemeData theme, TwitchChannel channel) {
-    final isSmall = MediaQuery.of(context).size.width < 1180;
-    final isCompact = MediaQuery.of(context).size.width < 700 || MediaQuery.of(context).size.height > MediaQuery.of(context).size.width;
+    // maybeOf, not of. This method is CALLED from build() with the State's own
+    // context, which sits ABOVE the AppLayout that build() returns - so
+    // AppLayout.of asserted "No AppLayout ancestor" and took the entire
+    // channel dashboard down. maybeOf measures the media query instead, which
+    // yields the same values.
+    final layout = AppLayout.maybeOf(context);
+    // isSmall is gone: the VOD toolbar no longer has a wide-only variant to
+    // switch to, because the inline duplicate of the display controls was
+    // removed in favour of the single popover.
+    final isCompact = layout.isRail;
     // CustomScrollView so the VOD grid renders as a real SliverGrid and
     // off-screen cards are culled; the old SingleChildScrollView +
     // shrinkWrap GridView materialized every card at once.
@@ -3183,13 +3299,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
+                      // Expanded + Wrap, not a bare Row. In multi-select this
+                      // cluster carries four labelled buttons, a count and two
+                      // icon buttons with no compact branch anywhere, so below
+                      // roughly 1100px it simply overflowed. Wrapping to a
+                      // second line is the honest minimum; the toolbar is
+                      // rebuilt properly as a SelectionBar in a later phase.
+                      Expanded(
+                        child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 6,
                         children: [
                           IconButton(
                             icon: Icon(
                               _isMultiSelectMode ? Icons.edit_off : Icons.edit,
-                              color: _isMultiSelectMode ? theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
+                              color: _isMultiSelectMode ? themeNotifier.accentInk : NeuTheme.text(themeNotifier.isDarkTheme),
                               size: 18,
                             ),
                             tooltip: _isMultiSelectMode ? 'Cancel Multi-Select' : 'Toggle Multi-Select Mode',
@@ -3201,34 +3326,29 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             },
                           ),
                           if (_isMultiSelectMode) ...[
-                            const SizedBox(width: 8),
-                            Text(
+                                                        Text(
                               '${_selectedVodIds.length} selected',
                               style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12),
                             ),
                             if (_isBulkUpdatingVods) ...[
-                              const SizedBox(width: 12),
-                              SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                                                            NeuProgressRing(
+                                size: NeuProgressRingSize.xs,
+                                color: NeuTheme.text(themeNotifier.isDarkTheme),
+                                semanticLabel: 'Syncing',
                               ),
-                              const SizedBox(width: 8),
-                              Text('Syncing with Twitch...', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
+                                                            Text('Syncing with Twitch...', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                             ] else ...[
-                              const SizedBox(width: 12),
-                              TextButton.icon(
+                                                            TextButton.icon(
                                 icon: const Icon(Icons.check_circle_outline, size: 16),
                                 label: const Text('Mark Watched', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
                                   backgroundColor: theme.primaryColor.withValues(alpha: 0.2),
-                                  foregroundColor: theme.primaryColor,
+                                  foregroundColor: themeNotifier.accentInk,
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 ),
                                 onPressed: () => _bulkUpdateSelectedVods(true),
                               ),
-                              const SizedBox(width: 8),
-                              TextButton.icon(
+                                                            TextButton.icon(
                                 icon: const Icon(Icons.unpublished_outlined, size: 16),
                                 label: const Text('Mark Unwatched', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
@@ -3238,8 +3358,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 ),
                                 onPressed: () => _bulkUpdateSelectedVods(false),
                               ),
-                              const SizedBox(width: 8),
-                              TextButton.icon(
+                                                            TextButton.icon(
                                 icon: const Icon(Icons.download, size: 16),
                                 label: const Text('Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
@@ -3249,8 +3368,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 ),
                                 onPressed: _selectedVodIds.isEmpty ? null : _bulkDownloadSelectedVods,
                               ),
-                              const SizedBox(width: 8),
-                              TextButton.icon(
+                                                            TextButton.icon(
                                 icon: const Icon(Icons.delete_outline, size: 16),
                                 label: const Text('Delete Download', style: TextStyle(fontSize: 11)),
                                 style: TextButton.styleFrom(
@@ -3260,8 +3378,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                 ),
                                 onPressed: _selectedVodIds.isEmpty ? null : _bulkDeleteSelectedVods,
                               ),
-                              const SizedBox(width: 8),
-                              IconButton(
+                                                            IconButton(
                                 icon: Icon(Icons.select_all, size: 18, color: NeuTheme.text(themeNotifier.isDarkTheme)),
                                 tooltip: 'Select All Visible',
                                 onPressed: () {
@@ -3292,118 +3409,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           ],
                         ],
                       ),
+                      ),
+                      // One control path, not two. These settings used to be
+                      // rendered inline when the window was wide and in a
+                      // popover when it was narrow, and the two copies had
+                      // already drifted ('Font: ' versus 'Font Size: ', a
+                      // 110px slider versus an Expanded one). The popover is
+                      // the better layout and is what most windows already
+                      // showed, so it is now what every window shows.
                       if (!_isMultiSelectMode)
-                        isSmall
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  InteractivePopover(
-                                    popover: _buildVodsSettingMenu(theme),
-                                    child: _VodSettingsHoverButton(theme: theme),
-                                  ),
-                                ],
-                              )
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Tooltip(
-                                    message: 'Show all played games on thumbnails at a glance',
-                                    decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: 6),
-                                    textStyle: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 10, fontWeight: FontWeight.bold),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                        const SizedBox(width: 4),
-                                        Text('Show All Games', style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 11)),
-                                        const SizedBox(width: 8),
-                                        NeuSwitch(
-                                          value: _settings.showGamesOnThumbnails,
-                                          onChanged: (val) {
-                                            setState(() {
-                                              _settings.showGamesOnThumbnails = val;
-                                            });
-                                            _saveChannels();
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  SizedBox(
-                                    width: 130,
-                                    height: 28,
-                                    child: TextField(
-                                      controller: _vodSearchController,
-                                      style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                                      decoration: InputDecoration(
-                                        hintText: 'Filter VODs...',
-                                        hintStyle: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                                        prefixIcon: Icon(Icons.search, size: 12, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                        contentPadding: EdgeInsets.zero,
-                                        filled: true,
-                                        fillColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(6),
-                                          borderSide: BorderSide.none,
-                                        ),
-                                      ),
-                                      onChanged: (val) {
-                                        setState(() {});
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Icon(Icons.photo_size_select_large, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                  const SizedBox(width: 6),
-                                  Text('Card Size: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                  SizedBox(
-                                    width: 110,
-                                    child: SliderTheme(
-                                      data: neuSliderTheme(context),
-                                      child: Slider(
-                                        value: _settings.vodCardScale,
-                                        min: 200.0,
-                                        max: 600.0,
-                                        onChanged: (val) {
-                                          setState(() {
-                                            _settings.vodCardScale = val;
-                                          });
-                                        },
-                                        onChangeEnd: (_) => _saveChannels(),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Icon(Icons.format_size, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                                  const SizedBox(width: 6),
-                                  Text('Font: ', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 12)),
-                                  SizedBox(
-                                    width: 90,
-                                    child: SliderTheme(
-                                      data: neuSliderTheme(context),
-                                      child: Slider(
-                                        value: _settings.vodTitleFontSize,
-                                        min: 11.0,
-                                        max: 20.0,
-                                        onChanged: (val) {
-                                          setState(() {
-                                            _settings.vodTitleFontSize = val;
-                                          });
-                                        },
-                                        onChangeEnd: (_) => _saveChannels(),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                        InteractivePopover(
+                          popover: _buildVodsSettingMenu(theme),
+                          child: _VodDisplayButton(theme: theme),
+                        ),
                       if (_isLoadingVods) ...[
                         const SizedBox(width: 12),
                         const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
                         ),
                       ],
                     ],
@@ -3415,14 +3439,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       // Intentional: translucent warning tint, readable over both themes.
                       decoration: BoxDecoration(
-                        color: Colors.orangeAccent.withValues(alpha: 0.1),
+                        color: NeuTheme.warning.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.3)),
+                        border: Border.all(color: NeuTheme.warning.withValues(alpha: 0.3)),
                       ),
                       child: Row(
                         children: [
                           Icon(Icons.warning_amber_rounded,
-                              color: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800, size: 20),
+                              color: NeuTheme.warningText(themeNotifier.isDarkTheme), size: 20),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -3433,8 +3457,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           const SizedBox(width: 12),
                           TextButton(
                             style: TextButton.styleFrom(
-                              backgroundColor: Colors.orangeAccent.withValues(alpha: 0.2),
-                              foregroundColor: themeNotifier.isDarkTheme ? Colors.orangeAccent : Colors.orange.shade800,
+                              backgroundColor: NeuTheme.warning.withValues(alpha: 0.2),
+                              foregroundColor: NeuTheme.warningText(themeNotifier.isDarkTheme),
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                             onPressed: _showSettingsDialog,
@@ -3529,7 +3553,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ? SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                                  child: NeuProgressRing(size: NeuProgressRingSize.sm, color: NeuTheme.text(themeNotifier.isDarkTheme), semanticLabel: 'Loading'),
                                 )
                               : const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -3593,27 +3617,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             const SizedBox(height: 12),
             Text('Filter Broadcasts:', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
-            SizedBox(
-              height: 36,
-              child: TextField(
-                controller: _vodSearchController,
-                style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12),
-                decoration: InputDecoration(
-                  hintText: 'Filter VODs...',
-                  hintStyle: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11),
-                  prefixIcon: Icon(Icons.search, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                  contentPadding: EdgeInsets.zero,
-                  filled: true,
-                  fillColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(6),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                onChanged: (val) {
-                  setState(() {});
-                },
-              ),
+            NeuTextField(
+              controller: _vodSearchController,
+              hintText: 'Filter VODs...',
+              prefixIcon: Icons.search,
+              size: NeuFieldSize.md,
+              onChanged: (val) => setState(() {}),
+              onClear: () => setState(() {}),
             ),
             const SizedBox(height: 12),
             StatefulBuilder(
@@ -3639,7 +3649,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               },
                               child: Text(
                                 'Clear All',
-                                style: TextStyle(fontSize: 10, color: theme.primaryColor, fontWeight: FontWeight.bold),
+                                style: TextStyle(fontSize: 10, color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
                               ),
                             ),
                           ),
@@ -4061,52 +4071,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 }
 
-class _VodSettingsHoverButton extends StatefulWidget {
+/// The trigger for the VOD display settings.
+///
+/// Was a hover-morphing chip that only revealed its accent styling when the
+/// pointer was over it, and appeared ONLY when the window was narrow - so at
+/// wide widths the controls it opens had no button at all, and at narrow
+/// widths there was no static hint that a menu existed. It is now a plain
+/// labelled button, present at every width.
+class _VodDisplayButton extends StatelessWidget {
+  const _VodDisplayButton({required this.theme});
+
   final ThemeData theme;
-  const _VodSettingsHoverButton({Key? key, required this.theme}) : super(key: key);
-
-  @override
-  State<_VodSettingsHoverButton> createState() => _VodSettingsHoverButtonState();
-}
-
-class _VodSettingsHoverButtonState extends State<_VodSettingsHoverButton> {
-  bool isHovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => isHovered = true),
-      onExit: (_) => setState(() => isHovered = false),
-      cursor: SystemMouseCursors.click,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: isHovered
-            ? NeuTheme.raisedDecoration(
-                themeNotifier.isDarkTheme,
-                radius: 6,
-                border: Border.all(color: widget.theme.primaryColor, width: 1.5),
-              )
-            : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.tune,
-              color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
-              size: 16,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              'VOD Settings',
-              style: TextStyle(
-                color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
+    final isDark = themeNotifier.isDarkTheme;
+    return NeuButton(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      borderRadius: BorderRadius.circular(NeuRadius.r8),
+      tooltip: 'Card size, title size, filters and game badges',
+      onPressed: null,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.tune, size: 15, color: NeuTheme.text(isDark)),
+          const SizedBox(width: NeuSpace.s6),
+          Text('Display',
+              style: NeuTheme.bodyStyle(isDark, fontSize: 12)),
+          const SizedBox(width: NeuSpace.s2),
+          Icon(Icons.arrow_drop_down, size: 16, color: NeuTheme.subtext(isDark)),
+        ],
       ),
     );
   }

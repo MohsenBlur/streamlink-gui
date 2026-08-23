@@ -128,8 +128,8 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                 Stack(
                   alignment: Alignment.bottomRight,
                   children: [
-                    Icon(Icons.play_arrow, color: theme.primaryColor, size: 28),
-                    const Icon(Icons.star, color: Colors.amber, size: 14),
+                    Icon(Icons.play_arrow, color: themeNotifier.accentInk, size: 28),
+                    Icon(Icons.star, color: NeuTheme.favoriteText(themeNotifier.isDarkTheme), size: 14),
                   ],
                 ),
                 const SizedBox(width: 12),
@@ -199,7 +199,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: theme.primaryColor,
+                            color: themeNotifier.accentInk,
                           ),
                         ),
                       ],
@@ -269,7 +269,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: themeNotifier.isDarkTheme ? Colors.amberAccent : Colors.amber.shade800,
+                                color: NeuTheme.favoriteText(themeNotifier.isDarkTheme),
                               ),
                             ),
                           ),
@@ -277,7 +277,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                             decoration: BoxDecoration(
                               color: themeNotifier.surfaceColor,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                              border: Border.all(color: NeuTheme.favorite.withValues(alpha: 0.3)),
                             ),
                             child: ReorderableListView(
                               shrinkWrap: true,
@@ -354,13 +354,13 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                         decoration: BoxDecoration(
                                           color: theme.primaryColor.withValues(alpha: 0.2),
                                           borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: theme.primaryColor, width: 1),
+                                          border: Border.all(color: themeNotifier.accentInk, width: 1),
                                         ),
                                         child: Text(
                                           'Priority #${priorityChannels.indexOf(ch) + 1}',
                                           style: TextStyle(
                                             fontSize: 11,
-                                            color: theme.primaryColor,
+                                            color: themeNotifier.accentInk,
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
@@ -494,7 +494,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                           DropdownButton<int>(
                                             value: ch.maxVodKeepCount.clamp(1, 5),
                                             dropdownColor: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                            style: TextStyle(color: theme.primaryColor, fontWeight: FontWeight.bold),
+                                            style: TextStyle(color: themeNotifier.accentInk, fontWeight: FontWeight.bold),
                                             items: [1, 2, 3, 4, 5].map((val) {
                                               return DropdownMenuItem<int>(
                                                 value: val,

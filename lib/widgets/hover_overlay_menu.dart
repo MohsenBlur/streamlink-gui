@@ -133,7 +133,7 @@ class _HoverStarIconState extends State<HoverStarIcon> {
       child: IconButton(
         icon: Icon(
           useGold ? Icons.star : Icons.star_border,
-          color: useGold ? Colors.amber : NeuTheme.subtext(themeNotifier.isDarkTheme),
+          color: useGold ? NeuTheme.favoriteText(themeNotifier.isDarkTheme) : NeuTheme.subtext(themeNotifier.isDarkTheme),
           size: 18,
         ),
         onPressed: widget.onTap,

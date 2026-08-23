@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/neu_theme.dart';
+import '../../theme/theme_notifier.dart';
 
 /// Keyboard and screen-reader access for the custom neumorphic controls.
 ///
@@ -58,10 +59,15 @@ class _NeuFocusableState extends State<NeuFocusable> {
         label: widget.semanticLabel,
         enabled: enabled,
         child: Container(
+          // accentInk, not the raw accent. The focus ring is the app's only
+          // compensating control for a soft style that cannot carry a 3:1
+          // border, so it is the one thing that must never be invisible - and
+          // drawn raw, a light-mode Cyan accent measured 1.04:1 against the
+          // surface behind it.
           foregroundDecoration: _focused
               ? NeuTheme.focusRing(
                   theme.brightness == Brightness.dark,
-                  theme.primaryColor,
+                  themeNotifier.accentInk,
                   radius: widget.focusRadius,
                 )
               : null,

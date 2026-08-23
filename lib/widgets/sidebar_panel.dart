@@ -14,6 +14,10 @@ import 'neumorphic/neu_segmented_control.dart';
 import 'package:flutter/gestures.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_avatar.dart';
+import 'neumorphic/neu_icon_action.dart';
+import 'shell/nav_scope.dart';
+import 'shell/context_menu.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class SidebarPanel extends StatefulWidget {
@@ -215,7 +219,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                               borderRadius: BorderRadius.circular(8),
                                               border: Border.all(color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
                                             ),
-                                            child: Icon(Icons.dashboard_outlined, color: theme.primaryColor, size: 20),
+                                            child: Icon(Icons.dashboard_outlined, color: themeNotifier.accentInk, size: 20),
                                           ),
                                     const SizedBox(width: 10),
                                     Expanded(
@@ -336,7 +340,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                  SizedBox(
                                    width: 14,
                                    height: 14,
-                                   child: CircularProgressIndicator(strokeWidth: 1.8, color: theme.primaryColor),
+                                   child: NeuProgressRing(size: NeuProgressRingSize.xs, semanticLabel: 'Loading'),
                                  )
                               else
                                 const Icon(Icons.refresh, size: 14),
@@ -355,13 +359,12 @@ class SidebarPanelState extends State<SidebarPanel> {
                           ),
                         ),
                       ),
-                      if (widget.sidebarTab == 0) ...[
-                        const SizedBox(width: 8),
-                        _PinnedFavoritesAutomationButton(
-                          theme: theme,
-                          onPressed: _openFavoritesAutomationDialog,
-                        ),
-                      ],
+                      const SizedBox(width: NeuSpace.s8),
+                      _PinnedFavoritesAutomationButton(
+                        onPressed: _openFavoritesAutomationDialog,
+                        enabled: widget.sidebarTab == 0,
+                        expanded: true,
+                      ),
                     ],
                   ),
                 ),
@@ -380,7 +383,8 @@ class SidebarPanelState extends State<SidebarPanel> {
                       final showAddPrompt = query.isNotEmpty && !hasExactMatch && widget.sidebarTab == 0;
 
                       if (isLoading && listToDisplay.isEmpty) {
-                        return const Center(child: CircularProgressIndicator());
+                        return const Center(
+                            child: NeuProgressRing(semanticLabel: 'Loading channels'));
                       }
 
                       if (listToDisplay.isEmpty && !showAddPrompt) {
@@ -418,12 +422,12 @@ class SidebarPanelState extends State<SidebarPanel> {
                               child: ListTile(
                                 dense: true,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                                leading: Icon(Icons.add_circle_outline, color: theme.primaryColor, size: 20),
+                                leading: Icon(Icons.add_circle_outline, color: themeNotifier.accentInk, size: 20),
                                 title: Text(
                                   "Add '$query' to Favorites",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    color: theme.primaryColor,
+                                    color: themeNotifier.accentInk,
                                     fontSize: 13,
                                   ),
                                 ),
@@ -431,7 +435,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                     ? SizedBox(
                                         width: 16,
                                         height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
+                                        child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
                                       )
                                      : Icon(Icons.chevron_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
                                 onTap: widget.isAdding ? null : () => widget.onAddChannel(query),
@@ -490,24 +494,18 @@ class SidebarPanelState extends State<SidebarPanel> {
                   ),
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+                      NeuIconAction(
+                        icon: Icons.settings,
                         tooltip: 'Settings',
                         onPressed: widget.onShowSettings,
-                        hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                        splashRadius: 20,
-                        constraints: const BoxConstraints(),
-                        padding: EdgeInsets.zero,
+                        style: NeuActionStyle.flat,
                       ),
                       const SizedBox(width: 16),
-                      IconButton(
-                        icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+                      NeuIconAction(
+                        icon: Icons.video_library_outlined,
                         tooltip: 'Library (downloads & history)',
                         onPressed: widget.onShowLibrary,
-                        hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                        splashRadius: 20,
-                        constraints: const BoxConstraints(),
-                        padding: EdgeInsets.zero,
+                        style: NeuActionStyle.flat,
                       ),
                     ],
                   ),
@@ -542,7 +540,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
                       ),
-                      child: Icon(Icons.dashboard_outlined, color: theme.primaryColor, size: 18),
+                      child: Icon(Icons.dashboard_outlined, color: themeNotifier.accentInk, size: 18),
                     ),
             ),
           ),
@@ -559,51 +557,19 @@ class SidebarPanelState extends State<SidebarPanel> {
         Divider(color: NeuTheme.border(themeNotifier.isDarkTheme), height: 1.5, thickness: 1.5),
         const SizedBox(height: 12),
         
-        // Collapsed Tab Toggle
-        (() {
-          bool isHovered = false;
-          return StatefulBuilder(
-            builder: (context, setHoverState) {
-              return MouseRegion(
-                onEnter: (_) => setHoverState(() => isHovered = true),
-                onExit: (_) => setHoverState(() => isHovered = false),
-                child: Tooltip(
-                  message: widget.sidebarTab == 0
-                      ? "Favorites\nSwitch to Followed"
-                      : (widget.sidebarTab == 1 ? "Followed List\nSwitch to Live" : "Live Channels\nSwitch to Favorites"),
-                  waitDuration: Duration.zero,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () {
-                        widget.onTabChanged((widget.sidebarTab + 1) % 3);
-                      },
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: theme.primaryColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: theme.primaryColor, width: 1.5),
-                        ),
-                        child: Icon(
-                          isHovered
-                              ? Icons.swap_horiz
-                              : (widget.sidebarTab == 0
-                                  ? Icons.star
-                                  : (widget.sidebarTab == 1 ? Icons.people : Icons.live_tv)),
-                          color: theme.primaryColor,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          );
-        })(),
+        // Three real buttons. This was a control that CYCLED through the
+        // three tabs on click and revealed its purpose only by swapping to a
+        // swap_horiz icon on hover - so it looked like a status indicator, and
+        // a user had to discover that clicking a star produced a list of
+        // followed channels. It also had no auth guard, unlike the expanded
+        // segmented control, so a signed-out user could cycle onto Followed
+        // and land on "make sure your account is connected".
+        NavScope(
+          current: NavScopeTab.byIndex[widget.sidebarTab] ?? NavScopeTab.favorites,
+          onChanged: (tab) => widget.onTabChanged(tab.index),
+          dense: true,
+          isAuthenticated: widget.settings.twitchOauthToken.trim().isNotEmpty,
+        ),
         
         const SizedBox(height: 12),
 
@@ -613,8 +579,8 @@ class SidebarPanelState extends State<SidebarPanel> {
         const SizedBox(height: 12),
         if (widget.sidebarTab == 0) ...[
           _PinnedFavoritesAutomationButton(
-            theme: theme,
             onPressed: _openFavoritesAutomationDialog,
+            enabled: widget.sidebarTab == 0,
           ),
           const SizedBox(height: 12),
         ],
@@ -628,7 +594,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 ? SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
+                    child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
                   )
                 : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
             onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
@@ -665,10 +631,9 @@ class SidebarPanelState extends State<SidebarPanel> {
                       child: Stack(
                         alignment: Alignment.bottomRight,
                         children: [
-                          NeuAvatar(
-                            url: ch.avatarUrl,
-                            radius: 18,
-                            isDark: themeNotifier.isDarkTheme,
+                          _AvatarWithPlay(
+                            channel: ch,
+                            onPlay: widget.onChannelPlayPressed,
                           ),
                           if (ch.isLive)
                             Positioned(
@@ -710,25 +675,19 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
           child: Column(
             children: [
-              IconButton(
-                icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
-                tooltip: 'Library (downloads & history)',
-                onPressed: widget.onShowLibrary,
-                hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                splashRadius: 20,
-                constraints: const BoxConstraints(),
-                padding: EdgeInsets.zero,
-              ),
+              NeuIconAction(
+                        icon: Icons.video_library_outlined,
+                        tooltip: 'Library (downloads & history)',
+                        onPressed: widget.onShowLibrary,
+                        style: NeuActionStyle.flat,
+                      ),
               const SizedBox(height: 14),
-              IconButton(
-                icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
-                tooltip: 'Settings',
-                onPressed: widget.onShowSettings,
-                hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                splashRadius: 20,
-                constraints: const BoxConstraints(),
-                padding: EdgeInsets.zero,
-              ),
+              NeuIconAction(
+                        icon: Icons.settings,
+                        tooltip: 'Settings',
+                        onPressed: widget.onShowSettings,
+                        style: NeuActionStyle.flat,
+                      ),
             ],
           ),
         ),
@@ -837,50 +796,11 @@ class SidebarPanelState extends State<SidebarPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          (() {
-            bool isHovered = false;
-            return StatefulBuilder(
-              builder: (context, setHoverState) {
-                return MouseRegion(
-                  onEnter: (_) => setHoverState(() => isHovered = true),
-                  onExit: (_) => setHoverState(() => isHovered = false),
-                  child: Tooltip(
-                    message: widget.sidebarTab == 0
-                        ? "Favorites\nSwitch to Followed"
-                        : (widget.sidebarTab == 1 ? "Followed List\nSwitch to Live" : "Live Channels\nSwitch to Favorites"),
-                    waitDuration: Duration.zero,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          widget.onTabChanged((widget.sidebarTab + 1) % 3);
-                        },
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: theme.primaryColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: theme.primaryColor, width: 1.5),
-                          ),
-                          child: Icon(
-                            isHovered
-                                ? Icons.swap_horiz
-                                : (widget.sidebarTab == 0
-                                    ? Icons.star
-                                    : (widget.sidebarTab == 1 ? Icons.people : Icons.live_tv)),
-                            color: theme.primaryColor,
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            );
-          })(),
+          NavScopeRow(
+                  current: NavScopeTab.byIndex[widget.sidebarTab] ?? NavScopeTab.favorites,
+                  onChanged: (tab) => widget.onTabChanged(tab.index),
+                  isAuthenticated: widget.settings.twitchOauthToken.trim().isNotEmpty,
+                ),
           const SizedBox(width: 8),
           _buildSearchPopoverTrigger(theme, size: 32),
           const SizedBox(width: 8),
@@ -893,7 +813,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                   ? SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: theme.primaryColor),
+                      child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
                     )
                   : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
               onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
@@ -988,8 +908,8 @@ class SidebarPanelState extends State<SidebarPanel> {
           if (widget.sidebarTab == 0) ...[
             const SizedBox(width: 6),
             _PinnedFavoritesAutomationButton(
-              theme: theme,
               onPressed: _openFavoritesAutomationDialog,
+              enabled: widget.sidebarTab == 0,
             ),
           ],
           const SizedBox(width: 8),
@@ -1016,84 +936,70 @@ class SidebarPanelState extends State<SidebarPanel> {
   }
 }
 
-class _PinnedFavoritesAutomationButton extends StatefulWidget {
-  final ThemeData theme;
-  final VoidCallback onPressed;
-
+/// The entry point to the Auto Download & Play manager.
+///
+/// Was a button showing a play triangle with an amber star that swapped to a
+/// gear ON HOVER - so at rest it looked like "play something", and the only
+/// way to learn otherwise was to hover it. It was also hidden entirely unless
+/// the Favorites tab was selected, which meant the two settings it owns
+/// (vodWatchExclusionThreshold, autoPlayPreemptLowerPriority) lived behind a
+/// control that was invisible most of the time and misleading the rest.
+///
+/// Now: one stable icon that means "automation", always visible, and disabled
+/// with a reason rather than absent when it cannot be used.
+class _PinnedFavoritesAutomationButton extends StatelessWidget {
   const _PinnedFavoritesAutomationButton({
     Key? key,
-    required this.theme,
     required this.onPressed,
+    this.enabled = true,
+    this.expanded = false,
   }) : super(key: key);
 
-  @override
-  State<_PinnedFavoritesAutomationButton> createState() => _PinnedFavoritesAutomationButtonState();
-}
+  final VoidCallback onPressed;
+  final bool enabled;
 
-class _PinnedFavoritesAutomationButtonState extends State<_PinnedFavoritesAutomationButton> {
-  bool isHovered = false;
+  /// Show a label beside the icon, where there is room for one.
+  final bool expanded;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => isHovered = true),
-      onExit: (_) => setState(() => isHovered = false),
-      cursor: SystemMouseCursors.click,
-      child: Tooltip(
-        message: 'Auto Download & Play',
-        waitDuration: Duration.zero,
-        child: GestureDetector(
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.all(7),
-            decoration: isHovered
-                ? NeuTheme.raisedDecoration(
-                    themeNotifier.isDarkTheme,
-                    radius: 8,
-                    border: Border.all(color: widget.theme.primaryColor, width: 1.5),
-                  )
-                : NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(
-                  isHovered ? Icons.settings : Icons.play_arrow,
-                  color: isHovered ? widget.theme.primaryColor : NeuTheme.text(themeNotifier.isDarkTheme),
-                  size: 16,
-                ),
-                Positioned(
-                  right: -5,
-                  bottom: -5,
-                  child: Container(
-                    padding: const EdgeInsets.all(0.5),
-                    decoration: BoxDecoration(
-                      color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.star,
-                      color: Colors.amber,
-                      size: 9,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+    final isDark = themeNotifier.isDarkTheme;
+
+    if (!expanded) {
+      return NeuIconAction(
+        icon: Icons.auto_mode,
+        tooltip: 'Automation — auto-play and auto-download for favorites',
+        onPressed: enabled ? onPressed : null,
+        disabledReason: 'switch to Favorites to configure automation',
+        size: NeuActionSize.sm,
+      );
+    }
+
+    return NeuButton(
+      onPressed: enabled ? onPressed : null,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      borderRadius: BorderRadius.circular(NeuRadius.r8),
+      tooltip: 'Auto-play and auto-download for favorite channels',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.auto_mode,
+              size: 15,
+              color: enabled
+                  ? NeuTheme.text(isDark)
+                  : NeuTheme.disabledText(isDark)),
+          const SizedBox(width: NeuSpace.s6),
+          Text('Automation',
+              style: NeuTheme.bodyStyle(isDark, fontSize: 12).copyWith(
+                  color: enabled
+                      ? NeuTheme.text(isDark)
+                      : NeuTheme.disabledText(isDark))),
+        ],
       ),
     );
   }
 }
 
-
-/// One channel row in the expanded sidebar list.
-///
-/// A real StatefulWidget keyed by channel: the hover state previously lived in
-/// a per-item closure + StatefulBuilder, so every 60-second poll rebuild
-/// destroyed it mid-hover. Also hosts the hover play affordance - the row's
-/// only launch gesture used to be an undiscoverable double-click.
 class _SidebarChannelRow extends StatefulWidget {
   const _SidebarChannelRow({
     Key? key,
@@ -1129,7 +1035,6 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isDark = themeNotifier.isDarkTheme;
     final channel = widget.channel;
 
@@ -1140,7 +1045,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
       height: 32,
       child: (_hovered && channel.isLive)
           ? IconButton(
-              icon: Icon(Icons.play_arrow, size: 20, color: theme.primaryColor),
+              icon: Icon(Icons.play_arrow, size: 20, color: themeNotifier.accentInk),
               tooltip: 'Watch now',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints.tightFor(width: 32, height: 32),
@@ -1153,7 +1058,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
     final Widget starSlot;
     if (widget.showFavoriteStarAlways || widget.isFavorite) {
       starSlot = IconButton(
-        icon: const Icon(Icons.star, color: Colors.amber, size: 18),
+        icon: Icon(Icons.star, color: NeuTheme.favoriteText(themeNotifier.isDarkTheme), size: 18),
         onPressed: () => widget.onToggleFavorite(channel),
         tooltip: 'Remove from Favorites',
         splashRadius: 18,
@@ -1177,7 +1082,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
             ? NeuTheme.raisedDecoration(
                 isDark,
                 radius: 10,
-                border: Border.all(color: theme.primaryColor, width: 1.5),
+                border: Border.all(color: themeNotifier.accentInk, width: 1.5),
               )
             : (_hovered
                 ? NeuTheme.raisedDecoration(isDark, radius: 10)
@@ -1185,7 +1090,27 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                     color: NeuTheme.surface(isDark),
                     borderRadius: BorderRadius.circular(10),
                   )),
-        child: GestureDetector(
+        child: NeuContextMenu(
+          // The app had no right-click menus at all, so every action lived in
+          // a hover-reveal or nowhere. This is where a desktop user already
+          // looks for them.
+          items: [
+            NeuMenuItem(
+              label: 'Watch now',
+              icon: Icons.play_arrow,
+              enabled: channel.isLive,
+              onSelected: () => widget.onPlayPressed(channel),
+            ),
+            NeuMenuItem(
+              label: widget.isFavorite
+                  ? 'Remove from favorites'
+                  : 'Add to favorites',
+              icon: widget.isFavorite ? Icons.star_border : Icons.star,
+              onSelected: () => widget.onToggleFavorite(channel),
+              isDestructive: widget.isFavorite,
+            ),
+          ],
+          child: GestureDetector(
           onDoubleTap:
               channel.isLive ? () => widget.onDoubleTapped(channel) : null,
           child: ListTile(
@@ -1258,7 +1183,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
             subtitle: channel.isLoading
                 ? const Padding(
                     padding: EdgeInsets.only(top: 4),
-                    child: LinearProgressIndicator(minHeight: 1.5),
+                    child: NeuProgressBar(size: NeuProgressSize.xs, semanticLabel: 'Loading'),
                   )
                 : Text(
                     channel.isLive ? (channel.game ?? 'Playing...') : 'Offline',
@@ -1272,6 +1197,65 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
             onTap: () => widget.onSelected(channel),
           ),
         ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A rail/bar avatar that reveals a play control on hover.
+///
+/// The expanded row gained a hover play button because double-click alone was,
+/// in the codebase's own words, undiscoverable. The rail and horizontal bar
+/// never got the same treatment, so in those layouts double-click remained the
+/// ONLY way to launch a stream.
+class _AvatarWithPlay extends StatefulWidget {
+  const _AvatarWithPlay({required this.channel, required this.onPlay});
+
+  final TwitchChannel channel;
+  final ValueChanged<TwitchChannel> onPlay;
+
+  @override
+  State<_AvatarWithPlay> createState() => _AvatarWithPlayState();
+}
+
+class _AvatarWithPlayState extends State<_AvatarWithPlay> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final avatar = NeuAvatar(
+      url: widget.channel.avatarUrl,
+      radius: 18,
+      isDark: themeNotifier.isDarkTheme,
+    );
+
+    if (!widget.channel.isLive) return avatar;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          avatar,
+          if (_hovered)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  tooltip: 'Watch ${widget.channel.username}',
+                  icon: const Icon(Icons.play_arrow,
+                      size: 18, color: Colors.white),
+                  onPressed: () => widget.onPlay(widget.channel),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

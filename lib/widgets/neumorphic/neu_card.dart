@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
 import 'neu_focusable.dart';
+import '../../theme/neu_theme.dart';
 import '../../theme/theme_notifier.dart';
 
 class NeuCard extends StatelessWidget {
@@ -40,7 +41,7 @@ class NeuCard extends StatelessWidget {
       cardBorder = Border.all(color: primary, width: 2.0);
     } else if (isLive) {
       cardBorder = Border.all(
-        color: const Color(0xFF00E6A5).withValues(alpha: 0.6),
+        color: NeuTheme.live.withValues(alpha: 0.6),
         width: 1.5,
       );
     }
