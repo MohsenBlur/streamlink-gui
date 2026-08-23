@@ -3,6 +3,7 @@ import 'package:window_manager/window_manager.dart';
 import 'neu_container.dart';
 import 'neu_button.dart';
 import '../../theme/neu_theme.dart';
+import 'neu_badge.dart';
 
 class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -67,26 +68,9 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                       Tooltip(
                         message:
                             '$liveCount favorite channel${liveCount == 1 ? '' : 's'} live',
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: NeuTheme.live.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: NeuTheme.live.withValues(alpha: 0.4),
-                              width: 1,
-                            ),
-                          ),
-                          child: Text(
-                            '$liveCount LIVE',
-                            style: TextStyle(
-                              color: NeuTheme.liveText(isDarkTheme),
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
+                        child: LiveBadge(
+                          variant: LiveVariant.count,
+                          count: liveCount,
                         ),
                       ),
                       const SizedBox(width: 10),

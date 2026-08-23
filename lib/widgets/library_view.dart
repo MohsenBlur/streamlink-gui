@@ -6,6 +6,7 @@ import '../state/activity_state.dart';
 import '../state/library_entries.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_progress.dart';
+import 'neumorphic/neu_badge.dart';
 import '../theme/theme_notifier.dart';
 import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
@@ -366,21 +367,9 @@ class _LibraryViewState extends State<LibraryView> {
             ),
           ),
           const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: theme.primaryColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                  color: theme.primaryColor.withValues(alpha: 0.4)),
-            ),
-            child: Text(queued ? 'QUEUED' : 'DOWNLOADING',
-                style: TextStyle(
-                  fontSize: 8.5,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                  color: theme.primaryColor,
-                )),
+          StatusBadge(
+            label: queued ? 'Queued' : 'Downloading',
+            tone: BadgeTone.accent,
           ),
           if (widget.onStopActivity != null) ...[
             const SizedBox(width: 10),
@@ -553,30 +542,9 @@ class _LibraryRowState extends State<_LibraryRow> {
               ),
               const SizedBox(width: 12),
             ],
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: entry.isDownloaded
-                    ? NeuTheme.live.withValues(alpha: 0.12)
-                    : NeuTheme.subtext(isDark).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: entry.isDownloaded
-                      ? NeuTheme.live.withValues(alpha: 0.4)
-                      : NeuTheme.subtext(isDark).withValues(alpha: 0.4),
-                ),
-              ),
-              child: Text(
-                entry.isDownloaded ? 'DOWNLOADED' : 'STREAMED',
-                style: TextStyle(
-                  fontSize: 8.5,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                  color: entry.isDownloaded
-                      ? NeuTheme.liveText(isDark)
-                      : NeuTheme.subtext(isDark),
-                ),
-              ),
+            StatusBadge(
+              label: entry.isDownloaded ? 'Downloaded' : 'Streamed',
+              tone: entry.isDownloaded ? BadgeTone.live : BadgeTone.neutral,
             ),
             const SizedBox(width: 10),
             _actionButton(
