@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'neu_container.dart';
 import '../../theme/neu_theme.dart';
+import '../shell/motion.dart';
 import '../../theme/theme_notifier.dart';
 import 'neu_focusable.dart';
 
@@ -137,7 +138,8 @@ class _NeuTextFieldState extends State<NeuTextField> {
     final isDark = theme.brightness == Brightness.dark;
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
+      duration: NeuMotion.duration(context, NeuMotion.fast),
+      curve: NeuMotion.curve,
       height: widget.height ?? widget.size.height,
       child: NeuContainer(
         style: NeuStyle.sunken,

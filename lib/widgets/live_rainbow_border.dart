@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'shell/motion.dart';
+
 class LiveRainbowBorder extends StatefulWidget {
   final Widget child;
   final double strokeWidth;
@@ -32,6 +34,18 @@ class LiveRainbowBorder extends StatefulWidget {
 class _LiveRainbowBorderState extends State<LiveRainbowBorder> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   Timer? _stopTimer;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // MediaQuery is not safe to read in initState, and this is the lifecycle
+    // hook that also fires if the user changes the setting while running.
+    if (NeuMotion.reduced(context)) {
+      _controller.stop();
+    } else if (widget.animate && !_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
 
   @override
   void initState() {

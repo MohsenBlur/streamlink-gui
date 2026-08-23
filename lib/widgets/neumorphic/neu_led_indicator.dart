@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/neu_theme.dart';
+import '../shell/motion.dart';
 
 class NeuLedIndicator extends StatefulWidget {
   final double size;
@@ -29,8 +30,11 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
   bool get _shouldPulse => widget.isLive && widget.isPulsing;
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Not initState: _syncAnimation reads MediaQuery for the reduced-motion
+    // setting, which is not available until dependencies are resolved. This
+    // hook also fires if the user changes that setting while the app runs.
     _syncAnimation();
   }
 
@@ -46,7 +50,9 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
   }
 
   void _syncAnimation() {
-    if (_shouldPulse) {
+    // A live dot that half-vanishes twice a second is exactly what the
+    // reduced-motion setting exists to stop.
+    if (_shouldPulse && !NeuMotion.reduced(context)) {
       _controller ??= AnimationController(
         vsync: this,
         duration: const Duration(milliseconds: 1200),
@@ -57,6 +63,9 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
       _controller!.repeat(reverse: true);
     } else {
       _controller?.stop();
+      // Settle bright rather than wherever the tween happened to be, so a
+      // stopped LED does not sit at 40% and read as offline.
+      _controller?.value = 1.0;
     }
   }
 

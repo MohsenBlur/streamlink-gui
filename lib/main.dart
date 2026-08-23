@@ -18,6 +18,7 @@ import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
 import 'widgets/shell/app_layout.dart';
+import 'widgets/shell/motion.dart';
 import 'widgets/shell/neu_dialog.dart';
 import 'widgets/neumorphic/neu_progress.dart';
 import 'widgets/neumorphic/neu_text_field.dart';
@@ -326,10 +327,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     windowManager.addListener(this);
     _initSystemTray();
     
+    // Created stopped. It used to `..repeat(reverse: true)` here and was
+    // only ever touched again by dispose(), so it drove a 60fps rebuild for
+    // the entire life of the process - including while the app sat in the
+    // tray, which is its normal resting state, with nothing live to pulse.
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
-    )..repeat(reverse: true);
+    );
 
     // Initialize player service archive path and listener hooks
     _playerService.downloadArchiveFilePath = _storageService.getStorageFile('yt_dlp_archive.txt').path;
@@ -346,6 +351,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _logNotifier.beginSession(key, title);
       {
         _publishActivity();
+        _updatePulse();
         setState(() {});
       }
     };
@@ -364,6 +370,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
       {
         _publishActivity();
+        _updatePulse();
         setState(() {});
         // A player that never opened is otherwise silent: the console drawer
         // used to be the only hint. Surface it, with the log one tap away.
@@ -808,8 +815,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             onClicked: (menuItem) => _launchTrayChannel(name),
           ),
         if (liveNames.isNotEmpty) MenuSeparator(),
-        MenuItemLabel(label: 'Show App', onClicked: (menuItem) => windowManager.show()),
-        MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => windowManager.hide()),
+        MenuItemLabel(label: 'Show App', onClicked: (menuItem) => _showWindow()),
+        MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => _hideWindow()),
         MenuItemLabel(
           label: 'Open Library',
           onClicked: (menuItem) async {
@@ -930,6 +937,51 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     await windowManager.destroy();
   }
 
+  /// Runs the shared pulse only when something is actually pulsing and the
+  /// user can see it.
+  ///
+  /// Deliberately ONE controller rather than one per consumer: every pulse in
+  /// the app means the same thing ("this is live"), and independent
+  /// controllers would drift out of phase, so a sidebar of live channels would
+  /// shimmer instead of breathe.
+  void _updatePulse() {
+    final controller = _pulseController;
+    if (controller == null) return;
+
+    final somethingLive = _channels.any((c) => c.isLive) ||
+        _playerService.runningChannels.isNotEmpty ||
+        _playerService.playingVodIds.isNotEmpty;
+    // Gated here rather than in each consumer, so honouring the setting is not
+    // something five widgets each have to remember.
+    final reducedMotion = mounted && NeuMotion.reduced(context);
+    final shouldRun = somethingLive && _windowVisible && !reducedMotion;
+
+    if (shouldRun && !controller.isAnimating) {
+      controller.repeat(reverse: true);
+    } else if (!shouldRun && controller.isAnimating) {
+      controller.stop();
+      // Settle at full value rather than wherever it happened to stop, so a
+      // paused pulse does not leave a badge stuck at 40% opacity.
+      controller.value = 1.0;
+    }
+  }
+
+  Future<void> _showWindow() async {
+    await windowManager.show();
+    _windowVisible = true;
+    _updatePulse();
+  }
+
+  Future<void> _hideWindow() async {
+    await windowManager.hide();
+    _windowVisible = false;
+    _updatePulse();
+  }
+
+  /// Whether the window is on screen. Starts true; the tray/minimise paths
+  /// below keep it honest.
+  bool _windowVisible = true;
+
   Timer? _windowSaveTimer;
 
   Future<void> _saveWindowState() async {
@@ -983,11 +1035,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   @override
+  void onWindowRestore() {
+    _windowVisible = true;
+    _updatePulse();
+  }
+
+  @override
   void onWindowMinimize() async {
+    _windowVisible = false;
+    _updatePulse();
     // Default is the Windows convention (taskbar); 'tray' preserves the old
     // behavior for users who want it.
     if (_settings.minimizeAction == 'tray') {
-      await windowManager.hide();
+      await _hideWindow();
     }
   }
 
@@ -1745,6 +1805,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
 
     _checkFavoritesAutomation();
+    // Liveness just changed, so the pulse may need to start or stop.
+    _updatePulse();
 
     if (_selectedChannel != null) {
       final index = _channels.indexWhere((c) => c.username == _selectedChannel!.username);

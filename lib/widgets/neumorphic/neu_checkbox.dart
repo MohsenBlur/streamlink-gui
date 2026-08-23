@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/neu_theme.dart';
+import '../shell/motion.dart';
 import 'neu_focusable.dart';
 
 class NeuCheckbox extends StatelessWidget {
@@ -27,7 +28,8 @@ class NeuCheckbox extends StatelessWidget {
     final enabled = onChanged != null;
 
     final box = AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
+      duration: NeuMotion.duration(context, NeuMotion.fast),
+      curve: NeuMotion.curve,
       width: size,
       height: size,
       decoration: value

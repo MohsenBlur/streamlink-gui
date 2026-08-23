@@ -9,6 +9,7 @@ import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_card.dart';
 import '../theme/neu_theme.dart';
 import 'shell/app_layout.dart';
+import 'shell/motion.dart';
 import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
@@ -210,16 +211,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   }) {
     Widget iconWidget = Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme));
     if (isLoading) {
-      iconWidget = AnimatedBuilder(
-        animation: widget.pulseController,
-        builder: (context, child) {
-          return Transform.rotate(
-            angle: widget.pulseController.value * 2 * 3.141592653589793,
-            child: child,
-          );
-        },
-        child: iconWidget,
-      );
+      // Its own forward-only controller. It used to read the shared pulse,
+      // which runs `repeat(reverse: true)` - so the refresh icon spun forwards
+      // for a second and then spun BACKWARDS for a second, forever.
+      iconWidget = _SpinningIcon(child: iconWidget);
     }
 
     return Container(
@@ -644,5 +639,40 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     );
 
     return cardWidget;
+  }
+}
+
+/// A forward-only rotation, for "working" indicators.
+class _SpinningIcon extends StatefulWidget {
+  const _SpinningIcon({required this.child});
+  final Widget child;
+
+  @override
+  State<_SpinningIcon> createState() => _SpinningIconState();
+}
+
+class _SpinningIconState extends State<_SpinningIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (!NeuMotion.reduced(context)) _controller.repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (NeuMotion.reduced(context)) return widget.child;
+    return RotationTransition(turns: _controller, child: widget.child);
   }
 }
