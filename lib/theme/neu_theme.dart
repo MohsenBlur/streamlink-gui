@@ -115,34 +115,63 @@ class NeuTheme {
   ///
   /// Cost is a short loop, so callers should cache — see
   /// `AppThemeNotifier.accentInk`.
-  static Color accentInk(Color accent, bool isDark) {
-    // The worst ground, not the worst *token*. Light ink on a dark theme is
-    // hurt by the LIGHTEST ground, and a fill only ever darkens, so dark mode's
-    // worst case is the flat surface. Dark ink on a light theme is hurt by the
-    // DARKEST ground, which is the well's gradient floor - a fill floor this
-    // derivation used to ignore, leaving Soft Pink at 4.38:1 there while
-    // reporting it clear.
-    final ground = isDark ? darkSurface : fillFloor(wellSurface(false));
-    if (contrastRatio(accent, ground) >= _inkTarget) return accent;
+  static Color accentInk(Color accent, bool isDark, {AppMaterial? material}) {
+    final p = palette(isDark, material: material);
+    return readableOn(accent, p, ground: p.inkGround);
+  }
 
-    final hsl = HSLColor.fromColor(accent);
-    // Darkening desaturates perceptually, so nudge saturation up in light mode
-    // to keep the hue recognisable as the colour the user picked.
+  /// The accent made readable on a [SurfaceRole.screen].
+  ///
+  /// A separate derivation because a screen is dark in **both** brightnesses,
+  /// and asking one colour to clear 4.5:1 against a light material's canvas
+  /// *and* against its near-black screen is an empty set — the best any single
+  /// colour manages across such a pair is about 3.73:1. A single-direction
+  /// walk would exhaust its 200 steps and fall through to the plain text ink,
+  /// silently discarding the accent the user picked.
+  static Color accentInkOnScreen(Color accent, bool isDark,
+      {AppMaterial? material}) {
+    final p = palette(isDark, material: material);
+    return readableOn(accent, p, ground: p.screen);
+  }
+
+  /// Any brand colour walked until it is readable on a given ground.
+  ///
+  /// Generalised from `accentInk` so the semantic inks can stop being fifty
+  /// hand-calibrated hexes. `liveText` and friends were frozen `isDark ? a : b`
+  /// switches whose doc comments recorded ratios measured against *today's*
+  /// grounds; they do not survive a material that moves the ground, and
+  /// duplicating them per material would be fifty values to keep true forever.
+  ///
+  /// Walks lightness in the direction that helps: darker on a light ground,
+  /// lighter on a dark one. Saturation is nudged up when darkening, because
+  /// darkening desaturates perceptually and the point is to keep the hue
+  /// recognisable as the colour that was asked for.
+  static Color readableOn(
+    Color source,
+    MaterialPalette p, {
+    double target = _inkTarget,
+    Color? ground,
+  }) {
+    final g = ground ?? p.inkGround;
+    if (contrastRatio(source, g) >= target) return source;
+
+    final hsl = HSLColor.fromColor(source);
+    final darken = g.computeLuminance() > 0.5;
     final saturation =
-        isDark ? hsl.saturation : (hsl.saturation * 1.10).clamp(0.0, 1.0);
+        darken ? (hsl.saturation * 1.10).clamp(0.0, 1.0) : hsl.saturation;
 
     for (var i = 1; i <= 200; i++) {
-      final lightness = isDark
-          ? (hsl.lightness + i * 0.005).clamp(0.0, 0.97)
-          : (hsl.lightness - i * 0.005).clamp(0.03, 1.0);
+      final lightness = darken
+          ? (hsl.lightness - i * 0.005).clamp(0.03, 1.0)
+          : (hsl.lightness + i * 0.005).clamp(0.0, 0.97);
       final candidate =
           hsl.withSaturation(saturation).withLightness(lightness).toColor();
-      if (contrastRatio(candidate, ground) >= _inkTarget) return candidate;
+      if (contrastRatio(candidate, g) >= target) return candidate;
     }
-    // A fully achromatic accent can run out of headroom before clearing the
-    // bar; fall back to the plain text ink rather than returning something
-    // unreadable.
-    return text(isDark);
+    // A fully achromatic source can run out of headroom before clearing the
+    // bar; fall back to the palette's own text ink rather than returning
+    // something unreadable.
+    return p.text;
   }
 
   static const double _inkTarget = 4.5;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 
 /// Contrast is the one visual property that is objectively checkable, and the
@@ -31,63 +32,87 @@ const double kNonTextAA = 3.0;
 /// where darkening the fill costs dark ink contrast. The dark theme is immune
 /// for the same reason inverted: darkening the fill *helps* light ink. That
 /// asymmetry is why the light palette has so much less gradient headroom.
-List<({String name, Color color})> groundsFor(bool isDark) {
-  final bases = <({String name, Color color})>[
-    (name: 'canvas', color: NeuTheme.canvas(isDark)),
-    (name: 'surface', color: NeuTheme.surface(isDark)),
-    (name: 'well', color: NeuTheme.wellSurface(isDark)),
-  ];
-  return [
-    for (final b in bases) ...[
-      b,
-      (name: '${b.name} fill floor', color: NeuTheme.fillFloor(b.color)),
-    ],
-  ];
+List<({String name, Color color})> groundsFor(bool isDark,
+    {AppMaterial? material}) {
+  final p = NeuTheme.palette(isDark, material: material);
+  final seen = <int>{};
+  final out = <({String name, Color color})>[];
+  void add(String name, Color c) {
+    if (seen.add(c.toARGB32())) out.add((name: name, color: c));
+  }
+
+  // Every role's ground, and the worst point that role's fill reaches. `screen`
+  // is excluded: it is dark in both brightnesses, so it is not a ground the
+  // ordinary inks are ever asked to survive - it has its own derivation.
+  for (final role in SurfaceRole.values) {
+    if (RoleModifier.of(role).fill == Ground.screen) continue;
+    final base = p.groundFor(RoleModifier.of(role).fill);
+    add(role.name, base);
+    add('${role.name} worst stop', p.worstGround(role));
+  }
+  return out;
 }
+
+/// The materials the matrix runs over.
+///
+/// Read through `MaterialSpec.available` rather than `AppMaterial.values`, so
+/// the suite covers what actually exists and grows on its own as materials
+/// land.
+List<AppMaterial> get materialsUnderTest =>
+    MaterialSpec.available.map((s) => s.id).toList();
 
 void expectInk(
   String label,
   Color ink,
   bool isDark, {
   double min = kTextAA,
+  AppMaterial? material,
 }) {
-  for (final ground in groundsFor(isDark)) {
+  for (final ground in groundsFor(isDark, material: material)) {
     final ratio = NeuTheme.contrastRatio(ink, ground.color);
     expect(ratio, greaterThanOrEqualTo(min),
         reason: '$label on ${ground.name} '
-            '(${isDark ? 'dark' : 'light'}) measured '
-            '${ratio.toStringAsFixed(2)}:1, needs $min:1');
+            '(${material?.key ?? 'active'}, ${isDark ? 'dark' : 'light'}) '
+            'measured ${ratio.toStringAsFixed(2)}:1, needs $min:1');
   }
 }
 
 void main() {
   group('text inks clear AA on every ground', () {
+    // The material axis, added because a suite that only ever exercised the
+    // default would report green for every other material. Selected by
+    // parameter rather than by mutating the notifier in a loop: the accessors
+    // are still the real ones, so this certifies colours the app actually
+    // paints.
+    for (final m in materialsUnderTest)
     for (final isDark in [false, true]) {
-      final mode = isDark ? 'dark' : 'light';
+      final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
 
       test('primary text — $mode', () {
-        expectInk('text', NeuTheme.text(isDark), isDark);
+        expectInk('text', NeuTheme.text(isDark, material: m), isDark, material: m);
       });
 
       test('subtext — $mode', () {
         // The regression that mattered most: this is subtextStyle's default
         // ink at 11px, the most-used size in the app, and it measured 3.40:1.
-        expectInk('subtext', NeuTheme.subtext(isDark), isDark);
+        expectInk('subtext', NeuTheme.subtext(isDark, material: m), isDark,
+            material: m);
       });
 
       test('semantic status inks — $mode', () {
-        expectInk('liveText', NeuTheme.liveText(isDark), isDark);
-        expectInk('dangerText', NeuTheme.dangerText(isDark), isDark);
-        expectInk('warningText', NeuTheme.warningText(isDark), isDark);
+        expectInk('liveText', NeuTheme.liveText(isDark), isDark, material: m);
+        expectInk('dangerText', NeuTheme.dangerText(isDark), isDark, material: m);
+        expectInk('warningText', NeuTheme.warningText(isDark), isDark,
+            material: m);
       });
 
       test('non-text inks clear the 3:1 bar — $mode', () {
         // Disabled labels and the favourite star are never body copy, so they
         // are held to the graphics bar rather than the text bar.
-        expectInk('disabledText', NeuTheme.disabledText(isDark), isDark,
-            min: kNonTextAA);
+        expectInk('disabledText', NeuTheme.disabledText(isDark, material: m),
+            isDark, min: kNonTextAA, material: m);
         expectInk('favoriteText', NeuTheme.favoriteText(isDark), isDark,
-            min: kNonTextAA);
+            min: kNonTextAA, material: m);
       });
     }
   });
