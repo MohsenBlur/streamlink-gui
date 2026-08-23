@@ -157,11 +157,18 @@ try {
 } finally { $bmp.Dispose() }
 
 # Guard against the classic silent failure: a uniformly blank capture.
+# Sample a grid rather than two points: a large flat background made a
+# two-pixel test cry wolf on almost every light-theme capture.
 $check = [System.Drawing.Bitmap]::FromFile((Join-Path (Get-Location) $Out))
 try {
-    $c1 = $check.GetPixel([int]($check.Width * 0.5), [int]($check.Height * 0.5))
-    $c2 = $check.GetPixel([int]($check.Width * 0.1), [int]($check.Height * 0.9))
-    $uniform = ($c1 -eq $c2)
+    $seen = @{}
+    foreach ($fx in 0.1, 0.3, 0.5, 0.7, 0.9) {
+        foreach ($fy in 0.1, 0.3, 0.5, 0.7, 0.9) {
+            $c = $check.GetPixel([int]($check.Width * $fx), [int]($check.Height * $fy))
+            $seen['{0:X2}{1:X2}{2:X2}' -f $c.R, $c.G, $c.B] = $true
+        }
+    }
+    $uniform = ($seen.Count -le 1)
 } finally { $check.Dispose() }
 
 Write-Host ("Saved {0} ({1}x{2})" -f $Out, $w, $h) -ForegroundColor Green

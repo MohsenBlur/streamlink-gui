@@ -75,3 +75,7 @@ app.*.map.json
 .env
 .env.*
 
+
+# Screenshot review artifacts: large, regenerable, and they can contain
+# real channel names and avatars from the captured session.
+shots/
