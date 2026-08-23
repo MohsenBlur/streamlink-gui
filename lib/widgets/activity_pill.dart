@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../state/activity_state.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 import 'interactive_popover.dart';
 
@@ -93,7 +94,6 @@ class ActivityPill extends StatelessWidget {
 
   Widget _pill(BuildContext context, ActivitySnapshot s) {
     final theme = Theme.of(context);
-    final isDark = themeNotifier.isDarkTheme;
     final progress = s.meanDownloadProgress;
 
     return Tooltip(
@@ -132,18 +132,11 @@ class ActivityPill extends StatelessWidget {
             ),
             if (!compact && progress != null) ...[
               const SizedBox(height: 3),
-              SizedBox(
+              NeuProgressBar(
+                value: progress,
+                size: NeuProgressSize.xs,
                 width: 90,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 2,
-                    backgroundColor: NeuTheme.border(isDark),
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(theme.primaryColor),
-                  ),
-                ),
+                semanticLabel: 'Overall progress',
               ),
             ],
           ],
@@ -210,7 +203,6 @@ class ActivityPopover extends StatelessWidget {
   }
 
   Widget _row(BuildContext context, ActivityItem item, bool isDark) {
-    final theme = Theme.of(context);
     final isDownload = item.isDownload;
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -234,15 +226,10 @@ class ActivityPopover extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: item.progress,
-                            minHeight: 3,
-                            backgroundColor: NeuTheme.border(isDark),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                theme.primaryColor),
-                          ),
+                        child: NeuProgressBar(
+                          value: item.progress,
+                          size: NeuProgressSize.sm,
+                          semanticLabel: item.label,
                         ),
                       ),
                       if (item.status != null) ...[

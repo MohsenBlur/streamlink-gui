@@ -5,6 +5,7 @@ import '../state/activity_state.dart';
 
 import '../state/library_entries.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
@@ -347,15 +348,10 @@ class _LibraryViewState extends State<LibraryView> {
                   Row(
                     children: [
                       Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: item.progress,
-                            minHeight: 3,
-                            backgroundColor: NeuTheme.border(isDark),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                theme.primaryColor),
-                          ),
+                        child: NeuProgressBar(
+                          value: item.progress,
+                          size: NeuProgressSize.sm,
+                          semanticLabel: item.label,
                         ),
                       ),
                       if (item.status != null) ...[

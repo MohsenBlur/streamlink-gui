@@ -168,6 +168,7 @@ if ($ClickAt) {
     if ($parts.Count -ne 2) { throw "ClickAt must be 'x,y'." }
     $r0 = New-Object Win32Shot+RECT
     [Win32Shot]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
+    $rect0Right = $r0.Right
     $dpiC = [Win32Shot]::GetDpiForWindow($hwnd); if ($dpiC -le 0) { $dpiC = 96 }
     $sc = $dpiC / 96.0
     $cx = $r0.Left + [int]([double]$parts[0].Trim() * $sc)
@@ -196,7 +197,14 @@ if ($ClickAt) {
     }
 
     [Win32Shot]::ClickAbsolute($cx, $cy)
-    Start-Sleep -Milliseconds 1400
+    Start-Sleep -Milliseconds 900
+
+    # Park the cursor off the window before capturing. Leaving it where it
+    # clicked leaves a hover highlight on whatever is under it, which shows up
+    # as a real-looking difference when comparing two phases' captures.
+    [Win32Shot]::SetCursorPos($rect0Right + 40, $r0.Top + 4) | Out-Null
+    Start-Sleep -Milliseconds 500
+
     [Win32Shot]::SetWindowPos($hwnd, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
 }
 

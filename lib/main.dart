@@ -18,6 +18,7 @@ import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
 import 'widgets/shell/app_layout.dart';
+import 'widgets/neumorphic/neu_progress.dart';
 import 'state/vod_cache.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
@@ -648,10 +649,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   children: [
                     Text(statusText, style: NeuTheme.bodyStyle(themeNotifier.isDarkTheme, fontSize: 12)),
                     const SizedBox(height: 12),
-                    LinearProgressIndicator(
+                    NeuProgressBar(
                       value: progress > 0 ? progress : null,
-                      backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                      color: themeNotifier.primaryColor,
+                      semanticLabel: 'Update download',
                     ),
                     const SizedBox(height: 8),
                     Text('${(progress * 100).toStringAsFixed(1)}%', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
@@ -2470,11 +2470,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 4),
-                                LinearProgressIndicator(
+                                NeuProgressBar(
                                   value: progress,
-                                  backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
-                                  valueColor: AlwaysStoppedAnimation<Color>(theme.primaryColor),
-                                  minHeight: 3,
+                                  size: NeuProgressSize.sm,
+                                  semanticLabel: 'Download progress',
                                 ),
                               ],
                             ),
@@ -3256,10 +3255,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               style: NeuTheme.titleStyle(themeNotifier.isDarkTheme, fontSize: 12),
                             ),
                             if (_isBulkUpdatingVods) ...[
-                                                            SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                                                            NeuProgressRing(
+                                size: NeuProgressRingSize.xs,
+                                color: NeuTheme.text(themeNotifier.isDarkTheme),
+                                semanticLabel: 'Syncing',
                               ),
                                                             Text('Syncing with Twitch...', style: NeuTheme.subtextStyle(themeNotifier.isDarkTheme, fontSize: 11)),
                             ] else ...[
