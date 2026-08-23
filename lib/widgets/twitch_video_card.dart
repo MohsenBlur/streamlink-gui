@@ -236,9 +236,12 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                 AspectRatio(
                   aspectRatio: 16 / 9,
                   child: ClipRRect(
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(11),
-                      topRight: Radius.circular(11),
+                    // Concentric: the card is 16 with a 1px border, so a
+                    // flush child is 15. At 11 the corners left a visible
+                    // crescent of card colour inside the thumbnail's edge.
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(NeuRadius.inner(NeuRadius.r16, 1)),
+                      topRight: Radius.circular(NeuRadius.inner(NeuRadius.r16, 1)),
                     ),
                     child: Stack(
                       fit: StackFit.expand,

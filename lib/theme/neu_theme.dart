@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+export 'neu_tokens.dart';
+
+import 'neu_tokens.dart';
+
 class NeuTheme {
   // Master Color Tokens (Extracted directly from reference Neumorphic design)
 
@@ -223,51 +227,133 @@ class NeuTheme {
     );
   }
 
-  // Unified 3D Dual Shadow Decorations
-  static BoxDecoration raisedDecoration(bool isDark, {Color? customBase, double radius = 16.0, Border? border}) {
-    final base = customBase ?? surface(isDark);
+  // ---------------------------------------------------------------------
+  // The one neumorphic recipe.
+  //
+  // There were two, and they did not match. This flat token painted a solid
+  // colour with hardcoded +/-5 offsets and no depth parameter; NeuContainer
+  // painted a top-left gradient with depth-driven offsets and a highlight
+  // border. A comment in neu_container.dart claimed they were "the same
+  // recipe" - they differed on three of five properties, so two adjacent
+  // raised surfaces built through different paths visibly disagreed.
+  //
+  // The gradient recipe wins, for three reasons: only it can express state
+  // (NeuButton already drives depth on press and hover, and the flat one has
+  // no depth parameter at all, so 36 surfaces were frozen at one elevation);
+  // the gradient IS the neumorphism, since a flat rectangle with two drop
+  // shadows reads as a card WITH a shadow rather than material extruded from
+  // the surface; and the flat version is a strict subset of it.
+  // ---------------------------------------------------------------------
+
+  /// Shifts a colour's HSL lightness.
+  ///
+  /// Replaces a flat per-channel RGB offset, which is not perceptually
+  /// uniform, clips at 0, and misbehaved on the translucent bases NeuButton
+  /// passes for its selected state. On the dark well the old offset landed
+  /// near-black; this stays proportional.
+  static Color _shade(Color base, double delta) {
+    final hsl = HSLColor.fromColor(base);
+    return hsl.withLightness((hsl.lightness + delta).clamp(0.0, 1.0)).toColor();
+  }
+
+  /// A surface extruded from the page.
+  static BoxDecoration raised(
+    bool isDark, {
+    Color? base,
+    double radius = NeuRadius.r12,
+    double depth = NeuElevation.d3,
+    double? blur,
+    Border? border,
+    Gradient? gradient,
+    bool circle = false,
+  }) {
+    final b = base ?? surface(isDark);
+    final bl = blur ?? NeuElevation.blurFor(depth);
     return BoxDecoration(
-      color: base,
-      borderRadius: BorderRadius.circular(radius),
-      border: border,
-      boxShadow: [
-        BoxShadow(
-          color: highlight(isDark).withValues(alpha: isDark ? 0.5 : 0.9),
-          offset: const Offset(-5, -5),
-          blurRadius: 10,
-        ),
-        BoxShadow(
-          color: shadow(isDark).withValues(alpha: isDark ? 0.7 : 0.8),
-          offset: const Offset(5, 5),
-          blurRadius: 10,
-        ),
-      ],
+      gradient: gradient ??
+          LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [b, _shade(b, -0.030)],
+          ),
+      shape: circle ? BoxShape.circle : BoxShape.rectangle,
+      borderRadius: circle ? null : BorderRadius.circular(radius),
+      border: border ??
+          Border.all(
+            color: highlight(isDark).withValues(alpha: isDark ? 0.06 : 0.60),
+            width: 1.0,
+          ),
+      boxShadow: depth <= 0
+          ? const <BoxShadow>[]
+          : [
+              BoxShadow(
+                color: highlight(isDark).withValues(alpha: isDark ? 0.50 : 0.90),
+                offset: Offset(-depth, -depth),
+                blurRadius: bl,
+              ),
+              BoxShadow(
+                color: shadow(isDark).withValues(alpha: isDark ? 0.70 : 0.80),
+                offset: Offset(depth, depth),
+                blurRadius: bl,
+              ),
+            ],
     );
   }
 
-  static BoxDecoration sunkenDecoration(bool isDark, {Color? customBase, double radius = 16.0, Border? border}) {
-    final base = customBase ?? surface(isDark);
+  /// A surface recessed into the page.
+  ///
+  /// The base defaults to [wellSurface], not [surface]. A sunken thing is a
+  /// well; defaulting to the surface colour meant NeuSwitch's off-track was
+  /// the exact colour of the panel behind it, so **the off state was invisible
+  /// in light mode**. Two of the three sunken consumers already overrode this.
+  static BoxDecoration sunken(
+    bool isDark, {
+    Color? base,
+    double radius = NeuRadius.r12,
+    double depth = NeuElevation.d2,
+    double? blur,
+    Border? border,
+    bool circle = false,
+  }) {
+    final b = base ?? wellSurface(isDark);
+    final bl = blur ?? NeuElevation.blurFor(depth);
     return BoxDecoration(
-      color: base,
-      borderRadius: BorderRadius.circular(radius),
-      border: border ?? Border.all(
-        color: isDark ? Colors.black.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.04),
-        width: 1.0,
-      ),
-      boxShadow: [
-        BoxShadow(
-          color: shadow(isDark).withValues(alpha: isDark ? 0.6 : 0.6),
-          offset: const Offset(3, 3),
-          blurRadius: 6,
-          spreadRadius: -1,
-        ),
-        BoxShadow(
-          color: highlight(isDark).withValues(alpha: isDark ? 0.4 : 0.8),
-          offset: const Offset(-3, -3),
-          blurRadius: 6,
-          spreadRadius: -1,
-        ),
-      ],
+      color: b,
+      shape: circle ? BoxShape.circle : BoxShape.rectangle,
+      borderRadius: circle ? null : BorderRadius.circular(radius),
+      border: border ??
+          Border.all(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.045),
+            width: 1.0,
+          ),
+      boxShadow: depth <= 0
+          ? const <BoxShadow>[]
+          : [
+              BoxShadow(
+                color: shadow(isDark).withValues(alpha: isDark ? 0.65 : 0.70),
+                offset: Offset(depth, depth),
+                blurRadius: bl,
+                spreadRadius: -depth / 2,
+              ),
+              BoxShadow(
+                color: highlight(isDark).withValues(alpha: isDark ? 0.35 : 0.85),
+                offset: Offset(-depth, -depth),
+                blurRadius: bl,
+                spreadRadius: -depth / 2,
+              ),
+            ],
     );
   }
+
+  /// Kept so the ~36 existing call sites need no edit. They silently gain the
+  /// gradient and a depth parameter.
+  static BoxDecoration raisedDecoration(bool isDark,
+          {Color? customBase, double radius = NeuRadius.r12, Border? border}) =>
+      raised(isDark, base: customBase, radius: radius, border: border);
+
+  /// Kept for the same reason. Note the base default change documented on
+  /// [sunken]: call sites that want the panel colour must now say so.
+  static BoxDecoration sunkenDecoration(bool isDark,
+          {Color? customBase, double radius = NeuRadius.r12, Border? border}) =>
+      sunken(isDark, base: customBase, radius: radius, border: border);
 }

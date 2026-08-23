@@ -31,7 +31,7 @@ class NeuButton extends StatefulWidget {
     this.activeColor,
     this.baseColor,
     this.tooltip,
-    this.depth = 5.0,
+    this.depth = NeuElevation.d3,
   }) : super(key: key);
 
   @override
@@ -105,11 +105,17 @@ class _NeuButtonState extends State<NeuButton> {
             color: widget.isSelected
                 ? accentColor.withValues(alpha: 0.15)
                 : widget.baseColor,
+            // Scale-relative, so a state always lands on a real elevation
+            // step. The old arithmetic - depth * 0.35 clamped to 1..3, and
+            // depth + 2 - produced values between steps, which is why a
+            // pressed button and a sunken panel never quite matched.
             depth: !_enabled
-                ? widget.depth
+                ? NeuElevation.d0
                 : _isPressed
-                    ? (widget.depth * 0.35).clamp(1.0, 3.0)
-                    : (_isHovered ? widget.depth + 2.0 : widget.depth),
+                    ? NeuElevation.lower(widget.depth)
+                    : (_isHovered
+                        ? NeuElevation.raise(widget.depth)
+                        : widget.depth),
             border: widget.isSelected
                 ? Border.all(color: accentColor.withValues(alpha: 0.8), width: 1.5)
                 : null,
