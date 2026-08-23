@@ -78,18 +78,28 @@ void main() {
             final stops = [base, for (final s in p.fill) p.shadeStop(base, s)];
             final lum = stops.map((c) => c.computeLuminance()).toList()..sort();
             final amp = p.texture?.amplitudeFor(role) ?? 0;
+            final gloss = p.gloss * RoleModifier.of(role).glossScale;
             final inkIsDark = p.inkIsDarkOn(role);
+            // Both lighteners, and the branch has to name both. An earlier
+            // version keyed only on the grain, which happened to pass because
+            // no role in the shipped materials carries gloss without also
+            // carrying grain - a coincidence, not a rule, and the first
+            // material that broke it would have failed here for the wrong
+            // reason.
+            final lightened = amp > 0 || gloss > 0;
 
             if (inkIsDark) {
               expect(worst, closeTo(lum.first, 1e-9),
                   reason: '$label $role picked the wrong extreme');
-            } else if (amp == 0) {
+            } else if (!lightened) {
               expect(worst, closeTo(lum.last, 1e-9),
                   reason: '$label $role picked the wrong extreme');
             } else {
               expect(worst, greaterThan(lum.last),
-                  reason: '$label $role must include the grain, which is the '
-                      'lightest thing a textured surface ever shows');
+                  reason: '$label $role must include the layers that composite '
+                      'OVER the fill - the grain and the gloss are the '
+                      'lightest things the surface ever shows, and both peak '
+                      'at the same corner the lightest stop is at');
             }
           }
         });

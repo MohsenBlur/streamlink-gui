@@ -338,16 +338,47 @@ void main() {
     });
 
     test('an accent that is already readable is returned untouched', () {
-      // Derivation must not restyle what does not need it - 5 of the 11
-      // presets pass as-is in dark mode and should keep the exact hue chosen.
-      expect(
-        NeuTheme.accentInk(const Color(0xFF00F2FE), true),
-        const Color(0xFF00F2FE),
-      );
-      expect(
-        NeuTheme.accentInk(const Color(0xFFF59E0B), true),
-        const Color(0xFFF59E0B),
-      );
+      // Derivation must not restyle what does not need it: an accent that
+      // already clears the bar has to come back byte-identical, or the user's
+      // choice is being altered for no gain.
+      //
+      // Stated as the invariant rather than as two example colours. It USED to
+      // name Cyan and Gold, on the note that five of the eleven presets passed
+      // as-is in dark mode - and Gold stopped passing the moment the gloss
+      // layer was folded into `worstGround`, because the ground it is measured
+      // against genuinely got about twelve levels lighter. The old form would
+      // have to be re-picked every time a palette moves; this one cannot go
+      // stale, and it covers all eleven presets on every material.
+      for (final m in materialsUnderTest) {
+        for (final isDark in [false, true]) {
+          final ground = NeuTheme.palette(isDark, material: m).inkGround;
+          kAccentPresets.forEach((name, accent) {
+            if (NeuTheme.contrastRatio(accent, ground) < kTextAA) return;
+            expect(
+              NeuTheme.accentInk(accent, isDark, material: m),
+              accent,
+              reason: '$name already cleared the bar on ${m.key} '
+                  '${isDark ? 'dark' : 'light'} and was restyled anyway',
+            );
+          });
+        }
+      }
+    });
+
+    test('the untouched case is not vacuous', () {
+      // A guard for the guard above: if no preset ever cleared the bar, that
+      // loop would pass by never running a single assertion. Dark grounds have
+      // the headroom, so at least one must.
+      var untouched = 0;
+      for (final m in materialsUnderTest) {
+        final ground = NeuTheme.palette(true, material: m).inkGround;
+        for (final accent in kAccentPresets.values) {
+          if (NeuTheme.contrastRatio(accent, ground) >= kTextAA) untouched++;
+        }
+      }
+      expect(untouched, greaterThan(0),
+          reason: 'no preset is readable as-is on any dark material, so the '
+              'untouched-accent test is asserting nothing at all');
     });
 
     test('the stored accent is never mutated', () {

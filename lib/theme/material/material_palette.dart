@@ -692,25 +692,50 @@ class MaterialPalette {
     // the surface - and the matrix passed on the worst stop while failing on
     // the flat token, which is the tell that the extremes were swapped.
     final inkIsDark = inkIsDarkOn(role);
-    final worst = inkIsDark ? stops.first : stops.last;
+    var worst = inkIsDark ? stops.first : stops.last;
 
-    // The grain, in closed form. It only ever lightens - it composites with
-    // BlendMode.plus and its tile carries the positive deviation only - so
-    // where the ink is light the worst texel is the lightest stop plus the
-    // amplitude, and where the ink is dark the grain moves the ground AWAY
-    // from its worst case and is simply ignored.
+    // Layers 3 and 4 composite OVER the fill, so a stops-only answer measures
+    // a colour nothing lands on. Both are written in closed form here rather
+    // than rasterised, and both are one-directional in the same way: they only
+    // ever lighten, so they push a light-ink worst case further and move a
+    // dark-ink one away from its worst case entirely.
     //
-    // Being able to write this as arithmetic rather than by rasterising and
-    // sampling is the whole reason the texture is lighten-only.
+    // Layer 3, the grain. It composites with BlendMode.plus and its tile
+    // carries the positive deviation only, so the worst texel is exactly the
+    // stop plus the amplitude - an integer, on any ground. Being able to say
+    // that is the whole reason the texture is lighten-only.
+    //
+    // Layer 4, the gloss. Ordinary srcOver at the palette's own alpha, and it
+    // peaks at the SAME corner the lightest fill stop is at - both take their
+    // axis from `lightCorner` - so the two extremes coincide rather than
+    // cancelling. It is the larger of the two by some margin: Rack's dark
+    // gloss is 6% white, which is about twelve sRGB levels, against the
+    // grain's three. It was missing here entirely, which meant the contrast
+    // matrix was measuring a surface four times friendlier than the painted
+    // one on every raised control in the app.
+    //
+    // Layer 5, the bevel, is deliberately NOT included. It is a ring one
+    // logical pixel wide at the very edge of the box, and every surface in the
+    // app carries at least four pixels of padding, so it is not a ground a
+    // glyph ever sits on. The grain and the gloss cover the whole face; the
+    // bevel does not.
     if (inkIsDark) return worst;
+
     final amp = texture?.amplitudeFor(role) ?? 0;
-    if (amp == 0) return worst;
-    return Color.from(
-      alpha: 1,
-      red: ((worst.r * 255 + amp) / 255).clamp(0.0, 1.0),
-      green: ((worst.g * 255 + amp) / 255).clamp(0.0, 1.0),
-      blue: ((worst.b * 255 + amp) / 255).clamp(0.0, 1.0),
-    );
+    if (amp > 0) {
+      worst = Color.from(
+        alpha: 1,
+        red: ((worst.r * 255 + amp) / 255).clamp(0.0, 1.0),
+        green: ((worst.g * 255 + amp) / 255).clamp(0.0, 1.0),
+        blue: ((worst.b * 255 + amp) / 255).clamp(0.0, 1.0),
+      );
+    }
+
+    final peak = gloss * RoleModifier.of(role).glossScale;
+    if (peak > 0) {
+      worst = Color.alphaBlend(glossColour.withValues(alpha: peak), worst);
+    }
+    return worst;
   }
 
   /// True when this palette's own surface is light. Not a theme flag — an
