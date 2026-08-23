@@ -14,6 +14,7 @@ import 'neumorphic/neu_segmented_control.dart';
 import 'package:flutter/gestures.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_avatar.dart';
+import 'neumorphic/neu_icon_action.dart';
 import '../theme/theme_notifier.dart';
 
 class SidebarPanel extends StatefulWidget {
@@ -490,24 +491,18 @@ class SidebarPanelState extends State<SidebarPanel> {
                   ),
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+                      NeuIconAction(
+                        icon: Icons.settings,
                         tooltip: 'Settings',
                         onPressed: widget.onShowSettings,
-                        hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                        splashRadius: 20,
-                        constraints: const BoxConstraints(),
-                        padding: EdgeInsets.zero,
+                        style: NeuActionStyle.flat,
                       ),
                       const SizedBox(width: 16),
-                      IconButton(
-                        icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+                      NeuIconAction(
+                        icon: Icons.video_library_outlined,
                         tooltip: 'Library (downloads & history)',
                         onPressed: widget.onShowLibrary,
-                        hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                        splashRadius: 20,
-                        constraints: const BoxConstraints(),
-                        padding: EdgeInsets.zero,
+                        style: NeuActionStyle.flat,
                       ),
                     ],
                   ),
@@ -710,25 +705,19 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
           child: Column(
             children: [
-              IconButton(
-                icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
-                tooltip: 'Library (downloads & history)',
-                onPressed: widget.onShowLibrary,
-                hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                splashRadius: 20,
-                constraints: const BoxConstraints(),
-                padding: EdgeInsets.zero,
-              ),
+              NeuIconAction(
+                        icon: Icons.video_library_outlined,
+                        tooltip: 'Library (downloads & history)',
+                        onPressed: widget.onShowLibrary,
+                        style: NeuActionStyle.flat,
+                      ),
               const SizedBox(height: 14),
-              IconButton(
-                icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
-                tooltip: 'Settings',
-                onPressed: widget.onShowSettings,
-                hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                splashRadius: 20,
-                constraints: const BoxConstraints(),
-                padding: EdgeInsets.zero,
-              ),
+              NeuIconAction(
+                        icon: Icons.settings,
+                        tooltip: 'Settings',
+                        onPressed: widget.onShowSettings,
+                        style: NeuActionStyle.flat,
+                      ),
             ],
           ),
         ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../state/activity_state.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_progress.dart';
+import 'neumorphic/neu_icon_action.dart';
 import '../theme/theme_notifier.dart';
 import 'interactive_popover.dart';
 
@@ -248,22 +249,12 @@ class ActivityPopover extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Tooltip(
-            message: isDownload ? 'Cancel download' : 'Stop playback',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => onStop(item),
-              child: Container(
-                width: 28,
-                height: 28,
-                decoration: NeuTheme.raisedDecoration(isDark, radius: 8),
-                child: Icon(
-                  isDownload ? Icons.close : Icons.stop_rounded,
-                  size: 14,
-                  color: NeuTheme.dangerText(isDark),
-                ),
-              ),
-            ),
+          NeuIconAction(
+            icon: isDownload ? Icons.close : Icons.stop_rounded,
+            tooltip: isDownload ? 'Cancel download' : 'Stop playback',
+            onPressed: () => onStop(item),
+            size: NeuActionSize.sm,
+            tone: NeuActionTone.danger,
           ),
         ],
       ),

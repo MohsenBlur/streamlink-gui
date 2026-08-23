@@ -7,6 +7,7 @@ import '../state/library_entries.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_progress.dart';
 import 'neumorphic/neu_badge.dart';
+import 'neumorphic/neu_icon_action.dart';
 import '../theme/theme_notifier.dart';
 import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
@@ -551,7 +552,7 @@ class _LibraryRowState extends State<_LibraryRow> {
               icon: Icons.play_arrow,
               tooltip:
                   entry.isDownloaded ? 'Play local file' : 'Stream from Twitch',
-              color: theme.primaryColor,
+              tone: NeuActionTone.accent,
               onPressed: () => widget.onPlay(entry),
             ),
             if (entry.isDownloaded) ...[
@@ -559,14 +560,14 @@ class _LibraryRowState extends State<_LibraryRow> {
               _actionButton(
                 icon: Icons.folder_open,
                 tooltip: 'Show in Explorer',
-                color: NeuTheme.text(isDark),
+                tone: NeuActionTone.neutral,
                 onPressed: () => widget.onOpenFolder(entry),
               ),
               const SizedBox(width: 6),
               _actionButton(
                 icon: Icons.delete_outline,
                 tooltip: 'Delete download',
-                color: NeuTheme.dangerText(isDark),
+                tone: NeuActionTone.danger,
                 onPressed: () => widget.onDelete(entry),
               ),
             ] else ...[
@@ -574,7 +575,7 @@ class _LibraryRowState extends State<_LibraryRow> {
               _actionButton(
                 icon: Icons.history_toggle_off,
                 tooltip: 'Remove from watch history',
-                color: NeuTheme.dangerText(isDark),
+                tone: NeuActionTone.danger,
                 onPressed: () => widget.onRemoveFromHistory(entry),
               ),
             ],
@@ -598,22 +599,15 @@ class _LibraryRowState extends State<_LibraryRow> {
   Widget _actionButton({
     required IconData icon,
     required String tooltip,
-    required Color color,
+    required NeuActionTone tone,
     required VoidCallback onPressed,
   }) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 30,
-          height: 30,
-          decoration:
-              NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: 8),
-          child: Icon(icon, size: 15, color: color),
-        ),
-      ),
+    return NeuIconAction(
+      icon: icon,
+      tooltip: tooltip,
+      onPressed: onPressed,
+      size: NeuActionSize.sm,
+      tone: tone,
     );
   }
 }
