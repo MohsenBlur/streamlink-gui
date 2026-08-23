@@ -3,15 +3,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 
+import 'support/legacy_recipe.dart';
+
 /// The contract every material palette must satisfy, and the proof that `Soft`
 /// reproduces the recipe the app shipped through v1.6.0.
 ///
 /// `Soft` is not a nostalgia option — it is the gate. If the engine cannot
 /// express the old material *from data*, the abstraction is a rack-gear special
 /// case wearing a coat of paint and every material built on it inherits that.
-/// So these assertions run against the live `NeuTheme.raised()` / `sunken()`
-/// output rather than against numbers copied into the test, which would only
-/// prove that two transcriptions agree.
+/// So these assertions run against a **frozen copy** of the v1.6.0 recipe
+/// (`test/support/legacy_recipe.dart`) rather than against numbers typed into
+/// this file, which would only prove that two transcriptions agree — and
+/// rather than against the live `NeuTheme.raised()`, which now *is* the engine
+/// and would compare it against itself.
 void main() {
   group('every palette satisfies the schema contract', () {
     // These were asserts in the constructor until a const constructor turned
@@ -97,14 +101,14 @@ void main() {
         expect(p.fill.last.dh, 0.0);
         expect(p.fill.last.ds, 0.0);
 
-        final shipped = NeuTheme.raised(isDark).gradient as LinearGradient;
+        final shipped = legacyRaised(isDark).gradient! as LinearGradient;
         expect(shipped.colors.first, p.surface);
         expect(shipped.colors.last, NeuTheme.fillFloor(p.surface));
       });
 
       for (final depth in depths) {
         test('the contact stack matches raised(depth: $depth) — $mode', () {
-          final shipped = NeuTheme.raised(isDark, depth: depth).boxShadow!;
+          final shipped = legacyRaised(isDark, depth: depth).boxShadow!;
           expect(p.contact, hasLength(shipped.length));
 
           for (var i = 0; i < shipped.length; i++) {
@@ -121,7 +125,7 @@ void main() {
         });
 
         test('the recess stack matches sunken(depth: $depth) — $mode', () {
-          final shipped = NeuTheme.sunken(isDark, depth: depth).boxShadow!;
+          final shipped = legacySunken(isDark, depth: depth).boxShadow!;
           expect(p.inset, hasLength(shipped.length));
 
           for (var i = 0; i < shipped.length; i++) {

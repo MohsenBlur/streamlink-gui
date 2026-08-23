@@ -6,6 +6,8 @@ import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/material/skeuo_decoration.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 
+import 'support/legacy_recipe.dart';
+
 /// The fidelity gate: the engine's `Soft` must paint what the app shipped.
 ///
 /// `Soft` is not a nostalgia option, it is the proof. If the engine cannot
@@ -55,18 +57,6 @@ void main() {
         .endRecording()
         .toImage(size.width.round(), size.height.round());
   }
-
-  /// The shipped v1.6.0 recipe, reached through the live API.
-  ///
-  /// While `NeuTheme.raised()` still returns the original `BoxDecoration` this
-  /// is the real thing rather than a copy. The moment it is re-pointed at the
-  /// engine, these two calls must be replaced by a frozen verbatim copy of the
-  /// old bodies — otherwise this test compares the engine against itself and
-  /// passes for the wrong reason.
-  Decoration legacyRaised(bool isDark, {required double depth, required double radius}) =>
-      NeuTheme.raised(isDark, depth: depth, radius: radius);
-  Decoration legacySunken(bool isDark, {required double depth, required double radius}) =>
-      NeuTheme.sunken(isDark, depth: depth, radius: radius);
 
   group('Soft paints the shipped recipe', () {
     const size = Size(160, 96);

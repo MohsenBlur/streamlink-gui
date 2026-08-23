@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'material/app_material.dart';
+import 'material/skeuo_decoration.dart';
+
 export 'neu_tokens.dart';
 export 'neu_type.dart';
 
@@ -264,8 +267,30 @@ class NeuTheme {
     return hsl.withLightness((hsl.lightness + delta).clamp(0.0, 1.0)).toColor();
   }
 
+  /// The palette the engine paints from.
+  ///
+  /// `material` defaults to the active one. It is not a convenience: the
+  /// Settings picker previews a material that is *not* active, the contrast
+  /// matrix iterates all of them, and widget tests call these with a literal
+  /// `isDark` and no notifier configured. Global-only dispatch forbids all
+  /// three.
+  static MaterialPalette palette(bool isDark, {AppMaterial? material}) =>
+      MaterialSpec.of(material ?? activeMaterial).palette(isDark);
+
+  /// Which material the app is wearing.
+  ///
+  /// A plain static rather than a read through the notifier, so `neu_theme`
+  /// does not depend on the widget layer. `AppThemeNotifier.setMaterial`
+  /// assigns it, in the same call that invalidates the derived-colour cache.
+  static AppMaterial activeMaterial = AppMaterial.soft;
+
   /// A surface extruded from the page.
-  static BoxDecoration raised(
+  ///
+  /// Returns a `Decoration`, not a `BoxDecoration`: a material needs seven
+  /// paint layers including a true inset shadow, and `BoxDecoration` can carry
+  /// two. Every call site assigns into a `decoration:` or
+  /// `foregroundDecoration:` slot that already accepts the wider type.
+  static Decoration raised(
     bool isDark, {
     Color? base,
     double radius = NeuRadius.r12,
@@ -274,47 +299,28 @@ class NeuTheme {
     Border? border,
     Gradient? gradient,
     bool circle = false,
-  }) {
-    final b = base ?? surface(isDark);
-    final bl = blur ?? NeuElevation.blurFor(depth);
-    return BoxDecoration(
-      gradient: gradient ??
-          LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [b, fillFloor(b)],
-          ),
-      shape: circle ? BoxShape.circle : BoxShape.rectangle,
-      borderRadius: circle ? null : BorderRadius.circular(radius),
-      border: border ??
-          Border.all(
-            color: highlight(isDark).withValues(alpha: isDark ? 0.06 : 0.60),
-            width: 1.0,
-          ),
-      boxShadow: depth <= 0
-          ? const <BoxShadow>[]
-          : [
-              BoxShadow(
-                color: highlight(isDark).withValues(alpha: isDark ? 0.50 : 0.90),
-                offset: Offset(-depth, -depth),
-                blurRadius: bl,
-              ),
-              BoxShadow(
-                color: shadow(isDark).withValues(alpha: isDark ? 0.70 : 0.80),
-                offset: Offset(depth, depth),
-                blurRadius: bl,
-              ),
-            ],
-    );
-  }
+    AppMaterial? material,
+  }) =>
+      SkeuoDecoration.role(
+        palette: palette(isDark, material: material),
+        role: SurfaceRole.raised,
+        depth: depth,
+        radius: radius,
+        circle: circle,
+        base: base,
+        border: border,
+        gradient: gradient,
+        blur: blur,
+      );
 
   /// A surface recessed into the page.
   ///
   /// The base defaults to [wellSurface], not [surface]. A sunken thing is a
   /// well; defaulting to the surface colour meant NeuSwitch's off-track was
   /// the exact colour of the panel behind it, so **the off state was invisible
-  /// in light mode**. Two of the three sunken consumers already overrode this.
-  static BoxDecoration sunken(
+  /// in light mode**. That default now lives in the role table, which routes
+  /// `sunken` to `Ground.well`.
+  static Decoration sunken(
     bool isDark, {
     Color? base,
     double radius = NeuRadius.r12,
@@ -322,46 +328,68 @@ class NeuTheme {
     double? blur,
     Border? border,
     bool circle = false,
-  }) {
-    final b = base ?? wellSurface(isDark);
-    final bl = blur ?? NeuElevation.blurFor(depth);
-    return BoxDecoration(
-      color: b,
-      shape: circle ? BoxShape.circle : BoxShape.rectangle,
-      borderRadius: circle ? null : BorderRadius.circular(radius),
-      border: border ??
-          Border.all(
-            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.045),
-            width: 1.0,
-          ),
-      boxShadow: depth <= 0
-          ? const <BoxShadow>[]
-          : [
-              BoxShadow(
-                color: shadow(isDark).withValues(alpha: isDark ? 0.65 : 0.70),
-                offset: Offset(depth, depth),
-                blurRadius: bl,
-                spreadRadius: -depth / 2,
-              ),
-              BoxShadow(
-                color: highlight(isDark).withValues(alpha: isDark ? 0.35 : 0.85),
-                offset: Offset(-depth, -depth),
-                blurRadius: bl,
-                spreadRadius: -depth / 2,
-              ),
-            ],
-    );
-  }
+    AppMaterial? material,
+  }) =>
+      SkeuoDecoration.role(
+        palette: palette(isDark, material: material),
+        role: SurfaceRole.sunken,
+        depth: depth,
+        radius: radius,
+        circle: circle,
+        base: base,
+        border: border,
+        blur: blur,
+      );
+
+  /// A faceplate: textured, bevelled, lightly shadowed.
+  static Decoration panel(
+    bool isDark, {
+    Color? base,
+    double radius = NeuRadius.r12,
+    double depth = NeuElevation.d2,
+    Border? border,
+    bool circle = false,
+    AppMaterial? material,
+  }) =>
+      SkeuoDecoration.role(
+        palette: palette(isDark, material: material),
+        role: SurfaceRole.panel,
+        depth: depth,
+        radius: radius,
+        circle: circle,
+        base: base,
+        border: border,
+      );
+
+  /// Inset glass — a display set into a bezel.
+  static Decoration screen(
+    bool isDark, {
+    Color? base,
+    double radius = NeuRadius.r12,
+    double depth = NeuElevation.d2,
+    Border? border,
+    bool circle = false,
+    AppMaterial? material,
+  }) =>
+      SkeuoDecoration.role(
+        palette: palette(isDark, material: material),
+        role: SurfaceRole.screen,
+        depth: depth,
+        radius: radius,
+        circle: circle,
+        base: base,
+        border: border,
+      );
 
   /// Kept so the ~36 existing call sites need no edit. They silently gain the
   /// gradient and a depth parameter.
-  static BoxDecoration raisedDecoration(bool isDark,
+  static Decoration raisedDecoration(bool isDark,
           {Color? customBase, double radius = NeuRadius.r12, Border? border}) =>
       raised(isDark, base: customBase, radius: radius, border: border);
 
   /// Kept for the same reason. Note the base default change documented on
   /// [sunken]: call sites that want the panel colour must now say so.
-  static BoxDecoration sunkenDecoration(bool isDark,
+  static Decoration sunkenDecoration(bool isDark,
           {Color? customBase, double radius = NeuRadius.r12, Border? border}) =>
       sunken(isDark, base: customBase, radius: radius, border: border);
 }

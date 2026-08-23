@@ -47,6 +47,8 @@ class SkeuoDecoration extends Decoration {
     bool circle = false,
     Color? base,
     Border? border,
+    Gradient? gradient,
+    double? blur,
   }) {
     final m = RoleModifier.of(role);
     return SkeuoDecoration(
@@ -70,7 +72,9 @@ class SkeuoDecoration extends Decoration {
             : 1.0,
         recessStyle: palette.recessStyle,
         bevelColour: m.invertBevel ? palette.bevelShade : palette.bevelLight,
-        bevelWidth: m.bevel ? palette.bevelWidth : 0,
+        // A caller-supplied border REPLACES the material's own edge, exactly as
+        // `border ?? Border.all(...)` did. It does not stack on top of it.
+        bevelWidth: (m.bevel && border == null) ? palette.bevelWidth : 0,
         bevelSweepExponent: palette.bevelSweepExponent,
         bevelAmbientFloor:
             palette.bevelUniform ? 1.0 : palette.bevelAmbientFloor,
@@ -80,6 +84,8 @@ class SkeuoDecoration extends Decoration {
         glossColour: palette.glossColour,
         texture: palette.texture,
         textureScale: m.textureScale,
+        gradientOverride: gradient,
+        blurOverride: blur,
       ),
       border: border,
     );
@@ -116,7 +122,8 @@ class SkeuoDecoration extends Decoration {
   /// varied by material would move layout on a material switch; one that varied
   /// across a lerp would make hover animations animate layout.
   @override
-  EdgeInsetsGeometry get padding => EdgeInsets.all(params.bevelWidth);
+  EdgeInsetsGeometry get padding =>
+      border?.dimensions ?? EdgeInsets.all(params.bevelWidth);
 
   @override
   Path getClipPath(Rect rect, TextDirection textDirection) {
@@ -219,6 +226,8 @@ class SurfaceParams {
     required this.textureScale,
     this.texture,
     this.circle = false,
+    this.gradientOverride,
+    this.blurOverride,
   });
 
   final Color base;
@@ -256,6 +265,17 @@ class SurfaceParams {
 
   final TextureSpec? texture;
   final double textureScale;
+
+  /// A fill supplied by the call site, replacing the material's own ramp.
+  /// One caller uses it: `NeuContainer`, for the rainbow live-border case.
+  final Gradient? gradientOverride;
+
+  /// A blur supplied by the call site, replacing `layer.blur * depth`.
+  ///
+  /// `NeuContainer` passes one on every call. It happens to equal the derived
+  /// value at its defaults, but honouring it is what makes the widening a
+  /// no-op rather than a coincidence.
+  final double? blurOverride;
 
   /// Unit vector pointing at the light source.
   Offset get toLight {
@@ -310,6 +330,8 @@ class SurfaceParams {
         glossColour: glossColour,
         texture: texture,
         textureScale: textureScale * t,
+        gradientOverride: gradientOverride,
+        blurOverride: blurOverride,
       );
 
   static SurfaceParams lerp(SurfaceParams a, SurfaceParams b, double t) {
@@ -343,6 +365,11 @@ class SurfaceParams {
       glossColour: Color.lerp(a.glossColour, b.glossColour, t)!,
       texture: t < 0.5 ? a.texture : b.texture,
       textureScale: d(a.textureScale, b.textureScale),
+      gradientOverride:
+          Gradient.lerp(a.gradientOverride, b.gradientOverride, t),
+      blurOverride: (a.blurOverride == null && b.blurOverride == null)
+          ? null
+          : d(a.blurOverride ?? 0, b.blurOverride ?? 0),
     );
   }
 
@@ -369,6 +396,8 @@ class SurfaceParams {
       other.glossColour == glossColour &&
       other.texture == texture &&
       other.textureScale == textureScale &&
+      other.gradientOverride == gradientOverride &&
+      other.blurOverride == blurOverride &&
       _same(other.contact, contact) &&
       _same(other.inset, inset);
 
@@ -378,6 +407,7 @@ class SurfaceParams {
         insetStrength, fillRamp, recessStyle, bevelColour, bevelWidth,
         bevelSweepExponent, bevelAmbientFloor, gloss, glossBreak,
         glossHardTerminator, glossColour, texture, textureScale,
+        gradientOverride, blurOverride,
         Object.hashAll(fill.map((s) => Object.hash(s.at, s.dh, s.ds, s.dl))),
         Object.hashAll(contact), Object.hashAll(inset),
       ]);
@@ -457,7 +487,7 @@ class _SkeuoPainter extends BoxPainter {
       final shadow = BoxShadow(
         color: l.color,
         offset: Offset(l.dx * p.depth * k, l.dy * p.depth * k),
-        blurRadius: l.blur * p.depth,
+        blurRadius: p.blurOverride ?? l.blur * p.depth,
         spreadRadius: l.spread * p.depth,
       );
       final paint = shadow.toPaint();
@@ -468,6 +498,11 @@ class _SkeuoPainter extends BoxPainter {
 
   /// Layer 2 — the form gradient along the light axis.
   void _paintFill(Canvas canvas, Rect rect, SurfaceParams p) {
+    final override = p.gradientOverride;
+    if (override != null) {
+      _draw(canvas, rect, p, Paint()..shader = override.createShader(rect));
+      return;
+    }
     final begin = p.lightCorner;
     final gradient = LinearGradient(
       begin: begin,
@@ -574,7 +609,7 @@ class _SkeuoPainter extends BoxPainter {
       canvas.clipPath(clip);
       final k = p.travelScale;
       for (final l in p.inset) {
-        final sigma = _sigma(l.blur * p.depth);
+        final sigma = _sigma(p.blurOverride ?? l.blur * p.depth);
         if (sigma <= 0) continue;
         final shifted = rect
             .shift(Offset(l.dx * p.depth * k, l.dy * p.depth * k))

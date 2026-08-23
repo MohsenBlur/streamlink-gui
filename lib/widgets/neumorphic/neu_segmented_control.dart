@@ -28,8 +28,11 @@ class NeuSegmentedControl<T> extends StatelessWidget {
     return SizedBox(
       height: height,
       child: Container(
-        decoration: NeuTheme.sunkenDecoration(isDark, radius: height / 2)
-            .copyWith(color: NeuTheme.wellSurface(isDark)),
+        // The `.copyWith(color: wellSurface)` that used to be here was a
+        // no-op: `sunken()` has defaulted its base to the well since the
+        // commit that fixed NeuSwitch's invisible off-track. It was a leftover
+        // from when the default was the panel colour.
+        decoration: NeuTheme.sunkenDecoration(isDark, radius: height / 2),
         padding: padding,
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -47,26 +50,22 @@ class NeuSegmentedControl<T> extends StatelessWidget {
                     bottom: 0,
                     width: itemWidth,
                     child: Container(
-                      // Same recipe as every other raised surface, just with a
-                      // tighter blur so it reads inside the small control.
-                      decoration: NeuTheme.raisedDecoration(
+                      // The hand-written stack this replaces was not "a
+                      // tighter blur", as its comment claimed - Offset(3, 3)
+                      // at blurRadius 6 is exactly `depth: NeuElevation.d2`,
+                      // since blurFor(d) is d * 2. Saying so lets the material
+                      // own the light model.
+                      //
+                      // It also carried its own shadow alphas, which the
+                      // palette now supplies. Light mode is unchanged; the
+                      // dark thumb's highlight rises from 0.05 to 0.50. That
+                      // is deliberate: a per-call shadow override would be the
+                      // one place in the app able to paint a shadow the active
+                      // material never declared.
+                      decoration: NeuTheme.raised(
                         isDark,
                         radius: (height - 8) / 2,
-                      ).copyWith(
-                        boxShadow: [
-                          BoxShadow(
-                            color: NeuTheme.shadow(isDark)
-                                .withValues(alpha: isDark ? 0.6 : 0.8),
-                            offset: const Offset(3, 3),
-                            blurRadius: 6,
-                          ),
-                          BoxShadow(
-                            color: NeuTheme.highlight(isDark)
-                                .withValues(alpha: isDark ? 0.05 : 0.9),
-                            offset: const Offset(-3, -3),
-                            blurRadius: 6,
-                          ),
-                        ],
+                        depth: NeuElevation.d2,
                       ),
                     ),
                   ),
