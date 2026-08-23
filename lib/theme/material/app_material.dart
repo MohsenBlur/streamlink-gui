@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../neu_theme.dart';
 import 'material_palette.dart';
+import 'rack.dart';
 
 export 'material_palette.dart';
 
@@ -105,6 +106,7 @@ class MaterialSpec {
   static MaterialSpec of(AppMaterial m) => _registry[m]!;
 
   static final Map<AppMaterial, MaterialSpec> _registry = {
+    AppMaterial.rack: rackSpec,
     AppMaterial.soft: softSpec,
   };
 
@@ -212,6 +214,19 @@ MaterialPalette _soft(bool isDark) {
           color: hi.withValues(alpha: isDark ? _sunkenHiADark : _sunkenHiA),
           dx: -1, dy: -1, blur: 2, spread: -0.5),
     ],
+    // Soft pins its semantic inks: "the look the app had before" includes
+    // these exact values, each calibrated against Soft's own grounds in the
+    // commit that fixed seven WCAG failures. Deriving them would move them a
+    // level or two for no gain. Dark needs no pin - the brand colours already
+    // clear there, so the derivation returns them untouched.
+    inkOverrides: isDark
+        ? const <String, Color>{}
+        : const <String, Color>{
+            'liveText': Color(0xFF006B4B),
+            'dangerText': Color(0xFFBB122F),
+            'warningText': Color(0xFF8A5000),
+            'favoriteText': Color(0xFFA56D00),
+          },
     recessStyle: RecessStyle.outerFake,
     // No gloss, no texture. The two facts that make Soft soft.
     gloss: 0,

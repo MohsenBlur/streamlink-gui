@@ -464,6 +464,8 @@ class MaterialPalette {
     required this.bevelShade,
     required this.contact,
     this.screenIsEmissive = false,
+    Color? screenText,
+    Color? screenSubtext,
     this.diagonalCompensation = true,
     this.inset = const <ShadowLayer>[],
     this.bevelWidth = 1.0,
@@ -477,10 +479,13 @@ class MaterialPalette {
     this.texture,
     this.darkDepth = DarkDepth.lightSideCast,
     this.recessStyle = RecessStyle.trueInset,
+    this.elevationOverlay = const <int, double>{},
     this.adaptiveAlphaMultiplier = 1.0,
     this.boundaryStrategy = BoundaryStrategy.explicitBorder,
     this.inkOverrides = const <String, Color>{},
-  })  : // `fill.length >= 2` cannot be asserted here: a const constructor
+  })  : _screenText = screenText,
+        _screenSubtext = screenSubtext,
+        // `fill.length >= 2` cannot be asserted here: a const constructor
         // cannot read `.length` off a list. material_contract_test enforces
         // it, along with stop ordering, which an assert could not check
         // cheaply anyway.
@@ -489,6 +494,17 @@ class MaterialPalette {
 
   // --- grounds -------------------------------------------------------------
   final Color canvas, surface, well, screen;
+
+  final Color? _screenText, _screenSubtext;
+
+  /// The ink a [SurfaceRole.screen] carries.
+  ///
+  /// Defaults to the palette's own text, which is right for a reflective
+  /// readout — a printed card takes the room's ink. An **emissive** readout
+  /// does not: a light material's own `text` measured 1.08:1 on Rack's screen,
+  /// because both are dark. Emissive palettes pass the dark pair explicitly.
+  Color get screenText => _screenText ?? text;
+  Color get screenSubtext => _screenSubtext ?? subtext;
 
   /// An emissive screen keeps its dark treatment in **both** brightnesses.
   ///
@@ -583,6 +599,30 @@ class MaterialPalette {
   final DarkDepth darkDepth;
   final RecessStyle recessStyle;
 
+  /// White composited into the base *before* the gradient, by depth.
+  ///
+  /// The dark theme's depth cue cannot be a darker shadow: black at alpha 0.50
+  /// over a `#1D212A` canvas reaches 1.23:1, and there is no headroom below
+  /// that. So a dark material lifts the surface instead. Only consulted when
+  /// [darkDepth] is [DarkDepth.elevationOverlay].
+  final Map<int, double> elevationOverlay;
+
+  /// The overlay alpha for a depth, interpolated between declared steps.
+  double overlayFor(double depth) {
+    if (elevationOverlay.isEmpty) return 0;
+    final keys = elevationOverlay.keys.toList()..sort();
+    if (depth <= keys.first) return elevationOverlay[keys.first]!;
+    if (depth >= keys.last) return elevationOverlay[keys.last]!;
+    for (var i = 1; i < keys.length; i++) {
+      if (depth <= keys[i]) {
+        final t = (depth - keys[i - 1]) / (keys[i] - keys[i - 1]);
+        final a = elevationOverlay[keys[i - 1]]!, b = elevationOverlay[keys[i]]!;
+        return a + (b - a) * t;
+      }
+    }
+    return elevationOverlay[keys.last]!;
+  }
+
   /// Multiplier applied to shadow alpha where a surface sits over text or
   /// artwork rather than over a flat ground. 1.55-2.0 in practice.
   ///
@@ -622,9 +662,13 @@ class MaterialPalette {
   /// colour reaches across that pair is about 3.73:1. Screen ink is derived
   /// separately.
   Color get inkGround {
+    // EVERY non-screen role, not a hand-picked three. `flat` fills from the
+    // canvas and `well` from the well, and a derivation that skipped them
+    // aimed at the wrong worst case - which is exactly how Rack's derived
+    // liveText landed at 4.14:1 against a ground this getter never looked at.
     final candidates = <Color>[
-      for (final role in [SurfaceRole.panel, SurfaceRole.raised, SurfaceRole.sunken])
-        worstGround(role),
+      for (final role in SurfaceRole.values)
+        if (RoleModifier.of(role).fill != Ground.screen) worstGround(role),
     ];
     candidates.sort((a, b) => a.computeLuminance().compareTo(b.computeLuminance()));
     return isLight ? candidates.first : candidates.last;
@@ -669,6 +713,8 @@ class MaterialPalette {
       other.well == well &&
       other.screen == screen &&
       other.screenIsEmissive == screenIsEmissive &&
+      other.screenText == screenText &&
+      other.screenSubtext == screenSubtext &&
       other.text == text &&
       other.subtext == subtext &&
       other.border == border &&
@@ -691,6 +737,7 @@ class MaterialPalette {
       other.texture == texture &&
       other.darkDepth == darkDepth &&
       other.recessStyle == recessStyle &&
+      _sameOverlay(other.elevationOverlay, elevationOverlay) &&
       other.adaptiveAlphaMultiplier == adaptiveAlphaMultiplier &&
       other.boundaryStrategy == boundaryStrategy &&
       _sameList<ShadowLayer>(other.contact, contact) &&
@@ -699,6 +746,7 @@ class MaterialPalette {
   @override
   int get hashCode => Object.hashAll([
         canvas, surface, well, screen, screenIsEmissive,
+        screenText, screenSubtext,
         text, subtext, border, highlight, shadow, disabledText,
         lightAzimuthDeg, diagonalCompensation,
         Object.hashAll(fill.map((s) => Object.hash(s.at, s.dh, s.ds, s.dl))),
@@ -709,6 +757,14 @@ class MaterialPalette {
         boundaryStrategy,
         Object.hashAll(contact), Object.hashAll(inset),
       ]);
+
+  static bool _sameOverlay(Map<int, double> a, Map<int, double> b) {
+    if (a.length != b.length) return false;
+    for (final e in a.entries) {
+      if (b[e.key] != e.value) return false;
+    }
+    return true;
+  }
 
   static bool _sameFill(List<FillStop> a, List<FillStop> b) {
     if (a.length != b.length) return false;

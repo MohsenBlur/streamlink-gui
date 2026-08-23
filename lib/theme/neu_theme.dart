@@ -58,23 +58,41 @@ class NeuTheme {
   /// light/dark branch at all, measuring 1.28:1 on the light canvas.
   static const Color favorite = Color(0xFFFFC24B);
 
-  /// Text/icon variant of [live]: the base mint washes out on light grounds.
-  /// 4.55:1 against the fill floor. Was #00704F, which measured 4.60:1 against
-  /// the flat well but only 4.25:1 against the well's gradient floor.
-  static Color liveText(bool isDark) => isDark ? live : const Color(0xFF006B4B);
+  /// Text/icon variant of a brand fill, made readable on the active material.
+  ///
+  /// These were frozen `isDark ? hexA : hexB` switches whose doc comments
+  /// recorded ratios measured against the grounds of **one** material. They do
+  /// not survive a material that moves the ground: `liveText` #006B4B measures
+  /// 4.55:1 on Soft's light well floor and **4.03:1** on Rack's champagne — and
+  /// that failure is silent, because nothing recomputes.
+  ///
+  /// So they derive. A palette may pin one through `inkOverrides` for
+  /// character — Soft pins all four, because "the look the app had before"
+  /// includes its exact inks — but a pin still faces the contrast matrix. What
+  /// it buys is character, never an exemption.
+  static Color _semanticInk(String name, Color brand, bool isDark,
+      {AppMaterial? material, double target = _inkTarget}) {
+    final p = palette(isDark, material: material);
+    return p.inkOverrides[name] ?? readableOn(brand, p, target: target);
+  }
 
-  /// Text/icon variant of [danger]. 4.50:1 against the fill floor. Was
-  /// #C01230, which measured 4.68:1 flat but 4.33:1 against the floor.
-  static Color dangerText(bool isDark) => isDark ? danger : const Color(0xFFBB122F);
+  static Color liveText(bool isDark, {AppMaterial? material}) =>
+      _semanticInk('liveText', live, isDark, material: material);
 
-  /// Text/icon variant of [warning]. 4.52:1 against the fill floor. Was
-  /// #8F5300, which measured 4.63:1 flat but 4.28:1 against the floor.
-  static Color warningText(bool isDark) => isDark ? warning : const Color(0xFF8A5000);
+  static Color dangerText(bool isDark, {AppMaterial? material}) =>
+      _semanticInk('dangerText', danger, isDark, material: material);
 
-  /// Text/icon variant of [favorite]. 3.20:1 at worst - held to the 3:1 bar
-  /// for meaningful non-text graphics rather than the 4.5:1 body-text bar,
-  /// because it is always an icon and never a label.
-  static Color favoriteText(bool isDark) => isDark ? favorite : const Color(0xFFA56D00);
+  static Color warningText(bool isDark, {AppMaterial? material}) =>
+      _semanticInk('warningText', warning, isDark, material: material);
+
+  /// Held to the 3:1 non-text bar rather than 4.5:1, because it is always an
+  /// icon and never a label.
+  static Color favoriteText(bool isDark, {AppMaterial? material}) =>
+      _semanticInk('favoriteText', favorite, isDark,
+          material: material, target: kNonTextInk);
+
+  /// The bar for meaningful non-text graphics, per WCAG 1.4.11.
+  static const double kNonTextInk = 3.0;
 
   /// Ink for content rendered ON an accent fill.
   ///
@@ -156,7 +174,12 @@ class NeuTheme {
     if (contrastRatio(source, g) >= target) return source;
 
     final hsl = HSLColor.fromColor(source);
-    final darken = g.computeLuminance() > 0.5;
+    // The direction belongs to the PALETTE, not to this particular ground.
+    // A light material's worst ground can be mid-tone once its fill has
+    // darkened the well - Rack's is #B3B1AB - and choosing by the ground's own
+    // luminance would then try to *lighten* ink that has to stay dark, walk
+    //200 steps without clearing, and fall through to the plain text colour.
+    final darken = p.isLight;
     final saturation =
         darken ? (hsl.saturation * 1.10).clamp(0.0, 1.0) : hsl.saturation;
 
@@ -352,7 +375,9 @@ class NeuTheme {
   /// A plain static rather than a read through the notifier, so `neu_theme`
   /// does not depend on the widget layer. `AppThemeNotifier.setMaterial`
   /// assigns it, in the same call that invalidates the derived-colour cache.
-  static AppMaterial activeMaterial = AppMaterial.soft;
+  /// Rack, not Soft. Shipping the work behind an off-by-default switch means
+  /// nobody sees it; `Soft (classic)` is one dropdown away and persists.
+  static AppMaterial activeMaterial = AppMaterial.rack;
 
   /// A surface extruded from the page.
   ///

@@ -32,8 +32,10 @@ const double kNonTextAA = 3.0;
 /// where darkening the fill costs dark ink contrast. The dark theme is immune
 /// for the same reason inverted: darkening the fill *helps* light ink. That
 /// asymmetry is why the light palette has so much less gradient headroom.
-List<({String name, Color color})> groundsFor(bool isDark,
-    {AppMaterial? material}) {
+List<({String name, Color color})> groundsFor(
+  bool isDark, {
+  AppMaterial? material,
+}) {
   final p = NeuTheme.palette(isDark, material: material);
   final seen = <int>{};
   final out = <({String name, Color color})>[];
@@ -70,10 +72,14 @@ void expectInk(
 }) {
   for (final ground in groundsFor(isDark, material: material)) {
     final ratio = NeuTheme.contrastRatio(ink, ground.color);
-    expect(ratio, greaterThanOrEqualTo(min),
-        reason: '$label on ${ground.name} '
-            '(${material?.key ?? 'active'}, ${isDark ? 'dark' : 'light'}) '
-            'measured ${ratio.toStringAsFixed(2)}:1, needs $min:1');
+    expect(
+      ratio,
+      greaterThanOrEqualTo(min),
+      reason:
+          '$label on ${ground.name} '
+          '(${material?.key ?? 'active'}, ${isDark ? 'dark' : 'light'}) '
+          'measured ${ratio.toStringAsFixed(2)}:1, needs $min:1',
+    );
   }
 }
 
@@ -84,56 +90,97 @@ void main() {
     // parameter rather than by mutating the notifier in a loop: the accessors
     // are still the real ones, so this certifies colours the app actually
     // paints.
-    for (final m in materialsUnderTest)
-    for (final isDark in [false, true]) {
-      final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
+    for (final m in materialsUnderTest) {
+      for (final isDark in [false, true]) {
+        final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
 
-      test('primary text — $mode', () {
-        expectInk('text', NeuTheme.text(isDark, material: m), isDark, material: m);
-      });
+        test('primary text — $mode', () {
+          expectInk(
+            'text',
+            NeuTheme.text(isDark, material: m),
+            isDark,
+            material: m,
+          );
+        });
 
-      test('subtext — $mode', () {
-        // The regression that mattered most: this is subtextStyle's default
-        // ink at 11px, the most-used size in the app, and it measured 3.40:1.
-        expectInk('subtext', NeuTheme.subtext(isDark, material: m), isDark,
-            material: m);
-      });
+        test('subtext — $mode', () {
+          // The regression that mattered most: this is subtextStyle's default
+          // ink at 11px, the most-used size in the app, and it measured 3.40:1.
+          expectInk(
+            'subtext',
+            NeuTheme.subtext(isDark, material: m),
+            isDark,
+            material: m,
+          );
+        });
 
-      test('semantic status inks — $mode', () {
-        expectInk('liveText', NeuTheme.liveText(isDark), isDark, material: m);
-        expectInk('dangerText', NeuTheme.dangerText(isDark), isDark, material: m);
-        expectInk('warningText', NeuTheme.warningText(isDark), isDark,
-            material: m);
-      });
+        test('semantic status inks — $mode', () {
+          expectInk(
+            'liveText',
+            NeuTheme.liveText(isDark, material: m),
+            isDark,
+            material: m,
+          );
+          expectInk(
+            'dangerText',
+            NeuTheme.dangerText(isDark, material: m),
+            isDark,
+            material: m,
+          );
+          expectInk(
+            'warningText',
+            NeuTheme.warningText(isDark, material: m),
+            isDark,
+            material: m,
+          );
+        });
 
-      test('non-text inks clear the 3:1 bar — $mode', () {
-        // Disabled labels and the favourite star are never body copy, so they
-        // are held to the graphics bar rather than the text bar.
-        expectInk('disabledText', NeuTheme.disabledText(isDark, material: m),
-            isDark, min: kNonTextAA, material: m);
-        expectInk('favoriteText', NeuTheme.favoriteText(isDark), isDark,
-            min: kNonTextAA, material: m);
-      });
+        test('non-text inks clear the 3:1 bar — $mode', () {
+          // Disabled labels and the favourite star are never body copy, so they
+          // are held to the graphics bar rather than the text bar.
+          expectInk(
+            'disabledText',
+            NeuTheme.disabledText(isDark, material: m),
+            isDark,
+            min: kNonTextAA,
+            material: m,
+          );
+          expectInk(
+            'favoriteText',
+            NeuTheme.favoriteText(isDark, material: m),
+            isDark,
+            min: kNonTextAA,
+            material: m,
+          );
+        });
+      }
     }
   });
 
   group('the gradient floor is the real ground', () {
-    test('a fill floor is darker than its base, and by the declared amount', () {
-      // If this ever inverts, groundsFor is checking the wrong extreme and
-      // every assertion above becomes decorative.
-      for (final isDark in [false, true]) {
-        for (final base in [
-          NeuTheme.canvas(isDark),
-          NeuTheme.surface(isDark),
-          NeuTheme.wellSurface(isDark),
-        ]) {
-          final floor = NeuTheme.fillFloor(base);
-          expect(floor.computeLuminance(), lessThan(base.computeLuminance()),
-              reason: 'fillFloor must darken; the worst case for dark ink is '
-                  'the darkest point of the fill');
+    test(
+      'a fill floor is darker than its base, and by the declared amount',
+      () {
+        // If this ever inverts, groundsFor is checking the wrong extreme and
+        // every assertion above becomes decorative.
+        for (final isDark in [false, true]) {
+          for (final base in [
+            NeuTheme.canvas(isDark),
+            NeuTheme.surface(isDark),
+            NeuTheme.wellSurface(isDark),
+          ]) {
+            final floor = NeuTheme.fillFloor(base);
+            expect(
+              floor.computeLuminance(),
+              lessThan(base.computeLuminance()),
+              reason:
+                  'fillFloor must darken; the worst case for dark ink is '
+                  'the darkest point of the fill',
+            );
+          }
         }
-      }
-    });
+      },
+    );
 
     test('light inks survive the floor, which is where they used to fail', () {
       // Named individually because these five are the ones that regressed:
@@ -148,9 +195,13 @@ void main() {
         ('favoriteText', NeuTheme.favoriteText(false), kNonTextAA),
       ]) {
         final ratio = NeuTheme.contrastRatio(ink.$2, worst);
-        expect(ratio, greaterThanOrEqualTo(ink.$3),
-            reason: '${ink.$1} measured ${ratio.toStringAsFixed(2)}:1 against '
-                'the well fill floor, needs ${ink.$3}:1');
+        expect(
+          ratio,
+          greaterThanOrEqualTo(ink.$3),
+          reason:
+              '${ink.$1} measured ${ratio.toStringAsFixed(2)}:1 against '
+              'the well fill floor, needs ${ink.$3}:1',
+        );
       }
     });
   });
@@ -161,10 +212,16 @@ void main() {
       // visible only by its shadow.
       for (final isDark in [false, true]) {
         final ratio = NeuTheme.contrastRatio(
-            NeuTheme.canvas(isDark), NeuTheme.surface(isDark));
-        expect(ratio, greaterThan(1.02),
-            reason: '${isDark ? 'dark' : 'light'} canvas/surface separation is '
-                'only ${ratio.toStringAsFixed(3)}:1');
+          NeuTheme.canvas(isDark),
+          NeuTheme.surface(isDark),
+        );
+        expect(
+          ratio,
+          greaterThan(1.02),
+          reason:
+              '${isDark ? 'dark' : 'light'} canvas/surface separation is '
+              'only ${ratio.toStringAsFixed(3)}:1',
+        );
       }
     });
 
@@ -178,20 +235,28 @@ void main() {
   group('contrastRatio', () {
     test('matches known WCAG values', () {
       expect(
-          NeuTheme.contrastRatio(
-              const Color(0xFF000000), const Color(0xFFFFFFFF)),
-          closeTo(21.0, 0.01));
+        NeuTheme.contrastRatio(
+          const Color(0xFF000000),
+          const Color(0xFFFFFFFF),
+        ),
+        closeTo(21.0, 0.01),
+      );
       expect(
-          NeuTheme.contrastRatio(
-              const Color(0xFFFFFFFF), const Color(0xFFFFFFFF)),
-          closeTo(1.0, 0.001));
+        NeuTheme.contrastRatio(
+          const Color(0xFFFFFFFF),
+          const Color(0xFFFFFFFF),
+        ),
+        closeTo(1.0, 0.001),
+      );
     });
 
     test('is symmetric', () {
       const a = Color(0xFF4F5F75);
       const b = Color(0xFFE1E4EA);
-      expect(NeuTheme.contrastRatio(a, b),
-          closeTo(NeuTheme.contrastRatio(b, a), 1e-9));
+      expect(
+        NeuTheme.contrastRatio(a, b),
+        closeTo(NeuTheme.contrastRatio(b, a), 1e-9),
+      );
     });
   });
   group('accentInk', () {
@@ -215,7 +280,11 @@ void main() {
       // 1.04:1 against the light well, and even the default Soft Pink 2.12:1.
       for (final isDark in [false, true]) {
         presets.forEach((name, accent) {
-          expectInk('accentInk($name)', NeuTheme.accentInk(accent, isDark), isDark);
+          expectInk(
+            'accentInk($name)',
+            NeuTheme.accentInk(accent, isDark),
+            isDark,
+          );
         });
       }
     });
@@ -223,10 +292,14 @@ void main() {
     test('an accent that is already readable is returned untouched', () {
       // Derivation must not restyle what does not need it - 5 of the 11
       // presets pass as-is in dark mode and should keep the exact hue chosen.
-      expect(NeuTheme.accentInk(const Color(0xFF00F2FE), true),
-          const Color(0xFF00F2FE));
-      expect(NeuTheme.accentInk(const Color(0xFFF59E0B), true),
-          const Color(0xFFF59E0B));
+      expect(
+        NeuTheme.accentInk(const Color(0xFF00F2FE), true),
+        const Color(0xFF00F2FE),
+      );
+      expect(
+        NeuTheme.accentInk(const Color(0xFFF59E0B), true),
+        const Color(0xFFF59E0B),
+      );
     });
 
     test('the stored accent is never mutated', () {
@@ -239,18 +312,26 @@ void main() {
 
     test('survives values a hand-edited config could contain', () {
       const hostile = <Color>[
-        Color(0xFFFFFFFF), Color(0xFF000000), Color(0xFF7F7F7F),
-        Color(0xFFEBECF0), Color(0xFFD8E0EB), Color(0xFF222632),
+        Color(0xFFFFFFFF),
+        Color(0xFF000000),
+        Color(0xFF7F7F7F),
+        Color(0xFFEBECF0),
+        Color(0xFFD8E0EB),
+        Color(0xFF222632),
       ];
       for (final isDark in [false, true]) {
         for (final accent in hostile) {
           final ink = NeuTheme.accentInk(accent, isDark);
-          final ground =
-              isDark ? NeuTheme.surface(true) : NeuTheme.wellSurface(false);
-          expect(NeuTheme.contrastRatio(ink, ground),
-              greaterThanOrEqualTo(kTextAA),
-              reason: '$accent (${isDark ? 'dark' : 'light'}) produced an '
-                  'unreadable ink');
+          final ground = isDark
+              ? NeuTheme.surface(true)
+              : NeuTheme.wellSurface(false);
+          expect(
+            NeuTheme.contrastRatio(ink, ground),
+            greaterThanOrEqualTo(kTextAA),
+            reason:
+                '$accent (${isDark ? 'dark' : 'light'}) produced an '
+                'unreadable ink',
+          );
         }
       }
     });
@@ -262,8 +343,11 @@ void main() {
       final ink = NeuTheme.accentInk(cyan, false);
       final original = HSLColor.fromColor(cyan).hue;
       final derived = HSLColor.fromColor(ink).hue;
-      expect((derived - original).abs(), lessThan(12.0),
-          reason: 'hue drifted from $original to $derived');
+      expect(
+        (derived - original).abs(),
+        lessThan(12.0),
+        reason: 'hue drifted from $original to $derived',
+      );
     });
   });
 }

@@ -26,7 +26,7 @@ BoxDecoration legacyRaised(
   Gradient? gradient,
   bool circle = false,
 }) {
-  final b = base ?? NeuTheme.surface(isDark);
+  final b = base ?? NeuTheme.rawSurface(isDark);
   final bl = blur ?? NeuElevation.blurFor(depth);
   return BoxDecoration(
     gradient: gradient ??
@@ -39,7 +39,7 @@ BoxDecoration legacyRaised(
     borderRadius: circle ? null : BorderRadius.circular(radius),
     border: border ??
         Border.all(
-          color: NeuTheme.highlight(isDark)
+          color: NeuTheme.rawHighlight(isDark)
               .withValues(alpha: isDark ? 0.06 : 0.60),
           width: 1.0,
         ),
@@ -47,13 +47,13 @@ BoxDecoration legacyRaised(
         ? const <BoxShadow>[]
         : [
             BoxShadow(
-              color: NeuTheme.highlight(isDark)
+              color: NeuTheme.rawHighlight(isDark)
                   .withValues(alpha: isDark ? 0.50 : 0.90),
               offset: Offset(-depth, -depth),
               blurRadius: bl,
             ),
             BoxShadow(
-              color: NeuTheme.shadow(isDark)
+              color: NeuTheme.rawShadow(isDark)
                   .withValues(alpha: isDark ? 0.70 : 0.80),
               offset: Offset(depth, depth),
               blurRadius: bl,
@@ -71,7 +71,7 @@ BoxDecoration legacySunken(
   Border? border,
   bool circle = false,
 }) {
-  final b = base ?? NeuTheme.wellSurface(isDark);
+  final b = base ?? NeuTheme.rawWellSurface(isDark);
   final bl = blur ?? NeuElevation.blurFor(depth);
   return BoxDecoration(
     color: b,
@@ -87,14 +87,14 @@ BoxDecoration legacySunken(
         ? const <BoxShadow>[]
         : [
             BoxShadow(
-              color: NeuTheme.shadow(isDark)
+              color: NeuTheme.rawShadow(isDark)
                   .withValues(alpha: isDark ? 0.65 : 0.70),
               offset: Offset(depth, depth),
               blurRadius: bl,
               spreadRadius: -depth / 2,
             ),
             BoxShadow(
-              color: NeuTheme.highlight(isDark)
+              color: NeuTheme.rawHighlight(isDark)
                   .withValues(alpha: isDark ? 0.35 : 0.85),
               offset: Offset(-depth, -depth),
               blurRadius: bl,

@@ -51,9 +51,20 @@ class SkeuoDecoration extends Decoration {
     double? blur,
   }) {
     final m = RoleModifier.of(role);
+    // The dark-side depth cue, folded into the base before the gradient sees
+    // it. Resolved here rather than in paint() so it interpolates: a lerp
+    // between two depths crosses overlay alphas smoothly instead of stepping.
+    var ground = base ?? palette.groundFor(m.fill);
+    if (palette.darkDepth == DarkDepth.elevationOverlay && depth > 0) {
+      final a = palette.overlayFor(depth);
+      if (a > 0) {
+        ground = Color.alphaBlend(
+            const Color(0xFFFFFFFF).withValues(alpha: a), ground);
+      }
+    }
     return SkeuoDecoration(
       SurfaceParams(
-        base: base ?? palette.groundFor(m.fill),
+        base: ground,
         fill: palette.fill,
         lightAzimuthDeg: palette.lightAzimuthDeg,
         diagonalCompensation: palette.diagonalCompensation,

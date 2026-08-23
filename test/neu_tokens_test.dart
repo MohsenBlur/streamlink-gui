@@ -101,9 +101,15 @@ void main() {
     test('depth drives the shadow offsets', () {
       final shallow = paramsOf(NeuTheme.raised(true, depth: NeuElevation.d1));
       final deep = paramsOf(NeuTheme.raised(true, depth: NeuElevation.d5));
-      final shallowOffset = shallow.contact.first.dx.abs() * shallow.depth;
-      final deepOffset = deep.contact.first.dx.abs() * deep.depth;
-      expect(deepOffset, greaterThan(shallowOffset));
+      // Distance, not dx. A material lit from directly overhead has dx 0 on
+      // every layer, and comparing the x component alone would compare 0 to 0
+      // and pass whatever the depth did.
+      double travel(SurfaceParams p) {
+        final l = p.contact.first;
+        return Offset(l.dx, l.dy).distance * p.depth;
+      }
+
+      expect(travel(deep), greaterThan(travel(shallow)));
       expect(deep.contact.first.blur * deep.depth,
           greaterThan(shallow.contact.first.blur * shallow.depth));
     });
@@ -131,8 +137,13 @@ void main() {
       // exact colour of the panel behind it - so the off state was invisible
       // in light mode. The default now lives in the role table.
       for (final isDark in [true, false]) {
-        expect(paramsOf(NeuTheme.sunken(isDark)).base,
+        // At zero depth nothing is lifted, so the ground is the ground.
+        expect(paramsOf(NeuTheme.sunken(isDark, depth: NeuElevation.d0)).base,
             NeuTheme.wellSurface(isDark));
+        // At a real depth a material may lift the base - Rack's dark palette
+        // carries its depth cue on the light side, because black over a dark
+        // ground reaches 1.23:1 and has nowhere left to go. It must still not
+        // land on the panel colour, which is the bug this guards.
         expect(paramsOf(NeuTheme.sunken(isDark)).base,
             isNot(NeuTheme.surface(isDark)));
       }
@@ -144,7 +155,7 @@ void main() {
       expect(paramsOf(NeuTheme.raisedDecoration(true)).fillRamp,
           greaterThan(0));
       expect(paramsOf(NeuTheme.sunkenDecoration(true)).base,
-          NeuTheme.wellSurface(true));
+          isNot(NeuTheme.surface(true)));
     });
   });
 }

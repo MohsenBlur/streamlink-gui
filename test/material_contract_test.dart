@@ -81,16 +81,19 @@ void main() {
       final mode = isDark ? 'dark' : 'light';
       final p = softSpec.palette(isDark);
 
-      test('grounds and inks are the live tokens — $mode', () {
-        expect(p.canvas, NeuTheme.canvas(isDark));
-        expect(p.surface, NeuTheme.surface(isDark));
-        expect(p.well, NeuTheme.wellSurface(isDark));
-        expect(p.text, NeuTheme.text(isDark));
-        expect(p.subtext, NeuTheme.subtext(isDark));
-        expect(p.border, NeuTheme.border(isDark));
-        expect(p.highlight, NeuTheme.highlight(isDark));
-        expect(p.shadow, NeuTheme.shadow(isDark));
-        expect(p.disabledText, NeuTheme.disabledText(isDark));
+      test('grounds and inks are the raw v1.6.0 tokens — $mode', () {
+        // The `raw*` tokens, not the public accessors: those resolve through
+        // the active material, which is Rack. Asserting against them would
+        // compare Soft to whatever is currently selected.
+        expect(p.canvas, NeuTheme.rawCanvas(isDark));
+        expect(p.surface, NeuTheme.rawSurface(isDark));
+        expect(p.well, NeuTheme.rawWellSurface(isDark));
+        expect(p.text, NeuTheme.rawText(isDark));
+        expect(p.subtext, NeuTheme.rawSubtext(isDark));
+        expect(p.border, NeuTheme.rawBorder(isDark));
+        expect(p.highlight, NeuTheme.rawHighlight(isDark));
+        expect(p.shadow, NeuTheme.rawShadow(isDark));
+        expect(p.disabledText, NeuTheme.rawDisabledText(isDark));
       });
 
       test('the fill is the shipped two-stop gradient — $mode', () {
@@ -171,7 +174,7 @@ void main() {
         final p = softSpec.palette(isDark);
         expect(p.well, isNot(p.surface),
             reason: 'a well that equals its surface is not a well');
-        expect(p.well, NeuTheme.wellSurface(isDark));
+        expect(p.well, NeuTheme.rawWellSurface(isDark));
       }
     });
   });
