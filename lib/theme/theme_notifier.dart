@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../widgets/settings_dialog.dart' show ThemeUpdateListener;
+import 'material/app_material.dart';
 import 'neu_theme.dart';
 
 /// App-wide theme state.
@@ -64,6 +65,24 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
 
   @override
   Color watchedProgressColor = const Color(0x804CAF50);
+
+  @override
+  AppMaterial get material => NeuTheme.activeMaterial;
+
+  /// Switching material changes every ground, so the derived inks that were
+  /// computed against the old grounds are stale.
+  ///
+  /// `_invalidateDerivedColors` was previously reachable only from the theme
+  /// and accent setters. Missing it here would serve the previous material's
+  /// accent ink until something else happened to change the accent - a bug
+  /// that would look like a caching glitch rather than a missing call.
+  @override
+  void setMaterial(AppMaterial next) {
+    if (NeuTheme.activeMaterial == next) return;
+    NeuTheme.activeMaterial = next;
+    _invalidateDerivedColors();
+    notifyListeners();
+  }
 
   @override
   void setDarkTheme(bool isDark) {

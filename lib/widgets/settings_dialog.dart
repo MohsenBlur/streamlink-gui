@@ -7,6 +7,7 @@ import '../services/twitch_api_service.dart';
 import '../services/update_service.dart';
 import '../utils/color_utils.dart';
 import '../theme/neu_material_themes.dart';
+import '../theme/material/app_material.dart';
 import '../theme/neu_theme.dart';
 import 'shell/neu_dialog.dart';
 import 'neumorphic/neu_switch.dart';
@@ -29,7 +30,16 @@ abstract class ThemeUpdateListener extends ChangeNotifier {
   Color get darkAccentColor;
   bool get isDarkTheme;
 
+  /// Which material world the app is wearing.
+  ///
+  /// On this interface rather than only on the notifier because the settings
+  /// dialog never sees `AppThemeNotifier` - it is handed a
+  /// `ThemeUpdateListener`. Without these two members the material picker
+  /// cannot be built at all.
+  AppMaterial get material;
+
   void setDarkTheme(bool isDark);
+  void setMaterial(AppMaterial material);
   void setLightAccent(Color color);
   void setDarkAccent(Color color);
 

@@ -193,10 +193,15 @@ class TwitchStreamlinkApp extends StatelessWidget {
               surface: themeNotifier.surfaceColor,
               error: NeuTheme.danger,
             ),
-            textTheme: const TextTheme(
-              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: NeuTheme.lightText),
-              bodyLarge: TextStyle(color: NeuTheme.lightText),
-              bodyMedium: TextStyle(color: NeuTheme.lightSubtext),
+            // Not const: a const expression cannot invoke a function, and
+            // these must resolve through the active material rather than
+            // pinning Soft's ink into every Material widget in the app. The
+            // enclosing ThemeData is already rebuilt per notification.
+            textTheme: TextTheme(
+              titleLarge: TextStyle(
+                  fontWeight: FontWeight.bold, color: NeuTheme.text(false)),
+              bodyLarge: TextStyle(color: NeuTheme.text(false)),
+              bodyMedium: TextStyle(color: NeuTheme.subtext(false)),
             ),
           ),
           darkTheme: ThemeData(
@@ -211,10 +216,11 @@ class TwitchStreamlinkApp extends StatelessWidget {
               surface: themeNotifier.surfaceColor,
               error: NeuTheme.danger,
             ),
-            textTheme: const TextTheme(
-              titleLarge: TextStyle(fontWeight: FontWeight.bold, color: NeuTheme.darkText),
-              bodyLarge: TextStyle(color: NeuTheme.darkText),
-              bodyMedium: TextStyle(color: NeuTheme.darkSubtext),
+            textTheme: TextTheme(
+              titleLarge: TextStyle(
+                  fontWeight: FontWeight.bold, color: NeuTheme.text(true)),
+              bodyLarge: TextStyle(color: NeuTheme.text(true)),
+              bodyMedium: TextStyle(color: NeuTheme.subtext(true)),
             ),
           ),
           home: MainScreen(isFirstRun: isFirstRun),

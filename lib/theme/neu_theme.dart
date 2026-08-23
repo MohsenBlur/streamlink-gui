@@ -163,8 +163,8 @@ class NeuTheme {
   ///
   /// Canonicalized on the value most widgets already used; NeuContainer's
   /// slightly different light well was the outlier.
-  static Color wellSurface(bool isDark) =>
-      isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB);
+  static Color wellSurface(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).well;
 
   /// Keyboard-focus visual consistent with the neumorphic style: an accent
   /// border with a soft outer glow, readable on both themes' low-contrast
@@ -183,15 +183,51 @@ class NeuTheme {
     );
   }
 
-  // Dynamic Color Token Getters
+  // ---------------------------------------------------------------------
+  // Raw tokens vs resolved tokens.
+  //
+  // The `raw*` functions are the v1.6.0 values, frozen. They exist because
+  // `Soft`'s palette is built FROM them: if the public accessors dispatched to
+  // the palette and the palette read the public accessors, the first colour
+  // read would recurse forever.
+  //
+  // Everything public below reads the ACTIVE MATERIAL's palette. Every one
+  // keeps its `(bool isDark)` shape, so all ~330 call sites compile unchanged,
+  // and every one gains an optional `material` — which is not a convenience:
+  // the Settings picker previews a material that is not active, the contrast
+  // matrix iterates all of them, and widget tests call these with a literal
+  // bool and no notifier configured.
+  // ---------------------------------------------------------------------
+
+  static Color rawCanvas(bool isDark) => isDark ? darkBg : lightBg;
+  static Color rawSurface(bool isDark) => isDark ? darkSurface : lightSurface;
+  static Color rawText(bool isDark) => isDark ? darkText : lightText;
+  static Color rawSubtext(bool isDark) => isDark ? darkSubtext : lightSubtext;
+  static Color rawHighlight(bool isDark) =>
+      isDark ? darkHighlight : lightHighlight;
+  static Color rawShadow(bool isDark) => isDark ? darkShadow : lightShadow;
+  static Color rawDisabledText(bool isDark) =>
+      isDark ? const Color(0xFF64748B) : const Color(0xFF6C7A91);
+  static Color rawWellSurface(bool isDark) =>
+      isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB);
+  static Color rawBorder(bool isDark) => isDark
+      ? const Color(0xFF49566B).withValues(alpha: 0.8)
+      : const Color(0xFF8494AD).withValues(alpha: 0.9);
+  static Color rawTerminalBg(bool isDark) =>
+      isDark ? const Color(0xFF0F131E) : const Color(0xFFF8FAFC);
 
   /// The page behind everything. [background] is kept as an alias so the ~30
   /// existing call sites need no edit.
-  static Color canvas(bool isDark) => isDark ? darkBg : lightBg;
-  static Color background(bool isDark) => canvas(isDark);
-  static Color surface(bool isDark) => isDark ? darkSurface : lightSurface;
-  static Color text(bool isDark) => isDark ? darkText : lightText;
-  static Color subtext(bool isDark) => isDark ? darkSubtext : lightSubtext;
+  static Color canvas(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).canvas;
+  static Color background(bool isDark, {AppMaterial? material}) =>
+      canvas(isDark, material: material);
+  static Color surface(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).surface;
+  static Color text(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).text;
+  static Color subtext(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).subtext;
 
   /// 3.18:1 at worst in light mode, held to the 3:1 non-text bar.
   ///
@@ -199,10 +235,12 @@ class NeuTheme {
   /// This value is calibrated to be exactly as dim as it should be, so nothing
   /// may dim it further - the disabled affordance is carried by the flat
   /// (shadowless) treatment and the cursor, not by fading the label away.
-  static Color disabledText(bool isDark) =>
-      isDark ? const Color(0xFF64748B) : const Color(0xFF6C7A91);
-  static Color highlight(bool isDark) => isDark ? darkHighlight : lightHighlight;
-  static Color shadow(bool isDark) => isDark ? darkShadow : lightShadow;
+  static Color disabledText(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).disabledText;
+  static Color highlight(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).highlight;
+  static Color shadow(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).shadow;
 
   /// Component boundaries: 2.19:1 light (was 1.33), 1.74:1 dark (was 1.15).
   ///
@@ -211,10 +249,13 @@ class NeuTheme {
   /// the boundary is strengthened as far as the style allows and the burden of
   /// meeting the standard is carried by the focus ring instead, which is held
   /// to >= 4.5:1.
-  static Color border(bool isDark) => isDark
-      ? const Color(0xFF49566B).withValues(alpha: 0.8)
-      : const Color(0xFF8494AD).withValues(alpha: 0.9);
-  static Color terminalBg(bool isDark) => isDark ? const Color(0xFF0F131E) : const Color(0xFFF8FAFC);
+  static Color border(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).border;
+
+  /// The log pane's ground. Tracks the material's `screen`, because a log pane
+  /// is a display set into a bezel and that is what `screen` means.
+  static Color terminalBg(bool isDark, {AppMaterial? material}) =>
+      palette(isDark, material: material).screen;
 
   // Unified Typography Tokens
   // titleStyle / bodyStyle / subtextStyle lived here. Each took an overridable

@@ -152,8 +152,10 @@ final MaterialSpec softSpec = MaterialSpec(
   dark: _soft(true),
 );
 
-/// Builds a Soft palette **from the live tokens** rather than from transcribed
-/// hexes.
+/// Builds a Soft palette from the **raw** v1.6.0 tokens.
+///
+/// Raw, not the public accessors: those now resolve through the active
+/// palette, and a palette that read them would recurse on its first colour.
 ///
 /// Deriving instead of copying removes the whole class of transcription bug —
 /// and the hand-written version was already wrong: `0xE6` encodes alpha
@@ -161,22 +163,22 @@ final MaterialSpec softSpec = MaterialSpec(
 /// been a fraction off and the fidelity gate would have reported a diff nobody
 /// could explain.
 MaterialPalette _soft(bool isDark) {
-  final hi = NeuTheme.highlight(isDark);
-  final sh = NeuTheme.shadow(isDark);
+  final hi = NeuTheme.rawHighlight(isDark);
+  final sh = NeuTheme.rawShadow(isDark);
   return MaterialPalette(
-    canvas: NeuTheme.canvas(isDark),
-    surface: NeuTheme.surface(isDark),
-    well: NeuTheme.wellSurface(isDark),
+    canvas: NeuTheme.rawCanvas(isDark),
+    surface: NeuTheme.rawSurface(isDark),
+    well: NeuTheme.rawWellSurface(isDark),
     // Soft has no screen of its own; the well is the closest it has to a
     // recessed display, and reusing it keeps the role total rather than
     // inventing a colour this material never had.
-    screen: NeuTheme.wellSurface(isDark),
-    text: NeuTheme.text(isDark),
-    subtext: NeuTheme.subtext(isDark),
-    border: NeuTheme.border(isDark),
+    screen: NeuTheme.rawWellSurface(isDark),
+    text: NeuTheme.rawText(isDark),
+    subtext: NeuTheme.rawSubtext(isDark),
+    border: NeuTheme.rawBorder(isDark),
     highlight: hi,
     shadow: sh,
-    disabledText: NeuTheme.disabledText(isDark),
+    disabledText: NeuTheme.rawDisabledText(isDark),
     // topLeft -> bottomRight: the key light sits up and to the left.
     lightAzimuthDeg: 135,
     // Soft's Offset(d, d) genuinely travels 1.414 * d. Correcting that would
