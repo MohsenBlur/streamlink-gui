@@ -66,7 +66,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         ),
         child: Text(
           'OFFLINE',
-          style: NeuType.micro(isDark, color: subtext),
+          style: NeuType.plate(isDark, color: subtext),
         ),
       );
     }
@@ -91,7 +91,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       },
       child: Text(
         'LIVE',
-        style: NeuType.micro(isDark, color: NeuTheme.liveText(isDark)),
+        style: NeuType.plate(isDark, color: NeuTheme.liveText(isDark)),
       ),
     );
   }
@@ -115,7 +115,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         SizedBox(width: compact ? 4 : 6),
         Text(
           'OPEN',
-          style: NeuType.micro(isDark, color: subtext),
+          style: NeuType.plate(isDark, color: subtext),
         ),
       ];
     } else if (!live) {
@@ -125,7 +125,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         const SizedBox(width: NeuSpace.s4),
         Text(
           'OFFLINE',
-          style: NeuType.micro(isDark, color: disabled),
+          style: NeuType.plate(isDark, color: disabled),
         ),
       ];
     } else {

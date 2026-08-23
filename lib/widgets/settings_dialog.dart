@@ -331,7 +331,7 @@ class SettingsDialog {
                                     children: [
                                       const Text('Default System Player'),
                                       const SizedBox(width: NeuSpace.s8),
-                                      Text('(Available)', style: NeuType.micro(themeNotifier.isDarkTheme, color: NeuTheme.liveText(themeNotifier.isDarkTheme))),
+                                      Text('(Available)', style: NeuType.plate(themeNotifier.isDarkTheme, color: NeuTheme.liveText(themeNotifier.isDarkTheme))),
                                     ],
                                   ),
                                 ),
@@ -344,7 +344,7 @@ class SettingsDialog {
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['vlc'] == true ? '(Detected)' : '(Not Found)',
-                                        style: NeuType.micro(themeNotifier.isDarkTheme, color: detectedPlayers['vlc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                        style: NeuType.plate(themeNotifier.isDarkTheme, color: detectedPlayers['vlc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                                       ),
                                     ],
                                   ),
@@ -358,7 +358,7 @@ class SettingsDialog {
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['mpv'] == true ? '(Detected)' : '(Not Found)',
-                                        style: NeuType.micro(themeNotifier.isDarkTheme, color: detectedPlayers['mpv'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                        style: NeuType.plate(themeNotifier.isDarkTheme, color: detectedPlayers['mpv'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                                       ),
                                     ],
                                   ),
@@ -372,7 +372,7 @@ class SettingsDialog {
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['mpc-hc'] == true ? '(Detected)' : '(Not Found)',
-                                        style: NeuType.micro(themeNotifier.isDarkTheme, color: detectedPlayers['mpc-hc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                        style: NeuType.plate(themeNotifier.isDarkTheme, color: detectedPlayers['mpc-hc'] == true ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                                       ),
                                     ],
                                   ),
@@ -387,7 +387,7 @@ class SettingsDialog {
                                         const SizedBox(width: NeuSpace.s8),
                                         Text(
                                           customPathValid() ? '(Valid Path)' : '(File Missing)',
-                                          style: NeuType.micro(themeNotifier.isDarkTheme, color: customPathValid() ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                          style: NeuType.plate(themeNotifier.isDarkTheme, color: customPathValid() ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
                                         ),
                                       ],
                                     ],
@@ -1286,7 +1286,7 @@ class SettingsDialog {
                                 updateCheckResult!,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
-                                style: NeuType.micro(themeNotifier.isDarkTheme, color: updateCheckIsError
+                                style: NeuType.plate(themeNotifier.isDarkTheme, color: updateCheckIsError
                                       ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
                                       : NeuTheme.liveText(themeNotifier.isDarkTheme)),
                               ),

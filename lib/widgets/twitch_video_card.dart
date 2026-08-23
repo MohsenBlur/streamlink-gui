@@ -152,7 +152,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           const SizedBox(width: NeuSpace.s4),
           Text(
             firstGame,
-            style: NeuType.micro(true, color: Colors.white),
+            style: NeuType.plate(true, color: Colors.white),
           ),
         ],
       ),
@@ -413,7 +413,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                     const SizedBox(width: NeuSpace.s4),
                                                     Text(
                                                       game,
-                                                      style: NeuType.micro(themeNotifier.isDarkTheme, color: Colors.white),
+                                                      style: NeuType.plate(themeNotifier.isDarkTheme, color: Colors.white),
                                                     ),
                                                   ],
                                                 ),
@@ -469,7 +469,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             const SizedBox(width: NeuSpace.s4),
                                             Text(
                                               'NOW PLAYING',
-                                              style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.onPrimaryColor),
+                                              style: NeuType.plate(themeNotifier.isDarkTheme, color: themeNotifier.onPrimaryColor),
                                             ),
                                           ],
                                         ),
@@ -517,7 +517,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             textAlign: TextAlign.center,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
-                                            style: NeuType.micro(themeNotifier.isDarkTheme, color: Colors.white),
+                                            style: NeuType.plate(themeNotifier.isDarkTheme, color: Colors.white),
                                           ),
                                         ),
                                       ),
@@ -574,7 +574,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               ],
                                               Text(
                                                 widget.downloadStatus!,
-                                                style: NeuType.micro(themeNotifier.isDarkTheme, color: NeuTheme.live),
+                                                style: NeuType.plate(themeNotifier.isDarkTheme, color: NeuTheme.live),
                                               ),
                                             ],
                                           ),

@@ -57,7 +57,7 @@ class SectionHeader extends StatelessWidget {
         // 10px is the floor for all-caps micro text: below it Segoe UI's stems
         // fall between device pixels and grey out whatever colour is set. The
         // two sites doing this by hand used 9.5.
-        style = NeuType.micro(isDark, color: NeuTheme.subtext(isDark));
+        style = NeuType.plate(isDark, color: NeuTheme.subtext(isDark));
     }
 
     final label = density == SectionDensity.inline ? title.toUpperCase() : title;

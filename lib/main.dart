@@ -18,6 +18,7 @@ import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_registry.dart';
 import 'theme/material/app_material.dart';
+import 'theme/type_probe.dart';
 import 'theme/material/chassis_furniture.dart';
 import 'widgets/shell/app_chassis.dart';
 import 'widgets/shell/app_layout.dart';
@@ -60,6 +61,12 @@ import 'utils/color_utils.dart';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The typography gate. Off unless asked for, and it cannot be a unit test:
+  // `flutter test` has no system fonts and CI is ubuntu, so an assertion about
+  // Bahnschrift there would measure the fallback against itself and pass.
+  if (TypeProbe.enabled) {
+    await TypeProbe.run();
+  }
   await localNotifier.setup(
     appName: 'Twitch Streamlink GUI',
     shortcutPolicy: ShortcutPolicy.requireCreate,
@@ -2575,7 +2582,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             Expanded(
                               child: Text(
                                 channel.game ?? 'Unknown Game',
-                                style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
+                                style: NeuType.plate(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -2709,7 +2716,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                   ),
                                                   child: Text(
                                                     video.duration,
-                                                    style: NeuType.micro(themeNotifier.isDarkTheme, color: Colors.white),
+                                                    style: NeuType.plate(themeNotifier.isDarkTheme, color: Colors.white),
                                                   ),
                                                 ),
                                               ),
@@ -2759,7 +2766,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                   if (progressPct > 0)
                                                     Text(
                                                       '$progressPct%',
-                                                      style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
+                                                      style: NeuType.plate(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                                                     ),
                                                 ],
                                               ),
@@ -3599,7 +3606,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               },
                               child: Text(
                                 'Clear All',
-                                style: NeuType.micro(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
+                                style: NeuType.plate(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
                               ),
                             ),
                           ),

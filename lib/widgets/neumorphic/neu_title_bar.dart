@@ -104,7 +104,18 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                         title.toUpperCase(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: NeuType.label(isDarkTheme, color: NeuTheme.text(isDarkTheme)).copyWith(letterSpacing: 1.1),
+                        // The engraved brand plate. `plated` swaps the face
+                        // and nothing else, so the title keeps its own size,
+                        // weight and the 1.1 tracking it was already carrying
+                        // - this is a face change, not a metrics change. The
+                        // `plate` STEP is 10px and would have shrunk the app's
+                        // own name by two points, which is a different edit
+                        // wearing the same word.
+                        style: NeuType.plated(
+                            NeuType.label(isDarkTheme,
+                                    color: NeuTheme.text(isDarkTheme))
+                                .copyWith(letterSpacing: 1.1),
+                            isDarkTheme),
                       ),
                     ),
                   ],

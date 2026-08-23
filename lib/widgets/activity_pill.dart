@@ -122,7 +122,7 @@ class ActivityPill extends StatelessWidget {
                     compact ? '${s.total}' : _label(s),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: NeuType.micro(themeNotifier.isDarkTheme,
+                    style: NeuType.plate(themeNotifier.isDarkTheme,
                         color: themeNotifier.accentInk),
                   ),
                 ),
@@ -187,7 +187,7 @@ class ActivityPopover extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: NeuSpace.s6, top: NeuSpace.s2),
         child: Text(
           title.toUpperCase(),
-          style: NeuType.micro(isDark, color: NeuTheme.subtext(isDark)),
+          style: NeuType.plate(isDark, color: NeuTheme.subtext(isDark)),
         ),
       ),
       for (final item in items) _row(context, item, isDark),

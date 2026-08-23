@@ -22,14 +22,20 @@ void main() {
         title: 'In progress',
         density: SectionDensity.inline,
       )));
-      // Asserted against the token rather than a literal: the tracking is the
-      // scale's to decide, and this test's job is that the inline density
-      // uses the micro step at all.
+      // Asserted against the token rather than a literal: the tracking is not
+      // this test's to decide, and its job is that the inline density sits at
+      // the legible floor at all.
+      //
+      // The token is `plate` rather than `micro` now — same size, same weight,
+      // the material's face and letterfit. The size assertion stays literal on
+      // purpose: 10 is the floor because below it Segoe UI's stems go
+      // sub-pixel, and that is a fact about the fallback face, so no material
+      // is allowed to move it.
       final style = tester.widget<Text>(find.text('IN PROGRESS')).style!;
-      final micro = NeuType.micro(false);
-      expect(style.fontSize, micro.fontSize);
+      final plate = NeuType.plate(false);
+      expect(style.fontSize, plate.fontSize);
       expect(style.fontSize, 10);
-      expect(style.letterSpacing, micro.letterSpacing);
+      expect(style.letterSpacing, plate.letterSpacing);
       expect(style.fontWeight, FontWeight.w700);
     });
 
