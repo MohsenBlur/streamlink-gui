@@ -108,6 +108,9 @@ class NeuAvatarFrame extends StatelessWidget {
           style: TextStyle(
             color: themeNotifier.accentInk,
             fontWeight: FontWeight.bold,
+            // Intentional: proportional. Initials fill a circle whose
+            // diameter the caller chooses, so a fixed step would overflow the
+            // small frames and swim in the large ones.
             fontSize: size * 0.4,
           ),
         ),

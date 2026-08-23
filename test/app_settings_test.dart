@@ -214,7 +214,9 @@ void main() {
       expect(restored.localServerPort, 1);
       expect(restored.maxDownloadsToKeep, 0);
       expect(restored.vodCardScale, 600.0);
-      expect(restored.vodTitleFontSize, 11.0);
+      // Clamped to the old floor of 11, then converted to what that was
+      // actually rendering at scale 600: 11 * 1.8. See _vodTitleFontSize.
+      expect(restored.vodTitleFontSize, closeTo(19.8, 0.001));
       expect(restored.closeAction, 'tray');
       expect(restored.minimizeAction, 'taskbar');
     });
@@ -222,7 +224,8 @@ void main() {
     test('v1.1.0 fields default sensibly for a pre-1.1 config', () {
       final restored = AppSettings.fromJson(<String, dynamic>{});
       expect(restored.vodCardScale, 350.0);
-      expect(restored.vodTitleFontSize, 14.0);
+      // 14 was the number in Settings; 18.2 is what it always rendered at.
+      expect(restored.vodTitleFontSize, closeTo(18.2, 0.001));
       expect(restored.closeAction, 'tray');
       expect(restored.minimizeAction, 'taskbar');
       expect(restored.launchAtStartup, isFalse);
@@ -295,6 +298,61 @@ void main() {
       expect(() => AppSettings.fromJson(const {}), returnsNormally);
       expect(AppSettings.fromJson(const {}).toJson(),
           AppSettings().toJson());
+    });
+  });
+
+  group('VOD title font size migration', () {
+    // The card multiplied the stored value by 1.0-1.8 depending on
+    // vodCardScale, so the number in Settings was never the number on screen.
+    // Removing the multiplier without migrating would have shrunk every
+    // user's card titles by up to 44% on upgrade - the single most likely
+    // "you broke my app" in this whole refresh.
+    test('a pre-migration value becomes the size it was rendering', () {
+      final s = AppSettings.fromJson({
+        'vod_title_font_size': 14.0,
+        'vod_card_scale': 350.0,
+      });
+      // 14 * (1 + (350-200)/400 * 0.8) = 18.2
+      expect(s.vodTitleFontSize, closeTo(18.2, 0.001));
+    });
+
+    test('the largest old setting survives, so nobody is shrunk', () {
+      final s = AppSettings.fromJson({
+        'vod_title_font_size': 20.0,
+        'vod_card_scale': 600.0,
+      });
+      expect(s.vodTitleFontSize, closeTo(36.0, 0.001));
+      // And the slider can still reach it.
+      expect(s.vodTitleFontSize,
+          lessThanOrEqualTo(AppSettings.maxVodTitleFontSize));
+    });
+
+    test('the smallest old setting is unchanged at scale 200', () {
+      final s = AppSettings.fromJson({
+        'vod_title_font_size': 11.0,
+        'vod_card_scale': 200.0,
+      });
+      expect(s.vodTitleFontSize, closeTo(11.0, 0.001));
+    });
+
+    test('migration runs once: the new key wins and is not re-scaled', () {
+      final migrated = AppSettings.fromJson({
+        'vod_title_font_size_px': 18.2,
+        'vod_title_font_size': 14.0,
+        'vod_card_scale': 600.0,
+      });
+      expect(migrated.vodTitleFontSize, closeTo(18.2, 0.001));
+    });
+
+    test('a round trip through toJson does not scale again', () {
+      var s = AppSettings.fromJson({
+        'vod_title_font_size': 14.0,
+        'vod_card_scale': 350.0,
+      });
+      for (var i = 0; i < 3; i++) {
+        s = AppSettings.fromJson(s.toJson());
+      }
+      expect(s.vodTitleFontSize, closeTo(18.2, 0.001));
     });
   });
 }

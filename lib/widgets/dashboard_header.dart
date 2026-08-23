@@ -49,7 +49,6 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
   /// LIVE (pulsing) / OFFLINE status pill, shared by both header layouts.
   Widget _buildStatusBadge({required bool compact}) {
-    final fontSize = compact ? 9.0 : 10.0;
     final padding = compact
         ? const EdgeInsets.symmetric(horizontal: 8, vertical: 3)
         : const EdgeInsets.symmetric(horizontal: 10, vertical: 4);
@@ -67,12 +66,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         ),
         child: Text(
           'OFFLINE',
-          style: TextStyle(
-            color: subtext,
-            fontSize: fontSize,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
+          style: NeuType.micro(isDark, color: subtext),
         ),
       );
     }
@@ -97,12 +91,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       },
       child: Text(
         'LIVE',
-        style: TextStyle(
-          color: NeuTheme.liveText(isDark),
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.5,
-        ),
+        style: NeuType.micro(isDark, color: NeuTheme.liveText(isDark)),
       ),
     );
   }
@@ -126,11 +115,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         SizedBox(width: compact ? 4 : 6),
         Text(
           'OPEN',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: compact ? 10 : 11,
-            color: subtext,
-          ),
+          style: NeuType.micro(isDark, color: subtext),
         ),
       ];
     } else if (!live) {
@@ -140,11 +125,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         const SizedBox(width: 4),
         Text(
           'OFFLINE',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: compact ? 10 : 11,
-            color: disabled,
-          ),
+          style: NeuType.micro(isDark, color: disabled),
         ),
       ];
     } else {
@@ -153,10 +134,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         SizedBox(width: compact ? 2 : 4),
         Text(
           'PLAY',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: compact ? 11 : 12,
-          ),
+          // No ink: ElevatedButton supplies the foreground, including its
+          // disabled and hover states.
+          style: NeuType.microMetrics,
         ),
       ];
     }
@@ -542,12 +522,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           widget.channel.isLive
               ? 'Streaming: ${widget.channel.game ?? "Unknown Game"}'
               : 'Channel is currently offline',
-          style: TextStyle(
-            fontSize: 13,
+          // Both branches were w500 and normal, which Segoe renders
+          // identically - the distinction was colour all along.
+          style: NeuType.body(
+            themeNotifier.isDarkTheme,
             color: widget.channel.isLive
                 ? NeuTheme.text(themeNotifier.isDarkTheme)
                 : NeuTheme.subtext(themeNotifier.isDarkTheme),
-            fontWeight: widget.channel.isLive ? FontWeight.w500 : FontWeight.normal,
           ),
         ),
       ],

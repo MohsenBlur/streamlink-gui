@@ -144,13 +144,13 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                         );
                       },
                 icon: const Icon(Icons.copy_all, size: 14),
-                label: const Text('Copy all', style: TextStyle(fontSize: 11)),
+                label: const Text('Copy all', style: NeuType.captionMetrics),
               ),
               TextButton.icon(
                 onPressed:
                     lines.isEmpty ? null : () => widget.logs.clear(_selected!),
                 icon: const Icon(Icons.delete_outline, size: 14),
-                label: const Text('Clear', style: TextStyle(fontSize: 11)),
+                label: const Text('Clear', style: NeuType.captionMetrics),
               ),
             ],
       content: sessions.isEmpty
@@ -237,10 +237,9 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                       s.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
+                      style: NeuType.caption(isDark).copyWith(
                         fontWeight:
-                            selected ? FontWeight.bold : FontWeight.w500,
+                            selected ? FontWeight.w700 : FontWeight.w400,
                         color: selected
                             ? theme.primaryColor
                             : NeuTheme.text(isDark),
@@ -295,13 +294,14 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                     padding: const EdgeInsets.only(bottom: 3),
                     child: Text(
                       line,
-                      style: TextStyle(
-                        fontFamily: 'Consolas',
-                        fontSize: 11,
-                        height: 1.35,
+                      // 11px rather than mono's 12: a log pane fits a
+                      // meaningful amount more per line, and it is scanned
+                      // rather than read.
+                      style: NeuType.mono(
+                        isDark,
                         color: _colorFor(
                             classifyLogLine(line), isDark, theme.primaryColor),
-                      ),
+                      ).copyWith(fontSize: 11, height: 1.35), // Intentional: 11px
                     ),
                   );
                 },

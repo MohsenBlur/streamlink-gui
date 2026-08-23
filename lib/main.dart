@@ -2031,9 +2031,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       SnackBar(
         content: Text(
           message,
+          // w600: w500 is not a real weight in Segoe UI, so this snackbar
+          // has always rendered at w400. A notification should stand out.
           style: TextStyle(
             color: isError ? Colors.white : themeNotifier.onPrimaryColor,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
           ),
         ),
         backgroundColor: isError ? NeuTheme.danger : themeNotifier.primaryColor,
@@ -2441,7 +2443,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             horizontal: 14, vertical: 8),
                         borderRadius: BorderRadius.circular(NeuRadius.r8),
                         child: const Text('Add a channel',
-                            style: TextStyle(fontSize: 12)),
+                            style: NeuType.bodySmMetrics),
                       ),
                     )
                   : const EmptyState(
@@ -2784,7 +2786,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       TextButton.icon(
                         onPressed: _openLibrary,
                         icon: const Icon(Icons.open_in_new, size: 14),
-                        label: const Text('Open Library', style: TextStyle(fontSize: 12)),
+                        label: const Text('Open Library', style: NeuType.labelMetrics),
                       ),
                     ],
                   ),
@@ -2908,7 +2910,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           ),
           TextButton(
             onPressed: () => _showSaveFailureDetail(failure),
-            child: const Text('Details', style: TextStyle(fontSize: 11)),
+            child: const Text('Details', style: NeuType.captionMetrics),
           ),
           IconButton(
             icon: Icon(Icons.close, size: 14, color: NeuTheme.subtext(isDark)),
@@ -2950,7 +2952,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   radius: 8),
               child: SelectableText(
                 '${failure.path}\n\n${failure.error}',
-                style: const TextStyle(fontFamily: 'Consolas', fontSize: 11),
+                style: NeuType.mono(themeNotifier.isDarkTheme),
               ),
             ),
           ],
@@ -3277,7 +3279,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             ] else ...[
                                                             TextButton.icon(
                                 icon: const Icon(Icons.check_circle_outline, size: 16),
-                                label: const Text('Mark Watched', style: TextStyle(fontSize: 11)),
+                                label: const Text('Mark Watched', style: NeuType.captionMetrics),
                                 style: TextButton.styleFrom(
                                   backgroundColor: theme.primaryColor.withValues(alpha: 0.2),
                                   foregroundColor: themeNotifier.accentInk,
@@ -3287,7 +3289,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ),
                                                             TextButton.icon(
                                 icon: const Icon(Icons.unpublished_outlined, size: 16),
-                                label: const Text('Mark Unwatched', style: TextStyle(fontSize: 11)),
+                                label: const Text('Mark Unwatched', style: NeuType.captionMetrics),
                                 style: TextButton.styleFrom(
                                   backgroundColor: NeuTheme.border(themeNotifier.isDarkTheme),
                                   foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
@@ -3297,7 +3299,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ),
                                                             TextButton.icon(
                                 icon: const Icon(Icons.download, size: 16),
-                                label: const Text('Download', style: TextStyle(fontSize: 11)),
+                                label: const Text('Download', style: NeuType.captionMetrics),
                                 style: TextButton.styleFrom(
                                   backgroundColor: NeuTheme.live.withValues(alpha: 0.15),
                                   foregroundColor: NeuTheme.liveText(themeNotifier.isDarkTheme),
@@ -3307,7 +3309,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               ),
                                                             TextButton.icon(
                                 icon: const Icon(Icons.delete_outline, size: 16),
-                                label: const Text('Delete Download', style: TextStyle(fontSize: 11)),
+                                label: const Text('Delete Download', style: NeuType.captionMetrics),
                                 style: TextButton.styleFrom(
                                   backgroundColor: NeuTheme.danger.withValues(alpha: 0.15),
                                   foregroundColor: NeuTheme.dangerText(themeNotifier.isDarkTheme),
@@ -3399,7 +3401,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                             onPressed: _showSettingsDialog,
-                            child: const Text('Update Token', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: const Text('Update Token', style: NeuType.labelMetrics),
                           ),
                           const SizedBox(width: 8),
                           IconButton(
@@ -3497,7 +3499,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   children: [
                                     Icon(Icons.expand_more, size: 18),
                                     SizedBox(width: 6),
-                                    Text('Load More VODs', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    Text('Load More VODs', style: NeuType.labelMetrics),
                                   ],
                                 ),
                         ),
@@ -3684,8 +3686,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     data: neuSliderTheme(context),
                     child: Slider(
                       value: _settings.vodTitleFontSize,
-                      min: 11.0,
-                      max: 20.0,
+                      min: AppSettings.minVodTitleFontSize,
+                      max: AppSettings.maxVodTitleFontSize,
                       onChanged: (val) {
                         setState(() {
                           _settings.vodTitleFontSize = val;

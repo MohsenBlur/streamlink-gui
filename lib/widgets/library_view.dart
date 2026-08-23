@@ -364,7 +364,7 @@ class _LibraryViewState extends State<LibraryView> {
                             horizontal: 14, vertical: 8),
                         borderRadius: BorderRadius.circular(8),
                         child: const Text('Clear filters',
-                            style: TextStyle(fontSize: 12)),
+                            style: NeuType.bodySmMetrics),
                       ),
                     ))
               : ListView.builder(
@@ -470,7 +470,7 @@ class _LibraryViewState extends State<LibraryView> {
       borderRadius: BorderRadius.circular(8),
       isSelected: _sort == sort,
       onPressed: () => setState(() => _sort = sort),
-      child: Text(label, style: const TextStyle(fontSize: 11)),
+      child: Text(label, style: NeuType.captionMetrics),
     );
   }
 
@@ -487,7 +487,7 @@ class _LibraryViewState extends State<LibraryView> {
           _channelFilter = channel;
           _unknownOnly = false;
         }),
-        child: Text(label, style: const TextStyle(fontSize: 11)),
+        child: Text(label, style: NeuType.captionMetrics),
       ),
     );
   }
@@ -505,7 +505,7 @@ class _LibraryViewState extends State<LibraryView> {
           _unknownOnly = !_unknownOnly;
           _channelFilter = null;
         }),
-        child: const Text('No channel', style: TextStyle(fontSize: 11)),
+        child: const Text('No channel', style: NeuType.captionMetrics),
       ),
     );
   }

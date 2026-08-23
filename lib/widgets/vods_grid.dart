@@ -153,7 +153,8 @@ class _VodsGridState extends State<VodsGrid> {
         ),
         child: Text(
           'Error loading VODs: ${widget.vodsError}',
-          style: TextStyle(color: NeuTheme.dangerText(themeNotifier.isDarkTheme), fontSize: 13),
+          style: NeuType.body(themeNotifier.isDarkTheme,
+              color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
         ),
         ),
       );
@@ -229,9 +230,12 @@ class _VodsGridState extends State<VodsGrid> {
                               ],
                               Text(
                                 game,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                style: NeuType.captionStrong(
+                                  themeNotifier.isDarkTheme,
+                                ).copyWith(
+                                  fontWeight: isSelected
+                                      ? FontWeight.w700
+                                      : FontWeight.w600,
                                   color: isSelected
                                       ? widget.theme.primaryColor
                                       : themeNotifier.textColor,
@@ -311,7 +315,7 @@ class _VodsGridState extends State<VodsGrid> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             borderRadius: BorderRadius.circular(8),
             child: const Text('Show all categories',
-                style: TextStyle(fontSize: 12)),
+                style: NeuType.bodySmMetrics),
           ),
         );
       } else if (searchQuery.isNotEmpty) {
@@ -347,7 +351,7 @@ class _VodsGridState extends State<VodsGrid> {
             theme: widget.theme,
             onPlay: () => widget.onPlay(vod),
             formatNumber: _formatNumberString,
-            fontSize: widget.vodTitleFontSize,
+            titleFontSize: widget.vodTitleFontSize,
             isPlaying: widget.isPlaying(vod.id),
             pulseController: widget.pulseController,
             showGamesOnThumbnails: widget.showGamesOnThumbnails,

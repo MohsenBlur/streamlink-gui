@@ -122,11 +122,8 @@ class ActivityPill extends StatelessWidget {
                     compact ? '${s.total}' : _label(s),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.bold,
-                      color: themeNotifier.accentInk,
-                    ),
+                    style: NeuType.micro(themeNotifier.isDarkTheme,
+                        color: themeNotifier.accentInk),
                   ),
                 ),
               ],

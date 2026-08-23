@@ -164,7 +164,7 @@ class SettingsDialog {
                   indicatorSize: TabBarIndicatorSize.tab,
                   isScrollable: true,
                   tabAlignment: TabAlignment.start,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  labelStyle: NeuType.labelMetrics.copyWith(fontWeight: FontWeight.w700),
                   tabs: const [
                     Tab(text: 'Playback'),
                     Tab(text: 'Downloads'),
@@ -835,7 +835,7 @@ class SettingsDialog {
                                 TextButton(
                                   style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                                   onPressed: () => openExternalLink('https://twitchapps.com/tmi/'),
-                                  child: const Text('Get Token Manually', style: TextStyle(fontSize: 11)),
+                                  child: const Text('Get Token Manually', style: NeuType.captionMetrics),
                                 ),
                               ],
                             ),
@@ -1137,7 +1137,7 @@ class SettingsDialog {
                                 );
                               },
                               icon: const Icon(Icons.delete_forever, size: 18),
-                              label: const Text('Clear Local Watch History', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                              label: const Text('Clear Local Watch History', style: NeuType.labelMetrics),
                             ),
                             const SizedBox(height: 24),
                             Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
@@ -1158,7 +1158,7 @@ class SettingsDialog {
                               ),
                               onPressed: onOpenLogs,
                               icon: const Icon(Icons.terminal, size: 18),
-                              label: const Text('View Logs', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                              label: const Text('View Logs', style: NeuType.labelMetrics),
                             ),
                           ],
                         ),

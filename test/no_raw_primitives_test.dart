@@ -76,6 +76,56 @@ void main() {
     expectNoRaw('TextField(', 'NeuTextField');
   });
 
+  test('no raw font sizes outside the type scale', () {
+    // Seventeen distinct sizes across 271 sites was the state this refresh
+    // started in, and the three helpers that were supposed to prevent it each
+    // took an overridable fontSize that every caller overrode. NeuType is only
+    // a scale for as long as nothing bypasses it.
+    //
+    // Exemptions carry `// Intentional:` with a reason on the line above or
+    // the same line - the convention already used for the accent swatches.
+    final offenders = <String>[];
+    for (final file in dartFiles()) {
+      final path = rel(file);
+      if (path == 'lib/theme/neu_type.dart') continue;
+      final lines = file.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i];
+        if (!line.contains('fontSize:')) continue;
+        if (line.trimLeft().startsWith('//')) continue;
+        if (line.contains('Intentional:') || line.contains('raw-ok:')) continue;
+        final window = lines
+            .sublist(i >= 4 ? i - 4 : 0, i)
+            .where((l) => l.trimLeft().startsWith('//'))
+            .join(' ');
+        if (window.contains('Intentional:')) continue;
+        offenders.add('$path:${i + 1}  ${line.trim()}');
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'use a NeuType step (or NeuType.*Metrics inside a control '
+            'that owns its foreground) instead of a raw size:\n'
+            '${offenders.join('\n')}');
+  });
+
+  test('nothing asks for a weight the font does not have', () {
+    // Segoe UI ships Light, Semilight, Regular, Semibold, Bold and Black -
+    // there is no Medium. w500 renders as w400, so ~59 sites believed they
+    // had a weight step that does not exist. The scale uses 400/600/700.
+    final offenders = <String>[];
+    for (final file in dartFiles()) {
+      final lines = file.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        if (!lines[i].contains('FontWeight.w500')) continue;
+        if (lines[i].trimLeft().startsWith('//')) continue;
+        offenders.add('${rel(file)}:${i + 1}  ${lines[i].trim()}');
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'w500 is not a real weight in Segoe UI; use w400 or w600:\n'
+            '${offenders.join('\n')}');
+  });
+
   test('the allow-list only names files that exist', () {
     // An allow-list entry for a deleted or renamed file silently stops
     // guarding whatever replaced it.

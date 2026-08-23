@@ -24,16 +24,18 @@ extension NeuFieldSizeMetrics on NeuFieldSize {
         NeuFieldSize.lg => 44,
       };
 
-  double get textSize => switch (this) {
-        NeuFieldSize.sm => 12,
-        NeuFieldSize.md => 13,
-        NeuFieldSize.lg => 14,
+  /// Named steps rather than literals. lg was 14, which is not on the scale;
+  /// it is 13 now, the same as md, and the two still differ by their height.
+  TextStyle text(bool isDark) => switch (this) {
+        NeuFieldSize.sm => NeuType.bodySm(isDark),
+        NeuFieldSize.md => NeuType.body(isDark),
+        NeuFieldSize.lg => NeuType.body(isDark),
       };
 
-  double get hintSize => switch (this) {
-        NeuFieldSize.sm => 12,
-        NeuFieldSize.md => 12,
-        NeuFieldSize.lg => 13,
+  TextStyle hint(bool isDark) => switch (this) {
+        NeuFieldSize.sm => NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark)),
+        NeuFieldSize.md => NeuType.bodySm(isDark, color: NeuTheme.subtext(isDark)),
+        NeuFieldSize.lg => NeuType.body(isDark, color: NeuTheme.subtext(isDark)),
       };
 
   double get iconSize => switch (this) {
@@ -176,17 +178,10 @@ class _NeuTextFieldState extends State<NeuTextField> {
                 obscureText: widget.isPassword,
                 onChanged: widget.onChanged,
                 onSubmitted: widget.onSubmitted,
-                style: TextStyle(
-                  color: NeuTheme.text(isDark),
-                  fontSize: widget.size.textSize,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: widget.size.text(isDark),
                 decoration: InputDecoration(
                   hintText: widget.hintText,
-                  hintStyle: TextStyle(
-                    color: NeuTheme.subtext(isDark),
-                    fontSize: widget.size.hintSize,
-                  ),
+                  hintStyle: widget.size.hint(isDark),
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,

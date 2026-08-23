@@ -95,6 +95,38 @@ abstract final class NeuType {
         color: color ?? NeuTheme.text(isDark),
       );
 
+  // ------------------------------------------------------------------
+  // Ink-free metrics.
+  //
+  // For text inside a control that supplies its own foreground colour -
+  // TextButton, OutlinedButton, ElevatedButton, TabBar. Giving those an
+  // explicit colour overrides the control's disabled and hover states, so
+  // they take the size and weight of a step and nothing else.
+
+  /// 13/400, no ink. See above.
+  static const TextStyle bodyMetrics =
+      TextStyle(fontSize: 13, fontWeight: FontWeight.w400);
+
+  /// 12/400, no ink. See above.
+  static const TextStyle bodySmMetrics =
+      TextStyle(fontSize: 12, fontWeight: FontWeight.w400);
+
+  /// 12/600, no ink. See above.
+  static const TextStyle labelMetrics =
+      TextStyle(fontSize: 12, fontWeight: FontWeight.w600);
+
+  /// 11/400, no ink. See above.
+  static const TextStyle captionMetrics =
+      TextStyle(fontSize: 11, fontWeight: FontWeight.w400);
+
+  /// 10/700 with tracking, no ink. See above.
+  static const TextStyle microMetrics = TextStyle(
+      fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.6);
+
+  /// 11/600, no ink. See above.
+  static const TextStyle captionStrongMetrics =
+      TextStyle(fontSize: 11, fontWeight: FontWeight.w600);
+
   static TextStyle _style(double size, FontWeight weight, Color color) =>
       TextStyle(fontSize: size, fontWeight: weight, color: color);
 

@@ -353,7 +353,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                                   widget.sidebarTab == 0
                                       ? 'Refresh Favorites'
                                       : (widget.sidebarTab == 1 ? 'Refresh Follows' : 'Refresh Live'),
-                                  style: const TextStyle(fontSize: 12),
+                                  style: NeuType.bodySmMetrics,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -1137,12 +1137,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                 Expanded(
                   child: Text(
                     channel.username,
-                    style: TextStyle(
-                      fontWeight:
-                          widget.isSelected ? FontWeight.bold : FontWeight.w600,
-                      color: themeNotifier.textColor,
-                      fontSize: 14,
-                    ),
+                    style: NeuType.headingSm(themeNotifier.isDarkTheme,
+                            color: themeNotifier.textColor)
+                        .copyWith(
+                            fontWeight: widget.isSelected
+                                ? FontWeight.w700
+                                : FontWeight.w600),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -1170,6 +1170,9 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                     child: Text(
                       'LIVE',
                       style: TextStyle(
+                        // Intentional: 8px. The rail's LIVE pill is 20px tall
+                        // and cannot hold micro's 10px without clipping; the
+                        // expanded sidebar uses the real badge.
                         fontSize: 8,
                         fontWeight: FontWeight.bold,
                         // Computed ink on the solid mint pill.

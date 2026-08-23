@@ -11,7 +11,14 @@ class TwitchVideoCard extends StatefulWidget {
   final ThemeData theme;
   final VoidCallback onPlay;
   final String Function(String) formatNumber;
-  final double fontSize;
+  /// The rendered title size, in logical pixels.
+  ///
+  /// It used to be a base that the card multiplied by 1.0-1.8 depending on
+  /// [scale], so the number in Settings was never the number on screen - at
+  /// the shipped defaults it read 14 and rendered 18.2, and at scale 600 with
+  /// the slider at 20 it reached 36. Stored values are migrated to their
+  /// effective size on load, so nobody's cards change size.
+  final double titleFontSize;
   final bool isPlaying;
   final AnimationController? pulseController;
   final bool showGamesOnThumbnails;
@@ -36,7 +43,7 @@ class TwitchVideoCard extends StatefulWidget {
     required this.theme,
     required this.onPlay,
     required this.formatNumber,
-    required this.fontSize,
+    required this.titleFontSize,
     required this.isPlaying,
     required this.pulseController,
     required this.showGamesOnThumbnails,
@@ -145,7 +152,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           const SizedBox(width: 4),
           Text(
             firstGame,
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+            style: NeuType.micro(true, color: Colors.white),
           ),
         ],
       ),
@@ -413,7 +420,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               ),
                                             ],
                                           ),
-                                          textStyle: TextStyle(color: NeuTheme.text(themeNotifier.isDarkTheme), fontSize: 11, fontWeight: FontWeight.w600, height: 1.3),
+                                          textStyle: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)).copyWith(height: 1.3),
                                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                           preferBelow: true,
                                           child: _buildGameBadge(widget.theme),
@@ -639,12 +646,14 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                         widget.vod.title,
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: widget.fontSize * (1.0 + (widget.scale - 200.0) / 400.0 * 0.8), 
-                          fontWeight: FontWeight.bold, 
-                          color: themeNotifier.textColor, 
-                          height: 1.25
-                        ),
+                        style: NeuType.bodyStrong(themeNotifier.isDarkTheme,
+                                color: themeNotifier.textColor)
+                            // Intentional: the one user-settable size in the
+                            // app. The step supplies the weight and ink.
+                            .copyWith(
+                                fontSize: widget.titleFontSize,
+                                fontWeight: FontWeight.w700,
+                                height: 1.25),
                       ),
                     ),
                   ),
