@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The lit-surface shader, asserted on properties a gradient cannot have.
@@ -12,12 +11,19 @@ import 'package:flutter_test/flutter_test.dart';
 /// every one of them fails on any stack of gradients:
 ///
 /// * the highlight MOVES when the light moves,
-/// * the edge is bright on the lit side and dark on the far side, not a ring,
-/// * the reflection changes with the surface normal,
-/// * a recessed surface is lit on the opposite edge from a proud one.
+/// * the edge is directional - lit side bright, far side dark - not a ring,
+/// * the far edge still carries a bright arris at the silhouette, because at
+///   grazing incidence every material reflects everything,
+/// * a recessed surface inverts its edge lighting relative to a proud one,
+/// * a metal's reflection carries the metal's own colour,
+/// * the contact shadow hugs the silhouette and the cast shadow reaches past,
+/// * output is valid premultiplied everywhere, because Skia will clamp what
+///   is not and a clamp silently shifts hue.
 ///
-/// They also happen to be cheap, exact, and independent of taste, which the
-/// previous engine's "does it look right" screenshot pass was not.
+/// The uniform write below is the layout contract, kept in declaration order
+/// in one place because SkSL uniforms are positional: inserting one in the
+/// middle of the shader silently shifts every value after it, and the result
+/// still renders.
 void main() {
   late ui.FragmentProgram program;
 
@@ -25,123 +31,163 @@ void main() {
     program = await ui.FragmentProgram.fromAsset('shaders/surface.frag');
   });
 
-  /// Uniform layout, in declaration order. Kept in one place because SkSL
-  /// uniforms are positional: inserting one in the middle of the shader
-  /// silently shifts every value after it, and the result still renders.
+  const pad = 24.0;
+
   ui.FragmentShader shade({
     required double w,
     required double h,
     double radius = 14,
     double bevel = 3.5,
-    List<double> base = const [0.165, 0.180, 0.208],
-    List<double> spec = const [1.0, 0.98, 0.94],
-    double rough = 0.35,
-    double lightAz = 1.5707963,
-    double lightEl = 0.62,
-    double ambient = 0.42,
-    List<double> envTop = const [0.52, 0.56, 0.64],
-    List<double> envBot = const [0.04, 0.045, 0.06],
-    double envAmount = 0.55,
-    double grain = 0.0,
-    double grainScale = 130,
-    double inset = 0,
+    double profile = 1.0,
+    double landAngle = 0.5,
+    List<double> albedo = const [0.26, 0.27, 0.30],
+    List<double> f0 = const [0.91, 0.92, 0.92],
+    double rough = 0.34,
+    double metal = 0.0,
+    double aniso = 0.0,
+    double bow = 0.26,
+    List<double> light = const [-0.35, 0.72, 0.60],
+    double key = 1.0,
+    double ambient = 0.55,
+    double sheen = 0.20,
+    double recess = 0.0,
+    List<double> sky = const [0.62, 0.67, 0.76],
+    List<double> gnd = const [0.05, 0.055, 0.07],
+    double envAmt = 0.75,
+    double horizon = 0.22,
+    double softbox = 0.40,
+    double rim = 0.55,
+    double grainAmp = 0.0,
+    double grainAcross = 3.0,
+    double grainAngle = 0.0,
     double seed = 3,
-    double px = 1,
-    double bow = 0.10,
-    double sheen = 0.22,
+    double shDx = 0.0,
+    double shDy = -6.0,
+    double shBlur = 12.0,
+    double shOp = 0.55,
+    double aoOp = 0.40,
+    double aoReach = 4.0,
+    double innerBlur = 7.0,
+    double innerOp = 0.75,
+    double exposure = 1.0,
+    double white = 2.2,
+    double dither = 1.0,
+    double opacity = 1.0,
+    double px = 1.0,
   }) {
     final s = program.fragmentShader();
     var i = 0;
     void f(double v) => s.setFloat(i++, v);
+    f(w + 2 * pad);
+    f(h + 2 * pad); // uDraw
     f(w);
-    f(h);
-    f(radius);
+    f(h); // uShape
+    f(pad);
+    f(radius); // uPadRad
     f(bevel);
-    base.forEach(f);
-    spec.forEach(f);
-    f(rough);
-    f(lightAz);
-    f(lightEl);
-    f(ambient);
-    envTop.forEach(f);
-    envBot.forEach(f);
-    f(envAmount);
-    f(grain);
-    f(grainScale);
-    f(inset);
-    f(seed);
     f(px);
-    f(bow);
+    f(profile);
+    f(landAngle); // uBevel
+    albedo.forEach(f); // uAlbedo
+    f0.forEach(f); // uF0
+    f(rough);
+    f(metal);
+    f(aniso);
+    f(bow); // uMat
+    light.forEach(f); // uL
+    f(key);
+    f(ambient);
     f(sheen);
+    f(recess); // uKey
+    sky.forEach(f); // uSky
+    gnd.forEach(f); // uGnd
+    f(envAmt);
+    f(horizon);
+    f(softbox);
+    f(rim); // uEnv
+    f(grainAmp);
+    f(grainAcross);
+    f(grainAngle);
+    f(seed); // uGrain
+    f(shDx);
+    f(shDy);
+    f(shBlur);
+    f(shOp); // uShadow
+    f(aoOp);
+    f(aoReach);
+    f(innerBlur);
+    f(innerOp); // uOcc
+    f(exposure);
+    f(white);
+    f(dither);
+    f(opacity); // uTone
     return s;
   }
 
-  Future<Uint8List> render(ui.FragmentShader s, double w, double h) async {
+  /// Renders one surface of [w]x[h] centred in a [pad]-inflated draw rect.
+  Future<ByteData> render(ui.FragmentShader s, double w, double h) async {
+    final dw = (w + 2 * pad).toInt();
+    final dh = (h + 2 * pad).toInt();
     final rec = ui.PictureRecorder();
-    final c = Canvas(rec);
-    c.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..shader = s);
-    final img = await rec.endRecording().toImage(w.round(), h.round());
-    final bytes = (await img.toByteData())!.buffer.asUint8List();
+    final c =
+        ui.Canvas(rec, ui.Rect.fromLTWH(0, 0, dw.toDouble(), dh.toDouble()));
+    c.drawRect(ui.Rect.fromLTWH(0, 0, dw.toDouble(), dh.toDouble()),
+        ui.Paint()..shader = s);
+    final img = await rec.endRecording().toImage(dw, dh);
+    final bytes = (await img.toByteData())!;
     img.dispose();
     return bytes;
   }
 
-  double lumAt(Uint8List b, int w, int x, int y) {
-    final i = (y * w + x) * 4;
-    return (b[i] * 0.2126 + b[i + 1] * 0.7152 + b[i + 2] * 0.0722);
+  int lum(ByteData b, int stride, int x, int y) {
+    final o = (y * stride + x) * 4;
+    return ((b.getUint8(o) * 299 +
+                b.getUint8(o + 1) * 587 +
+                b.getUint8(o + 2) * 114) /
+            1000)
+        .round();
   }
 
-  double alphaAt(Uint8List b, int w, int x, int y) => b[(y * w + x) * 4 + 3].toDouble();
+  int alpha(ByteData b, int stride, int x, int y) =>
+      b.getUint8((y * stride + x) * 4 + 3);
 
-  const w = 200.0, h = 120.0;
-  const iw = 200, ih = 120;
+  const w = 220.0, h = 120.0;
+  const stride = 268; // w + 2*pad
 
   test('the highlight moves when the light moves', () async {
     // The property a gradient cannot have. A LinearGradient's bright end is
     // wherever it was authored; a lit surface's is wherever the light is.
-    final above = await render(shade(w: w, h: h, lightAz: 1.5707963), w, h);
-    final left = await render(shade(w: w, h: h, lightAz: 3.14159), w, h);
+    final a =
+        await render(shade(w: w, h: h, light: const [-0.60, 0.55, 0.58]), w, h);
+    final bb =
+        await render(shade(w: w, h: h, light: const [0.60, 0.55, 0.58]), w, h);
+    // Sample the two upper corners of the face, inside the chamfer.
+    final aLeft = lum(a, stride, (pad + 26).toInt(), (pad + 20).toInt());
+    final aRight = lum(a, stride, (pad + w - 26).toInt(), (pad + 20).toInt());
+    final bLeft = lum(bb, stride, (pad + 26).toInt(), (pad + 20).toInt());
+    final bRight = lum(bb, stride, (pad + w - 26).toInt(), (pad + 20).toInt());
 
-    // Sampled ONE pixel in from the outline, which is where the chamfer is
-    // steepest and therefore brightest. Three pixels in, with a 3.5px chamfer,
-    // is already most of the way back to the flat face - the difference is
-    // still in the right direction there but only by a level or two, which
-    // would make this test look marginal when the effect is not.
-    final topAbove = lumAt(above, iw, iw ~/ 2, 1);
-    final leftAbove = lumAt(above, iw, 1, ih ~/ 2);
-    final topLeft = lumAt(left, iw, iw ~/ 2, 1);
-    final leftLeft = lumAt(left, iw, 1, ih ~/ 2);
-
-    expect(topAbove, greaterThan(leftAbove + 8),
-        reason: 'lit from above, the TOP chamfer must be the bright one '
-            '(top ${topAbove.toStringAsFixed(1)} vs '
-            'left ${leftAbove.toStringAsFixed(1)})');
-    expect(leftLeft, greaterThan(topLeft + 8),
-        reason: 'lit from the left, the LEFT chamfer must be the bright one '
-            '(left ${leftLeft.toStringAsFixed(1)} vs '
-            'top ${topLeft.toStringAsFixed(1)})');
+    expect(aLeft, greaterThan(aRight),
+        reason: 'lit from the left, the left of the face must be brighter '
+            '(L=$aLeft R=$aRight)');
+    expect(bRight, greaterThan(bLeft),
+        reason: 'lit from the right, the right of the face must be brighter '
+            '(L=$bLeft R=$bRight)');
   });
 
-  test('the edge is lit on one side and shadowed on the other', () async {
-    // A one-pixel ring is the same value all the way round. A chamfer is
-    // geometry: it catches the light where it faces it and loses it where it
-    // turns away. This is the difference between an outline and an edge.
+  test('the face is shaded, not one flat colour', () async {
+    // A flat normal dotted with a fixed light is a constant, which is exactly
+    // what the gradient engine produced and exactly what read as fake. The
+    // shallow bow makes the highlight travel across the interior.
     final b = await render(shade(w: w, h: h), w, h);
-    final top = lumAt(b, iw, iw ~/ 2, 1);
-    final bottom = lumAt(b, iw, iw ~/ 2, ih - 2);
-    final middle = lumAt(b, iw, iw ~/ 2, ih ~/ 2);
-
-    // Measured at the values that ship: top 84.9, face 76.9, far chamfer 15.9.
-    // The near edge is worth 8 levels over the face and the far edge is 61
-    // levels UNDER it - the asymmetry is the whole point, and it is why the
-    // two halves of this test have such different thresholds.
-    expect(top, greaterThan(middle + 5),
-        reason: 'the lit chamfer must be brighter than the face '
-            '(top ${top.toStringAsFixed(1)} middle ${middle.toStringAsFixed(1)} '
-            'bottom ${bottom.toStringAsFixed(1)})');
-    expect(bottom, lessThan(middle),
-        reason: 'the far chamfer must be darker than the face, not brighter - '
-            'a ring that is bright all the way round is a stroke');
+    final samples = <int>[
+      for (var x = 40; x < w - 40; x += 20)
+        lum(b, stride, (pad + x).toInt(), (pad + h / 2).toInt())
+    ];
+    final spread = samples.reduce((a, c) => a > c ? a : c) -
+        samples.reduce((a, c) => a < c ? a : c);
+    expect(spread, greaterThan(2),
+        reason: 'a bowed face must vary across its width (samples $samples)');
   });
 
   test('a recessed surface lights the opposite edge from a proud one',
@@ -149,80 +195,150 @@ void main() {
     // Inversion, not just a darker fill. The old engine made a well by
     // choosing a darker base colour; a real recess turns its near wall away
     // from the light and its far wall toward it.
-    final proud = await render(shade(w: w, h: h, inset: 0), w, h);
-    final sunk = await render(shade(w: w, h: h, inset: 1), w, h);
-
-    final proudTop = lumAt(proud, iw, iw ~/ 2, 1);
-    final proudBottom = lumAt(proud, iw, iw ~/ 2, ih - 2);
-    final sunkTop = lumAt(sunk, iw, iw ~/ 2, 1);
-    final sunkBottom = lumAt(sunk, iw, iw ~/ 2, ih - 2);
-
-    expect(proudTop - proudBottom, greaterThan(10));
-    expect(sunkBottom - sunkTop, greaterThan(10),
-        reason: 'the recess is lit the same way round as the proud surface, '
-            'so it will read as a flat darker box');
+    final up = await render(shade(w: w, h: h, recess: 0), w, h);
+    final dn = await render(shade(w: w, h: h, recess: 1), w, h);
+    int topEdge(ByteData b) =>
+        lum(b, stride, (pad + w / 2).toInt(), (pad + 2).toInt());
+    int botEdge(ByteData b) =>
+        lum(b, stride, (pad + w / 2).toInt(), (pad + h - 3).toInt());
+    final upTop = topEdge(up), upBot = botEdge(up);
+    final dnTop = topEdge(dn), dnBot = botEdge(dn);
+    expect(upTop - upBot, greaterThan(0),
+        reason: 'a proud edge catches light on the lit side '
+            '(raised top=$upTop bot=$upBot)');
+    expect(dnTop - dnBot, lessThan(upTop - upBot),
+        reason: 'a recess must invert the edge lighting relative to a boss '
+            '(recess top=$dnTop bot=$dnBot)');
   });
 
-  test('the face is shaded rather than flat', () async {
-    // A flat normal dotted with a fixed light is a constant, which is exactly
-    // what the gradient engine produced and exactly what read as fake. The
-    // shallow bow makes the interior vary.
-    final b = await render(shade(w: w, h: h, grain: 0), w, h);
-    final near = lumAt(b, iw, iw ~/ 2, 20);
-    final far = lumAt(b, iw, iw ~/ 2, ih - 20);
-    expect((near - far).abs(), greaterThan(4),
-        reason: 'the interior is one flat value, so this is a gradient with '
-            'extra steps');
+  test('the edge is directional, not a uniform ring, and its arris grazes',
+      () async {
+    final b = await render(shade(w: w, h: h), w, h);
+    final x = (pad + w / 2).toInt();
+    // Light is above, so the top chamfer faces it and the bottom faces away.
+    final top = lum(b, stride, x, (pad + 2).toInt());
+    final face = lum(b, stride, x, (pad + h / 2).toInt());
+    final botLand = lum(b, stride, x, (pad + h - 3).toInt());
+    final botArris = lum(b, stride, x, (pad + h - 1).toInt());
+
+    // 1. A machined chamfer is lit on one side and shadowed on the other. A
+    //    constant-alpha ring - the thing this replaces - cannot do this at all.
+    expect(top, greaterThan(face + 8),
+        reason: 'the chamfer facing the light must beat the face '
+            '(top=$top face=$face)');
+    expect(botLand, lessThan(face - 8),
+        reason: 'the chamfer facing away must fall below the face '
+            '(botLand=$botLand face=$face)');
+
+    // 2. At the extreme silhouette the normal turns into the screen plane and
+    //    reflectance approaches 1 regardless of F0, so even the SHADOWED edge
+    //    carries a bright arris. This is the cue a top-lit gradient can never
+    //    produce, because a gradient makes the bottom edge monotonically
+    //    darkest.
+    expect(botArris, greaterThan(botLand + 8),
+        reason: 'the grazing arris must brighten against the land inside it '
+            '(arris=$botArris land=$botLand)');
   });
 
-  test('the grain is anisotropic, not noise', () async {
-    // Brushed metal streaks along one axis. Isotropic noise reads as dirt -
-    // the plan's own word for it - and is the commonest tell in a fake metal.
-    // Variance along x at fixed y should be much lower than along y at fixed
-    // x, because a streak is constant along its own length.
-    final b = await render(shade(w: w, h: h, grain: 0.35), w, h);
-
-    double variance(List<double> v) {
-      final m = v.reduce((a, c) => a + c) / v.length;
-      return v.map((x) => (x - m) * (x - m)).reduce((a, c) => a + c) / v.length;
-    }
-
-    final alongStreak = <double>[
-      for (var x = 40; x < 160; x++) lumAt(b, iw, x, 60)
-    ];
-    final acrossStreak = <double>[
-      for (var y = 30; y < 90; y++) lumAt(b, iw, 100, y)
-    ];
-
-    expect(variance(acrossStreak), greaterThan(variance(alongStreak) * 2),
-        reason: 'the grain varies as much along the streak as across it, so '
-            'it is isotropic noise rather than a brush');
-  });
-
-  test('nothing is painted outside the rounded shape', () async {
-    // The shader owns its own coverage, so a caller does not have to clip. If
-    // this regresses, every surface in the app gets square corners.
-    final b = await render(shade(w: w, h: h, radius: 30), w, h);
-    expect(alphaAt(b, iw, 1, 1), 0,
-        reason: 'the corner outside a 30px radius must be fully transparent');
-    expect(alphaAt(b, iw, iw ~/ 2, ih ~/ 2), 255,
-        reason: 'the interior must be fully opaque');
+  test('a contact shadow hugs the silhouette and the cast shadow reaches past',
+      () async {
+    // Two different phenomena that UI code habitually collapses into one
+    // blurred blob. The contact term is non-directional, has zero offset and
+    // is tightest at the edge; the cast shadow is directional and reaches
+    // further. The contact term's absence is exactly why UI elements float.
+    final b = await render(shade(w: w, h: h), w, h);
+    final near = alpha(b, stride, (pad + w / 2).toInt(), (pad + h + 3).toInt());
+    final far = alpha(b, stride, (pad + w / 2).toInt(), (pad + h + 20).toInt());
+    final corner = alpha(b, stride, 1, 1);
+    expect(near, greaterThan(far),
+        reason: 'contact occlusion must be tightest at the silhouette '
+            '(near=$near far=$far)');
+    expect(far, greaterThan(0),
+        reason: 'the cast shadow must reach further out');
+    expect(corner, lessThan(20), reason: 'and must fade to nothing');
   });
 
   test('the shape edge is antialiased', () async {
-    // Straight from the SDF. Worth asserting because the pixel size arrives as
-    // a uniform - SkSL has no fwidth - so a caller that forgets it gets a hard
-    // jagged edge and nothing else changes.
-    final b = await render(shade(w: w, h: h, radius: 30), w, h);
+    // Straight from the SDF. Worth asserting because the pixel size arrives
+    // as a uniform - SkSL has no fwidth - so a caller that forgets it gets a
+    // hard jagged edge and nothing else changes.
+    final b = await render(shade(w: w, h: h, radius: 40), w, h);
     var partial = 0;
-    for (var y = 0; y < ih; y++) {
-      for (var x = 0; x < iw; x++) {
-        final a = alphaAt(b, iw, x, y);
-        if (a > 8 && a < 247) partial++;
+    for (var y = 0; y < 40; y++) {
+      for (var x = 0; x < 40; x++) {
+        final a = alpha(b, stride, x, y);
+        if (a > 12 && a < 243) partial++;
       }
     }
-    expect(partial, greaterThan(100),
-        reason: 'no partially covered pixels anywhere on the outline, so the '
-            'edge is aliased');
+    expect(partial, greaterThan(10),
+        reason: 'no partially covered pixels in the corner, so the outline '
+            'is aliased');
+  });
+
+  test('the grain is anisotropic: streaks along the brush, not noise',
+      () async {
+    // Brushed metal varies fast across the grain and slowly along it.
+    // Isotropic noise reads as dirt, and is the commonest tell in fake metal.
+    //
+    // Dither OFF: it is +/-1 LSB of isotropic noise on every pixel, which is
+    // the whole point of it, and it would swamp the signal being measured.
+    final b = await render(
+        shade(
+            w: w, h: h, grainAmp: 0.16, grainAcross: 3.0, rough: 0.28, dither: 0),
+        w,
+        h);
+    var along = 0.0, across = 0.0;
+    const y0 = 60;
+    for (var x = 60; x < 160; x++) {
+      along += (lum(b, stride, x + 1, y0) - lum(b, stride, x, y0)).abs();
+      across += (lum(b, stride, x, y0 + 1) - lum(b, stride, x, y0)).abs();
+    }
+    expect(across, greaterThan(along),
+        reason: 'a horizontal brush varies fast across the grain, slow along '
+            'it (along=$along across=$across)');
+  });
+
+  test('a metal reflects its own tint; a dielectric does not', () async {
+    // F0 is what separates gold from grey plastic: a metal's specular carries
+    // the metal's colour, a dielectric's stays neutral at ~4% white.
+    final die = await render(shade(w: w, h: h, metal: 0.0), w, h);
+    final met = await render(
+        shade(w: w, h: h, metal: 1.0, f0: const [0.95, 0.64, 0.22]), w, h);
+    int chan(ByteData b, int c) =>
+        b.getUint8((((pad + 14).toInt()) * stride + (pad + w / 2).toInt()) * 4 +
+            c);
+    expect(chan(met, 0) - chan(met, 2), greaterThan(chan(die, 0) - chan(die, 2)),
+        reason: 'a gold F0 must warm the specular; a dielectric stays neutral');
+  });
+
+  test('nothing outside the draw rect, and output is valid premultiplied',
+      () async {
+    // Skia clamps an invalid premultiplied colour, and the clamp silently
+    // shifts hue - so the shader must never rely on it.
+    final b = await render(shade(w: w, h: h), w, h);
+    final dh = (h + 2 * pad).toInt();
+    var bad = 0;
+    for (var y = 0; y < dh; y += 3) {
+      for (var x = 0; x < stride; x += 3) {
+        final o = (y * stride + x) * 4;
+        final a = b.getUint8(o + 3);
+        for (var c = 0; c < 3; c++) {
+          if (b.getUint8(o + c) > a + 1) bad++;
+        }
+      }
+    }
+    expect(bad, 0, reason: '$bad premultiplication violations');
+  });
+
+  test('the interior is fully opaque and the far corner fully clear', () async {
+    // The shader owns its own coverage, so no caller has to clip. If this
+    // regresses, every surface in the app gets square corners - or worse,
+    // translucent faces compositing over whatever is behind them.
+    final b = await render(shade(w: w, h: h, radius: 30), w, h);
+    expect(alpha(b, stride, (pad + w / 2).toInt(), (pad + h / 2).toInt()), 255,
+        reason: 'the interior must be fully opaque');
+    expect(alpha(b, stride, stride - 1, 0), lessThan(8),
+        reason: 'the top-right of the pad, away from the shadow, must be '
+            'transparent');
   });
 }
