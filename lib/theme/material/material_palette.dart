@@ -505,6 +505,7 @@ class MaterialPalette {
     this.glossColour = const Color(0xFFFFFFFF),
     this.texture,
     this.lit,
+    this.litScreen,
     this.darkDepth = DarkDepth.lightSideCast,
     this.recessStyle = RecessStyle.trueInset,
     this.elevationOverlay = const <int, double>{},
@@ -622,6 +623,18 @@ class MaterialPalette {
   /// holds it from the authoring side.
   final LitSpec? lit;
 
+  /// The screen role's own physical description, because a screen is a
+  /// different object from the faceplate it is set into: polished dielectric
+  /// glass over an emissive display, not brushed anodise. Modelled with the
+  /// faceplate's spec, a log pane washed out 44 levels above its albedo under
+  /// a broad key-specular that glass would focus into one glint. Null means
+  /// the screen falls back to [lit].
+  final LitSpec? litScreen;
+
+  /// The spec the given role actually paints with.
+  LitSpec? litFor(SurfaceRole role) =>
+      role == SurfaceRole.screen ? (litScreen ?? lit) : lit;
+
   // --- depth ---------------------------------------------------------------
   /// The outer stack, depth-relative like [inset].
   ///
@@ -733,6 +746,31 @@ class MaterialPalette {
     // the flat token, which is the tell that the extremes were swapped.
     final inkIsDark = inkIsDarkOn(role);
     var worst = inkIsDark ? stops.first : stops.last;
+
+    // A lit material's face is not the fill - the shader replaces the stops
+    // with a shading equation, and its painted extremes come from the
+    // material's DECLARED bounds instead, which `lit_ground_test` rasterises
+    // against the real painter so they cannot understate. The fill stops,
+    // grain and gloss below are all Canvas-path constructs and do not paint
+    // on a lit surface.
+    final litSpec = litFor(role);
+    if (litSpec != null && role != SurfaceRole.flat) {
+      final recessed = RoleModifier.of(role).insetScale > 0;
+      final delta = (inkIsDark
+              ? -(recessed
+                  ? litSpec.recessDropLevels
+                  : litSpec.faceDropLevels)
+              : (recessed
+                  ? litSpec.recessLiftLevels
+                  : litSpec.faceLiftLevels)) /
+          255;
+      return Color.from(
+        alpha: 1,
+        red: (base.r + delta).clamp(0.0, 1.0),
+        green: (base.g + delta).clamp(0.0, 1.0),
+        blue: (base.b + delta).clamp(0.0, 1.0),
+      );
+    }
 
     // Layers 3 and 4 composite OVER the fill, so a stops-only answer measures
     // a colour nothing lands on. Both are written in closed form here rather
@@ -884,6 +922,7 @@ class MaterialPalette {
       other.glossColour == glossColour &&
       other.texture == texture &&
       other.lit == lit &&
+      other.litScreen == litScreen &&
       other.darkDepth == darkDepth &&
       other.recessStyle == recessStyle &&
       _sameOverlay(other.elevationOverlay, elevationOverlay) &&
@@ -902,7 +941,7 @@ class MaterialPalette {
         bevelLight, bevelShade, bevelWidth,
         bevelSweepExponent, bevelAmbientFloor, bevelUniform,
         gloss, glossBreak, glossHardTerminator, glossColour,
-        texture, lit, darkDepth, recessStyle, adaptiveAlphaMultiplier,
+        texture, lit, litScreen, darkDepth, recessStyle, adaptiveAlphaMultiplier,
         boundaryStrategy,
         Object.hashAll(contact), Object.hashAll(inset),
       ]);

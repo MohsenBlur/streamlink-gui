@@ -91,7 +91,12 @@ class LitSpec {
     this.exposure = 1.0,
     this.white = 2.2,
     this.dither = 1.0,
-  });
+    this.faceLiftLevels = 24,
+    this.faceDropLevels = 24,
+    double? recessLiftLevels,
+    double? recessDropLevels,
+  })  : recessLiftLevels = recessLiftLevels ?? faceLiftLevels,
+        recessDropLevels = recessDropLevels ?? faceDropLevels;
 
   /// Specular reflectance at normal incidence, as an sRGB colour.
   ///
@@ -151,6 +156,29 @@ class LitSpec {
 
   final double exposure, white, dither;
 
+  /// Declared bounds on how far the LIGHTING can move the face away from its
+  /// albedo, in sRGB levels, worst case over every text-bearing role.
+  ///
+  /// The shader replaces the fill stops, so the closed-form contrast model
+  /// cannot derive the painted extremes from the palette any more - and the
+  /// shading equation is not invertible in any useful way. These two numbers
+  /// are the bridge: `worstGround` trusts them, and `lit_ground_test`
+  /// rasterises every lit role through the real painter and fails if the
+  /// declaration understates what actually paints. Tuning a material brighter
+  /// means raising these, which means the ink derivation compensates - the
+  /// same discipline the grain amplitude already lives under.
+  final double faceLiftLevels, faceDropLevels;
+
+  /// The recessed roles' own bounds, defaulting to the proud ones.
+  ///
+  /// Split because the two worst cases do not co-occur: a recess's lit far
+  /// wall reaches ~2x the lift of a proud face's sheen, but it does so on
+  /// the WELL ground, which is darker and has contrast to spare. One shared
+  /// bound taxed every proud-face ink for a recess-only extreme, and pushed
+  /// subtext within a few levels of text - flattening the type hierarchy to
+  /// pay for a pixel no proud face ever paints.
+  final double recessLiftLevels, recessDropLevels;
+
   static LitSpec? lerp(LitSpec? a, LitSpec? b, double t) {
     if (a == null && b == null) return null;
     // One side has no lit model at all. There is no meaningful halfway
@@ -192,6 +220,10 @@ class LitSpec {
       exposure: d(a.exposure, b.exposure),
       white: d(a.white, b.white),
       dither: d(a.dither, b.dither),
+      faceLiftLevels: d(a.faceLiftLevels, b.faceLiftLevels),
+      faceDropLevels: d(a.faceDropLevels, b.faceDropLevels),
+      recessLiftLevels: d(a.recessLiftLevels, b.recessLiftLevels),
+      recessDropLevels: d(a.recessDropLevels, b.recessDropLevels),
     );
   }
 
@@ -228,7 +260,11 @@ class LitSpec {
       other.innerOpacity == innerOpacity &&
       other.exposure == exposure &&
       other.white == white &&
-      other.dither == dither;
+      other.dither == dither &&
+      other.faceLiftLevels == faceLiftLevels &&
+      other.faceDropLevels == faceDropLevels &&
+      other.recessLiftLevels == recessLiftLevels &&
+      other.recessDropLevels == recessDropLevels;
 
   @override
   int get hashCode => Object.hashAll([
@@ -239,6 +275,7 @@ class LitSpec {
         grainAmp, grainAcross, grainAngleDeg,
         shadowDyPerDepth, shadowBlurPerDepth, shadowOpacity,
         aoOpacity, aoReachPerDepth, innerBlurPerDepth, innerOpacity,
-        exposure, white, dither,
+        exposure, white, dither, faceLiftLevels, faceDropLevels,
+        recessLiftLevels, recessDropLevels,
       ]);
 }

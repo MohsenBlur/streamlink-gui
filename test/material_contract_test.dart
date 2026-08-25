@@ -80,6 +80,26 @@ void main() {
             // neither it nor the painter produces.
             final base = p.withElevationOverlay(
                 p.groundFor(RoleModifier.of(role).fill));
+
+            // A lit material's face is not the fill: the shader replaces the
+            // stops, and the painted extremes come from the spec's declared
+            // bounds, which lit_ground_test rasterises against the real
+            // painter. The closed-form claim left to check here is DIRECTION:
+            // the bound must be applied on the side that hurts the ink that
+            // actually lands there.
+            if (p.litFor(role) != null && role != SurfaceRole.flat) {
+              final albedo = base.computeLuminance();
+              if (p.inkIsDarkOn(role)) {
+                expect(worst, lessThan(albedo),
+                    reason: '$label $role: dark ink, so the lit worst case '
+                        'must be darker than the albedo');
+              } else {
+                expect(worst, greaterThan(albedo),
+                    reason: '$label $role: light ink, so the lit worst case '
+                        'must be lighter than the albedo');
+              }
+              continue;
+            }
             final stops = [base, for (final s in p.fill) p.shadeStop(base, s)];
             final lum = stops.map((c) => c.computeLuminance()).toList()..sort();
             final amp = p.texture?.amplitudeFor(role) ?? 0;

@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import 'app_material.dart';
+import 'lit_surface.dart';
 
 /// Broadcast rack — a 19-inch milled aluminium faceplate.
 ///
@@ -159,6 +160,106 @@ const MaterialPalette _rackDark = MaterialPalette(
   darkDepth: DarkDepth.elevationOverlay,
   elevationOverlay: {2: 0.05, 3: 0.07, 5: 0.08, 8: 0.11},
   boundaryStrategy: BoundaryStrategy.explicitBorder,
+  lit: _rackDarkLit,
+  litScreen: _rackDarkGlass,
+);
+
+/// Graphite hard-anodise, lit.
+///
+/// Anodised aluminium is a DIELECTRIC oxide grown on metal, which decides the
+/// whole parameter set: metalness stays low - the coating's reflection is
+/// neutral and the face is diffuse-dominated, so text sits on a stable ground
+/// - and the metallic character comes from where the coating is cut through:
+/// the machined chamfer's arris, the anisotropic streak, the grain sparkle.
+/// A high-metalness face would render a mirror, which is a different (and
+/// text-hostile) object.
+const LitSpec _rackDarkLit = LitSpec(
+  f0: Color(0xFFE9EDF2),
+  metalness: 0.30,
+  roughness: 0.52,
+  anisotropy: 0.80,
+  bow: 0.15,
+  chamferWidth: 3.0,
+  lightElevationDeg: 37,
+  key: 0.85,
+  ambient: 0.52,
+  sheen: 0.03,
+  sky: Color(0xFF737C8C),
+  ground: Color(0xFF07080A),
+  envAmount: 0.20,
+  horizon: 0.30,
+  softbox: 0.05,
+  rim: 0.38,
+  grainAmp: 0.10,
+  grainAcross: 3.0,
+  shadowDyPerDepth: 1.1,
+  shadowBlurPerDepth: 2.2,
+  shadowOpacity: 0.60,
+  aoOpacity: 0.45,
+  aoReachPerDepth: 0.8,
+  innerBlurPerDepth: 2.2,
+  innerOpacity: 0.70,
+  // Measured by lit_ground_test. The proud bound is the one every dark ink
+  // pays for - the sheen is deliberately capped so subtext stays a step
+  // below text instead of chasing it; the drama lives on the chamfer, in
+  // the grain and in the shadow, which no glyph ever sits on.
+  faceLiftLevels: 21,
+  faceDropLevels: 14,
+  recessLiftLevels: 32,
+  recessDropLevels: 12,
+);
+
+/// The dial window: polished dielectric glass over an emissive display.
+///
+/// Near-zero diffuse and a tight roughness, so the room resolves into one
+/// focused glint and a sharp horizon streak instead of the broad wash the
+/// faceplate's brushed spec painted across the whole pane. The display's
+/// content does the glowing; the glass only glints.
+const LitSpec _rackDarkGlass = LitSpec(
+  f0: Color(0xFFFFFFFF),
+  metalness: 0.0,
+  roughness: 0.09,
+  anisotropy: 0.0,
+  bow: 0.05,
+  chamferWidth: 2.5,
+  lightElevationDeg: 37,
+  key: 0.85,
+  ambient: 0.05,
+  sheen: 0.0,
+  sky: Color(0xFF737C8C),
+  ground: Color(0xFF07080A),
+  envAmount: 0.50,
+  horizon: 0.05,
+  softbox: 0.35,
+  rim: 0.50,
+  innerBlurPerDepth: 2.2,
+  innerOpacity: 0.80,
+  // Glass barely moves its face: the glint is focused, the rest stays dark.
+  faceLiftLevels: 8,
+  faceDropLevels: 14,
+);
+
+const LitSpec _rackLightGlass = LitSpec(
+  f0: Color(0xFFFFFFFF),
+  metalness: 0.0,
+  roughness: 0.09,
+  anisotropy: 0.0,
+  bow: 0.05,
+  chamferWidth: 2.5,
+  lightElevationDeg: 40,
+  key: 0.85,
+  ambient: 0.05,
+  sheen: 0.0,
+  sky: Color(0xFFFFFDF6),
+  ground: Color(0xFF8D877B),
+  envAmount: 0.40,
+  horizon: 0.05,
+  softbox: 0.30,
+  rim: 0.50,
+  innerBlurPerDepth: 2.2,
+  innerOpacity: 0.65,
+  faceLiftLevels: 10,
+  faceDropLevels: 14,
 );
 
 const MaterialPalette _rackLight = MaterialPalette(
@@ -212,4 +313,43 @@ const MaterialPalette _rackLight = MaterialPalette(
   // Light mode carries depth on the dark side, where it has room.
   darkDepth: DarkDepth.lightSideCast,
   boundaryStrategy: BoundaryStrategy.explicitBorder,
+  lit: _rackLightLit,
+  litScreen: _rackLightGlass,
+);
+
+/// Champagne anodise in a lit room: warm F0, a paper-white sky, and shadows
+/// that stay translucent - a dark shadow on a warm ground reads as a hole.
+const LitSpec _rackLightLit = LitSpec(
+  f0: Color(0xFFF3EBDB),
+  metalness: 0.32,
+  roughness: 0.40,
+  anisotropy: 0.80,
+  bow: 0.13,
+  chamferWidth: 3.0,
+  lightElevationDeg: 40,
+  key: 0.92,
+  ambient: 0.62,
+  sheen: 0.08,
+  sky: Color(0xFFFFFDF6),
+  ground: Color(0xFF8D877B),
+  envAmount: 0.30,
+  horizon: 0.28,
+  softbox: 0.12,
+  rim: 0.40,
+  grainAmp: 0.09,
+  grainAcross: 3.0,
+  shadowDyPerDepth: 1.1,
+  shadowBlurPerDepth: 2.2,
+  shadowOpacity: 0.32,
+  aoOpacity: 0.30,
+  aoReachPerDepth: 0.8,
+  innerBlurPerDepth: 2.2,
+  innerOpacity: 0.55,
+  // The camera exposes for the paper-white theme. Without this the tone
+  // map's shoulder compresses every bright face and the champagne renders 44
+  // levels darker than its own albedo - a grey afternoon, not a lit room.
+  exposure: 2.2,
+  // Measured: +15 at the sheen, -8 on the shaded side.
+  faceLiftLevels: 19,
+  faceDropLevels: 12,
 );

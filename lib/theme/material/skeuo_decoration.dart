@@ -111,7 +111,7 @@ class SkeuoDecoration extends Decoration {
         // panel-only rule because the shader grain fades itself out below
         // its Nyquist limit, so chips opt out by geometry rather than by
         // role.
-        lit: role == SurfaceRole.flat ? null : palette.lit,
+        lit: role == SurfaceRole.flat ? null : palette.litFor(role),
         litRecess: m.insetScale > 0 ? 1.0 : 0.0,
         litShadow: m.contactScale,
         litGrain: switch (role) {
@@ -120,6 +120,10 @@ class SkeuoDecoration extends Decoration {
           SurfaceRole.sunken => 0.5,
           SurfaceRole.well => 0.35,
           SurfaceRole.screen || SurfaceRole.flat => 0.0,
+        },
+        litAmbience: switch (role) {
+          SurfaceRole.sunken || SurfaceRole.well => 0.65,
+          _ => 1.0,
         },
       ),
       border: border,
@@ -289,6 +293,7 @@ class SurfaceParams {
     this.litRecess = 0,
     this.litShadow = 0,
     this.litGrain = 0,
+    this.litAmbience = 1,
     this.litOpacity = 1,
   });
 
@@ -378,6 +383,16 @@ class SurfaceParams {
   /// removes itself where it cannot resolve.
   final double litGrain;
 
+  /// How much of the room this role's face sees, 0..1.
+  ///
+  /// Scales the ambient, environment, sheen and rim - never the key light.
+  /// A well's floor is partly occluded from the sky it would otherwise
+  /// reflect, and a screen is emissive glass that swallows the room almost
+  /// entirely; without this, a recess glows and a log pane washes out under
+  /// its own reflection. Measured: the light theme's screen face sat 56
+  /// levels above its albedo at full ambience.
+  final double litAmbience;
+
   /// Whole-surface opacity, for fading in from nothing (`scaled`). Maps to
   /// the shader's tone-map alpha rather than a saveLayer.
   final double litOpacity;
@@ -443,6 +458,7 @@ class SurfaceParams {
         litRecess: litRecess,
         litShadow: litShadow * t,
         litGrain: litGrain * t,
+        litAmbience: litAmbience,
         litOpacity: litOpacity * t,
       );
 
@@ -490,6 +506,7 @@ class SurfaceParams {
       litRecess: d(a.litRecess, b.litRecess),
       litShadow: d(a.litShadow, b.litShadow),
       litGrain: d(a.litGrain, b.litGrain),
+      litAmbience: d(a.litAmbience, b.litAmbience),
       litOpacity: d(a.litOpacity, b.litOpacity),
     );
   }
@@ -525,6 +542,7 @@ class SurfaceParams {
       other.litRecess == litRecess &&
       other.litShadow == litShadow &&
       other.litGrain == litGrain &&
+      other.litAmbience == litAmbience &&
       other.litOpacity == litOpacity &&
       _same(other.contact, contact) &&
       _same(other.inset, inset);
@@ -538,7 +556,7 @@ class SurfaceParams {
         glossHardTerminator, glossColour, texture, textureScale,
         textureAmplitude,
         gradientOverride, blurOverride,
-        lit, litRecess, litShadow, litGrain, litOpacity,
+        lit, litRecess, litShadow, litGrain, litAmbience, litOpacity,
         Object.hashAll(fill.map((s) => Object.hash(s.at, s.dh, s.ds, s.dl))),
         Object.hashAll(contact), Object.hashAll(inset),
       ]);
@@ -996,15 +1014,15 @@ class _LitPainter extends BoxPainter {
     f(ly);
     f(lz); // uL
     f(spec.key);
-    f(spec.ambient);
-    f(spec.sheen);
+    f(spec.ambient * p.litAmbience);
+    f(spec.sheen * p.litAmbience);
     f(p.litRecess); // uKey
     c3(spec.sky); // uSky
     c3(spec.ground); // uGnd
-    f(spec.envAmount);
+    f(spec.envAmount * p.litAmbience);
     f(spec.horizon);
-    f(spec.softbox);
-    f(spec.rim); // uEnv
+    f(spec.softbox * p.litAmbience);
+    f(spec.rim * p.litAmbience); // uEnv
     f(spec.grainAmp * p.litGrain);
     f(spec.grainAcross);
     f(spec.grainAngleDeg * math.pi / 180.0);
