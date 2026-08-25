@@ -36,7 +36,6 @@ class DashboardHeader extends StatefulWidget {
 }
 
 class _DashboardHeaderState extends State<DashboardHeader> {
-
   /// Wraps [child] with the hover live-preview card when the channel is live.
   Widget _withLivePreview(Widget child) {
     if (!widget.channel.isLive) return child;
@@ -50,8 +49,14 @@ class _DashboardHeaderState extends State<DashboardHeader> {
   /// LIVE (pulsing) / OFFLINE status pill, shared by both header layouts.
   Widget _buildStatusBadge({required bool compact}) {
     final padding = compact
-        ? const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4)
-        : const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4);
+        ? const EdgeInsets.symmetric(
+            horizontal: NeuSpace.s8,
+            vertical: NeuSpace.s4,
+          )
+        : const EdgeInsets.symmetric(
+            horizontal: NeuSpace.s8,
+            vertical: NeuSpace.s4,
+          );
     final radius = BorderRadius.circular(compact ? 10 : 12);
     final isDark = themeNotifier.isDarkTheme;
 
@@ -64,10 +69,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           border: Border.all(color: subtext, width: 1),
           borderRadius: radius,
         ),
-        child: Text(
-          'OFFLINE',
-          style: NeuType.plate(isDark, color: subtext),
-        ),
+        child: Text('OFFLINE', style: NeuType.plate(isDark, color: subtext)),
       );
     }
 
@@ -77,11 +79,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         return Container(
           padding: padding,
           decoration: BoxDecoration(
-            color: NeuTheme.live
-                .withValues(alpha: 0.10 + 0.08 * widget.pulseController.value),
+            color: NeuTheme.live.withValues(
+              alpha: 0.10 + 0.08 * widget.pulseController.value,
+            ),
             border: Border.all(
-              color: NeuTheme.live
-                  .withValues(alpha: 0.4 + 0.6 * widget.pulseController.value),
+              color: NeuTheme.live.withValues(
+                alpha: 0.4 + 0.6 * widget.pulseController.value,
+              ),
               width: 1,
             ),
             borderRadius: radius,
@@ -110,23 +114,21 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         SizedBox(
           width: compact ? 10 : 12,
           height: compact ? 10 : 12,
-          child: NeuProgressRing(size: NeuProgressRingSize.xs, color: subtext, semanticLabel: 'Refreshing'),
+          child: NeuProgressRing(
+            size: NeuProgressRingSize.xs,
+            color: subtext,
+            semanticLabel: 'Refreshing',
+          ),
         ),
         SizedBox(width: compact ? 4 : 6),
-        Text(
-          'OPEN',
-          style: NeuType.plate(isDark, color: subtext),
-        ),
+        Text('OPEN', style: NeuType.plate(isDark, color: subtext)),
       ];
     } else if (!live) {
       final disabled = NeuTheme.disabledText(isDark);
       content = [
         Icon(Icons.videocam_off, size: compact ? 12 : 14, color: disabled),
         const SizedBox(width: NeuSpace.s4),
-        Text(
-          'OFFLINE',
-          style: NeuType.plate(isDark, color: disabled),
-        ),
+        Text('OFFLINE', style: NeuType.plate(isDark, color: disabled)),
       ];
     } else {
       content = [
@@ -141,31 +143,53 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       ];
     }
 
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: (live && !playing)
-            ? Theme.of(context).primaryColor
-            : NeuTheme.surface(isDark),
-        disabledBackgroundColor: NeuTheme.surface(isDark),
-        // Computed ink/white so PLAY stays readable on bright accents.
-        foregroundColor:
-            (live && !playing) ? themeNotifier.onPrimaryColor : subtext,
-        padding: compact
-            ? const EdgeInsets.symmetric(horizontal: NeuSpace.s8)
-            : EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeuRadius.r6)),
-        elevation: (live && !playing) ? (compact ? 2 : 4) : 0,
-      ),
-      onPressed: (playing || !live) ? null : widget.onPlay,
-      child: Row(
-        mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: content,
+    // The hero control of the dashboard, made of the material. It was a
+    // stock ElevatedButton - flat token fill, Material's own generic soft
+    // shadow - sitting between engine-painted neighbours: a plastic web
+    // button screwed onto an aluminium plate. The engine paints the body
+    // (accent-based when it invites a press, panel metal otherwise) and the
+    // ElevatedButton keeps only the ink and the ripple.
+    final Decoration body = NeuTheme.raised(
+      isDark,
+      radius: NeuRadius.r6,
+      depth: (live && !playing) ? NeuElevation.d3 : NeuElevation.d1,
+      base: (live && !playing) ? Theme.of(context).primaryColor : null,
+    );
+
+    return Container(
+      decoration: body,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          disabledBackgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          // Computed ink/white so PLAY stays readable on bright accents.
+          foregroundColor: (live && !playing)
+              ? themeNotifier.onPrimaryColor
+              : subtext,
+          padding: compact
+              ? const EdgeInsets.symmetric(horizontal: NeuSpace.s8)
+              : EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(NeuRadius.r6),
+          ),
+          elevation: 0,
+        ),
+        onPressed: (playing || !live) ? null : widget.onPlay,
+        child: Row(
+          mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: content,
+        ),
       ),
     );
   }
 
-  Widget _buildOverlayActionItem({required IconData icon, required String label, VoidCallback? onPressed}) {
+  Widget _buildOverlayActionItem({
+    required IconData icon,
+    required String label,
+    VoidCallback? onPressed,
+  }) {
     return SizedBox(
       width: double.infinity,
       height: 32,
@@ -174,10 +198,16 @@ class _DashboardHeaderState extends State<DashboardHeader> {
           alignment: Alignment.centerLeft,
           foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
           padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeuRadius.r4)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(NeuRadius.r4),
+          ),
         ),
         onPressed: onPressed,
-        icon: Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+        icon: Icon(
+          icon,
+          size: 14,
+          color: NeuTheme.text(themeNotifier.isDarkTheme),
+        ),
         label: Text(label, style: NeuType.bodySm(themeNotifier.isDarkTheme)),
       ),
     );
@@ -189,7 +219,11 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     required VoidCallback? onPressed,
     bool isLoading = false,
   }) {
-    Widget iconWidget = Icon(icon, size: 14, color: NeuTheme.text(themeNotifier.isDarkTheme));
+    Widget iconWidget = Icon(
+      icon,
+      size: 14,
+      color: NeuTheme.text(themeNotifier.isDarkTheme),
+    );
     if (isLoading) {
       // Its own forward-only controller. It used to read the shared pulse,
       // which runs `repeat(reverse: true)` - so the refresh icon spun forwards
@@ -198,7 +232,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     }
 
     return Container(
-      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
+      decoration: NeuTheme.raisedDecoration(
+        themeNotifier.isDarkTheme,
+        radius: NeuRadius.r6,
+      ),
       child: IconButton(
         icon: iconWidget,
         tooltip: tooltip,
@@ -210,19 +247,26 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     );
   }
 
-  Widget _buildHeaderChip({required IconData icon, required Color color, required String label}) {
+  Widget _buildHeaderChip({
+    required IconData icon,
+    required Color color,
+    required String label,
+  }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s6),
-      decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: NeuSpace.s8,
+        vertical: NeuSpace.s6,
+      ),
+      decoration: NeuTheme.sunkenDecoration(
+        themeNotifier.isDarkTheme,
+        radius: NeuRadius.r8,
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 12, color: color),
           const SizedBox(width: NeuSpace.s6),
-          Text(
-            label,
-            style: NeuType.caption(themeNotifier.isDarkTheme),
-          ),
+          Text(label, style: NeuType.caption(themeNotifier.isDarkTheme)),
         ],
       ),
     );
@@ -275,7 +319,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
     if (isCompact) {
       return NeuContainer(
-        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+        padding: const EdgeInsets.symmetric(
+          horizontal: NeuSpace.s12,
+          vertical: NeuSpace.s8,
+        ),
         borderRadius: BorderRadius.circular(NeuRadius.r16),
         style: NeuStyle.raised,
         color: themeNotifier.surfaceColor,
@@ -289,158 +336,223 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         // the icon, and the word it loses is repeated inside the popover it
         // opens. 440 is the measured point where the untightened row stops
         // fitting.
-        child: LayoutBuilder(builder: (context, constraints) {
-        final tight = constraints.maxWidth < 440;
-        final miniGap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s6);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final tight = constraints.maxWidth < 440;
+            final miniGap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s6);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _withLivePreview(_buildAvatar(radius: 18, strokeWidth: 2.0)),
-                const SizedBox(width: NeuSpace.s8),
-                Expanded(
-                  child: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          widget.channel.username,
-                          style: NeuType.headingMd(themeNotifier.isDarkTheme),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                Row(
+                  children: [
+                    _withLivePreview(
+                      _buildAvatar(radius: 18, strokeWidth: 2.0),
+                    ),
+                    const SizedBox(width: NeuSpace.s8),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              widget.channel.username,
+                              style: NeuType.headingMd(
+                                themeNotifier.isDarkTheme,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          // The status pill rides beside the name only where the
+                          // name has room for company. At 380 the Expanded around
+                          // this Row measured 28 logical pixels - less than the
+                          // pill alone - so the pill drops to the line below
+                          // rather than pushing a name that has nowhere to go.
+                          if (!tight) ...[
+                            const SizedBox(width: NeuSpace.s8),
+                            _buildStatusBadge(compact: true),
+                          ],
+                        ],
                       ),
-                      // The status pill rides beside the name only where the
-                      // name has room for company. At 380 the Expanded around
-                      // this Row measured 28 logical pixels - less than the
-                      // pill alone - so the pill drops to the line below
-                      // rather than pushing a name that has nowhere to go.
-                      if (!tight) ...[
-                        const SizedBox(width: NeuSpace.s8),
-                        _buildStatusBadge(compact: true),
+                    ),
+                    const SizedBox(width: NeuSpace.s8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildMiniActionBtn(
+                          icon: Icons.open_in_new,
+                          tooltip: 'Open Twitch channel',
+                          onPressed: () => widget.openExternalLink(
+                            'https://twitch.tv/${widget.channel.username}',
+                          ),
+                        ),
+                        miniGap,
+                        _buildMiniActionBtn(
+                          icon: Icons.chat_bubble_outline,
+                          tooltip: 'Open Twitch chat popout',
+                          onPressed: () => widget.openExternalLink(
+                            'https://twitch.tv/${widget.channel.username}/chat',
+                          ),
+                        ),
+                        miniGap,
+                        _buildMiniActionBtn(
+                          icon: Icons.refresh,
+                          tooltip: 'Refresh statistics',
+                          isLoading: widget.channel.isLoading,
+                          onPressed: widget.channel.isLoading
+                              ? null
+                              : widget.onRefresh,
+                        ),
+                        miniGap,
+                        InteractivePopover(
+                          targetAnchor: Alignment.bottomRight,
+                          followerAnchor: Alignment.topRight,
+                          offset: const Offset(0, 6),
+                          popover: Container(
+                            width: 200,
+                            padding: const EdgeInsets.all(NeuSpace.s8),
+                            decoration: NeuTheme.raisedDecoration(
+                              themeNotifier.isDarkTheme,
+                              radius: NeuRadius.r8,
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: statsChips
+                                  .map(
+                                    (chip) => Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: NeuSpace.s6,
+                                      ),
+                                      child: chip,
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: NeuSpace.s8,
+                              vertical: NeuSpace.s4,
+                            ),
+                            decoration: NeuTheme.raisedDecoration(
+                              themeNotifier.isDarkTheme,
+                              radius: NeuRadius.r6,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.analytics_outlined,
+                                  size: 12,
+                                  color: themeNotifier.accentInk,
+                                ),
+                                if (!tight) ...[
+                                  const SizedBox(width: NeuSpace.s4),
+                                  Text(
+                                    'Stats',
+                                    style: NeuType.captionStrong(
+                                      themeNotifier.isDarkTheme,
+                                      color: NeuTheme.text(
+                                        themeNotifier.isDarkTheme,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        miniGap,
+                        _withLivePreview(
+                          SizedBox(
+                            height: 28,
+                            child: _buildPlayButton(compact: true),
+                          ),
+                        ),
                       ],
+                    ),
+                  ],
+                ),
+                // The second line, which carries the stream title when there is
+                // one and the status pill whenever the top row could not. It has
+                // to render for the pill alone too: "OFFLINE" is the case with no
+                // title to sit beside, and it is exactly the case where dropping
+                // the pill would lose the only statement of state on the surface.
+                if (tight ||
+                    (widget.channel.isLive &&
+                        widget.channel.streamTitle != null)) ...[
+                  const SizedBox(height: NeuSpace.s6),
+                  Row(
+                    children: [
+                      if (tight) ...[
+                        _buildStatusBadge(compact: true),
+                        const SizedBox(width: NeuSpace.s8),
+                      ],
+                      if (widget.channel.isLive &&
+                          widget.channel.streamTitle != null)
+                        Expanded(
+                          child: _withLivePreview(
+                            Text(
+                              '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
+                              style: NeuType.bodySm(
+                                themeNotifier.isDarkTheme,
+                                color: NeuTheme.subtext(
+                                  themeNotifier.isDarkTheme,
+                                ),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
-                ),
-                const SizedBox(width: NeuSpace.s8),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildMiniActionBtn(
-                      icon: Icons.open_in_new,
-                      tooltip: 'Open Twitch channel',
-                      onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}'),
-                    ),
-                    miniGap,
-                    _buildMiniActionBtn(
-                      icon: Icons.chat_bubble_outline,
-                      tooltip: 'Open Twitch chat popout',
-                      onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat'),
-                    ),
-                    miniGap,
-                    _buildMiniActionBtn(
-                      icon: Icons.refresh,
-                      tooltip: 'Refresh statistics',
-                      isLoading: widget.channel.isLoading,
-                      onPressed: widget.channel.isLoading ? null : widget.onRefresh,
-                    ),
-                    miniGap,
-                    InteractivePopover(
-                      targetAnchor: Alignment.bottomRight,
-                      followerAnchor: Alignment.topRight,
-                      offset: const Offset(0, 6),
-                      popover: Container(
-                        width: 200,
-                        padding: const EdgeInsets.all(NeuSpace.s8),
-                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r8),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: statsChips.map((chip) => Padding(
-                            padding: const EdgeInsets.only(bottom: NeuSpace.s6),
-                            child: chip,
-                          )).toList(),
-                        ),
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
-                        decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.analytics_outlined, size: 12, color: themeNotifier.accentInk),
-                            if (!tight) ...[
-                              const SizedBox(width: NeuSpace.s4),
-                              Text('Stats', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    miniGap,
-                    _withLivePreview(SizedBox(
-                      height: 28,
-                      child: _buildPlayButton(compact: true),
-                    )),
-                  ],
-                ),
-              ],
-            ),
-            // The second line, which carries the stream title when there is
-            // one and the status pill whenever the top row could not. It has
-            // to render for the pill alone too: "OFFLINE" is the case with no
-            // title to sit beside, and it is exactly the case where dropping
-            // the pill would lose the only statement of state on the surface.
-            if (tight || (widget.channel.isLive && widget.channel.streamTitle != null)) ...[
-              const SizedBox(height: NeuSpace.s6),
-              Row(
-                children: [
-                  if (tight) ...[
-                    _buildStatusBadge(compact: true),
-                    const SizedBox(width: NeuSpace.s8),
-                  ],
-                  if (widget.channel.isLive && widget.channel.streamTitle != null)
-                    Expanded(
-                      child: _withLivePreview(Text(
-                        '${widget.channel.streamTitle!} • ${widget.channel.game ?? "Unknown Game"}',
-                        style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      )),
-                    ),
                 ],
-              ),
-            ],
-            if (widget.channel.errorMessage != null) ...[
-              const SizedBox(height: NeuSpace.s6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
-                decoration: BoxDecoration(
-                  color: NeuTheme.danger.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(NeuRadius.r6),
-                  border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.2)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.error_outline, size: 12, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
-                    miniGap,
-                    Expanded(
-                      child: Text(
-                        widget.channel.errorMessage!,
-                        style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                if (widget.channel.errorMessage != null) ...[
+                  const SizedBox(height: NeuSpace.s6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: NeuSpace.s8,
+                      vertical: NeuSpace.s4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: NeuTheme.danger.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(NeuRadius.r6),
+                      border: Border.all(
+                        color: NeuTheme.danger.withValues(alpha: 0.2),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        );
-        }),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 12,
+                          color: NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                        ),
+                        miniGap,
+                        Expanded(
+                          child: Text(
+                            widget.channel.errorMessage!,
+                            style: NeuType.caption(
+                              themeNotifier.isDarkTheme,
+                              color: NeuTheme.dangerText(
+                                themeNotifier.isDarkTheme,
+                              ),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
       );
     }
 
@@ -481,7 +593,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     popover: Container(
                       width: 160,
                       padding: const EdgeInsets.all(NeuSpace.s8),
-                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r8),
+                      decoration: NeuTheme.raisedDecoration(
+                        themeNotifier.isDarkTheme,
+                        radius: NeuRadius.r8,
+                      ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -489,7 +604,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                             icon: Icons.open_in_new,
                             label: 'Open Channel',
                             onPressed: () {
-                              widget.openExternalLink('https://twitch.tv/${widget.channel.username}');
+                              widget.openExternalLink(
+                                'https://twitch.tv/${widget.channel.username}',
+                              );
                             },
                           ),
                           const SizedBox(height: NeuSpace.s4),
@@ -497,51 +614,76 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                             icon: Icons.chat_bubble_outline,
                             label: 'Open Chat',
                             onPressed: () {
-                              widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat');
+                              widget.openExternalLink(
+                                'https://twitch.tv/${widget.channel.username}/chat',
+                              );
                             },
                           ),
                           const SizedBox(height: NeuSpace.s4),
                           _buildOverlayActionItem(
                             icon: Icons.refresh,
                             label: 'Refresh Stats',
-                            onPressed: widget.channel.isLoading ? null : widget.onRefresh,
+                            onPressed: widget.channel.isLoading
+                                ? null
+                                : widget.onRefresh,
                           ),
                         ],
                       ),
                     ),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s6),
-                      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: NeuSpace.s8,
+                        vertical: NeuSpace.s6,
+                      ),
+                      decoration: NeuTheme.raisedDecoration(
+                        themeNotifier.isDarkTheme,
+                        radius: NeuRadius.r6,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.more_vert, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 16),
+                          Icon(
+                            Icons.more_vert,
+                            color: NeuTheme.text(themeNotifier.isDarkTheme),
+                            size: 16,
+                          ),
                           const SizedBox(width: NeuSpace.s4),
-                          Text('Actions', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
+                          Text(
+                            'Actions',
+                            style: NeuType.captionStrong(
+                              themeNotifier.isDarkTheme,
+                              color: NeuTheme.text(themeNotifier.isDarkTheme),
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   )
-
                 : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       _buildMiniActionBtn(
                         icon: Icons.open_in_new,
                         tooltip: 'Open Twitch channel',
-                        onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}'),
+                        onPressed: () => widget.openExternalLink(
+                          'https://twitch.tv/${widget.channel.username}',
+                        ),
                       ),
                       const SizedBox(width: NeuSpace.s8),
                       _buildMiniActionBtn(
                         icon: Icons.chat_bubble_outline,
                         tooltip: 'Open Twitch chat popout',
-                        onPressed: () => widget.openExternalLink('https://twitch.tv/${widget.channel.username}/chat'),
+                        onPressed: () => widget.openExternalLink(
+                          'https://twitch.tv/${widget.channel.username}/chat',
+                        ),
                       ),
                       const SizedBox(width: NeuSpace.s8),
                       _buildMiniActionBtn(
                         icon: Icons.refresh,
                         tooltip: 'Refresh statistics',
-                        onPressed: widget.channel.isLoading ? null : widget.onRefresh,
+                        onPressed: widget.channel.isLoading
+                            ? null
+                            : widget.onRefresh,
                       ),
                     ],
                   ),
@@ -576,9 +718,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     final playButton = _buildPlayButton(compact: false);
 
     final cardWidget = GestureDetector(
-      onTap: (widget.channel.isLive && !widget.isPlaying) ? widget.onPlay : null,
+      onTap: (widget.channel.isLive && !widget.isPlaying)
+          ? widget.onPlay
+          : null,
       child: MouseRegion(
-        cursor: (widget.channel.isLive && !widget.isPlaying) ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        cursor: (widget.channel.isLive && !widget.isPlaying)
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
         child: NeuCard(
           padding: const EdgeInsets.all(NeuSpace.s20),
           borderRadius: BorderRadius.circular(NeuRadius.r20),
@@ -591,14 +737,10 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                 children: [
                   SizedBox(
                     width: 90,
-                    child: Center(
-                      child: _withLivePreview(avatarContainer),
-                    ),
+                    child: Center(child: _withLivePreview(avatarContainer)),
                   ),
                   const SizedBox(width: NeuSpace.s20),
-                  Expanded(
-                    child: _withLivePreview(profileDetails),
-                  ),
+                  Expanded(child: _withLivePreview(profileDetails)),
                 ],
               ),
               const SizedBox(height: NeuSpace.s12),
@@ -631,20 +773,36 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                     const SizedBox(width: NeuSpace.s20),
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: NeuSpace.s12,
+                          vertical: NeuSpace.s8,
+                        ),
                         decoration: BoxDecoration(
                           color: NeuTheme.danger.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(NeuRadius.r6),
-                          border: Border.all(color: NeuTheme.danger.withValues(alpha: 0.2)),
+                          border: Border.all(
+                            color: NeuTheme.danger.withValues(alpha: 0.2),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline, size: 14, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                            Icon(
+                              Icons.error_outline,
+                              size: 14,
+                              color: NeuTheme.dangerText(
+                                themeNotifier.isDarkTheme,
+                              ),
+                            ),
                             const SizedBox(width: NeuSpace.s8),
                             Expanded(
                               child: Text(
                                 widget.channel.errorMessage!,
-                                style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                style: NeuType.caption(
+                                  themeNotifier.isDarkTheme,
+                                  color: NeuTheme.dangerText(
+                                    themeNotifier.isDarkTheme,
+                                  ),
+                                ),
                               ),
                             ),
                           ],

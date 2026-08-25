@@ -1179,10 +1179,13 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               )
             : (_hovered
                 ? NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r12)
-                : BoxDecoration(
-                    color: NeuTheme.surface(isDark),
-                    borderRadius: BorderRadius.circular(NeuRadius.r12),
-                  )),
+                // At rest a row is a REGION OF THE PLATE, not a part on it.
+                // The old flat surface-token fill sat on the grained panel
+                // with no bevel, ramp or grain of its own - every idle row
+                // read as a paper sticker on metal, in the most-looked-at
+                // region of the app. Hover and selection still raise the row
+                // through the engine.
+                : null),
         child: NeuContextMenu(
           // The app had no right-click menus at all, so every action lived in
           // a hover-reveal or nowhere. This is where a desktop user already

@@ -2372,8 +2372,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
 
     final contentArea = Expanded(
+      // No fill of its own. AppChassis already paints the whole window body
+      // as a lit panel - grain, ramp and light - and a flat token fill here
+      // was covering it across the largest region of the app, so the
+      // machined ground existed only behind the sidebar and title bar while
+      // every card floated on flat paper.
       child: Container(
-        color: themeNotifier.backgroundColor,
         child: _showLibraryView
             ? _buildLibraryView()
             : _selectedChannel == null
@@ -2730,16 +2734,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                   width: w.toDouble(),
                                   height: h.toDouble(),
                                   margin: const EdgeInsets.only(right: NeuSpace.s12),
+                                  // A caller border REPLACES the material's
+                                  // edge, so a transparent width-0 border at
+                                  // rest deleted the bevel and zeroed the
+                                  // decoration padding - and the hover flip
+                                  // to 1.5px shifted the card's contents.
                                   decoration: NeuTheme.raisedDecoration(
                                     themeNotifier.isDarkTheme,
                                     radius: NeuRadius.r12,
-                                    border: Border.all(
-                                      color: isHovered ? theme.primaryColor : Colors.transparent,
-                                      width: isHovered ? 1.5 : 0.0,
-                                    ),
+                                    border: isHovered
+                                        ? Border.all(
+                                            color: theme.primaryColor,
+                                            width: 1.5)
+                                        : null,
                                   ),
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(NeuRadius.inner(NeuRadius.r12, NeuSpace.s2)),
+                                    // Concentric: inner = outer - inset, and
+                                    // the inset is the material's 1px edge.
+                                    borderRadius: BorderRadius.circular(NeuRadius.inner(NeuRadius.r12, 1)),
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
@@ -2751,13 +2763,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                                     ? Image.network(
                                                         thumbUrl,
                                                         fit: BoxFit.cover,
+                                                        // A missing-artwork
+                                                        // slot is a recessed
+                                                        // screen; the raised
+                                                        // token put the
+                                                        // lightest ground
+                                                        // where the darkest
+                                                        // belongs. Matches
+                                                        // the Library's
+                                                        // fallback.
                                                         errorBuilder: (context, error, stackTrace) => Container(
-                                                          color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                                          color: NeuTheme.wellSurface(themeNotifier.isDarkTheme),
                                                           child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
                                                         ),
                                                       )
                                                     : Container(
-                                                        color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                                        color: NeuTheme.wellSurface(themeNotifier.isDarkTheme),
                                                         child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
                                                       ),
                                               ),
@@ -2824,7 +2845,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                                           ),
                                         ),
                                         Container(
-                                          color: NeuTheme.surface(themeNotifier.isDarkTheme),
+                                          // No fill: the card's own lit
+                                          // surface shows behind the title.
+                                          // With the thumbnail above and a
+                                          // flat strip below, zero pixels of
+                                          // the card's material were visible
+                                          // - a picture of a card, not a
+                                          // machined part.
                                           padding: const EdgeInsets.all(NeuSpace.s8),
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2877,24 +2904,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(NeuSpace.s16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    theme.primaryColor.withValues(alpha: 0.15),
-                    themeNotifier.surfaceColor,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(NeuRadius.r12),
-                border: Border.all(color: theme.primaryColor.withValues(alpha: 0.3), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primaryColor.withValues(alpha: 0.05),
-                    blurRadius: 12,
-                    spreadRadius: 2,
-                  ),
-                ],
+              // Through the engine, not around it: this was the only card on
+              // Home with a hand-rolled BoxDecoration - accent gradient wash,
+              // outline, glow - so it had no bevel, no grain and no cast
+              // shadow agreeing with the light, and read as a web promo
+              // banner taped onto the rack. The accent identity survives as
+              // a tinted base plus ring; the material does the rest.
+              decoration: NeuTheme.raised(
+                themeNotifier.isDarkTheme,
+                radius: NeuRadius.r12,
+                base: Color.alphaBlend(
+                    theme.primaryColor.withValues(alpha: 0.12),
+                    themeNotifier.surfaceColor),
+                border: Border.all(
+                    color: theme.primaryColor.withValues(alpha: 0.3),
+                    width: 1.5),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -3276,18 +3300,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               decoration: NeuTheme.raisedDecoration(
                 themeNotifier.isDarkTheme,
                 radius: NeuRadius.r12,
-                border: Border.all(
-                  color: isHovered ? theme.primaryColor : Colors.transparent,
-                  width: isHovered ? 1.5 : 0.0,
-                ),
+                // Border only when it exists - see the strip cards.
+                border: isHovered
+                    ? Border.all(color: theme.primaryColor, width: 1.5)
+                    : null,
               ),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(NeuSpace.s8),
-                    decoration: BoxDecoration(
-                      color: theme.primaryColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(NeuRadius.r8),
+                    // A pocket cut into the card, not a sticker on it - the
+                    // dashboard header does this same job with sunken chips,
+                    // and the two screens should speak one language.
+                    decoration: NeuTheme.sunken(
+                      themeNotifier.isDarkTheme,
+                      radius: NeuRadius.r8,
+                      depth: NeuElevation.d1,
+                      base: Color.alphaBlend(
+                          theme.primaryColor.withValues(alpha: 0.12),
+                          NeuTheme.wellSurface(themeNotifier.isDarkTheme)),
                     ),
                     child: Icon(icon, size: 20, color: themeNotifier.accentInk),
                   ),
@@ -3578,16 +3609,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                     SliverToBoxAdapter(child: Column(children: [
                     const SizedBox(height: NeuSpace.s24),
                     Center(
-                      child: SizedBox(
+                      child: Container(
                         width: 180,
                         height: 40,
+                        // Through the engine: a flat outlined token-fill pill
+                        // under a grid of machined VOD cards was the web
+                        // outline-button idiom, and it is what the page ends
+                        // on.
+                        decoration: NeuTheme.raised(themeNotifier.isDarkTheme,
+                            radius: NeuRadius.r8),
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: NeuTheme.surface(themeNotifier.isDarkTheme),
+                            backgroundColor: Colors.transparent,
+                            shadowColor: Colors.transparent,
                             foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(NeuRadius.r8),
-                              side: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme)),
                             ),
                             elevation: 0,
                           ),
