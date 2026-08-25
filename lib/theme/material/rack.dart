@@ -176,8 +176,8 @@ const MaterialPalette _rackDark = MaterialPalette(
 const LitSpec _rackDarkLit = LitSpec(
   f0: Color(0xFFE9EDF2),
   metalness: 0.30,
-  roughness: 0.52,
-  anisotropy: 0.80,
+  roughness: 0.44,
+  anisotropy: 0.85,
   bow: 0.15,
   chamferWidth: 3.0,
   lightElevationDeg: 37,
@@ -190,8 +190,13 @@ const LitSpec _rackDarkLit = LitSpec(
   horizon: 0.30,
   softbox: 0.05,
   rim: 0.38,
-  grainAmp: 0.10,
-  grainAcross: 3.0,
+  // High enough to actually read as brush at arm's length. The grain tilts
+  // normals rather than tinting, so most of what it does shows in the
+  // specular - the streaks sparkle under the sheen and vanish in shadow -
+  // and the face-level luminance cost stays inside the declared bounds,
+  // which lit_ground_test verifies.
+  grainAmp: 0.30,
+  grainAcross: 3.5,
   shadowDyPerDepth: 1.1,
   shadowBlurPerDepth: 2.2,
   shadowOpacity: 0.60,
@@ -204,7 +209,7 @@ const LitSpec _rackDarkLit = LitSpec(
   // below text instead of chasing it; the drama lives on the chamfer, in
   // the grain and in the shadow, which no glyph ever sits on.
   faceLiftLevels: 21,
-  faceDropLevels: 14,
+  faceDropLevels: 16,
   recessLiftLevels: 32,
   recessDropLevels: 12,
 );
@@ -336,7 +341,7 @@ const LitSpec _rackLightLit = LitSpec(
   horizon: 0.28,
   softbox: 0.12,
   rim: 0.40,
-  grainAmp: 0.09,
+  grainAmp: 0.17,
   grainAcross: 3.0,
   shadowDyPerDepth: 1.1,
   shadowBlurPerDepth: 2.2,
