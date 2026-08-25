@@ -157,12 +157,16 @@ class SkeuoDecoration extends Decoration {
 
   /// Bevels paint *inside* this and never claim more box.
   ///
-  /// A constant regardless of material, depth or lerp position. A padding that
-  /// varied by material would move layout on a material switch; one that varied
-  /// across a lerp would make hover animations animate layout.
+  /// A TRUE constant - not `border?.dimensions`, which is what the first
+  /// implementation returned while its own comment claimed otherwise. A
+  /// padding that follows the caller border re-layouts the content whenever a
+  /// hover adds a 1.5px ring: on the quick-action cards the title crossed its
+  /// ellipsis boundary and "Twitch Account" became "Twitch Accou..." ON
+  /// HOVER, re-wrapping mid-animation. A ring is paint, not layout; it may
+  /// overlap the outer half-pixel of content padding and nobody can see it,
+  /// but a title that rewrites itself under the pointer everyone can see.
   @override
-  EdgeInsetsGeometry get padding =>
-      border?.dimensions ?? EdgeInsets.all(params.bevelWidth);
+  EdgeInsetsGeometry get padding => const EdgeInsets.all(1);
 
   @override
   Path getClipPath(Rect rect, TextDirection textDirection) {

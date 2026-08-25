@@ -5,6 +5,7 @@ import '../state/activity_state.dart';
 
 import '../state/library_entries.dart';
 import '../theme/neu_theme.dart';
+import 'horizontal_mouse_scrollable.dart';
 import 'neumorphic/neu_progress.dart';
 import 'neumorphic/neu_badge.dart';
 import 'neumorphic/neu_icon_action.dart';
@@ -273,16 +274,7 @@ class _LibraryViewState extends State<LibraryView> {
               children: [
                 leading,
                 const SizedBox(height: NeuSpace.s8),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  // The scroller sizes itself to the buttons exactly, so its
-                  // clip ran flush along their edges and deleted their
-                  // shadows whole. The padding is shadow room inside the
-                  // clip.
-                  padding: const EdgeInsets.fromLTRB(
-                      NeuSpace.s2, NeuSpace.s2, NeuSpace.s2, NeuSpace.s16),
-                  child: trailing,
-                ),
+                HorizontalMouseScrollable(child: trailing),
               ],
             );
           }),
@@ -310,22 +302,19 @@ class _LibraryViewState extends State<LibraryView> {
               const SizedBox(width: NeuSpace.s12),
               Expanded(
                 child: SizedBox(
-                  // 34 held the chips exactly, so the horizontal viewport's
-                  // clip cut their cast shadows 2px under the chip. The extra
-                  // 16 is shadow room inside the clip; the chips stay where
-                  // they were.
-                  height: 50,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s2),
-                    children: [
+                  // Chip height plus the scroller's shadow clearance - the
+                  // one definition, not hand numbers (the first fix cut the
+                  // halo above while fixing the cast below).
+                  height: 28 + NeuShadowRoom.above + NeuShadowRoom.below,
+                  child: HorizontalMouseScrollable(
+                    child: Row(children: [
                       _channelChip(null, 'All'),
                       for (final ch in channels) _channelChip(ch, ch),
                       // Only offered when there is something behind it, and
                       // named for what it is rather than pretending to be a
                       // channel called 'Streamed'.
                       if (hasUnknown) _unknownChip(),
-                    ],
+                    ]),
                   ),
                 ),
               ),

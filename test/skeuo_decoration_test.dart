@@ -133,15 +133,23 @@ void main() {
       expect(circular.contains(const Offset(50, 20)), isTrue);
     });
 
-    test('padding matches the 1px border every themed slot has today', () {
-      // BoxDecoration.padding is border?.dimensions, and both builders always
-      // install Border.all(width: 1). Inheriting EdgeInsets.zero would shrink
-      // every themed container in the app by 2px in each axis.
+    test('padding is one constant, whatever the role or caller border', () {
+      // Successor to the per-role assertion: padding is a TRUE constant now,
+      // per the plan's own contract. It used to follow `border?.dimensions`,
+      // and the day a hover added a 1.5px ring the card re-laid-out under
+      // the pointer and its title re-ellipsized mid-animation ("Twitch
+      // Account" became "Twitch Accou..." ON HOVER). A ring is paint, not
+      // layout. The 1px also matches what every themed slot inherited from
+      // BoxDecoration's Border.all(width: 1) through v1.6.0, so nothing
+      // shrinks.
       for (final role in SurfaceRole.values) {
-        final expected = RoleModifier.of(role).bevel ? 1.0 : 0.0;
-        expect(deco(role).padding, EdgeInsets.all(expected),
+        expect(deco(role).padding, const EdgeInsets.all(1.0),
             reason: '$role padding');
       }
+      final ringed = deco(SurfaceRole.raised,
+          border: Border.all(color: const Color(0xFFFF0000), width: 2));
+      expect(ringed.padding, const EdgeInsets.all(1.0),
+          reason: 'a caller ring must not move layout');
     });
 
     test('padding does not move across a lerp or with depth', () {

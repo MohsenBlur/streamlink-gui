@@ -1,18 +1,35 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../theme/neu_theme.dart';
+
 /// Reusable wrapper widget that enables vertical mouse wheel scrolling
 /// on horizontal lists across the application seamlessly.
+///
+/// Also the place where a horizontal strip's SHADOW CLEARANCE lives. Every
+/// raised element casts outside its own box, and a scroll viewport clips at
+/// its edge - so every strip needs interior room above, below and beside its
+/// content. Hand-tuning that per site is how the filter chips got room below
+/// while losing the halo above: the clearance is one definition
+/// ([NeuShadowRoom.strip]) applied here by default, and a strip that truly
+/// needs something else says so explicitly.
 class HorizontalMouseScrollable extends StatefulWidget {
   final Widget child;
   final ScrollController? controller;
+
+  /// Extra padding merged INSIDE the default shadow clearance.
   final EdgeInsetsGeometry? padding;
+
+  /// Reserve [NeuShadowRoom.strip] inside the viewport's clip. On by
+  /// default; opt out only for content that casts nothing.
+  final bool shadowRoom;
 
   const HorizontalMouseScrollable({
     Key? key,
     required this.child,
     this.controller,
     this.padding,
+    this.shadowRoom = true,
   }) : super(key: key);
 
   @override
@@ -83,7 +100,11 @@ class _HorizontalMouseScrollableState extends State<HorizontalMouseScrollable> {
       child: SingleChildScrollView(
         controller: _internalController,
         scrollDirection: Axis.horizontal,
-        padding: widget.padding,
+        padding: widget.shadowRoom
+            ? (widget.padding == null
+                ? NeuShadowRoom.strip
+                : NeuShadowRoom.strip.add(widget.padding!))
+            : widget.padding,
         physics: const BouncingScrollPhysics(),
         child: widget.child,
       ),

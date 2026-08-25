@@ -183,12 +183,11 @@ class _VodsGridState extends State<VodsGrid> {
       if (sortedGames.isEmpty) return const SizedBox.shrink();
       
       return Container(
-        // 38 held the chips exactly and cut their cast shadows off at the
-        // scroller's clip 2px under the chip - every filter chip read as
-        // pasted on. The extra height is shadow room, not layout: the chips
-        // stay top-aligned where they were, and the strip's bottom margin
-        // shrinks by the same amount so the grid below does not move.
-        height: 54,
+        // Chip height plus the scroller's own shadow clearance. The first
+        // hand-tuned fix gave the chips room below and cut the ambient halo
+        // above them instead - which is why the clearance now lives in
+        // HorizontalMouseScrollable as one definition, not here as numbers.
+        height: 32 + NeuShadowRoom.above + NeuShadowRoom.below,
         margin: const EdgeInsets.only(bottom: 0),
         child: NotificationListener<ScrollNotification>(
           onNotification: (notification) {
@@ -203,8 +202,6 @@ class _VodsGridState extends State<VodsGrid> {
             right: _showRightIndicator,
             child: HorizontalMouseScrollable(
                   controller: _gameScrollController,
-                  padding: const EdgeInsets.fromLTRB(
-                      NeuSpace.s4, 0, NeuSpace.s4, 0),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: List.generate(sortedGames.length + 1, (index) {

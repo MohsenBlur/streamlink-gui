@@ -192,19 +192,26 @@ class SelectionBar extends StatelessWidget {
           ],
         ),
       ),
-      child: NeuButton(
-        onPressed: () {},
-        padding: const EdgeInsets.symmetric(
-            horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
-        borderRadius: BorderRadius.circular(NeuRadius.r8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Actions', style: NeuType.captionStrong(isDark)),
-            const SizedBox(width: NeuSpace.s4),
-            Icon(Icons.arrow_drop_down,
-                size: 16, color: NeuTheme.subtext(isDark)),
-          ],
+      // NOT a NeuButton. InteractivePopover opens on its own GestureDetector,
+      // and a button child WINS the gesture arena with its internal handler -
+      // which here was a no-op, so tapping "Actions" did nothing at all. The
+      // trigger is a plain raised surface; the popover owns the tap.
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+          decoration:
+              NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Actions', style: NeuType.captionStrong(isDark)),
+              const SizedBox(width: NeuSpace.s4),
+              Icon(Icons.arrow_drop_down,
+                  size: 16, color: NeuTheme.subtext(isDark)),
+            ],
+          ),
         ),
       ),
     );

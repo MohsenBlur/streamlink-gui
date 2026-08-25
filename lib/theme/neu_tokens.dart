@@ -6,6 +6,8 @@
 /// scale nobody uses.
 library;
 
+import 'package:flutter/painting.dart';
+
 /// Spacing.
 ///
 /// A 4pt base with a 2pt sub-grid below 8. NOT a strict 4pt grid: `6` appears
@@ -21,6 +23,7 @@ abstract final class NeuSpace {
   /// Hairline. Exists for widget-layer furniture - an engraved groove is two
   /// 1px walls, and the scrubber is right to ask where a bare 1 came from.
   static const double s1 = 1;
+
 
   static const double s2 = 2;
 
@@ -161,4 +164,25 @@ abstract final class NeuElevation {
     }
     return previous;
   }
+}
+
+/// The room a lit surface's shadow needs inside any clipping ancestor.
+///
+/// One definition, derived from the shadow geometry the painter actually
+/// uses (cast reach = dy + blur at the common depths, ambient halo above,
+/// lateral occlusion beside), so a strip cannot re-tune it by hand and get
+/// the top right while cutting the bottom - which is exactly how the filter
+/// chips lost the halo above them while gaining room below.
+abstract final class NeuShadowRoom {
+  /// The ambient-occlusion halo above a raised surface.
+  static const double above = 6;
+
+  /// The downward cast at depths 2..4, offset plus blur plus occlusion tail.
+  static const double below = 16;
+
+  /// Lateral occlusion beside the first and last element.
+  static const double side = 6;
+
+  /// The full clearance, for a horizontal strip's interior padding.
+  static const EdgeInsets strip = EdgeInsets.fromLTRB(side, above, side, below);
 }
