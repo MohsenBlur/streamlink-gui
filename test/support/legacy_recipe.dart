@@ -6,50 +6,23 @@ import 'package:streamlink_gui/theme/neu_theme.dart';
 /// The Soft surface recipe, frozen.
 ///
 /// LIGHT is the v1.6.0 recipe verbatim, untouched since it shipped. DARK was
-/// deliberately re-frozen on 2026-08-25: the user judged the original dark
-/// recipe "too flat compared to its light counterpart", and it measurably
-/// was - its cast landed 8 sRGB levels below the canvas where the light
-/// theme's lands 40+ below its own, because a dark shadow on a dark canvas
-/// has almost no contrast headroom. The dark redesign deepens the
-/// highlight/shadow pair, raises the cast alphas, and adds an elevation
-/// overlay (raised faces lighten with depth - the same mechanism Rack dark
-/// uses), so this file now freezes THAT recipe. This is the one sanctioned
-/// kind of change here: a deliberate re-freeze moving both sides in lockstep,
-/// never a tidy-up chasing a refactor.
+/// deliberately re-frozen on 2026-08-25, in two steps that are both worth
+/// recording. The user first judged the original dark recipe "too flat
+/// compared to its light counterpart" - measurably true: its cast landed 8
+/// sRGB levels below the canvas where light's lands 40+ below its own,
+/// because a dark shadow on a dark canvas has almost no headroom. The first
+/// fix deepened the highlight/shadow pair AND added an elevation overlay -
+/// and the user's second verdict was just as exact: lightened faces read as
+/// "floating panels instead of 3d raised portions of the same slab". The
+/// overlay was removed; the deepened pair alone carries the depth, in the
+/// casts, where extrusion actually lives. This file freezes that recipe.
+/// A deliberate re-freeze moving both sides in lockstep is the one
+/// sanctioned kind of change here - never a tidy-up chasing a refactor.
 ///
 /// It has to be a copy. Calling the live API would compare the engine against
 /// itself and pass for exactly the wrong reason - the failure mode where a test
 /// turns green because it stopped testing anything. Only the colour *tokens*
 /// are read live, because those are shared by both sides by design.
-
-/// The engine lifts every dark ground by the elevation overlay before the
-/// gradient sees it. Mirrors `MaterialPalette.overlayFor` over Soft dark's
-/// declared map - by value, because reading the live palette here would be
-/// the self-comparison this file exists to avoid.
-Color _darkOverlaid(Color base, double depth) {
-  // Int keys: a const map with double keys fails const evaluation - the
-  // exact trap the engine's own elevationOverlay hit and documented.
-  const map = <int, double>{2: 0.045, 3: 0.06, 5: 0.085, 8: 0.11, 12: 0.13};
-  if (depth <= 0) return base;
-  final keys = map.keys.toList()..sort();
-  double a;
-  if (depth <= keys.first) {
-    a = map[keys.first]!;
-  } else if (depth >= keys.last) {
-    a = map[keys.last]!;
-  } else {
-    a = map[keys.last]!;
-    for (var i = 1; i < keys.length; i++) {
-      if (depth <= keys[i]) {
-        final t = (depth - keys[i - 1]) / (keys[i] - keys[i - 1]);
-        a = map[keys[i - 1]]! + (map[keys[i]]! - map[keys[i - 1]]!) * t;
-        break;
-      }
-    }
-  }
-  return Color.alphaBlend(
-      const Color(0xFFFFFFFF).withValues(alpha: a), base);
-}
 BoxDecoration legacyRaised(
   bool isDark, {
   Color? base,
@@ -60,8 +33,7 @@ BoxDecoration legacyRaised(
   Gradient? gradient,
   bool circle = false,
 }) {
-  final b0 = base ?? NeuTheme.rawSurface(isDark);
-  final b = isDark ? _darkOverlaid(b0, depth) : b0;
+  final b = base ?? NeuTheme.rawSurface(isDark);
   final bl = blur ?? NeuElevation.blurFor(depth);
   return BoxDecoration(
     gradient: gradient ??
@@ -83,7 +55,7 @@ BoxDecoration legacyRaised(
         : [
             BoxShadow(
               color: NeuTheme.rawHighlight(isDark)
-                  .withValues(alpha: isDark ? 0.60 : 0.90),
+                  .withValues(alpha: isDark ? 0.70 : 0.90),
               offset: Offset(-depth, -depth),
               blurRadius: bl,
             ),
@@ -106,8 +78,7 @@ BoxDecoration legacySunken(
   Border? border,
   bool circle = false,
 }) {
-  final b0 = base ?? NeuTheme.rawWellSurface(isDark);
-  final b = isDark ? _darkOverlaid(b0, depth) : b0;
+  final b = base ?? NeuTheme.rawWellSurface(isDark);
   final bl = blur ?? NeuElevation.blurFor(depth);
   return BoxDecoration(
     color: b,

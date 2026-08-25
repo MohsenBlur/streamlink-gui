@@ -149,7 +149,7 @@ const double _raisedHiA = 0.90, _raisedShA = 0.80; // light
 /// compared to its light counterpart" - which it measurably was: the cast
 /// landed 8 sRGB levels below the canvas where the light theme's lands 40+
 /// below its own. The pair is deeper now and the alphas carry more of it.
-const double _raisedHiADark = 0.60, _raisedShADark = 0.90;
+const double _raisedHiADark = 0.70, _raisedShADark = 0.90;
 const double _sunkenShA = 0.70, _sunkenHiA = 0.85; // light
 const double _sunkenShADark = 0.85, _sunkenHiADark = 0.45;
 
@@ -243,15 +243,18 @@ MaterialPalette _soft(bool isDark) {
     recessStyle: RecessStyle.outerFake,
     // No gloss, no texture. The two facts that make Soft soft.
     gloss: 0,
-    // Dark carries its depth on BOTH channels now: the light-side cast (the
-    // classic neumorphic cue) plus an elevation overlay, because a dark cast
-    // on a dark canvas has almost no contrast headroom and the cast alone
-    // left every raised face at the panel's own value. Light keeps the pure
-    // v1.6.0 recipe - its dark casts have all the headroom they need.
-    darkDepth: isDark ? DarkDepth.elevationOverlay : DarkDepth.lightSideCast,
-    elevationOverlay: isDark
-        ? const {2: 0.045, 3: 0.06, 5: 0.085, 8: 0.11, 12: 0.13}
-        : const {},
+    // Depth lives in the CASTS, never in the face. The first dark-depth fix
+    // added an elevation overlay - raised faces lightening with depth - and
+    // the user's verdict was exact: "raised elements look like floating
+    // panels instead of 3d raised portions of the same slab". A lighter face
+    // on a darker ground is the layered-paper read; EXTRUSION means the face
+    // keeps the slab's own value and the edges carry the light. What made
+    // the overlay seem necessary was that the original cast had no headroom
+    // (#12151B on a #1D212A canvas); with the pair deepened to #07090D /
+    // #39415A the dark cast lands ~20 levels below the canvas and the light
+    // cast ~25 above it, and the casts alone do what the overlay was
+    // compensating for.
+    darkDepth: DarkDepth.lightSideCast,
     boundaryStrategy: BoundaryStrategy.focusRingOnly,
   );
 }

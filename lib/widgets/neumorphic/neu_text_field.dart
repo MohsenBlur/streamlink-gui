@@ -182,6 +182,12 @@ class _NeuTextFieldState extends State<NeuTextField> {
                 decoration: InputDecoration(
                   hintText: widget.hintText,
                   hintStyle: widget.size.hint(isDark),
+                  // Explicitly unfilled: the app-level InputDecorationTheme
+                  // sets `filled: true` so RAW TextFields inherit the
+                  // recessed-well look - but this field's well is the
+                  // Container around it, and inheriting the fill painted a
+                  // second, darker box floating inside it.
+                  filled: false,
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
