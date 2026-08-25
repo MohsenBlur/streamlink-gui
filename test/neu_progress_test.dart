@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_progress.dart';
+import 'package:streamlink_gui/theme/theme_notifier.dart';
 
 /// [width] is the space the widget is GIVEN, not what it must be. Passing null
 /// leaves it unconstrained, which is how the intrinsic-size assertions below
@@ -23,35 +24,45 @@ Widget host(Widget child,
 
 void main() {
   group('NeuProgressBar', () {
-    testWidgets('each size maps to its documented thickness', (tester) async {
-      // The app used 2, 3, 3 and the Material default for the same idea.
+    testWidgets('each size maps to its documented fill thickness',
+        (tester) async {
+      // The documented thickness is the FILL channel; slotted sizes add two
+      // wall pixels and a lit lip below (thickness + 3 total), and xs stays
+      // a bare emissive line for the glass pill. Successor to the old
+      // LinearProgressIndicator.minHeight assertion, which no longer exists
+      // for determinate bars - a meter is a milled slot with a lit fill,
+      // painted by MeterPainter.
       const expected = {
         NeuProgressSize.xs: 2.0,
-        NeuProgressSize.sm: 3.0,
-        NeuProgressSize.md: 4.0,
-        NeuProgressSize.lg: 6.0,
+        NeuProgressSize.sm: 6.0,
+        NeuProgressSize.md: 7.0,
+        NeuProgressSize.lg: 9.0,
       };
       for (final entry in expected.entries) {
-        await tester.pumpWidget(host(NeuProgressBar(value: 0.5, size: entry.key)));
-        final indicator = tester.widget<LinearProgressIndicator>(
-            find.byType(LinearProgressIndicator));
-        expect(indicator.minHeight, entry.value,
-            reason: '${entry.key} should be ${entry.value}px');
+        await tester
+            .pumpWidget(host(NeuProgressBar(value: 0.5, size: entry.key)));
+        final paint = tester.widget<CustomPaint>(find.byWidgetPredicate(
+            (w) => w is CustomPaint && w.painter is MeterPainter));
+        expect(paint.size.height, entry.value,
+            reason: '${entry.key} should paint ${entry.value}px tall');
+        final meter = paint.painter! as MeterPainter;
+        expect(meter.slotted, entry.key != NeuProgressSize.xs,
+            reason: 'only xs opts out of the slot');
+        expect(meter.value, 0.5);
       }
     });
 
-    testWidgets('is always rounded', (tester) async {
-      // Two of the four original call sites wrapped this in a ClipRRect and two
-      // did not, so identical bars had different corners depending on where
-      // they were rendered.
-      for (final size in NeuProgressSize.values) {
-        await tester.pumpWidget(host(NeuProgressBar(value: 0.5, size: size)));
-        expect(
-            find.ancestor(
-                of: find.byType(LinearProgressIndicator),
-                matching: find.byType(ClipRRect)),
-            findsOneWidget);
-      }
+    testWidgets('the slot is cut from the well, not outlined in border grey',
+        (tester) async {
+      await tester.pumpWidget(
+          host(const NeuProgressBar(value: 0.5, size: NeuProgressSize.md)));
+      final paint = tester.widget<CustomPaint>(find.byWidgetPredicate(
+          (w) => w is CustomPaint && w.painter is MeterPainter));
+      final meter = paint.painter! as MeterPainter;
+      expect(meter.track, NeuTheme.wellSurface(themeNotifier.isDarkTheme),
+          reason: 'a recessed channel takes the well ground');
+      expect(meter.shade, isNot(meter.light),
+          reason: 'the slot walls must disagree - that is what a groove is');
     });
 
     testWidgets('a null value is indeterminate', (tester) async {

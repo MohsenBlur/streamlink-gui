@@ -8,6 +8,8 @@ import 'neumorphic/neu_avatar_frame.dart';
 import 'neumorphic/neu_container.dart';
 import 'neumorphic/neu_card.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_badge.dart';
+import 'neumorphic/neu_led_indicator.dart';
 import 'shell/app_layout.dart';
 import 'shell/motion.dart';
 import 'neumorphic/neu_progress.dart';
@@ -46,58 +48,26 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     );
   }
 
-  /// LIVE (pulsing) / OFFLINE status pill, shared by both header layouts.
+  /// LIVE (pulsing) / OFFLINE lamp-and-badge, shared by both header layouts.
   Widget _buildStatusBadge({required bool compact}) {
-    final padding = compact
-        ? const EdgeInsets.symmetric(
-            horizontal: NeuSpace.s8,
-            vertical: NeuSpace.s4,
-          )
-        : const EdgeInsets.symmetric(
-            horizontal: NeuSpace.s8,
-            vertical: NeuSpace.s4,
-          );
-    final radius = BorderRadius.circular(compact ? 10 : 12);
-    final isDark = themeNotifier.isDarkTheme;
 
+    // One language for "live": the shared badge, led by a lamp. This was a
+    // hand-rolled tinted pill - the exact drift LiveBadge was built to end -
+    // and OFFLINE especially should read as an unlit lamp beside an engraved
+    // legend, not a grey chip.
     if (!widget.channel.isLive) {
-      final subtext = NeuTheme.subtext(isDark);
-      return Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: subtext.withValues(alpha: 0.12),
-          border: Border.all(color: subtext, width: 1),
-          borderRadius: radius,
-        ),
-        child: Text('OFFLINE', style: NeuType.plate(isDark, color: subtext)),
-      );
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        const NeuLedIndicator(size: 8, isLive: false, isPulsing: false),
+        const SizedBox(width: NeuSpace.s6),
+        StatusBadge(label: 'OFFLINE', tone: BadgeTone.neutral),
+      ]);
     }
 
-    return AnimatedBuilder(
-      animation: widget.pulseController,
-      builder: (context, child) {
-        return Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: NeuTheme.live.withValues(
-              alpha: 0.10 + 0.08 * widget.pulseController.value,
-            ),
-            border: Border.all(
-              color: NeuTheme.live.withValues(
-                alpha: 0.4 + 0.6 * widget.pulseController.value,
-              ),
-              width: 1,
-            ),
-            borderRadius: radius,
-          ),
-          child: child,
-        );
-      },
-      child: Text(
-        'LIVE',
-        style: NeuType.plate(isDark, color: NeuTheme.liveText(isDark)),
-      ),
-    );
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      const NeuLedIndicator(size: 8, isPulsing: true),
+      const SizedBox(width: NeuSpace.s6),
+      LiveBadge(pulse: widget.pulseController),
+    ]);
   }
 
   /// The 3-state PLAY / OPEN / OFFLINE launch button (was three diverged

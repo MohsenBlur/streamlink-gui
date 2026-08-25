@@ -5,6 +5,7 @@ import '../models/app_settings.dart';
 import '../services/player_service.dart';
 import '../services/twitch_api_service.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_led_indicator.dart';
 import '../theme/theme_notifier.dart';
 import 'neumorphic/neu_switch.dart';
 import 'shell/neu_dialog.dart';
@@ -129,14 +130,17 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
         // previously in the title bar, which is where a close button lives, so
         // it read as "dismiss" rather than "continue without configuring".
         leadingActions: [
+          // A row of lamp lenses, the active step lit: the reference
+          // boards do step state exactly this way, and flat dots were the
+          // one flat element on an otherwise decorated surface.
           for (var i = 0; i < _stepCount; i++)
             Container(
-              width: NeuSpace.s8,
-              height: NeuSpace.s8,
               margin: const EdgeInsets.only(right: NeuSpace.s6),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: i == _step ? theme.primaryColor : NeuTheme.border(_isDark),
+              child: NeuLedIndicator(
+                size: NeuSpace.s8,
+                isLive: i == _step,
+                isPulsing: false,
+                activeColor: theme.primaryColor,
               ),
             ),
           const SizedBox(width: NeuSpace.s8),

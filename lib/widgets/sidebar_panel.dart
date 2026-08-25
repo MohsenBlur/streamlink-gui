@@ -19,6 +19,7 @@ import 'neumorphic/neu_icon_action.dart';
 import 'shell/nav_scope.dart';
 import 'shell/context_menu.dart';
 import 'shell/engraved_rule.dart';
+import 'neumorphic/neu_led_indicator.dart';
 import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
@@ -243,13 +244,18 @@ class SidebarPanelState extends State<SidebarPanel> {
                                           const SizedBox(height: NeuSpace.s2),
                                           Row(
                                             children: [
-                                              Container(
-                                                width: 6,
-                                                height: 6,
-                                                decoration: BoxDecoration(
-                                                  color: widget.authenticatedUserLogin != null ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.subtext(themeNotifier.isDarkTheme),
-                                                  shape: BoxShape.circle,
-                                                ),
+                                              // The unit's power lamp:
+                                              // patched into Twitch or not.
+                                              // A lit lens when connected, a
+                                              // dead one in guest mode - a
+                                              // flat 6px fill was a bullet
+                                              // point.
+                                              NeuLedIndicator(
+                                                size: 6,
+                                                isLive: widget
+                                                        .authenticatedUserLogin !=
+                                                    null,
+                                                isPulsing: false,
                                               ),
                                               const SizedBox(width: NeuSpace.s4),
                                               Expanded(

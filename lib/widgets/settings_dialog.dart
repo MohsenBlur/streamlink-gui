@@ -174,11 +174,24 @@ class SettingsDialog {
                 width: 600,
                 maxHeight: 680,
                 scrollable: false,
-                headerBottom: TabBar(
+                headerBottom: Container(
+                  // The recessed track the selector's key slides in - the
+                  // same physical vocabulary as NeuSegmentedControl, which
+                  // the sidebar's tabs already speak. A flat underline
+                  // indicator split the design language inside one window.
+                  margin: const EdgeInsets.fromLTRB(
+                      NeuSpace.s16, 0, NeuSpace.s16, NeuSpace.s8),
+                  padding: const EdgeInsets.all(NeuSpace.s2),
+                  decoration: NeuTheme.sunken(themeNotifier.isDarkTheme,
+                      radius: NeuRadius.r8, depth: NeuElevation.d1),
+                  child: TabBar(
                   labelColor: themeNotifier.accentInk,
                   unselectedLabelColor: NeuTheme.subtext(themeNotifier.isDarkTheme),
-                  indicatorColor: themeNotifier.accentInk,
+                  // The raised sliding key, painted by the engine.
+                  indicator: NeuTheme.raised(themeNotifier.isDarkTheme,
+                      radius: NeuRadius.r6, depth: NeuElevation.d2),
                   indicatorSize: TabBarIndicatorSize.tab,
+                  dividerColor: Colors.transparent,
                   isScrollable: true,
                   tabAlignment: TabAlignment.start,
                   labelStyle: NeuType.labelMetrics.copyWith(fontWeight: FontWeight.w700),
@@ -189,6 +202,7 @@ class SettingsDialog {
                     Tab(text: 'Twitch'),
                     Tab(text: 'System'),
                   ],
+                ),
                 ),
                 // Expanded rather than a hard 520: TabBarView has no intrinsic
                 // height, and a fixed one cannot fit the 380x500 window the app

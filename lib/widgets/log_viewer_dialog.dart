@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../services/log_store.dart';
 import '../state/log_line_kind.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_led_indicator.dart';
 import '../theme/theme_notifier.dart';
 import '../utils/time_utils.dart';
 import 'shell/neu_dialog.dart';
@@ -270,13 +271,12 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                 ),
               ),
               if (s.failed)
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: NeuTheme.dangerText(isDark),
-                    shape: BoxShape.circle,
-                  ),
+                // The fault lamp: steadily lit red, in the one dialog that
+                // already commits fully to the hardware read.
+                const NeuLedIndicator(
+                  size: 6,
+                  isPulsing: false,
+                  activeColor: NeuTheme.danger,
                 ),
             ],
           ),

@@ -69,18 +69,48 @@ class NeuProgressBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = themeNotifier.isDarkTheme;
+    final accent = color ?? Theme.of(context).primaryColor;
 
-    Widget bar = ClipRRect(
-      borderRadius: BorderRadius.circular(size.radius),
-      child: LinearProgressIndicator(
-        value: value,
-        minHeight: size.thickness,
-        backgroundColor: trackColor ?? NeuTheme.border(isDark),
-        valueColor: AlwaysStoppedAnimation<Color>(
-          color ?? Theme.of(context).primaryColor,
+    // A meter is a milled slot with a lit fill, not a coloured line. The
+    // reference hardware's meters are recessed channels - a dark slot whose
+    // top wall is in shadow and whose near lip catches the light - with a
+    // bright fill that GLOWS, because on an instrument the fill is an
+    // emissive element, not paint. The xs size opts out of the slot: it
+    // lives inside the title-bar glass pill, where it reads as a line of
+    // light on the display itself.
+    //
+    // Indeterminate keeps the framework's animation, run inside the slot's
+    // tone, because reimplementing that animation buys nothing.
+    final slotted = size != NeuProgressSize.xs;
+    final track = trackColor ??
+        (slotted ? NeuTheme.wellSurface(isDark) : NeuTheme.border(isDark));
+
+    Widget bar;
+    if (value != null) {
+      bar = CustomPaint(
+        size: Size(width ?? double.infinity,
+            slotted ? size.thickness + 3 : size.thickness),
+        painter: MeterPainter(
+          value: value!.clamp(0.0, 1.0),
+          fill: accent,
+          track: track,
+          radius: size.radius,
+          slotted: slotted,
+          shade: NeuTheme.palette(isDark).bevelShade,
+          light: NeuTheme.palette(isDark).bevelLight,
         ),
-      ),
-    );
+      );
+    } else {
+      bar = ClipRRect(
+        borderRadius: BorderRadius.circular(size.radius),
+        child: LinearProgressIndicator(
+          value: value,
+          minHeight: size.thickness,
+          backgroundColor: track,
+          valueColor: AlwaysStoppedAnimation<Color>(accent),
+        ),
+      );
+    }
 
     if (width != null) bar = SizedBox(width: width, child: bar);
 
@@ -150,4 +180,97 @@ class NeuProgressRing extends StatelessWidget {
     }
     return ring;
   }
+}
+
+
+/// Paints one determinate meter: slot, walls, lit fill, glow.
+///
+/// Public and value-comparable so the widget test can assert what will paint
+/// without rasterising - the geometry contract lives in the fields.
+class MeterPainter extends CustomPainter {
+  const MeterPainter({
+    required this.value,
+    required this.fill,
+    required this.track,
+    required this.radius,
+    required this.slotted,
+    required this.shade,
+    required this.light,
+  });
+
+  final double value;
+  final Color fill, track, shade, light;
+  final double radius;
+  final bool slotted;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    if (w <= 0) return;
+
+    if (!slotted) {
+      // The emissive line: fill over track, plus bloom.
+      final r = Radius.circular(radius);
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(Offset.zero & size, r),
+          Paint()..color = track);
+      if (value > 0) {
+        final fw = (w * value).clamp(size.height, w);
+        final rect = Rect.fromLTWH(0, 0, fw, size.height);
+        canvas.drawRRect(RRect.fromRectAndRadius(rect, r),
+            Paint()
+              ..color = fill.withValues(alpha: 0.55)
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2));
+        canvas.drawRRect(
+            RRect.fromRectAndRadius(rect, r), Paint()..color = fill);
+      }
+      return;
+    }
+
+    // The slot: 1px shadowed top wall inside, 1px lit lip below.
+    final slotH = size.height - 1;
+    final slot = RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, 0, w, slotH), Radius.circular(radius + 1));
+    canvas.drawRRect(slot, Paint()..color = track);
+
+    canvas.save();
+    canvas.clipRRect(slot);
+    canvas.drawRect(
+        Rect.fromLTWH(0, 0, w, 1), Paint()..color = shade);
+    canvas.restore();
+
+    canvas.drawRect(
+        Rect.fromLTWH(1, slotH, w - 2, 1), Paint()..color = light);
+
+    if (value > 0) {
+      final channelH = slotH - 2;
+      final fw = (w * value).clamp(channelH.toDouble(), w.toDouble());
+      final rect = Rect.fromLTWH(1, 1, fw - 1, channelH);
+      final r = Radius.circular(radius);
+      // Bloom first, then the crisp fill: the meter is lit, not painted.
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, r),
+          Paint()
+            ..color = fill.withValues(alpha: 0.5)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5));
+      canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, r), Paint()..color = fill);
+      // A brighter top edge on the fill itself - the lit face of the bar.
+      canvas.save();
+      canvas.clipRRect(RRect.fromRectAndRadius(rect, r));
+      canvas.drawRect(
+          Rect.fromLTWH(rect.left, rect.top, rect.width, 1),
+          Paint()..color = const Color(0x66FFFFFF));
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(MeterPainter old) =>
+      old.value != value ||
+      old.fill != fill ||
+      old.track != track ||
+      old.radius != radius ||
+      old.slotted != slotted ||
+      old.shade != shade ||
+      old.light != light;
 }

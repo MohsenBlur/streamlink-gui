@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../theme/neu_theme.dart';
+import '../theme/neu_material_themes.dart';
 import 'neumorphic/neu_avatar.dart';
 import 'neumorphic/neu_checkbox.dart';
 import 'neumorphic/neu_switch.dart';
@@ -151,6 +152,9 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                     child: Row(
                       children: [
                         Expanded(
+                          child: SliderTheme(
+                            data: neuSliderTheme(context,
+                                accent: theme.primaryColor),
                           child: Slider(
                             value: _threshold.toDouble(),
                             min: 5,
@@ -163,6 +167,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                 _threshold = val.toInt();
                               });
                             },
+                          ),
                           ),
                         ),
                         Text(

@@ -102,12 +102,12 @@ class ActivityPill extends StatelessWidget {
       child: Container(
         constraints: BoxConstraints(maxWidth: compact ? 88 : 260),
         padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
-        decoration: BoxDecoration(
-          color: theme.primaryColor.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(NeuRadius.r8),
-          border: Border.all(
-              color: theme.primaryColor.withValues(alpha: 0.4), width: 1),
-        ),
+        // A status display is dark glass set into the panel, the same role
+        // the log pane takes - the references do their small live readouts
+        // exactly this way (a battery chip, a session counter). It was the
+        // most display-like region left as a flat accent tint.
+        decoration: NeuTheme.screen(themeNotifier.isDarkTheme,
+            radius: NeuRadius.r8, depth: NeuElevation.d1),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,7 +115,10 @@ class ActivityPill extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(_icon(s), size: 12, color: themeNotifier.accentInk),
+                Icon(_icon(s),
+                    size: 12,
+                    color: NeuTheme.accentInkOnScreen(
+                        theme.primaryColor, themeNotifier.isDarkTheme)),
                 const SizedBox(width: NeuSpace.s6),
                 Flexible(
                   child: Text(
@@ -123,7 +126,8 @@ class ActivityPill extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: NeuType.plate(themeNotifier.isDarkTheme,
-                        color: themeNotifier.accentInk),
+                        color: NeuTheme.accentInkOnScreen(
+                            theme.primaryColor, themeNotifier.isDarkTheme)),
                   ),
                 ),
               ],
