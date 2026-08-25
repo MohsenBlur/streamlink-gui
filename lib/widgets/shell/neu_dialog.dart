@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/neu_theme.dart';
+import 'engraved_rule.dart';
 import '../../theme/theme_notifier.dart';
 import '../neumorphic/neu_button.dart';
 import 'app_layout.dart';
@@ -343,18 +344,19 @@ class NeuDialog extends StatelessWidget {
 
   Widget _footer(bool isDark) {
     assert(_assertNoFlexChildren());
-    return Container(
+    // A boundary, always. Long dialogs scroll their content behind the
+    // footer, and without one the last visible line just stops mid-sentence
+    // above the buttons and reads as a clipping bug. It is an engraved cut
+    // rather than a grey hairline: on a lit panel a lone mid-grey line is
+    // the CSS-border idiom, and the dialog sheet is a service panel now.
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+    EngravedRule(),
+    Container(
       padding: const EdgeInsets.fromLTRB(
         NeuSpace.s20,
         NeuSpace.s12,
         NeuSpace.s20,
         NeuSpace.s16,
-      ),
-      // A hairline, always. Long dialogs scroll their content behind the
-      // footer, and without a boundary the last visible line just stops
-      // mid-sentence above the buttons and reads as a clipping bug.
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: NeuTheme.border(isDark))),
       ),
       // A Wrap rather than a Row, because two ordinary labels do not fit on
       // one line in a 380px window: "Cancel" beside "Save changes" needed 307
@@ -418,7 +420,8 @@ class NeuDialog extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ),
+    ]);
   }
 
   Widget _primaryButton(NeuDialogAction action, bool isDark) {

@@ -22,6 +22,7 @@ import 'theme/type_probe.dart';
 import 'theme/material/chassis_furniture.dart';
 import 'widgets/shell/edge_fade.dart';
 import 'widgets/shell/app_chassis.dart';
+import 'widgets/shell/engraved_rule.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
 import 'widgets/shell/section_header.dart';
@@ -3048,7 +3049,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// sits minimised in the tray, which is its normal state.
   Widget _buildSaveFailureBanner(StorageWriteFailure failure) {
     final isDark = themeNotifier.isDarkTheme;
-    return Container(
+    // The translucent wash lets the panel grain through; the engraved cut at
+    // its bottom is what makes it read as a milled warning band of the
+    // chassis rather than a highlighter stroke across the plate.
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+    Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s8),
       color: NeuTheme.danger.withValues(alpha: 0.12),
@@ -3077,7 +3082,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           ),
         ],
       ),
-    );
+    ),
+    EngravedRule(),
+    ]);
   }
 
   void _showSaveFailureDetail(StorageWriteFailure failure) {

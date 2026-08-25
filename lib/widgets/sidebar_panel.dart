@@ -18,6 +18,7 @@ import 'neumorphic/neu_avatar.dart';
 import 'neumorphic/neu_icon_action.dart';
 import 'shell/nav_scope.dart';
 import 'shell/context_menu.dart';
+import 'shell/engraved_rule.dart';
 import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
@@ -199,9 +200,6 @@ class SidebarPanelState extends State<SidebarPanel> {
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s16),
-                  decoration: BoxDecoration(
-                    border: Border(bottom: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1.5)),
-                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -286,6 +284,8 @@ class SidebarPanelState extends State<SidebarPanel> {
                     ],
                   ),
                 ),
+
+                EngravedRule(indent: NeuSpace.s8),
 
                 // Add / Search channel section
                 Padding(
@@ -511,11 +511,9 @@ class SidebarPanelState extends State<SidebarPanel> {
                 ),
                 
                 // Settings bottom bar
+                EngravedRule(indent: NeuSpace.s8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s12),
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1)),
-                  ),
                   child: Row(
                     children: [
                       NeuIconAction(
@@ -578,7 +576,7 @@ class SidebarPanelState extends State<SidebarPanel> {
           splashRadius: 20,
         ),
         const SizedBox(height: NeuSpace.s8),
-        Divider(color: NeuTheme.border(themeNotifier.isDarkTheme), height: 1.5, thickness: 1.5),
+        EngravedRule(indent: NeuSpace.s8),
         const SizedBox(height: NeuSpace.s12),
         
         // Three real buttons. This was a control that CYCLED through the
@@ -628,7 +626,7 @@ class SidebarPanelState extends State<SidebarPanel> {
         ),
         
         const SizedBox(height: NeuSpace.s8),
-        Divider(color: NeuTheme.border(themeNotifier.isDarkTheme), height: 1, thickness: 1),
+        EngravedRule(indent: NeuSpace.s8),
         const SizedBox(height: NeuSpace.s12),
         
         Expanded(
@@ -691,12 +689,11 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
         ),
         
+        Column(children: [
+        EngravedRule(indent: NeuSpace.s8),
         Container(
           padding: const EdgeInsets.symmetric(vertical: NeuSpace.s12),
           width: double.infinity,
-          decoration: BoxDecoration(
-            border: Border(top: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 1)),
-          ),
           child: Column(
             children: [
               NeuIconAction(
@@ -715,6 +712,7 @@ class SidebarPanelState extends State<SidebarPanel> {
             ],
           ),
         ),
+        ]),
       ],
     );
   }
@@ -881,10 +879,8 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
           if (!tight) ...[
             const SizedBox(width: NeuSpace.s8),
-            Container(
-                width: 1,
-                height: 24,
-                color: NeuTheme.border(themeNotifier.isDarkTheme)),
+            const SizedBox(
+                height: 24, child: EngravedRule(vertical: true)),
           ],
           gap,
           // Flexible with a floor, not Expanded.
@@ -996,10 +992,8 @@ class SidebarPanelState extends State<SidebarPanel> {
           ],
           if (!tight) ...[
             const SizedBox(width: NeuSpace.s8),
-            Container(
-                width: 1,
-                height: 24,
-                color: NeuTheme.border(themeNotifier.isDarkTheme)),
+            const SizedBox(
+                height: 24, child: EngravedRule(vertical: true)),
           ],
           gap,
           IconButton(

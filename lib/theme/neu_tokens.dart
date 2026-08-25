@@ -18,6 +18,10 @@ library;
 /// compile error rather than a judgement call.
 abstract final class NeuSpace {
   /// Hairline: icon to its own glyph, badge insets.
+  /// Hairline. Exists for widget-layer furniture - an engraved groove is two
+  /// 1px walls, and the scrubber is right to ask where a bare 1 came from.
+  static const double s1 = 1;
+
   static const double s2 = 2;
 
   /// Intra-control.

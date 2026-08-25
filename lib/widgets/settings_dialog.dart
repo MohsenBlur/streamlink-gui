@@ -9,6 +9,7 @@ import '../utils/color_utils.dart';
 import '../theme/neu_material_themes.dart';
 import '../theme/material/app_material.dart';
 import '../theme/neu_theme.dart';
+import 'shell/engraved_rule.dart';
 import 'shell/neu_dialog.dart';
 import 'neumorphic/neu_switch.dart';
 
@@ -319,7 +320,7 @@ class SettingsDialog {
                               ],
                             ),
                             const SizedBox(height: NeuSpace.s24),
-                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            EngravedRule(),
                             const SizedBox(height: NeuSpace.s12),
                             Text('Player Type', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s8),
@@ -1116,7 +1117,7 @@ class SettingsDialog {
                               ],
                             ),
                             const SizedBox(height: NeuSpace.s24),
-                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            EngravedRule(),
                             const SizedBox(height: NeuSpace.s12),
                             Text('Notifications', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s8),
@@ -1172,7 +1173,7 @@ class SettingsDialog {
                               ],
                             ),
                             const SizedBox(height: NeuSpace.s24),
-                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            EngravedRule(),
                             const SizedBox(height: NeuSpace.s12),
                             Text('Watch History', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s8),
@@ -1209,7 +1210,7 @@ class SettingsDialog {
                               label: const Text('Clear Local Watch History', style: NeuType.labelMetrics),
                             ),
                             const SizedBox(height: NeuSpace.s24),
-                            Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                            EngravedRule(),
                             const SizedBox(height: NeuSpace.s12),
                             Text('Diagnostics', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s4),
@@ -1453,7 +1454,7 @@ class SettingsDialog {
                   const SizedBox(height: NeuSpace.s12),
                   _buildStep('4', 'In the cookies list, find the one named auth-token. Double-click its value, copy it, and paste it into the settings field.', themeNotifier),
                   const SizedBox(height: NeuSpace.s16),
-                  Divider(color: NeuTheme.border(themeNotifier.isDarkTheme)),
+                  EngravedRule(),
                   const SizedBox(height: NeuSpace.s8),
                   Row(
                     children: [
