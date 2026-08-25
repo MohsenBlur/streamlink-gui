@@ -158,7 +158,11 @@ const MaterialPalette _rackDark = MaterialPalette(
     ShadowLayer(color: Color(0x1AFFFFFF), dx: 0, dy: -0.667, blur: 1.333),
   ],
   darkDepth: DarkDepth.elevationOverlay,
-  elevationOverlay: {2: 0.05, 3: 0.07, 5: 0.08, 8: 0.11},
+  // Mid steps lifted so a raised control's face separates from the tray it
+  // sits in - the references' keys are always lighter than their gutter. The
+  // deepest step stays at 0.11: worstGround folds the MAX overlay under the
+  // lit lift, and subtext goes under 4.5:1 from 0.13 up.
+  elevationOverlay: {2: 0.06, 3: 0.09, 5: 0.11, 8: 0.11},
   boundaryStrategy: BoundaryStrategy.explicitBorder,
   lit: _rackDarkLit,
   litScreen: _rackDarkGlass,
@@ -197,11 +201,15 @@ const LitSpec _rackDarkLit = LitSpec(
   // which lit_ground_test verifies.
   grainAmp: 0.30,
   grainAcross: 3.5,
-  shadowDyPerDepth: 1.1,
-  shadowBlurPerDepth: 2.2,
-  shadowOpacity: 0.60,
-  aoOpacity: 0.45,
-  aoReachPerDepth: 0.8,
+  // The reference boards read as keys sitting in near-black pockets: the
+  // gutter between controls is the darkest thing on the panel. That is the
+  // contact term's job, so it is strong here - and it lands OUTSIDE the
+  // shape, where no text ever sits, so it costs the contrast matrix nothing.
+  shadowDyPerDepth: 1.35,
+  shadowBlurPerDepth: 2.6,
+  shadowOpacity: 0.72,
+  aoOpacity: 0.62,
+  aoReachPerDepth: 1.1,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.70,
   // Measured by lit_ground_test. The proud bound is the one every dark ink
@@ -209,8 +217,8 @@ const LitSpec _rackDarkLit = LitSpec(
   // below text instead of chasing it; the drama lives on the chamfer, in
   // the grain and in the shadow, which no glyph ever sits on.
   faceLiftLevels: 21,
-  faceDropLevels: 16,
-  recessLiftLevels: 32,
+  faceDropLevels: 20,
+  recessLiftLevels: 24,
   recessDropLevels: 12,
 );
 
@@ -343,11 +351,11 @@ const LitSpec _rackLightLit = LitSpec(
   rim: 0.40,
   grainAmp: 0.17,
   grainAcross: 3.0,
-  shadowDyPerDepth: 1.1,
-  shadowBlurPerDepth: 2.2,
-  shadowOpacity: 0.32,
-  aoOpacity: 0.30,
-  aoReachPerDepth: 0.8,
+  shadowDyPerDepth: 1.3,
+  shadowBlurPerDepth: 2.6,
+  shadowOpacity: 0.42,
+  aoOpacity: 0.42,
+  aoReachPerDepth: 1.1,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.55,
   // The camera exposes for the paper-white theme. Without this the tone

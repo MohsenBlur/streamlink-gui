@@ -65,12 +65,29 @@ class StatusBadge extends StatelessWidget {
     final ink = tone.ink(isDark);
     final base = tone.base(isDark);
 
+    // Energised states are BACKLIT, not just tinted. On the reference
+    // hardware an active key glows into the pocket around it - the glow is
+    // what says "this one is powered" before the label is read. Informational
+    // tones stay flat: a QUEUED chip radiating light would be a lie.
+    final lit = tone == BadgeTone.live ||
+        tone == BadgeTone.accent ||
+        tone == BadgeTone.danger;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
       decoration: BoxDecoration(
         color: base.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(NeuRadius.r6),
         border: Border.all(color: base.withValues(alpha: 0.4), width: 1),
+        boxShadow: lit
+            ? [
+                BoxShadow(
+                  color: base.withValues(alpha: 0.30),
+                  blurRadius: 9,
+                  spreadRadius: 0.5,
+                ),
+              ]
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

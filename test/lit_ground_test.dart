@@ -30,9 +30,9 @@ void main() {
   });
 
   Future<({double lift, double drop})> measure(
-      MaterialPalette p, SurfaceRole role, double depth) async {
+      MaterialPalette p, SurfaceRole role, double depth,
+      {Size size = const Size(220, 110)}) async {
     const inset = 30.0;
-    const size = Size(220, 110);
     final d = SkeuoDecoration.role(
       palette: p,
       role: role,
@@ -126,6 +126,23 @@ void main() {
                     'but declares a drop bound of $dropBound');
           }
         }
+
+        // The pillow policy: small parts take a wider fillet and more dome,
+        // so a chip's face moves further than a card's. The bounds must hold
+        // at chip scale too, where the content rect sits almost entirely on
+        // the domed region.
+        final chip =
+            await measure(p, SurfaceRole.raised, 2, size: const Size(120, 34));
+        measured++;
+        final chipSpec = p.litFor(SurfaceRole.raised)!;
+        expect(chip.lift, lessThanOrEqualTo(chipSpec.faceLiftLevels + 0.5),
+            reason: '${spec.id.key} $mode raised at chip size painted '
+                '${chip.lift.toStringAsFixed(1)} levels above its albedo, '
+                'past the declared ${chipSpec.faceLiftLevels}');
+        expect(chip.drop, lessThanOrEqualTo(chipSpec.faceDropLevels + 0.5),
+            reason: '${spec.id.key} $mode raised at chip size painted '
+                '${chip.drop.toStringAsFixed(1)} levels below its albedo, '
+                'past the declared ${chipSpec.faceDropLevels}');
       }
     }
     expect(measured, greaterThan(0),

@@ -977,6 +977,19 @@ class _LitPainter extends BoxPainter {
     final radius =
         p.circle ? size.shortestSide / 2 : p.radius.clamp(0.0, size.shortestSide / 2);
 
+    // Small parts are filleted, large stock is chamfered - which is also how
+    // machining actually works. A chip or a button takes a wider, rounder
+    // edge and more dome, so it reads as a pillowed keycap sitting in its
+    // pocket; a card or a panel keeps the crisp machined land. Driven by
+    // geometry rather than by role because the same role paints both: a
+    // raised 34px chip and a raised 300px card are different parts cut from
+    // the same stock. Continuous, so an animated resize cannot pop.
+    final smallness =
+        (1.0 - (size.shortestSide - 30.0) / 40.0).clamp(0.0, 1.0);
+    final chamfer = spec.chamferWidth * (1.0 + 0.5 * smallness);
+    final chamferProfile = spec.chamferProfile * (1.0 - 0.65 * smallness);
+    final bow = spec.bow * (1.0 + 0.8 * smallness);
+
     // Light TO-vector in the shader's y-UP frame. The palette convention is
     // degrees counter-clockwise from +x with y DOWN naming the source, so 90
     // is above in both frames and the x component carries over unchanged.
@@ -1000,16 +1013,16 @@ class _LitPainter extends BoxPainter {
     f(size.height); // uShape
     f(pad);
     f(radius); // uPadRad
-    f(spec.chamferWidth);
+    f(chamfer);
     f(1.0 / dpr);
-    f(spec.chamferProfile);
+    f(chamferProfile);
     f(spec.landAngle); // uBevel
     c3(p.base); // uAlbedo
     c3(spec.f0); // uF0
     f(spec.roughness);
     f(spec.metalness);
     f(spec.anisotropy);
-    f(spec.bow); // uMat
+    f(bow); // uMat
     f(lx);
     f(ly);
     f(lz); // uL
