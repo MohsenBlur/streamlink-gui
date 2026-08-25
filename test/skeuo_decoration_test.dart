@@ -228,7 +228,14 @@ void main() {
       final a = deco(SurfaceRole.raised); // fills from surface
       final b = deco(SurfaceRole.sunken); // fills from well
       final half = Decoration.lerp(a, b, 0.5)! as SkeuoDecoration;
-      expect(half.params.base, Color.lerp(soft.surface, soft.well, 0.5));
+      // Through the palette's own overlay: dark Soft lifts every ground by
+      // elevation before the gradient sees it (the 2026-08-25 dark depth
+      // redesign), so the endpoints are the OVERLAID grounds.
+      final surface =
+          soft.withElevationOverlay(soft.surface, depth: NeuElevation.d3);
+      final well =
+          soft.withElevationOverlay(soft.well, depth: NeuElevation.d3);
+      expect(half.params.base, Color.lerp(surface, well, 0.5));
     });
 
     test('interpolating from null scales out rather than popping', () {

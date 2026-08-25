@@ -182,7 +182,11 @@ void main() {
         expect(p.fill.last.dh, 0.0);
         expect(p.fill.last.ds, 0.0);
 
-        final shipped = legacyRaised(isDark).gradient! as LinearGradient;
+        // Depth 0: the dark recipe lifts its ground by the elevation overlay
+        // before the gradient, and this assertion is about the STOPS, not
+        // the lift - at depth 0 both sides start from the flat token.
+        final shipped =
+            legacyRaised(isDark, depth: 0).gradient! as LinearGradient;
         expect(shipped.colors.first, p.surface);
         expect(shipped.colors.last, NeuTheme.fillFloor(p.surface));
       });

@@ -38,9 +38,17 @@ class NeuTheme {
   static const Color darkBg = Color(0xFF1D212A);
   static const Color darkSurface = Color(0xFF222632);
   static const Color darkText = Color(0xFFE2E8F0);
-  static const Color darkSubtext = Color(0xFF94A3B8);
-  static const Color darkHighlight = Color(0xFF2B303F);
-  static const Color darkShadow = Color(0xFF12151B);
+  // Lightened with the dark depth redesign: the elevation overlay lifts the
+  // worst raised ground to surface+13% white, and the v1.6.0 value measured
+  // 3.90:1 there. Part of the same fix - a flat dark theme usually has murky
+  // secondary text too.
+  static const Color darkSubtext = Color(0xFFABB7C8);
+  // Deepened 2026-08-25 with the dark-Soft depth redesign: at #2B303F the
+  // light-side cast sat 7 levels over the canvas and the look read flat
+  // against its light counterpart. Read by the satellite widgets too (switch
+  // knob, LED collar), which gain the same depth.
+  static const Color darkHighlight = Color(0xFF39415A);
+  static const Color darkShadow = Color(0xFF07090D);
   static const Color defaultDarkAccent = Color(0xFFFF3B30); // Vibrant Red
 
   // Semantic status colors, previously scattered as inline hexes across the
@@ -326,7 +334,9 @@ class NeuTheme {
       isDark ? darkHighlight : lightHighlight;
   static Color rawShadow(bool isDark) => isDark ? darkShadow : lightShadow;
   static Color rawDisabledText(bool isDark) =>
-      isDark ? const Color(0xFF64748B) : const Color(0xFF6C7A91);
+      // Dark lightened with the depth redesign (2.10:1 on the lifted worst
+      // ground); light untouched.
+      isDark ? const Color(0xFF93A0B2) : const Color(0xFF6C7A91);
   static Color rawWellSurface(bool isDark) =>
       isDark ? const Color(0xFF13151A) : const Color(0xFFD8E0EB);
   static Color rawBorder(bool isDark) => isDark

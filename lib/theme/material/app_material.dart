@@ -142,9 +142,16 @@ class MaterialSpec {
 /// Named rather than inlined so the transcription is one line long and the
 /// test can assert against the same names.
 const double _raisedHiA = 0.90, _raisedShA = 0.80; // light
-const double _raisedHiADark = 0.50, _raisedShADark = 0.70;
+
+/// Dark alphas, raised 2026-08-25. The originals were tuned when the dark
+/// pair itself had almost no range (#2B303F highlight, #12151B shadow on a
+/// #1D212A canvas) and the user's verdict on the result was "too flat
+/// compared to its light counterpart" - which it measurably was: the cast
+/// landed 8 sRGB levels below the canvas where the light theme's lands 40+
+/// below its own. The pair is deeper now and the alphas carry more of it.
+const double _raisedHiADark = 0.60, _raisedShADark = 0.90;
 const double _sunkenShA = 0.70, _sunkenHiA = 0.85; // light
-const double _sunkenShADark = 0.65, _sunkenHiADark = 0.35;
+const double _sunkenShADark = 0.85, _sunkenHiADark = 0.45;
 
 final MaterialSpec softSpec = MaterialSpec(
   id: AppMaterial.soft,
@@ -200,8 +207,8 @@ MaterialPalette _soft(bool isDark) {
       (at: 0.0, dh: 0.0, ds: 0.0, dl: 0.0),
       (at: 1.0, dh: 0.0, ds: 0.0, dl: -NeuTheme.fillSpread),
     ],
-    bevelLight: hi.withValues(alpha: isDark ? 0.06 : 0.60),
-    bevelShade: const Color(0xFF000000).withValues(alpha: isDark ? 0.35 : 0.045),
+    bevelLight: hi.withValues(alpha: isDark ? 0.12 : 0.60),
+    bevelShade: const Color(0xFF000000).withValues(alpha: isDark ? 0.45 : 0.045),
     bevelUniform: true,
     bevelAmbientFloor: 1.0, // uniform: no sweep at all
     contact: [
@@ -236,7 +243,15 @@ MaterialPalette _soft(bool isDark) {
     recessStyle: RecessStyle.outerFake,
     // No gloss, no texture. The two facts that make Soft soft.
     gloss: 0,
-    darkDepth: DarkDepth.lightSideCast,
+    // Dark carries its depth on BOTH channels now: the light-side cast (the
+    // classic neumorphic cue) plus an elevation overlay, because a dark cast
+    // on a dark canvas has almost no contrast headroom and the cast alone
+    // left every raised face at the panel's own value. Light keeps the pure
+    // v1.6.0 recipe - its dark casts have all the headroom they need.
+    darkDepth: isDark ? DarkDepth.elevationOverlay : DarkDepth.lightSideCast,
+    elevationOverlay: isDark
+        ? const {2: 0.045, 3: 0.06, 5: 0.085, 8: 0.11, 12: 0.13}
+        : const {},
     boundaryStrategy: BoundaryStrategy.focusRingOnly,
   );
 }
