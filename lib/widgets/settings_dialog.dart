@@ -216,12 +216,15 @@ class SettingsDialog {
                     children: [
                       // PANEL 1: Playback - streamlink flags and the player itself
                       SingleChildScrollView(
-                        // s4 lateral gave a raised control 4px before the
-                        // pane's clip - its shadow ended in a hard line at
-                        // the pane edge, worst on the material-picker tiles
-                        // whose whole job is to demo the lit surface.
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: NeuSpace.s8, vertical: NeuSpace.s12),
+                        // The shared clearance: the first hand-tuned fix
+                        // (s8/s12) covered Rack and cut Soft's diagonal
+                        // glow, worst on the material-picker tiles whose
+                        // whole job is to demo the surface.
+                        padding: const EdgeInsets.fromLTRB(
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.above,
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.below),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -526,12 +529,15 @@ class SettingsDialog {
                       ),
                       // PANEL 2: Downloads
                       SingleChildScrollView(
-                        // s4 lateral gave a raised control 4px before the
-                        // pane's clip - its shadow ended in a hard line at
-                        // the pane edge, worst on the material-picker tiles
-                        // whose whole job is to demo the lit surface.
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: NeuSpace.s8, vertical: NeuSpace.s12),
+                        // The shared clearance: the first hand-tuned fix
+                        // (s8/s12) covered Rack and cut Soft's diagonal
+                        // glow, worst on the material-picker tiles whose
+                        // whole job is to demo the surface.
+                        padding: const EdgeInsets.fromLTRB(
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.above,
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.below),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -632,12 +638,15 @@ class SettingsDialog {
                       ),
                       // PANEL 3: Appearance - theme, accent, styling
                       SingleChildScrollView(
-                        // s4 lateral gave a raised control 4px before the
-                        // pane's clip - its shadow ended in a hard line at
-                        // the pane edge, worst on the material-picker tiles
-                        // whose whole job is to demo the lit surface.
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: NeuSpace.s8, vertical: NeuSpace.s12),
+                        // The shared clearance: the first hand-tuned fix
+                        // (s8/s12) covered Rack and cut Soft's diagonal
+                        // glow, worst on the material-picker tiles whose
+                        // whole job is to demo the surface.
+                        padding: const EdgeInsets.fromLTRB(
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.above,
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.below),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -807,12 +816,15 @@ class SettingsDialog {
                       ),
                       // PANEL 4: Twitch - account and authentication
                       SingleChildScrollView(
-                        // s4 lateral gave a raised control 4px before the
-                        // pane's clip - its shadow ended in a hard line at
-                        // the pane edge, worst on the material-picker tiles
-                        // whose whole job is to demo the lit surface.
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: NeuSpace.s8, vertical: NeuSpace.s12),
+                        // The shared clearance: the first hand-tuned fix
+                        // (s8/s12) covered Rack and cut Soft's diagonal
+                        // glow, worst on the material-picker tiles whose
+                        // whole job is to demo the surface.
+                        padding: const EdgeInsets.fromLTRB(
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.above,
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.below),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1045,12 +1057,15 @@ class SettingsDialog {
 
                       // PANEL 5: System - window, tray, notifications, history, diagnostics
                       SingleChildScrollView(
-                        // s4 lateral gave a raised control 4px before the
-                        // pane's clip - its shadow ended in a hard line at
-                        // the pane edge, worst on the material-picker tiles
-                        // whose whole job is to demo the lit surface.
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: NeuSpace.s8, vertical: NeuSpace.s12),
+                        // The shared clearance: the first hand-tuned fix
+                        // (s8/s12) covered Rack and cut Soft's diagonal
+                        // glow, worst on the material-picker tiles whose
+                        // whole job is to demo the surface.
+                        padding: const EdgeInsets.fromLTRB(
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.above,
+                            NeuShadowRoom.side,
+                            NeuShadowRoom.below),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [

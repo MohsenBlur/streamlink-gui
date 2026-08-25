@@ -369,11 +369,10 @@ class _LibraryViewState extends State<LibraryView> {
                       ),
                     ))
               : ListView.builder(
-                  // Top 0 sliced the first row's ambient halo at the list's
-                  // resting scroll position; s16 under-served a hovered last
-                  // row.
-                  padding: const EdgeInsets.fromLTRB(
-                      NeuSpace.s24, NeuSpace.s8, NeuSpace.s24, NeuSpace.s24),
+                  // Shadow room from the shared definition; the hand-tuned
+                  // s8 top covered Rack's halo and cut Soft's diagonal glow.
+                  padding: const EdgeInsets.fromLTRB(NeuSpace.s24,
+                      NeuShadowRoom.above, NeuSpace.s24, NeuShadowRoom.below),
                   itemCount: visible.length,
                   itemBuilder: (context, index) =>
                       _LibraryRow(

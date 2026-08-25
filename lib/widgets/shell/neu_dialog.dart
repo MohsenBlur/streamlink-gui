@@ -249,9 +249,7 @@ class NeuDialog extends StatelessWidget {
                       // Padding: the viewport clips at its edge, and raised
                       // content flush against it loses its shadow there.
                       ? SingleChildScrollView(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: NeuSpace.s4),
-                          child: content)
+                          padding: NeuShadowRoom.list, child: content)
                       : content,
                 ),
               ),

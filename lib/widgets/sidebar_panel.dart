@@ -425,12 +425,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                       final itemCount = listToDisplay.length + (showAddPrompt ? 1 : 0);
 
                       return ListView.builder(
-                        // Shadow room at the scroll extremes: a selected or
-                        // hovered row raises, and selection is sticky - a
-                        // selected first row showed a permanently truncated
-                        // halo against the list's clip.
-                        padding: const EdgeInsets.symmetric(
-                            vertical: NeuSpace.s8),
+                        // Shadow room at the scroll extremes, from the one
+                        // shared definition - the hand-tuned s8 covered
+                        // Rack's halo and cut Soft's diagonal glow.
+                        padding: NeuShadowRoom.list,
                         itemCount: itemCount,
                         itemBuilder: (context, index) {
                           if (showAddPrompt && index == 0) {

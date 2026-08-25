@@ -174,15 +174,27 @@ abstract final class NeuElevation {
 /// the top right while cutting the bottom - which is exactly how the filter
 /// chips lost the halo above them while gaining room below.
 abstract final class NeuShadowRoom {
-  /// The ambient-occlusion halo above a raised surface.
-  static const double above = 6;
+  /// Sized for the WORST material, which is the second lesson this class
+  /// carries. The first values were derived from Rack - vertical light,
+  /// small ambient halo, so `above: 6` - and Soft promptly proved them
+  /// wrong: its light-side cast travels UP-LEFT at Offset(-d, -d) with a
+  /// blur of 2d, reaching offset + blur = 3d = 15px above and beside a
+  /// surface at the default raised depth. The user saw the chips' top glow
+  /// sliced flat within the hour. Clearance that only fits the material it
+  /// was measured on is the same per-site hand-tuning this class exists to
+  /// end, one level up.
+  static const double above = 16;
 
-  /// The downward cast at depths 2..4, offset plus blur plus occlusion tail.
-  static const double below = 16;
+  /// The downward/down-right cast: offset plus blur plus occlusion tail.
+  static const double below = 20;
 
-  /// Lateral occlusion beside the first and last element.
-  static const double side = 6;
+  static const double side = 16;
 
   /// The full clearance, for a horizontal strip's interior padding.
   static const EdgeInsets strip = EdgeInsets.fromLTRB(side, above, side, below);
+
+  /// For a VERTICAL list's interior padding: glow room at the top extreme,
+  /// cast room at the bottom one. Lateral room in a list comes from the
+  /// rows' own margins.
+  static const EdgeInsets list = EdgeInsets.only(top: above, bottom: below);
 }

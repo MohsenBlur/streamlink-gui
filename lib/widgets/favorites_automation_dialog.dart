@@ -233,8 +233,7 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                       ),
                     )
                   : ListView(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: NeuSpace.s6),
+                      padding: NeuShadowRoom.list,
                       children: [
                         if (priorityChannels.isNotEmpty) ...[
                           Padding(
