@@ -194,7 +194,8 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                       SizedBox(
                         width: 210,
                         child: ListView.builder(
-                          padding: EdgeInsets.zero,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: NeuSpace.s4),
                           itemCount: sessions.length,
                           itemBuilder: (context, i) =>
                               _sessionTile(sessions[i], isDark, theme),

@@ -416,6 +416,12 @@ class SidebarPanelState extends State<SidebarPanel> {
                       final itemCount = listToDisplay.length + (showAddPrompt ? 1 : 0);
 
                       return ListView.builder(
+                        // Shadow room at the scroll extremes: a selected or
+                        // hovered row raises, and selection is sticky - a
+                        // selected first row showed a permanently truncated
+                        // halo against the list's clip.
+                        padding: const EdgeInsets.symmetric(
+                            vertical: NeuSpace.s8),
                         itemCount: itemCount,
                         itemBuilder: (context, index) {
                           if (showAddPrompt && index == 0) {

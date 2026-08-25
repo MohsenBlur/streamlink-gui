@@ -275,6 +275,12 @@ class _LibraryViewState extends State<LibraryView> {
                 const SizedBox(height: NeuSpace.s8),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
+                  // The scroller sizes itself to the buttons exactly, so its
+                  // clip ran flush along their edges and deleted their
+                  // shadows whole. The padding is shadow room inside the
+                  // clip.
+                  padding: const EdgeInsets.fromLTRB(
+                      NeuSpace.s2, NeuSpace.s2, NeuSpace.s2, NeuSpace.s16),
                   child: trailing,
                 ),
               ],
@@ -304,9 +310,14 @@ class _LibraryViewState extends State<LibraryView> {
               const SizedBox(width: NeuSpace.s12),
               Expanded(
                 child: SizedBox(
-                  height: 34,
+                  // 34 held the chips exactly, so the horizontal viewport's
+                  // clip cut their cast shadows 2px under the chip. The extra
+                  // 16 is shadow room inside the clip; the chips stay where
+                  // they were.
+                  height: 50,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s2),
                     children: [
                       _channelChip(null, 'All'),
                       for (final ch in channels) _channelChip(ch, ch),
@@ -368,7 +379,11 @@ class _LibraryViewState extends State<LibraryView> {
                       ),
                     ))
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(NeuSpace.s24, 0, NeuSpace.s24, NeuSpace.s16),
+                  // Top 0 sliced the first row's ambient halo at the list's
+                  // resting scroll position; s16 under-served a hovered last
+                  // row.
+                  padding: const EdgeInsets.fromLTRB(
+                      NeuSpace.s24, NeuSpace.s8, NeuSpace.s24, NeuSpace.s24),
                   itemCount: visible.length,
                   itemBuilder: (context, index) =>
                       _LibraryRow(
@@ -598,8 +613,13 @@ class _LibraryRowState extends State<_LibraryRow> {
                   children: [
                     if (showThumb) ...[
                       ClipRRect(
+                        // Concentric with the row: inner = outer - inset, and
+                        // the governing inset is the row's s8 vertical
+                        // padding. At inner(r12, s4) = 8 the thumbnail's arc
+                        // was not parallel with the row's - corners read
+                        // subtly wrong on every downloaded row.
                         borderRadius: BorderRadius.circular(
-                            NeuRadius.inner(NeuRadius.r12, NeuSpace.s4)),
+                            NeuRadius.inner(NeuRadius.r12, NeuSpace.s8)),
                         // 16:9. The old 72x40 was 1.8:1, so every real
                         // thumbnail was cropped top and bottom.
                         child: SizedBox(

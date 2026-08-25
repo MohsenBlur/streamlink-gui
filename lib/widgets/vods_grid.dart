@@ -183,8 +183,13 @@ class _VodsGridState extends State<VodsGrid> {
       if (sortedGames.isEmpty) return const SizedBox.shrink();
       
       return Container(
-        height: 38,
-        margin: const EdgeInsets.only(bottom: NeuSpace.s16),
+        // 38 held the chips exactly and cut their cast shadows off at the
+        // scroller's clip 2px under the chip - every filter chip read as
+        // pasted on. The extra height is shadow room, not layout: the chips
+        // stay top-aligned where they were, and the strip's bottom margin
+        // shrinks by the same amount so the grid below does not move.
+        height: 54,
+        margin: const EdgeInsets.only(bottom: 0),
         child: NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             _updateScrollIndicators();
@@ -198,7 +203,10 @@ class _VodsGridState extends State<VodsGrid> {
             right: _showRightIndicator,
             child: HorizontalMouseScrollable(
                   controller: _gameScrollController,
+                  padding: const EdgeInsets.fromLTRB(
+                      NeuSpace.s4, 0, NeuSpace.s4, 0),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: List.generate(sortedGames.length + 1, (index) {
                       final isAll = index == 0;
                       final game = isAll ? 'All Games' : sortedGames[index - 1];

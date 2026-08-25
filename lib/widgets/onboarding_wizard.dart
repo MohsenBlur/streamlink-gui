@@ -161,10 +161,11 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
 
   Widget _stepScaffold({required String title, required List<Widget> children}) {
     return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(
+          horizontal: NeuSpace.s4, vertical: NeuSpace.s8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: NeuSpace.s4),
           Text(title, style: NeuType.headingMd(_isDark)),
           const SizedBox(height: NeuSpace.s12),
           ...children,

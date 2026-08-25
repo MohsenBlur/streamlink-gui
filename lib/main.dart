@@ -2561,6 +2561,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
+              // A shrink-wrapped, never-scrolling grid's clip does no work -
+              // except amputating the boundary tiles' cast shadows exactly at
+              // the grid's edge. Clip.none lets them land in the page's own
+              // scroll padding, which is sitting right there.
+              clipBehavior: Clip.none,
               gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                 maxCrossAxisExtent: 220,
                 crossAxisSpacing: 16,
@@ -2686,7 +2691,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                   right: _recentFadeRight,
                   child: HorizontalMouseScrollable(
                 controller: _recentScroll,
+                // Room for the shadow INSIDE the viewport's clip. The strip
+                // is 155 for a 135 card; centring split the slack 10/10 and
+                // cut the cast shadow at the viewport's bottom edge - and a
+                // shadow that hits a hard line stops being a shadow and
+                // becomes a rendering fault. 6 up for the ambient halo, the
+                // remaining 14 below for the cast, 4 sideways for the
+                // occlusion of the first and last card.
+                padding: const EdgeInsets.fromLTRB(
+                    NeuSpace.s4, NeuSpace.s6, NeuSpace.s4, 0),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: List.generate(_recentWatchedVods.length, (index) {
                     final video = _recentWatchedVods[index];
                     final w = 240;
@@ -2953,6 +2968,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           GridView(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
+            // Same reasoning as the Live-now grid: the clip only ever cuts
+            // the bottom row's shadow - the last thing on the Home page.
+            clipBehavior: Clip.none,
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 220,
               crossAxisSpacing: 16,
@@ -3321,7 +3339,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     return CustomScrollView(
             slivers: [
               SliverPadding(
-                padding: EdgeInsets.all(isCompact ? NeuSpace.s12 : NeuSpace.s24),
+                // s16 minimum: the viewport clips at its bounds, and a d3
+                // card's cast shadow reaches ~15px - s12 cut its tail on
+                // every bottom-row card in compact windows.
+                padding: EdgeInsets.all(isCompact ? NeuSpace.s16 : NeuSpace.s24),
                 sliver: SliverMainAxisGroup(slivers: [
                 // Real-time Stats Card Widget
                 SliverToBoxAdapter(child: DashboardHeader(
