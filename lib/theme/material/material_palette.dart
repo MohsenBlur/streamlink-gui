@@ -2,6 +2,8 @@ library;
 
 import 'package:flutter/widgets.dart';
 
+import 'lit_surface.dart';
+
 /// What a surface is made of, and how light falls on it.
 ///
 /// This is the data half of the material engine. `SkeuoDecoration` is the paint
@@ -502,6 +504,7 @@ class MaterialPalette {
     this.glossHardTerminator = false,
     this.glossColour = const Color(0xFFFFFFFF),
     this.texture,
+    this.lit,
     this.darkDepth = DarkDepth.lightSideCast,
     this.recessStyle = RecessStyle.trueInset,
     this.elevationOverlay = const <int, double>{},
@@ -608,6 +611,16 @@ class MaterialPalette {
 
   // --- texture -------------------------------------------------------------
   final TextureSpec? texture;
+
+  /// The material's physical description for the lit-surface shader, or null
+  /// for a material that paints through the Canvas engine.
+  ///
+  /// Null is a contract, not a fallback: `Soft` must never declare one,
+  /// because its whole job is to reproduce the v1.6.0 recipe pixel for pixel
+  /// and a lit Soft would be a different material wearing its name. The
+  /// fidelity gate holds that door shut from the test side; this doc comment
+  /// holds it from the authoring side.
+  final LitSpec? lit;
 
   // --- depth ---------------------------------------------------------------
   /// The outer stack, depth-relative like [inset].
@@ -870,6 +883,7 @@ class MaterialPalette {
       other.glossHardTerminator == glossHardTerminator &&
       other.glossColour == glossColour &&
       other.texture == texture &&
+      other.lit == lit &&
       other.darkDepth == darkDepth &&
       other.recessStyle == recessStyle &&
       _sameOverlay(other.elevationOverlay, elevationOverlay) &&
@@ -888,7 +902,7 @@ class MaterialPalette {
         bevelLight, bevelShade, bevelWidth,
         bevelSweepExponent, bevelAmbientFloor, bevelUniform,
         gloss, glossBreak, glossHardTerminator, glossColour,
-        texture, darkDepth, recessStyle, adaptiveAlphaMultiplier,
+        texture, lit, darkDepth, recessStyle, adaptiveAlphaMultiplier,
         boundaryStrategy,
         Object.hashAll(contact), Object.hashAll(inset),
       ]);

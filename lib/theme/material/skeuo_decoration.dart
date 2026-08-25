@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
+import 'lit_surface.dart';
 import 'material_palette.dart';
 import 'texture_cache.dart';
 
@@ -101,6 +102,25 @@ class SkeuoDecoration extends Decoration {
         textureAmplitude: palette.texture?.amplitudeFor(role) ?? 0,
         gradientOverride: gradient,
         blurOverride: blur,
+        // The role half of the lit model, resolved to flat scalars for the
+        // same reason contactScale is: two call sites tween across roles.
+        //
+        // litShadow IS contactScale - the cast policy is the same one the
+        // Canvas path already encodes: panels at half, raised at full,
+        // recesses not at all. Grain is broader than the Canvas tile's
+        // panel-only rule because the shader grain fades itself out below
+        // its Nyquist limit, so chips opt out by geometry rather than by
+        // role.
+        lit: role == SurfaceRole.flat ? null : palette.lit,
+        litRecess: m.insetScale > 0 ? 1.0 : 0.0,
+        litShadow: m.contactScale,
+        litGrain: switch (role) {
+          SurfaceRole.panel => 1.0,
+          SurfaceRole.raised => 0.7,
+          SurfaceRole.sunken => 0.5,
+          SurfaceRole.well => 0.35,
+          SurfaceRole.screen || SurfaceRole.flat => 0.0,
+        },
       ),
       border: border,
     );
@@ -206,9 +226,29 @@ class SkeuoDecoration extends Decoration {
     return null;
   }
 
+  /// Whether this decoration paints through the fragment shader.
+  ///
+  /// Public because tests assert the routing directly - a wrong branch here
+  /// still paints *something* plausible through the other engine, which no
+  /// screenshot notices until a material looks subtly dead.
+  ///
+  /// The Canvas path keeps three jobs the shader cannot or must not take:
+  /// a caller-supplied [SurfaceParams.gradientOverride] (the rainbow live
+  /// border), a translucent fill ([SurfaceParams.fillOpacity] below 1 - the
+  /// screen bezel over a video thumbnail, where an opaque shader face would
+  /// obliterate the picture), and every paint before the program loads or
+  /// after it fails, which is the same surface the app shipped through
+  /// v1.6.0.
+  bool get rendersLit =>
+      params.lit != null &&
+      params.gradientOverride == null &&
+      params.fillOpacity >= 1 &&
+      LitSurfaceProgram.ready;
+
   @override
-  BoxPainter createBoxPainter([VoidCallback? onChanged]) =>
-      _SkeuoPainter(this, onChanged);
+  BoxPainter createBoxPainter([VoidCallback? onChanged]) => rendersLit
+      ? _LitPainter(this, onChanged)
+      : _SkeuoPainter(this, onChanged);
 }
 
 /// A surface's paint recipe with the role already resolved away.
@@ -245,6 +285,11 @@ class SurfaceParams {
     this.circle = false,
     this.gradientOverride,
     this.blurOverride,
+    this.lit,
+    this.litRecess = 0,
+    this.litShadow = 0,
+    this.litGrain = 0,
+    this.litOpacity = 1,
   });
 
   final Color base;
@@ -309,6 +354,34 @@ class SurfaceParams {
   /// no-op rather than a coincidence.
   final double? blurOverride;
 
+  /// The material's lit model, or null for a Canvas-painted surface.
+  ///
+  /// When non-null (and the program loaded, and nothing forces the Canvas
+  /// path) the painter is `_LitPainter`: one fragment-shader draw that covers
+  /// every layer below. The four scalars are the ROLE half of the lit model,
+  /// resolved by the factory the same way `contactScale` and friends are -
+  /// flat doubles, so a cross-role checkbox tween interpolates them instead
+  /// of switching on an enum.
+  final LitSpec? lit;
+
+  /// 0 proud .. 1 recessed. Continuous for the raised<->sunken tween.
+  final double litRecess;
+
+  /// Cast-shadow strength for this role: panels cast at half, recesses not
+  /// at all - the same policy `RoleModifier.contactScale` encodes for the
+  /// Canvas path.
+  final double litShadow;
+
+  /// Grain strength for this role. Unlike the Canvas tile - which only panels
+  /// carry, because a tiled image aliases at chip sizes - the shader grain
+  /// has an analytic Nyquist fade, so smaller roles can carry it too and it
+  /// removes itself where it cannot resolve.
+  final double litGrain;
+
+  /// Whole-surface opacity, for fading in from nothing (`scaled`). Maps to
+  /// the shader's tone-map alpha rather than a saveLayer.
+  final double litOpacity;
+
   /// Unit vector pointing at the light source.
   Offset get toLight {
     final r = lightAzimuthDeg * math.pi / 180.0;
@@ -366,6 +439,11 @@ class SurfaceParams {
         textureAmplitude: textureAmplitude,
         gradientOverride: gradientOverride,
         blurOverride: blurOverride,
+        lit: lit,
+        litRecess: litRecess,
+        litShadow: litShadow * t,
+        litGrain: litGrain * t,
+        litOpacity: litOpacity * t,
       );
 
   static SurfaceParams lerp(SurfaceParams a, SurfaceParams b, double t) {
@@ -408,6 +486,11 @@ class SurfaceParams {
       blurOverride: (a.blurOverride == null && b.blurOverride == null)
           ? null
           : d(a.blurOverride ?? 0, b.blurOverride ?? 0),
+      lit: LitSpec.lerp(a.lit, b.lit, t),
+      litRecess: d(a.litRecess, b.litRecess),
+      litShadow: d(a.litShadow, b.litShadow),
+      litGrain: d(a.litGrain, b.litGrain),
+      litOpacity: d(a.litOpacity, b.litOpacity),
     );
   }
 
@@ -438,6 +521,11 @@ class SurfaceParams {
       other.textureAmplitude == textureAmplitude &&
       other.gradientOverride == gradientOverride &&
       other.blurOverride == blurOverride &&
+      other.lit == lit &&
+      other.litRecess == litRecess &&
+      other.litShadow == litShadow &&
+      other.litGrain == litGrain &&
+      other.litOpacity == litOpacity &&
       _same(other.contact, contact) &&
       _same(other.inset, inset);
 
@@ -450,6 +538,7 @@ class SurfaceParams {
         glossHardTerminator, glossColour, texture, textureScale,
         textureAmplitude,
         gradientOverride, blurOverride,
+        lit, litRecess, litShadow, litGrain, litOpacity,
         Object.hashAll(fill.map((s) => Object.hash(s.at, s.dh, s.ds, s.dl))),
         Object.hashAll(contact), Object.hashAll(inset),
       ]);
@@ -810,4 +899,147 @@ class _SkeuoPainter extends BoxPainter {
   /// Pasting a CSS blur straight in over-blurs by about a fifth.
   static double _sigma(double blurRadius) =>
       blurRadius <= 0 ? 0 : blurRadius * 0.57735 + 0.5;
+}
+
+/// The shader path: one lit surface, shadow and all, in a single draw.
+///
+/// Everything `_SkeuoPainter` builds out of seven Canvas layers - cast
+/// shadow, contact occlusion, fill, grain, gloss, bevel, recess - is one
+/// `drawRect` here, evaluated per pixel as a function of a surface NORMAL
+/// rather than of position. That is the entire difference between a lit
+/// object and a picture of one, and it is why no amount of gradient tuning
+/// ever made the Canvas engine stop reading as flat.
+///
+/// The painter's own responsibilities are exactly three:
+///
+///  * geometry - the draw rect is the surface inflated by the shadow's
+///    reach, because the shadow lives INSIDE the shader's output and needs
+///    somewhere to land;
+///  * the translate - `FlutterFragCoord()` is canvas-local, not shape-local
+///    (measured), so the shader assumes its origin is the draw rect's corner
+///    and the painter must make that true;
+///  * the uniform write, in declaration order, through one shared shader
+///    instance. Uniforms are snapshotted per draw (verified), so mutating
+///    the shared instance between draws is correct - and 5x cheaper than
+///    allocating per surface.
+class _LitPainter extends BoxPainter {
+  _LitPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
+
+  final SkeuoDecoration decoration;
+
+  @override
+  void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
+    final size = configuration.size;
+    if (size == null || size.isEmpty) return;
+    final p = decoration.params;
+    final spec = p.lit!;
+
+    // Cast-shadow geometry, in the palette's own light convention: the
+    // shadow falls directly away from `lightAzimuthDeg`, at a distance and
+    // blur that scale with elevation depth exactly as `ShadowLayer` does.
+    // `travelScale` keeps the sqrt(2) diagonal compensation the Canvas path
+    // applies, so a material switch does not re-rank every elevation.
+    final az = p.lightAzimuthDeg * math.pi / 180.0;
+    final mag = spec.shadowDyPerDepth * p.depth * p.litShadow * p.travelScale;
+    final blur = (p.blurOverride ?? spec.shadowBlurPerDepth * p.depth);
+    final shOp = spec.shadowOpacity * p.litShadow;
+    final aoOp = spec.aoOpacity * (p.litShadow * 2).clamp(0.0, 1.0);
+    final aoReach = spec.aoReachPerDepth * p.depth + 1.5;
+
+    // Everything the shader paints outside the silhouette must fit in the
+    // pad. Too small clips the shadow with a hard line; too large is only
+    // fill rate.
+    final pad = shOp > 0
+        ? (mag + blur + aoReach + 2).ceilToDouble()
+        : (aoOp > 0 ? (aoReach + 2).ceilToDouble() : 2.0);
+
+    final rect = offset & size;
+    final draw = rect.inflate(pad);
+    final dpr = configuration.devicePixelRatio ?? 1.0;
+    final radius =
+        p.circle ? size.shortestSide / 2 : p.radius.clamp(0.0, size.shortestSide / 2);
+
+    // Light TO-vector in the shader's y-UP frame. The palette convention is
+    // degrees counter-clockwise from +x with y DOWN naming the source, so 90
+    // is above in both frames and the x component carries over unchanged.
+    final el = spec.lightElevationDeg * math.pi / 180.0;
+    final lx = math.cos(az) * math.cos(el);
+    final ly = math.sin(az) * math.cos(el);
+    final lz = math.sin(el);
+
+    final s = LitSurfaceProgram.shared;
+    var i = 0;
+    void f(double v) => s.setFloat(i++, v);
+    void c3(Color c) {
+      f(c.r);
+      f(c.g);
+      f(c.b);
+    }
+
+    f(draw.width);
+    f(draw.height); // uDraw
+    f(size.width);
+    f(size.height); // uShape
+    f(pad);
+    f(radius); // uPadRad
+    f(spec.chamferWidth);
+    f(1.0 / dpr);
+    f(spec.chamferProfile);
+    f(spec.landAngle); // uBevel
+    c3(p.base); // uAlbedo
+    c3(spec.f0); // uF0
+    f(spec.roughness);
+    f(spec.metalness);
+    f(spec.anisotropy);
+    f(spec.bow); // uMat
+    f(lx);
+    f(ly);
+    f(lz); // uL
+    f(spec.key);
+    f(spec.ambient);
+    f(spec.sheen);
+    f(p.litRecess); // uKey
+    c3(spec.sky); // uSky
+    c3(spec.ground); // uGnd
+    f(spec.envAmount);
+    f(spec.horizon);
+    f(spec.softbox);
+    f(spec.rim); // uEnv
+    f(spec.grainAmp * p.litGrain);
+    f(spec.grainAcross);
+    f(spec.grainAngleDeg * math.pi / 180.0);
+    f(3.0); // uGrain (seed)
+    f(-math.cos(az) * mag);
+    f(-math.sin(az) * mag); // shadow falls away from the light, y-UP
+    f(blur);
+    f(shOp); // uShadow
+    f(aoOp);
+    f(aoReach);
+    f(spec.innerBlurPerDepth * p.depth);
+    f(spec.innerOpacity); // uOcc
+    f(spec.exposure);
+    f(spec.white);
+    f(spec.dither);
+    f(p.litOpacity); // uTone
+    assert(i == 53,
+        'uniform count drifted: wrote $i, the shader declares 53 floats');
+
+    canvas.save();
+    canvas.translate(draw.left, draw.top);
+    canvas.drawRect(Offset.zero & draw.size, Paint()..shader = s);
+    canvas.restore();
+
+    // Layer 7 stays on the Canvas: a caller-supplied ring is a decoration a
+    // call site asked for, not part of the material.
+    final b = decoration.border;
+    if (b != null) {
+      b.paint(
+        canvas,
+        rect,
+        shape: p.circle ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: p.circle ? null : BorderRadius.circular(p.radius),
+        textDirection: configuration.textDirection,
+      );
+    }
+  }
 }

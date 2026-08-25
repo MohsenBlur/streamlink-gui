@@ -54,6 +54,7 @@ import 'widgets/neumorphic/neu_switch.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
 import 'state/automation_decisions.dart';
 import 'theme/neu_material_themes.dart';
+import 'theme/material/lit_surface.dart';
 import 'theme/neu_theme.dart';
 import 'widgets/neumorphic/neu_avatar.dart';
 import 'theme/theme_notifier.dart';
@@ -62,6 +63,10 @@ import 'utils/color_utils.dart';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The material engine's fragment program, before the first frame so the
+  // first paint is already lit. Milliseconds; degrades to the Canvas engine
+  // on failure rather than to a blank window.
+  await LitSurfaceProgram.load();
   // The typography gate. Off unless asked for, and it cannot be a unit test:
   // `flutter test` has no system fonts and CI is ubuntu, so an assertion about
   // Bahnschrift there would measure the fallback against itself and pass.
