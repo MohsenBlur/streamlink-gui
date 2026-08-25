@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'neumorphic/neu_focusable.dart';
+
 class InteractivePopover extends StatefulWidget {
   final Widget child;
   final Widget? popover;
@@ -109,12 +111,27 @@ class _InteractivePopoverState extends State<InteractivePopover> {
 
   @override
   Widget build(BuildContext context) {
+    // The trigger contract lives HERE, once: a click cursor (two of the four
+    // trigger chips in the app showed no pointer feedback at all), keyboard
+    // activation and button semantics via NeuFocusable (a popover no
+    // Tab-user could ever open is a menu that does not exist for them), and
+    // the tap handler. The child must NOT be a button of its own - an inner
+    // recognizer wins the gesture arena and the popover goes dead, which is
+    // exactly how the selection bar's Actions button shipped broken.
     return CompositedTransformTarget(
       link: _layerLink,
-      child: GestureDetector(
-        onTap: _togglePopover,
-        behavior: HitTestBehavior.opaque,
-        child: widget.child,
+      child: NeuFocusable(
+        onActivate: _togglePopover,
+        semanticLabel: 'Open menu',
+        focusRadius: 10,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: _togglePopover,
+            behavior: HitTestBehavior.opaque,
+            child: widget.child,
+          ),
+        ),
       ),
     );
   }

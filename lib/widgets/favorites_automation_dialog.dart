@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../theme/neu_theme.dart';
+import 'shell/engraved_rule.dart';
 import '../theme/neu_material_themes.dart';
 import 'neumorphic/neu_avatar.dart';
 import 'neumorphic/neu_checkbox.dart';
@@ -291,10 +292,10 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                 return Container(
                                   key: ValueKey('priority_${ch.originalChannel.username}'),
                                   padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
-                                  decoration: BoxDecoration(
-                                    border: Border(bottom: BorderSide(color: NeuTheme.border(themeNotifier.isDarkTheme), width: 0.5)),
-                                  ),
-                                  child: Row(
+                                  // The last web-style hairline in the
+                                  // app; every other separator engraves.
+                                  child: Column(children: [
+                                  Row(
                                     children: [
                                       ReorderableDragStartListener(
                                         index: index,
@@ -333,6 +334,8 @@ class _FavoritesAutomationDialogState extends State<FavoritesAutomationDialog> {
                                       ),
                                     ],
                                   ),
+                                  EngravedRule(),
+                                  ]),
                                 );
                               }).toList(),
                             ),

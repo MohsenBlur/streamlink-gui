@@ -414,7 +414,9 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                               children: [
                                 Icon(
                                   Icons.analytics_outlined,
-                                  size: 12,
+                                  // 15, like every popover-trigger chip; the
+                                  // four triggers ranged 12..16 for one job.
+                                  size: 15,
                                   color: themeNotifier.accentInk,
                                 ),
                                 if (!tight) ...[
@@ -615,7 +617,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                           Icon(
                             Icons.more_vert,
                             color: NeuTheme.text(themeNotifier.isDarkTheme),
-                            size: 16,
+                            size: 15,
                           ),
                           const SizedBox(width: NeuSpace.s4),
                           Text(

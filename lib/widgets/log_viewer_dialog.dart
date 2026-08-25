@@ -254,8 +254,11 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                       style: NeuType.caption(isDark).copyWith(
                         fontWeight:
                             selected ? FontWeight.w700 : FontWeight.w400,
+                        // Derived accent ink, never the raw accent as a
+                        // foreground - raw Cyan on the light well is the
+                        // 1.015:1 failure this repo has fixed three times.
                         color: selected
-                            ? theme.primaryColor
+                            ? themeNotifier.accentInk
                             : NeuTheme.text(isDark),
                       ),
                     ),

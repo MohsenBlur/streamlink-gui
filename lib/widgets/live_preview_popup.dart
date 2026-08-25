@@ -67,7 +67,10 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+            // Concentric with the r12 container it sits flush inside -
+            // 11 was the exact off-by-one NeuRadius.inner's doc warns about.
+            borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(NeuRadius.r12)),
             child: AspectRatio(
               aspectRatio: 16 / 9,
               child: Image.network(

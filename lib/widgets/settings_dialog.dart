@@ -9,6 +9,7 @@ import '../utils/color_utils.dart';
 import '../theme/neu_material_themes.dart';
 import '../theme/material/app_material.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_progress.dart';
 import 'shell/engraved_rule.dart';
 import 'shell/neu_dialog.dart';
 import 'neumorphic/neu_switch.dart';
@@ -455,8 +456,11 @@ class SettingsDialog {
                                         });
                                       }
                                     },
-                                    icon: Icon(Icons.file_open, color: NeuTheme.onAccent(themeNotifier.accentInk), size: 16),
-                                    label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
+                                    icon: Icon(Icons.file_open, color: NeuTheme.onAccent(themeNotifier.primaryColor), size: 16),
+                                    label: Text('Browse',
+                                        style: NeuType.labelMetrics.copyWith(
+                                            color: NeuTheme.onAccent(
+                                                themeNotifier.primaryColor))),
                                   ),
                                 ],
                               ),
@@ -558,8 +562,11 @@ class SettingsDialog {
                                       });
                                     }
                                   },
-                                  icon: Icon(Icons.folder_open, color: NeuTheme.onAccent(themeNotifier.accentInk), size: 16),
-                                  label: Text('Browse', style: TextStyle(color: NeuTheme.onAccent(themeNotifier.accentInk), fontWeight: FontWeight.bold)),
+                                  icon: Icon(Icons.folder_open, color: NeuTheme.onAccent(themeNotifier.primaryColor), size: 16),
+                                  label: Text('Browse',
+                                        style: NeuType.labelMetrics.copyWith(
+                                            color: NeuTheme.onAccent(
+                                                themeNotifier.primaryColor))),
                                 ),
                               ],
                             ),
@@ -677,9 +684,9 @@ class SettingsDialog {
                                         // OTHER theme, so their ink is fixed
                                         // while the style call is not.
                                         children: [
-                                          const Icon(Icons.light_mode, color: Color(0xFFFF6584), size: 24),
+                                          const Icon(Icons.light_mode, color: NeuTheme.defaultLightAccent, size: 24),
                                           const SizedBox(height: NeuSpace.s6),
-                                          Text('Soft Light', style: NeuType.label(themeNotifier.isDarkTheme, color: Color(0xFF2D3748))),
+                                          Text('Soft Light', style: NeuType.label(themeNotifier.isDarkTheme, color: NeuTheme.lightText)),
                                         ],
                                       ),
                                     ),
@@ -709,9 +716,9 @@ class SettingsDialog {
                                         // OTHER theme, so their ink is fixed
                                         // while the style call is not.
                                         children: [
-                                          const Icon(Icons.dark_mode, color: Color(0xFFFF3B30), size: 24),
+                                          const Icon(Icons.dark_mode, color: NeuTheme.defaultDarkAccent, size: 24),
                                           const SizedBox(height: NeuSpace.s6),
-                                          Text('Deep Dark', style: NeuType.label(themeNotifier.isDarkTheme, color: Color(0xFFE2E8F0))),
+                                          Text('Deep Dark', style: NeuType.label(themeNotifier.isDarkTheme, color: NeuTheme.darkText)),
                                         ],
                                       ),
                                     ),
@@ -729,7 +736,7 @@ class SettingsDialog {
                               runSpacing: 8,
                               // Intentional: these hexes ARE the selectable accent swatches.
                               children: [
-                                const Color(0xFFFF6584), // Soft Pink
+                                NeuTheme.defaultLightAccent, // Soft Pink
                                 const Color(0xFF7C3AED), // Twitch Purple
                                 const Color(0xFF00F2FE), // Cyan
                                 const Color(0xFF10B981), // Emerald
@@ -767,7 +774,7 @@ class SettingsDialog {
                               runSpacing: 8,
                               // Intentional: these hexes ARE the selectable accent swatches.
                               children: [
-                                const Color(0xFFFF3B30), // Vibrant Red
+                                NeuTheme.defaultDarkAccent, // Vibrant Red
                                 const Color(0xFF8B5CF6), // Electric Purple
                                 const Color(0xFF38BDF8), // Sky Blue
                                 const Color(0xFFFF2A85), // Magenta
@@ -861,8 +868,8 @@ class SettingsDialog {
                                           restoreLiveThemeEdits();
                                           Navigator.pop(context);
                                         },
-                                        icon: Icon(Icons.login, size: 12, color: NeuTheme.onAccent(themeNotifier.accentInk)),
-                                        label: Text('Connect Account', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.onAccent(themeNotifier.accentInk))),
+                                        icon: Icon(Icons.login, size: 12, color: NeuTheme.onAccent(themeNotifier.primaryColor)),
+                                        label: Text('Connect Account', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.onAccent(themeNotifier.primaryColor))),
                                       ),
                                     ],
                                   ),
@@ -943,7 +950,11 @@ class SettingsDialog {
                                   icon: const Icon(Icons.help_outline, size: 16),
                                   color: themeNotifier.accentInk,
                                   padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
+                                  // Same 32px target as the eye buttons two
+                                  // lines away; a 16px glyph-sized target
+                                  // beside 32px ones is a misclick machine.
+                                  constraints: const BoxConstraints.tightFor(
+                                      width: 32, height: 32),
                                   onPressed: () => _showBrowserTokenHelp(context, themeNotifier),
                                   tooltip: 'How to get Browser Token',
                                 ),
@@ -997,9 +1008,14 @@ class SettingsDialog {
                                         ? SizedBox(
                                             width: 14,
                                             height: 14,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: NeuTheme.onAccent(themeNotifier.primaryColor)),
+                                            child: NeuProgressRing(
+                                                size: NeuProgressRingSize.xs,
+                                                color: NeuTheme.onAccent(
+                                                    themeNotifier.primaryColor),
+                                                semanticLabel:
+                                                    'Testing token'),
                                           )
-                                        : Text('Test', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.onAccent(themeNotifier.accentInk))),
+                                        : Text('Test', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.onAccent(themeNotifier.primaryColor))),
                                   ),
                                 ),
                               ],
@@ -1324,12 +1340,10 @@ class SettingsDialog {
                             }
                           },
                     icon: isCheckingUpdates
-                        ? SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
-                                color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                        ? NeuProgressRing(
+                            size: NeuProgressRingSize.xs,
+                            color: NeuTheme.subtext(themeNotifier.isDarkTheme),
+                            semanticLabel: 'Checking for updates',
                           )
                         : Icon(Icons.refresh, size: 13, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
                     label: Text('Check for Updates', style: NeuType.caption(themeNotifier.isDarkTheme)),

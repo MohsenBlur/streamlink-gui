@@ -176,7 +176,8 @@ class _LibraryViewState extends State<LibraryView> {
                 if (widget.onBack != null) ...[
                   NeuButton(
                     padding: EdgeInsets.symmetric(
-                        horizontal: tight ? 8 : 10, vertical: 8),
+                        horizontal: tight ? NeuSpace.s8 : NeuSpace.s12,
+                        vertical: NeuSpace.s8),
                     borderRadius: BorderRadius.circular(NeuRadius.r8),
                     tooltip: 'Back to ${widget.backLabel ?? 'where you were'} (Esc)',
                     onPressed: widget.onBack,
@@ -448,19 +449,15 @@ class _LibraryViewState extends State<LibraryView> {
           ),
           if (widget.onStopActivity != null) ...[
             const SizedBox(width: NeuSpace.s8),
-            Tooltip(
-              message: 'Cancel download',
-              child: InkWell(
-                borderRadius: BorderRadius.circular(NeuRadius.r8),
-                onTap: () => widget.onStopActivity!(item),
-                child: Container(
-                  width: 30,
-                  height: 30,
-                  decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8),
-                  child: Icon(Icons.close,
-                      size: 15, color: NeuTheme.dangerText(isDark)),
-                ),
-              ),
+            // The same action the activity popover renders - and now the
+            // same control, instead of a hand-rolled 30px InkWell beside the
+            // popover's 40px NeuIconAction.
+            NeuIconAction(
+              icon: Icons.close,
+              tooltip: 'Cancel download',
+              tone: NeuActionTone.danger,
+              size: NeuActionSize.sm,
+              onPressed: () => widget.onStopActivity!(item),
             ),
           ],
         ],
@@ -548,7 +545,6 @@ class _LibraryRowState extends State<_LibraryRow> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isDark = themeNotifier.isDarkTheme;
     final entry = widget.entry;
     final progress = entry.watchProgress;
@@ -570,12 +566,13 @@ class _LibraryRowState extends State<_LibraryRow> {
         // 8px gap put it exactly as far from its own content as from the next
         // row and it read as a divider between the two.
         margin: const EdgeInsets.only(bottom: NeuSpace.s12),
-        decoration: NeuTheme.raisedDecoration(
+        // List rows raise on hover; they do not ring. The ring is the CARD
+        // grammar - two grammars in one window made near-identical surfaces
+        // light up differently.
+        decoration: NeuTheme.raised(
           isDark,
           radius: NeuRadius.r12,
-          border: _hovered
-              ? Border.all(color: theme.primaryColor.withValues(alpha: 0.5))
-              : null,
+          depth: _hovered ? NeuElevation.d3 : NeuElevation.d2,
         ),
         // clipBehavior so the watched bar can reach the row's rounded corners
         // instead of floating in a 90px column of its own mid-row.

@@ -411,7 +411,11 @@ class NeuDialog extends StatelessWidget {
                   onPressed: action.onPressed,
                   child: Text(
                     action.label,
-                    style: TextStyle(color: NeuTheme.subtext(isDark)),
+                    // The same step as the primary - three tiers of dialog
+                    // action rendered at three size/weight combinations read
+                    // as three different systems.
+                    style: NeuType.labelMetrics
+                        .copyWith(color: NeuTheme.subtext(isDark)),
                   ),
                 ),
               for (final action in actions.where((a) => a.isPrimary))
@@ -443,7 +447,7 @@ class NeuDialog extends StatelessWidget {
         onPressed: action.onPressed,
         child: Text(
           action.label,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+          style: NeuType.labelMetrics,
         ),
       );
     }
@@ -456,7 +460,7 @@ class NeuDialog extends StatelessWidget {
       borderRadius: BorderRadius.circular(NeuRadius.r8),
       child: Text(
         action.label,
-        style: NeuType.headingSm(isDark, color: themeNotifier.accentInk),
+        style: NeuType.labelMetrics.copyWith(color: themeNotifier.accentInk),
       ),
     );
   }

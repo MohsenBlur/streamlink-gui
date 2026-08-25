@@ -19,6 +19,7 @@ import 'neumorphic/neu_icon_action.dart';
 import 'shell/nav_scope.dart';
 import 'shell/context_menu.dart';
 import 'shell/engraved_rule.dart';
+import 'neumorphic/neu_badge.dart';
 import 'neumorphic/neu_led_indicator.dart';
 import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
@@ -280,12 +281,14 @@ class SidebarPanelState extends State<SidebarPanel> {
                           ),
                         ),
                       ),
-                      IconButton(
-                        icon: Icon(Icons.keyboard_double_arrow_left, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 20),
+                      // One icon-button language for the whole panel: the
+                      // sidebar mixed Material ripples, NeuIconActions and an
+                      // inert Container in a single toolbar.
+                      NeuIconAction(
+                        icon: Icons.keyboard_double_arrow_left,
                         tooltip: 'Collapse Sidebar',
+                        style: NeuActionStyle.flat,
                         onPressed: () => widget.onToggleCollapse(true),
-                        hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-                        splashRadius: 20,
                       ),
                     ],
                   ),
@@ -574,12 +577,11 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
         ),
         const SizedBox(height: NeuSpace.s8),
-        IconButton(
-          icon: Icon(Icons.keyboard_double_arrow_right, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 20),
+        NeuIconAction(
+          icon: Icons.keyboard_double_arrow_right,
           tooltip: 'Expand sidebar',
+          style: NeuActionStyle.flat,
           onPressed: () => widget.onToggleCollapse(false),
-          hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-          splashRadius: 20,
         ),
         const SizedBox(height: NeuSpace.s8),
         EngravedRule(indent: NeuSpace.s8),
@@ -617,18 +619,21 @@ class SidebarPanelState extends State<SidebarPanel> {
           message: widget.sidebarTab == 0
               ? 'Refresh Favorites'
               : (widget.sidebarTab == 1 ? 'Refresh Followed List' : 'Refresh Live'),
-          child: IconButton(
-            icon: widget.isGlobalLoading || widget.isLoadingFollowed
-                ? SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
-                  )
-                : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
-            onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
-            hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-            splashRadius: 20,
-          ),
+          child: (widget.isGlobalLoading || widget.isLoadingFollowed)
+              ? const SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: Center(
+                      child: NeuProgressRing(
+                          size: NeuProgressRingSize.sm,
+                          semanticLabel: 'Loading')),
+                )
+              : NeuIconAction(
+                  icon: Icons.refresh,
+                  tooltip: 'Refresh',
+                  style: NeuActionStyle.flat,
+                  onPressed: widget.onRefresh,
+                ),
         ),
         
         const SizedBox(height: NeuSpace.s8),
@@ -847,10 +852,6 @@ class SidebarPanelState extends State<SidebarPanel> {
       child: LayoutBuilder(builder: (context, constraints) {
         final tight = constraints.maxWidth < 480;
         final gap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s8);
-        final tightBox = tight
-            ? const BoxConstraints.tightFor(width: 32, height: 32)
-            : null;
-        final tightPad = tight ? EdgeInsets.zero : null;
         return Padding(
           padding: EdgeInsets.symmetric(
               horizontal: tight ? NeuSpace.s8 : NeuSpace.s16),
@@ -868,19 +869,21 @@ class SidebarPanelState extends State<SidebarPanel> {
             message: widget.sidebarTab == 0
                 ? 'Refresh Favorites'
                 : (widget.sidebarTab == 1 ? 'Refresh Followed List' : 'Refresh Live'),
-            child: IconButton(
-              icon: widget.isGlobalLoading || widget.isLoadingFollowed
-                  ? SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: NeuProgressRing(size: NeuProgressRingSize.sm, semanticLabel: 'Loading'),
-                    )
-                  : Icon(Icons.refresh, color: NeuTheme.text(themeNotifier.isDarkTheme), size: 18),
-              onPressed: widget.isGlobalLoading || widget.isLoadingFollowed ? null : widget.onRefresh,
-              hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-              splashRadius: 20,
-              padding: tightPad,
-              constraints: tightBox,
+            child: (widget.isGlobalLoading || widget.isLoadingFollowed)
+                ? const SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: Center(
+                        child: NeuProgressRing(
+                            size: NeuProgressRingSize.sm,
+                            semanticLabel: 'Loading')),
+                  )
+                : NeuIconAction(
+                    icon: Icons.refresh,
+                    tooltip: 'Refresh',
+                    style: NeuActionStyle.flat,
+                    size: NeuActionSize.md,
+                    onPressed: widget.onRefresh,
             ),
           ),
           if (!tight) ...[
@@ -1002,24 +1005,20 @@ class SidebarPanelState extends State<SidebarPanel> {
                 height: 24, child: EngravedRule(vertical: true)),
           ],
           gap,
-          IconButton(
-            icon: Icon(Icons.video_library_outlined, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+          NeuIconAction(
+            icon: Icons.video_library_outlined,
             tooltip: 'Library (downloads & history)',
+            style: NeuActionStyle.flat,
+            size: NeuActionSize.md,
             onPressed: widget.onShowLibrary,
-            hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-            splashRadius: 20,
-            padding: tightPad,
-            constraints: tightBox,
           ),
           const SizedBox(width: NeuSpace.s4),
-          IconButton(
-            icon: Icon(Icons.settings, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 20),
+          NeuIconAction(
+            icon: Icons.settings,
             tooltip: 'Settings',
+            style: NeuActionStyle.flat,
+            size: NeuActionSize.md,
             onPressed: widget.onShowSettings,
-            hoverColor: theme.primaryColor.withValues(alpha: 0.2),
-            splashRadius: 20,
-            padding: tightPad,
-            constraints: tightBox,
           ),
         ],
         ),
@@ -1137,12 +1136,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
       width: 32,
       height: 32,
       child: (_hovered && channel.isLive)
-          ? IconButton(
-              icon: Icon(Icons.play_arrow, size: 20, color: themeNotifier.accentInk),
+          ? NeuIconAction(
+              icon: Icons.play_arrow,
               tooltip: 'Watch now',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-              splashRadius: 16,
+              tone: NeuActionTone.accent,
+              style: NeuActionStyle.flat,
+              size: NeuActionSize.md,
               onPressed: () => widget.onPlayPressed(channel),
             )
           : null,
@@ -1150,11 +1149,13 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
 
     final Widget starSlot;
     if (widget.showFavoriteStarAlways || widget.isFavorite) {
-      starSlot = IconButton(
-        icon: Icon(Icons.star, color: NeuTheme.favoriteText(themeNotifier.isDarkTheme), size: 18),
-        onPressed: () => widget.onToggleFavorite(channel),
+      starSlot = NeuIconAction(
+        icon: Icons.star,
         tooltip: 'Remove from Favorites',
-        splashRadius: 18,
+        tone: NeuActionTone.warning,
+        style: NeuActionStyle.flat,
+        size: NeuActionSize.md,
+        onPressed: () => widget.onToggleFavorite(channel),
       );
     } else if (_hovered) {
       starSlot = HoverStarIcon(
@@ -1249,39 +1250,12 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                   ),
                 ),
                 if (channel.isLive)
-                  AnimatedBuilder(
-                    animation: widget.pulseController,
-                    builder: (context, child) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s2),
-                        decoration: BoxDecoration(
-                          color: NeuTheme.live
-                              .withValues(alpha: 0.7 + 0.3 * widget.pulseController.value),
-                          borderRadius: BorderRadius.circular(NeuRadius.r4),
-                          boxShadow: [
-                            BoxShadow(
-                              color: NeuTheme.live
-                                  .withValues(alpha: 0.4 * widget.pulseController.value),
-                              blurRadius: 4,
-                            )
-                          ],
-                        ),
-                        child: child,
-                      );
-                    },
-                    child: Text(
-                      'LIVE',
-                      style: TextStyle(
-                        // Intentional: 8px. The rail's LIVE pill is 20px tall
-                        // and cannot hold micro's 10px without clipping; the
-                        // expanded sidebar uses the real badge.
-                        fontSize: 8,
-                        fontWeight: FontWeight.bold,
-                        // Computed ink on the solid mint pill.
-                        color: NeuTheme.onAccent(NeuTheme.live),
-                      ),
-                    ),
-                  ),
+                  // The shared badge - this row's hand-rolled solid pill was
+                  // the exact drift LiveBadge's own doc says it was built to
+                  // end (its stale comment even claimed 'the expanded
+                  // sidebar uses the real badge': it did not, this IS the
+                  // expanded sidebar). One window, one way of saying LIVE.
+                  LiveBadge(pulse: widget.pulseController),
               ],
             ),
             subtitle: channel.isLoading
@@ -1337,26 +1311,39 @@ class _AvatarWithPlayState extends State<_AvatarWithPlay> {
 
     if (!widget.channel.isLive) return avatar;
 
+    // The play affordance is a CORNER BADGE, not a full-avatar overlay. The
+    // old Positioned.fill IconButton covered the whole avatar the moment the
+    // mouse entered, and being the leaf-most recognizer it claimed every
+    // tap - so a mouse user could not SELECT a live channel from the rail at
+    // all: every click launched a player instead. Same behaviour as the
+    // expanded row now: the avatar selects, the badge plays.
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: Stack(
         alignment: Alignment.center,
+        clipBehavior: Clip.none,
         children: [
           avatar,
           if (_hovered)
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  padding: EdgeInsets.zero,
-                  tooltip: 'Watch ${widget.channel.username}',
-                  icon: const Icon(Icons.play_arrow,
-                      size: 18, color: Colors.white),
-                  onPressed: () => widget.onPlay(widget.channel),
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: Tooltip(
+                message: 'Watch ${widget.channel.username}',
+                child: GestureDetector(
+                  onTap: () => widget.onPlay(widget.channel),
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.72),
+                      shape: BoxShape.circle,
+                      border: NeuTheme.statusRing(width: 1.5),
+                    ),
+                    child: const Icon(Icons.play_arrow,
+                        size: 13, color: Colors.white),
+                  ),
                 ),
               ),
             ),

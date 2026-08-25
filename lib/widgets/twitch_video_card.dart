@@ -224,7 +224,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
-            transform: Matrix4.translationValues(0, _isHovered ? -4 : 0, 0),
+            transform: Matrix4.translationValues(0, _isHovered ? -2 : 0, 0),
             decoration: NeuTheme.raisedDecoration(
               themeNotifier.isDarkTheme,
               radius: NeuRadius.r16,
@@ -409,7 +409,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                 child: Row(
                                                   mainAxisSize: MainAxisSize.min,
                                                   children: [
-                                                    const Icon(Icons.sports_esports, size: 9, color: Colors.white70),
+                                                    const Icon(Icons.sports_esports, size: 10, color: Colors.white70),
                                                     const SizedBox(width: NeuSpace.s4),
                                                     Text(
                                                       game,
@@ -480,7 +480,15 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
 
                         if (!widget.isMultiSelectMode)
                           Positioned.fill(
-                            child: AnimatedOpacity(
+                            // IgnorePointer, because this overlay has no
+                            // handlers of its own (card taps route to the
+                            // outer GestureDetector) - but AnimatedOpacity
+                            // still HIT-TESTS at opacity 0, so it was
+                            // swallowing every hover meant for the game
+                            // badge underneath and its tooltip could never
+                            // show.
+                            child: IgnorePointer(
+                              child: AnimatedOpacity(
                               duration: const Duration(milliseconds: 150),
                               opacity: (_isHovered && !widget.isPlaying) ? 1.0 : 0.0,
                               child: Container(
@@ -525,6 +533,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                   ],
                                 ),
                               ),
+                            ),
                             ),
                           ),
 

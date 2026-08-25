@@ -23,6 +23,7 @@ import 'theme/material/chassis_furniture.dart';
 import 'widgets/shell/edge_fade.dart';
 import 'widgets/shell/app_chassis.dart';
 import 'widgets/shell/engraved_rule.dart';
+import 'widgets/neumorphic/neu_icon_action.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
 import 'widgets/shell/section_header.dart';
@@ -242,6 +243,29 @@ class TwitchStreamlinkApp extends StatelessWidget {
               bodyLarge: TextStyle(color: NeuTheme.text(false)),
               bodyMedium: TextStyle(color: NeuTheme.subtext(false)),
             ),
+            // Raw Material TextFields (Settings, the wizard) inherited the
+            // stock M3 look - web-default input fields floating in a
+            // machined chassis, inches from sunken NeuTextFields. This theme
+            // gives every un-migrated field the system's recessed-well read.
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: NeuTheme.wellSurface(false),
+              hintStyle: TextStyle(color: NeuTheme.disabledText(false)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(NeuRadius.r8),
+                borderSide: BorderSide(color: NeuTheme.border(false)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(NeuRadius.r8),
+                borderSide:
+                    BorderSide(color: themeNotifier.accentInk, width: 1.5),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(NeuRadius.r8),
+                borderSide: BorderSide(color: NeuTheme.border(false)),
+              ),
+            ),
+
           ),
           darkTheme: ThemeData(
             brightness: Brightness.dark,
@@ -261,6 +285,29 @@ class TwitchStreamlinkApp extends StatelessWidget {
               bodyLarge: TextStyle(color: NeuTheme.text(true)),
               bodyMedium: TextStyle(color: NeuTheme.subtext(true)),
             ),
+            // Raw Material TextFields (Settings, the wizard) inherited the
+            // stock M3 look - web-default input fields floating in a
+            // machined chassis, inches from sunken NeuTextFields. This theme
+            // gives every un-migrated field the system's recessed-well read.
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: NeuTheme.wellSurface(true),
+              hintStyle: TextStyle(color: NeuTheme.disabledText(true)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(NeuRadius.r8),
+                borderSide: BorderSide(color: NeuTheme.border(true)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(NeuRadius.r8),
+                borderSide:
+                    BorderSide(color: themeNotifier.accentInk, width: 1.5),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(NeuRadius.r8),
+                borderSide: BorderSide(color: NeuTheme.border(true)),
+              ),
+            ),
+
           ),
           home: MainScreen(isFirstRun: isFirstRun),
         );
@@ -3066,12 +3113,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             onPressed: () => _showSaveFailureDetail(failure),
             child: const Text('Details', style: NeuType.captionMetrics),
           ),
-          IconButton(
-            icon: Icon(Icons.close, size: 14, color: NeuTheme.subtext(isDark)),
+          // NeuIconAction, whose whole reason to exist is ending exactly
+          // this: a dismiss target collapsed to its 14px glyph.
+          NeuIconAction(
+            icon: Icons.close,
             tooltip: 'Dismiss',
+            size: NeuActionSize.sm,
+            style: NeuActionStyle.flat,
             onPressed: () => setState(() => _saveWarningDismissed = true),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
           ),
         ],
       ),
@@ -3301,8 +3350,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 themeNotifier.isDarkTheme,
                 radius: NeuRadius.r12,
                 // Border only when it exists - see the strip cards.
+                // The card hover grammar, same as the VOD cards: -2px lift
+                // with a 0.6-alpha ring. Full alpha here made near-identical
+                // cards light up at two different strengths in one window.
                 border: isHovered
-                    ? Border.all(color: theme.primaryColor, width: 1.5)
+                    ? Border.all(
+                        color: theme.primaryColor.withValues(alpha: 0.6),
+                        width: 1.5)
                     : null,
               ),
               child: Row(
@@ -3541,8 +3595,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             child: const Text('Update Token', style: NeuType.labelMetrics),
                           ),
                           const SizedBox(width: NeuSpace.s8),
-                          IconButton(
-                            icon: Icon(Icons.close, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 16),
+                          NeuIconAction(
+                            icon: Icons.close,
+                            tooltip: 'Dismiss',
+                            size: NeuActionSize.sm,
+                            style: NeuActionStyle.flat,
                             onPressed: () {
                               setState(() {
                                 _isWebTokenExpired = false;
@@ -4162,11 +4219,16 @@ class _VodDisplayButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = themeNotifier.isDarkTheme;
-    return NeuButton(
+    // A plain raised chip, NOT a NeuButton. With onPressed: null the button
+    // painted the full disabled treatment - dimmed ink, flat depth, basic
+    // cursor, excluded from Tab order - so the only entry point to the
+    // grid's display settings LOOKED dead while working by accident of the
+    // gesture arena. InteractivePopover owns the tap, cursor and focus.
+    return Tooltip(
+      message: 'Card size, title size, filters and game badges',
+      child: Container(
       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
-      borderRadius: BorderRadius.circular(NeuRadius.r8),
-      tooltip: 'Card size, title size, filters and game badges',
-      onPressed: null,
+      decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -4177,6 +4239,7 @@ class _VodDisplayButton extends StatelessWidget {
           const SizedBox(width: NeuSpace.s2),
           Icon(Icons.arrow_drop_down, size: 16, color: NeuTheme.subtext(isDark)),
         ],
+      ),
       ),
     );
   }
