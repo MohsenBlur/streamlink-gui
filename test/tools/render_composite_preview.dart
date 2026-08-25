@@ -9,6 +9,9 @@ import 'package:streamlink_gui/theme/material/lit_surface.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_badge.dart';
+import 'package:streamlink_gui/widgets/neumorphic/neu_led_indicator.dart';
+import 'package:streamlink_gui/widgets/neumorphic/neu_progress.dart';
+import 'package:streamlink_gui/widgets/shell/engraved_rule.dart';
 
 /// Renders composite scenes of REAL widgets to `shots/composite/*.png`.
 ///
@@ -91,6 +94,76 @@ void main() {
         ),
         const Size(760, 240),
         'strip_$mode',
+        dark: dark,
+      );
+    }
+  });
+
+  testWidgets('instruments: meters, lamps, grooves, glass', (tester) async {
+    for (final dark in [true, false]) {
+      final mode = dark ? 'dark' : 'light';
+      await snap(
+        tester,
+        Center(
+          child: Container(
+            width: 560,
+            decoration: NeuTheme.panel(dark),
+            padding: const EdgeInsets.all(NeuSpace.s24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  const NeuLedIndicator(size: 8, isPulsing: false),
+                  const SizedBox(width: NeuSpace.s8),
+                  Text('SESSION', style: NeuType.plate(dark)),
+                  const Spacer(),
+                  const NeuLedIndicator(
+                      size: 8,
+                      isPulsing: false,
+                      activeColor: NeuTheme.danger),
+                  const SizedBox(width: NeuSpace.s8),
+                  Text('FAULT', style: NeuType.plate(dark)),
+                ]),
+                const SizedBox(height: NeuSpace.s12),
+                EngravedRule(),
+                const SizedBox(height: NeuSpace.s16),
+                const NeuProgressBar(
+                    value: 0.62, size: NeuProgressSize.lg),
+                const SizedBox(height: NeuSpace.s12),
+                const NeuProgressBar(
+                    value: 0.31, size: NeuProgressSize.md),
+                const SizedBox(height: NeuSpace.s12),
+                const NeuProgressBar(
+                    value: 0.85, size: NeuProgressSize.sm),
+                const SizedBox(height: NeuSpace.s16),
+                EngravedRule(),
+                const SizedBox(height: NeuSpace.s16),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: NeuSpace.s8, vertical: NeuSpace.s4),
+                  decoration: NeuTheme.screen(dark,
+                      radius: NeuRadius.r8, depth: NeuElevation.d1),
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('2 DOWNLOADS - 64%',
+                            style: NeuType.plate(dark,
+                                color: NeuTheme.screenText(dark))),
+                        const SizedBox(height: NeuSpace.s4),
+                        const NeuProgressBar(
+                            value: 0.64,
+                            size: NeuProgressSize.xs,
+                            width: 120),
+                      ]),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const Size(640, 420),
+        'instruments_$mode',
         dark: dark,
       );
     }
