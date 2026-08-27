@@ -4,6 +4,15 @@ import 'package:streamlink_gui/state/log_line_kind.dart';
 
 void main() {
   group('classifyLogLine', () {
+    test('the VOD path historical casing classifies as error', () {
+      // Four releases emitted [Streamlink ERR] while this classifier looked
+      // for [Streamlink Err], so streamed-VOD stderr rendered plain grey.
+      expect(classifyLogLine('[Streamlink ERR] something broke'),
+          LogLineKind.error);
+      expect(classifyLogLine('[STREAMLINK ERR] loud'), LogLineKind.error);
+    });
+
+
     test('failure markers win, whoever emitted the line', () {
       // Precedence is deliberate: the reader is scanning for the failure, not
       // for which subsystem narrated it.

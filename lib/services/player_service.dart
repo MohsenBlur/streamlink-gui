@@ -7,6 +7,7 @@ import '../models/app_settings.dart';
 import '../state/activity_state.dart';
 import '../utils/player_args.dart';
 import '../utils/player_progress.dart';
+import '../utils/vod_playback_monitor.dart';
 import '../models/twitch_video.dart';
 import 'twitch_api_service.dart';
 
@@ -74,6 +75,13 @@ class PlayerService {
   /// stop is indistinguishable from a crash and gets reported as a playback
   /// failure. This is the same trap `_cancelledDownloads` exists to avoid.
   final Set<String> _stoppedByUser = {};
+
+  /// Self-heal bookkeeping for streamed VODs. The ledger counts relaunch
+  /// attempts and must outlive the tracker, which is torn down on every
+  /// relaunch; the pending map is how a premature-EOF verdict tells the exit
+  /// handler "this death is mine - relaunch instead of announcing it".
+  final Map<String, RestartLedger> _vodRestartLedgers = {};
+  final Map<String, int> _pendingVodRestarts = {};
 
   // Active Players
   final Map<String, Process> activePlayerProcesses = {};
@@ -412,7 +420,7 @@ class PlayerService {
 
       activeDownloadProcesses[vodId] = proc;
 
-      proc.stdout.transform(utf8.decoder).listen((line) {
+      proc.stdout.transform(const Utf8Decoder(allowMalformed: true)).listen((line) {
         final trimmed = line.trim();
         log(key, trimmed);
         if (line.contains('Initialization fragment found after media fragments')) {
@@ -459,7 +467,7 @@ class PlayerService {
         }
       });
 
-      proc.stderr.transform(utf8.decoder).listen((line) {
+      proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((line) {
         final trimmed = line.trim();
         if (trimmed.isEmpty) return;
 
@@ -761,6 +769,30 @@ class PlayerService {
 
       activePlayerProcesses[vod.id] = proc;
 
+      // Drain and log the player's own output. Without listeners dart:io
+      // still creates the pipes, so a chatty player can fill the 64KB OS
+      // buffer and BLOCK on write - a frozen player with no visible cause.
+      // With them, local playback gets the same diagnosability the streamed
+      // path gets from --player-verbose.
+      proc.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((data) {
+        for (var line in data.split('\n')) {
+          if (line.trim().isNotEmpty) {
+            log(key, '[Player] ${line.trim()}');
+          }
+        }
+      });
+      proc.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((data) {
+        for (var line in data.split('\n')) {
+          if (line.trim().isNotEmpty) {
+            log(key, '[Player] ${line.trim()}');
+          }
+        }
+      });
+
       // Start Named Pipe bridge on Windows for MPV watch progress
       if (exe.toLowerCase().contains('mpv')) {
         if (Platform.isWindows) {
@@ -789,7 +821,8 @@ class PlayerService {
     }
   }
 
-  Future<void> launchStreamlinkForVod(TwitchVideo vod, String channelName, AppSettings settings) async {
+  Future<void> launchStreamlinkForVod(TwitchVideo vod, String channelName, AppSettings settings,
+      {int? resumeOverride, bool isRestart = false}) async {
     if (playingVodIds.contains(vod.id)) return;
 
     final key = vod.id;
@@ -828,11 +861,16 @@ class PlayerService {
         customPlayerArgs: settings.customPlayerArgs,
         port: port,
         seekableStreaming: settings.seekableVodStreaming,
-        resume: resumeSeconds(
-          watchPosition: vod.watchPosition,
-          watchProgress: vod.watchProgress,
-          watchedThreshold: settings.watchedThreshold,
-        ),
+        // The override comes from the confirmation gate during a self-heal
+        // relaunch and deliberately bypasses resumeSeconds: a stale-high
+        // watchProgress must not turn a heal into a restart-from-zero, which
+        // is the very bug the heal exists to fix.
+        resume: resumeOverride ??
+            resumeSeconds(
+              watchPosition: vod.watchPosition,
+              watchProgress: vod.watchProgress,
+              watchedThreshold: settings.watchedThreshold,
+            ),
         isWindows: Platform.isWindows,
       );
       final args = cmd.args;
@@ -840,7 +878,14 @@ class PlayerService {
       playingVodIds.add(vod.id);
       activePlayerPorts[vod.id] = port;
 
-      onPlayerStarted?.call(key, title);
+      if (isRestart) {
+        // A self-heal bounce is one continuous session, not a new one:
+        // onPlayerStarted would call beginSession, which DROPS the previous
+        // log lines - including the verdict that explains this relaunch.
+        log(key, '[System] Resuming after premature end-of-stream at ${resumeOverride}s...');
+      } else {
+        onPlayerStarted?.call(key, title);
+      }
       log(key, '[System] Initializing Streamlink for twitch.tv/videos/${vod.id} ${settings.defaultQuality}...');
       log(key, cmd.passthrough
           ? '[System] Seekable streaming: the player opens the HLS URL itself, so its seek bar works.'
@@ -865,9 +910,14 @@ class PlayerService {
         await _startWindowsIpcBridge(key, port);
       }
 
-      _startVODProgressTracker(vod, port, settings);
+      _startVODProgressTracker(vod, port, settings,
+          channelName: channelName, selfHeal: true);
 
-      proc.stdout.transform(utf8.decoder).listen((data) {
+      // allowMalformed: a single non-UTF-8 byte from the child used to raise
+      // a FormatException into the zone, silently killing the listener - and
+      // with --player-verbose the player's output (Windows codepage and all)
+      // now flows through this pipe.
+      proc.stdout.transform(const Utf8Decoder(allowMalformed: true)).listen((data) {
         for (var line in data.split('\n')) {
           if (line.trim().isNotEmpty) {
             log(key, '[Streamlink] ${line.trim()}');
@@ -875,10 +925,10 @@ class PlayerService {
         }
       });
 
-      proc.stderr.transform(utf8.decoder).listen((data) {
+      proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((data) {
         for (var line in data.split('\n')) {
           if (line.trim().isNotEmpty) {
-            log(key, '[Streamlink ERR] ${line.trim()}');
+            log(key, '[Streamlink Err] ${line.trim()}');
           }
         }
       });
@@ -890,12 +940,25 @@ class PlayerService {
         activePlayerPorts.remove(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
+        // A premature-EOF verdict parked a resume position here before
+        // killing the tree. This death is the supervisor's own doing:
+        // relaunch quietly instead of announcing a stop the user never made.
+        final restartAt = _pendingVodRestarts.remove(vod.id);
+        if (restartAt != null && !_shuttingDown) {
+          _stoppedByUser.remove(key); // consume the heal-kill's marker
+          launchStreamlinkForVod(vod, channelName, settings,
+              resumeOverride: restartAt, isRestart: true);
+          return;
+        }
+        _vodRestartLedgers.remove(vod.id); // user stop, normal exit, give-up
         onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
       });
     } catch (e) {
       log(key, '[System Error] Failed to start Streamlink: $e');
       playingVodIds.remove(vod.id);
       activePlayerPorts.remove(vod.id);
+      _pendingVodRestarts.remove(vod.id);
+      _vodRestartLedgers.remove(vod.id);
       onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key));
     }
   }
@@ -957,7 +1020,7 @@ class PlayerService {
 
       activePlayerProcesses[key] = proc;
 
-      proc.stdout.transform(utf8.decoder).listen((data) {
+      proc.stdout.transform(const Utf8Decoder(allowMalformed: true)).listen((data) {
         for (var line in data.split('\n')) {
           if (line.trim().isNotEmpty) {
             log(key, '[Streamlink] ${line.trim()}');
@@ -965,7 +1028,7 @@ class PlayerService {
         }
       });
 
-      proc.stderr.transform(utf8.decoder).listen((data) {
+      proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((data) {
         for (var line in data.split('\n')) {
           if (line.trim().isNotEmpty) {
             log(key, '[Streamlink Err] ${line.trim()}');
@@ -988,7 +1051,8 @@ class PlayerService {
     }
   }
 
-  void _startVODProgressTracker(TwitchVideo vod, int port, AppSettings settings) {
+  void _startVODProgressTracker(TwitchVideo vod, int port, AppSettings settings,
+      {String? channelName, bool selfHeal = false}) {
     int lastSynced = -1;
     String webToken = settings.twitchWebOauthToken.trim();
     if (webToken.startsWith('oauth:')) {
@@ -1003,6 +1067,16 @@ class PlayerService {
     final isVlc = kind == PlayerKind.vlc;
     final isMpv = kind == PlayerKind.mpv;
     final isMpc = kind == PlayerKind.mpcHc;
+
+    // The verdict machine and the confirmation gate. Every position the
+    // players report goes through the monitor; only corroborated ones come
+    // back out to be persisted, and lifecycle transitions come out as events
+    // for the log. This is the plausibility check the old tracker lacked -
+    // the one whose absence let a dying player's last bogus read destroy the
+    // resume mark.
+    final durationSeconds = _apiService.parseDurationToSeconds(vod.duration);
+    final monitor = VodPlaybackMonitor(durationSeconds: durationSeconds);
+    bool pollErrorLogged = false;
 
     late final Timer timer;
     bool tickInFlight = false;
@@ -1021,7 +1095,50 @@ class PlayerService {
       _syncProgress(vod, seconds, webToken);
     }
 
+    void handleEvents(List<MonitorEvent> events) {
+      final confirmed = monitor.lastConfirmedPosition;
+      for (final event in events) {
+        switch (event) {
+          case MonitorEvent.firstContact:
+            log(vod.id, '[System] Player interface responding on port $port.');
+          case MonitorEvent.firstConfirmedPosition:
+            log(vod.id, '[System] Watch position confirmed at ${confirmed}s.');
+          case MonitorEvent.paused:
+            log(vod.id, '[System] Playback paused.');
+          case MonitorEvent.resumed:
+            log(vod.id, '[System] Playback resumed.');
+          case MonitorEvent.stalled:
+            log(vod.id,
+                '[System] Playback stalled: position frozen while playing. '
+                'Buffering, or the connection has quietly died.');
+          case MonitorEvent.stallRecovered:
+            log(vod.id, '[System] Playback recovered.');
+          case MonitorEvent.eofObserved:
+            log(vod.id,
+                '[System] Player reports end of stream at ~${confirmed}s of ${durationSeconds}s.');
+          case MonitorEvent.prematureEof:
+            log(vod.id,
+                '[System] Premature end-of-stream verdict at ${confirmed}s '
+                '(${durationSeconds > 0 ? (confirmed! * 100 / durationSeconds).round() : '?'}% of the VOD). '
+                'Twitch likely closed the idle connection.');
+            if (selfHeal && channelName != null && confirmed != null) {
+              _handlePrematureEof(vod, channelName, settings, confirmed);
+            }
+          case MonitorEvent.genuineEof:
+            log(vod.id, '[System] VOD finished.');
+            if (selfHeal && isMpv) {
+              // --keep-open leaves mpv idling on the last frame forever;
+              // closing it here preserves the close-at-end behaviour every
+              // release before keep-open had. Marked user-initiated so the
+              // teardown is snackbar-free.
+              killProcess(vod.id);
+            }
+        }
+      }
+    }
+
     Future<void> tick() async {
+      PlayerStatus? status;
       if (isVlc) {
         try {
           final auth = 'Basic ' + base64Encode(utf8.encode(':streamlink'));
@@ -1033,10 +1150,15 @@ class PlayerService {
           ).timeout(const Duration(seconds: 2));
 
           if (response.statusCode == 200) {
-            final position = parseVlcPosition(response.body);
-            if (position != null) syncIfLive(position);
+            status = parseVlcStatus(response.body);
           }
-        } catch (_) {}
+        } catch (e) {
+          if (!pollErrorLogged && isLive()) {
+            pollErrorLogged = true;
+            log(vod.id,
+                '[System] Progress poll error (further ones suppressed): $e');
+          }
+        }
       } else if (isMpv) {
         try {
           Socket? socket;
@@ -1054,18 +1176,28 @@ class PlayerService {
 
           String responseBuffer = '';
           socket.listen((data) {
-            responseBuffer += utf8.decode(data);
-            if (responseBuffer.contains('\n')) {
+            responseBuffer +=
+                const Utf8Decoder(allowMalformed: true).convert(data);
+            // Wait for ALL THREE replies. The old code destroyed the socket
+            // on the FIRST newline, which raced the second reply - a latent
+            // bug that a third command would have turned routine.
+            if (mpvRepliesComplete(responseBuffer)) {
               socket?.destroy();
             }
           });
-          socket.write('{"command": ["get_property", "time-pos"]}\n');
-          socket.write('{"command": ["get_property", "pause"]}\n');
+          for (final command in mpvStatusCommands()) {
+            socket.write(command);
+          }
           await Future.delayed(const Duration(milliseconds: 300));
 
-          final position = parseMpvPosition(responseBuffer);
-          if (position != null) syncIfLive(position);
-        } catch (_) {}
+          status = parseMpvStatus(responseBuffer);
+        } catch (e) {
+          if (!pollErrorLogged && isLive()) {
+            pollErrorLogged = true;
+            log(vod.id,
+                '[System] Progress poll error (further ones suppressed): $e');
+          }
+        }
       } else if (isMpc) {
         try {
           final response = await http.get(
@@ -1073,11 +1205,27 @@ class PlayerService {
           ).timeout(const Duration(seconds: 2));
 
           if (response.statusCode == 200) {
-            final position = parseMpcHcPosition(response.body);
-            if (position != null) syncIfLive(position);
+            status = parseMpcHcStatus(response.body);
           }
-        } catch (_) {}
+        } catch (e) {
+          if (!pollErrorLogged && isLive()) {
+            pollErrorLogged = true;
+            log(vod.id,
+                '[System] Progress poll error (further ones suppressed): $e');
+          }
+        }
+      } else {
+        // PlayerKind.other: no polling interface, no gate, no self-heal.
+        return;
       }
+
+      if (!isLive()) return;
+      final result = monitor.onSample(
+          status: status, nowMs: DateTime.now().millisecondsSinceEpoch);
+      if (result.commitPositionSeconds != null) {
+        syncIfLive(result.commitPositionSeconds!);
+      }
+      handleEvents(result.events);
     }
 
     timer = Timer.periodic(const Duration(seconds: 2), (t) async {
@@ -1199,7 +1347,33 @@ class PlayerService {
     }
   }
 
-  void killProcess(String key) {
+  /// A premature-EOF verdict arrived from the monitor: decide whether to
+  /// bounce the session, and stage the resume position for the exit handler.
+  void _handlePrematureEof(
+      TwitchVideo vod, String channelName, AppSettings settings, int confirmed) {
+    if (_pendingVodRestarts.containsKey(vod.id)) return; // bounce in flight
+    final ledger =
+        _vodRestartLedgers.putIfAbsent(vod.id, () => RestartLedger());
+    if (shouldAttemptRestart(ledger: ledger, confirmedPosition: confirmed)) {
+      ledger.attempts += 1;
+      ledger.baselinePosition = confirmed;
+      _pendingVodRestarts[vod.id] = confirmed;
+      log(vod.id,
+          '[System] Relaunching the stream (attempt ${ledger.attempts} of 2) '
+          'to resume at ${confirmed}s - a fresh launch gets a fresh Twitch URL.');
+      killProcess(vod.id);
+    } else {
+      log(vod.id,
+          '[System] Giving up: the stream ended prematurely again without '
+          'advancing 30s. Something beyond a stale connection is wrong.');
+      _vodRestartLedgers.remove(vod.id);
+      // NOT marked user-initiated: the taskkill'd tree exits non-zero, so the
+      // existing failure snackbar with its View-log action fires.
+      killProcess(vod.id, markUserInitiated: false);
+    }
+  }
+
+  void killProcess(String key, {bool markUserInitiated = true}) {
     // Download tabs never route here: cancelling a download must go through
     // cancelVodDownload so the _cancelledDownloads marker and partial-file
     // cleanup happen. A raw taskkill on yt-dlp would leave both dangling.
@@ -1209,7 +1383,7 @@ class PlayerService {
     if (proc != null) {
       // Marked before the kill so the exit handler, which may fire almost
       // immediately, already sees it.
-      _stoppedByUser.add(key);
+      if (markUserInitiated) _stoppedByUser.add(key);
       try {
         if (Platform.isWindows) {
           Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);

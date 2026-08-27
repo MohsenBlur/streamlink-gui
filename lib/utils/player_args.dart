@@ -52,9 +52,8 @@ int resumeSeconds({
 /// seek bar and transport controls visible; minimal hides them.
 const List<String> mpcViewPresetCompact = ['/viewpreset', '2'];
 
-String mpvIpcPath(String ipcName, bool isWindows) => isWindows
-    ? r'\\.\pipe\mpv-socket-' + ipcName
-    : '/tmp/mpv-socket-$ipcName';
+String mpvIpcPath(String ipcName, bool isWindows) =>
+    isWindows ? r'\\.\pipe\mpv-socket-' + ipcName : '/tmp/mpv-socket-$ipcName';
 
 /// Player-side flags for one playback session, WITHOUT the input (file path or
 /// URL) — the caller, or streamlink, appends that last.
@@ -68,6 +67,7 @@ List<String> buildPlayerArgs({
   required int port,
   required String ipcName,
   required bool isWindows,
+  bool keepOpen = false,
 }) {
   final args = <String>[];
   switch (kind) {
@@ -82,6 +82,15 @@ List<String> buildPlayerArgs({
     case PlayerKind.mpv:
       if (startSeconds > 0) args.add('--start=$startSeconds');
       args.add('--input-ipc-server=${mpvIpcPath(ipcName, isWindows)}');
+      // Streamed passthrough only. When Twitch closes a paused connection,
+      // mpv mistakes the failed fetch for end-of-file; without this it EXITS,
+      // which is indistinguishable from the user closing the window. With it,
+      // mpv idles at the false EOF, the tracker reads `eof-reached`, and the
+      // app can tell "the stream died" (heal it) from "the user quit"
+      // (respect it). VLC and MPC-HC idle at EOF natively; local files never
+      // hit a false EOF, so downloads leave this off and keep mpv's
+      // close-at-end behaviour.
+      if (keepOpen) args.add('--keep-open=yes');
     case PlayerKind.mpcHc:
       if (startSeconds > 0) args.addAll(['/start', '${startSeconds * 1000}']);
       args.addAll(['/webport', '$port']);
@@ -169,6 +178,15 @@ VodStreamCommand buildVodStreamlinkArgs({
     args.addAll(['--twitch-api-header', 'Authorization=OAuth $oauthToken']);
   }
 
+  // The player's own stdout/stderr, which otherwise go to DEVNULL inside
+  // streamlink. Under passthrough the player owns the whole HLS session, so
+  // its output is the ONLY record of why playback died - without this flag a
+  // VOD session's log is four lines of startup and then silence, which is
+  // exactly the complaint that prompted it. On a non-tty mpv suppresses its
+  // per-frame status line, so the cost is a handful of init lines. VOD only:
+  // live sessions keep streamlink's own reader logs and need no second voice.
+  args.add('--player-verbose');
+
   // Passthrough requires an explicit --player: streamlink aborts with "The
   // default player (VLC) does not seem to be installed" when it has none, so a
   // configuration that resolves to no player must stay on piping.
@@ -180,6 +198,7 @@ VodStreamCommand buildVodStreamlinkArgs({
   // streamlink can skip ahead.
   final playerStart = passthrough ? resume : 0;
   final extra = buildPlayerArgs(
+    keepOpen: passthrough,
     kind: kind,
     startSeconds: playerStart,
     port: port,

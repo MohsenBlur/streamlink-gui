@@ -29,10 +29,15 @@ enum LogLineKind {
 /// rather than [LogLineKind.system]. That is deliberate — the thing a reader
 /// is scanning for is the failure, not which subsystem narrated it.
 LogLineKind classifyLogLine(String line) {
-  if (line.contains('[Error]') ||
-      line.contains('[Streamlink Err]') ||
-      line.contains('error:') ||
-      line.contains('failed')) {
+  // Case-insensitive, because the markers never were consistent: the VOD
+  // path emitted `[Streamlink ERR]` for four releases while this test looked
+  // for `[Streamlink Err]`, so every streamed-VOD stderr line rendered as
+  // plain grey - precisely the lines a reader opens the log to find.
+  final lower = line.toLowerCase();
+  if (lower.contains('[error]') ||
+      lower.contains('[streamlink err]') ||
+      lower.contains('error:') ||
+      lower.contains('failed')) {
     return LogLineKind.error;
   }
   if (line.startsWith('[System]')) return LogLineKind.system;

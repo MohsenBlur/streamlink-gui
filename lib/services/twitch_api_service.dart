@@ -591,9 +591,17 @@ class TwitchApiService {
       }
 
       final localPos = localVodsProgress[vod.id];
-      if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
+      final totalSeconds = parseDurationToSeconds(vod.duration);
+      // Defense in depth behind the confirmation gate: a stored position
+      // past the end of the video is corruption from before the gate
+      // existed, and max-merging it back onto the model would resurrect it
+      // forever. (+6s: the gate's own tolerance, for a final segment's
+      // rounding.)
+      final localPlausible = localPos != null &&
+          (totalSeconds <= 0 || localPos <= totalSeconds + 6);
+      if (localPlausible &&
+          (vod.watchPosition == null || localPos > vod.watchPosition!)) {
         vod.watchPosition = localPos;
-        final totalSeconds = parseDurationToSeconds(vod.duration);
         if (totalSeconds > 0) {
           vod.watchProgress = localPos / totalSeconds;
         } else {

@@ -126,6 +126,35 @@ void main() {
     });
   });
 
+  group('buildPlayerArgs keepOpen', () {
+    List<String> mpv({bool keepOpen = false}) => buildPlayerArgs(
+        kind: PlayerKind.mpv,
+        startSeconds: 0,
+        port: 1234,
+        ipcName: 'v1',
+        isWindows: true,
+        keepOpen: keepOpen);
+
+    test('defaults off, so local playback keeps close-at-end', () {
+      expect(mpv(), isNot(contains('--keep-open=yes')));
+    });
+
+    test('on for mpv when asked', () {
+      expect(mpv(keepOpen: true), contains('--keep-open=yes'));
+    });
+
+    test('other kinds ignore it - the flag is mpv syntax', () {
+      final vlc = buildPlayerArgs(
+          kind: PlayerKind.vlc,
+          startSeconds: 0,
+          port: 1234,
+          ipcName: 'v1',
+          isWindows: true,
+          keepOpen: true);
+      expect(vlc.where((a) => a.contains('keep-open')), isEmpty);
+    });
+  });
+
   group('shlexQuote', () {
     test('preserves MPV\'s Windows pipe path through streamlink\'s shlex', () {
       // Regression: streamlink parses --player-args with POSIX shlex, where a

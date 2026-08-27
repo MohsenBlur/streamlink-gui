@@ -2,128 +2,272 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/utils/player_progress.dart';
 
 void main() {
-  group('parseVlcPosition', () {
+  group('parseVlcStatus', () {
     test('reads the position while playing', () {
-      expect(parseVlcPosition('{"state":"playing","time":1234}'), 1234);
+      final s = parseVlcStatus('{"state":"playing","time":1234}')!;
+      expect(s.activity, PlayerActivity.playing);
+      expect(s.positionSeconds, 1234);
     });
 
-    test('a paused or stopped player reports nothing', () {
-      expect(parseVlcPosition('{"state":"paused","time":1234}'), isNull);
-      expect(parseVlcPosition('{"state":"stopped","time":0}'), isNull);
+    test('paused and stopped are distinct activities, position kept', () {
+      // The old parser collapsed both to null, which made "the user paused"
+      // indistinguishable from "the stream died" - the exact ambiguity the
+      // pause-death bug hid in.
+      final paused = parseVlcStatus('{"state":"paused","time":1234}')!;
+      expect(paused.activity, PlayerActivity.paused);
+      expect(paused.positionSeconds, 1234);
+
+      final stopped = parseVlcStatus('{"state":"stopped","time":0}')!;
+      expect(stopped.activity, PlayerActivity.stopped);
+      expect(stopped.positionSeconds, 0);
     });
 
-    test('position zero is not a position', () {
-      // The player is at the very start, or has not loaded yet; writing 0
-      // would erase a resume point the user has not actually watched past.
-      expect(parseVlcPosition('{"state":"playing","time":0}'), isNull);
+    test('opening and unknown states map to stopped', () {
+      // For the verdict machine they are all "not playing back"; its startup
+      // grace handles the interface being up before playback begins.
+      expect(
+        parseVlcStatus('{"state":"opening","time":0}')!.activity,
+        PlayerActivity.stopped,
+      );
+      expect(
+        parseVlcStatus('{"state":"weird","time":0}')!.activity,
+        PlayerActivity.stopped,
+      );
+    });
+
+    test("position zero is a position; belief is the gate's job", () {
+      // The parser reports facts. The confirmation gate downstream is what
+      // stops a lone 0 from erasing a resume point.
+      final s = parseVlcStatus('{"state":"playing","time":0}')!;
+      expect(s.positionSeconds, 0);
     });
 
     test('junk in, null out', () {
-      // Each of these used to be swallowed by a bare catch inside the timer,
-      // where "unparseable" and "paused" were indistinguishable.
-      expect(parseVlcPosition(''), isNull);
-      expect(parseVlcPosition('<html>404</html>'), isNull);
-      expect(parseVlcPosition('[1,2,3]'), isNull);
-      expect(parseVlcPosition('{"state":"playing"}'), isNull);
-      expect(parseVlcPosition('{"state":"playing","time":"1234"}'), isNull);
+      expect(parseVlcStatus(''), isNull);
+      expect(parseVlcStatus('<html>404</html>'), isNull);
+      expect(parseVlcStatus('[1,2,3]'), isNull);
+      expect(parseVlcStatus('{"time":1234}'), isNull);
+    });
+
+    test('a playing state with no usable time still reports the activity', () {
+      final s = parseVlcStatus('{"state":"playing"}')!;
+      expect(s.activity, PlayerActivity.playing);
+      expect(s.positionSeconds, isNull);
+      expect(
+        parseVlcStatus('{"state":"playing","time":"1234"}')!.positionSeconds,
+        isNull,
+      );
     });
   });
 
-  group('parseMpvPosition', () {
+  group('mpv command protocol', () {
+    test('three commands, each carrying its request id', () {
+      final cmds = mpvStatusCommands();
+      expect(cmds, hasLength(3));
+      expect(cmds[0], contains('"time-pos"'));
+      expect(cmds[0], contains('"request_id":$mpvTimePosRequestId'));
+      expect(cmds[1], contains('"pause"'));
+      expect(cmds[1], contains('"request_id":$mpvPauseRequestId'));
+      expect(cmds[2], contains('"eof-reached"'));
+      expect(cmds[2], contains('"request_id":$mpvEofRequestId'));
+      for (final c in cmds) {
+        expect(c, endsWith('\n'), reason: 'mpv IPC is newline-delimited');
+      }
+    });
+
+    test('mpvRepliesComplete requires all three ids', () {
+      // The tracker used to destroy the socket on the FIRST newline, racing
+      // the second reply. Three commands make waiting mandatory.
+      expect(mpvRepliesComplete(''), isFalse);
+      expect(mpvRepliesComplete('{"data":1.0,"request_id":1}\n'), isFalse);
+      expect(
+        mpvRepliesComplete(
+          '{"data":1.0,"request_id":1}\n'
+          '{"data":false,"request_id":2}\n',
+        ),
+        isFalse,
+      );
+      expect(
+        mpvRepliesComplete(
+          '{"data":1.0,"request_id":1}\n'
+          '{"data":false,"request_id":2}\n'
+          '{"data":false,"request_id":3}\n',
+        ),
+        isTrue,
+      );
+    });
+
+    test('interleaved event lines do not satisfy completeness', () {
+      expect(
+        mpvRepliesComplete(
+          '{"event":"playback-restart"}\n'
+          '{"event":"seek"}\n'
+          '{"event":"tick"}\n',
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('parseMpvStatus', () {
     String replies(List<String> lines) => '${lines.join('\n')}\n';
 
+    String timePos(double v) =>
+        '{"data":$v,"error":"success","request_id":$mpvTimePosRequestId}';
+    String pause(bool v) =>
+        '{"data":$v,"error":"success","request_id":$mpvPauseRequestId}';
+    String eofReached(bool v) =>
+        '{"data":$v,"error":"success","request_id":$mpvEofRequestId}';
+
     test('reads time-pos and rounds to whole seconds', () {
-      expect(
-          parseMpvPosition(replies([
-            '{"data":42.7,"error":"success"}',
-            '{"data":false,"error":"success"}',
-          ])),
-          43);
+      final s = parseMpvStatus(
+        replies([timePos(42.7), pause(false), eofReached(false)]),
+      )!;
+      expect(s.activity, PlayerActivity.playing);
+      expect(s.positionSeconds, 43);
+      expect(s.eofReached, isFalse);
     });
 
-    test('a paused player reports nothing, whatever its position', () {
-      expect(
-          parseMpvPosition(replies([
-            '{"data":42.7,"error":"success"}',
-            '{"data":true,"error":"success"}',
-          ])),
-          isNull);
+    test('a paused player reports paused WITH its position', () {
+      final s = parseMpvStatus(
+        replies([timePos(42.7), pause(true), eofReached(false)]),
+      )!;
+      expect(s.activity, PlayerActivity.paused);
+      expect(s.positionSeconds, 43);
     });
 
-    test('the two replies may arrive in either order', () {
-      // They are separate commands on one socket; nothing guarantees order.
-      expect(
-          parseMpvPosition(replies([
-            '{"data":false,"error":"success"}',
-            '{"data":10.0,"error":"success"}',
-          ])),
-          10);
+    test('eof-reached wins over pause for the activity', () {
+      // With --keep-open=yes mpv idles PAUSED at end-of-file. The pause flag
+      // is true, but "stopped at EOF" is the fact the verdict machine needs.
+      final s = parseMpvStatus(
+        replies([timePos(3600.0), pause(true), eofReached(true)]),
+      )!;
+      expect(s.activity, PlayerActivity.stopped);
+      expect(s.eofReached, isTrue);
+      expect(s.positionSeconds, 3600);
+    });
+
+    test('request ids beat type dispatch: eof cannot masquerade as pause', () {
+      // Both are bools. Under the old type dispatch the eof reply would have
+      // overwritten the pause flag - the reason the ids exist.
+      final s = parseMpvStatus(
+        replies([timePos(10.0), eofReached(false), pause(true)]),
+      )!;
+      expect(s.activity, PlayerActivity.paused);
+    });
+
+    test('replies may arrive in any order', () {
+      final s = parseMpvStatus(
+        replies([eofReached(false), pause(false), timePos(10.0)]),
+      )!;
+      expect(s.positionSeconds, 10);
+      expect(s.activity, PlayerActivity.playing);
+    });
+
+    test('lines without request ids fall back to type dispatch', () {
+      // Old mpv, or a reply whose id was lost: degrade to the historical
+      // behaviour instead of losing the tick.
+      final s = parseMpvStatus(
+        replies([
+          '{"data":7.2,"error":"success"}',
+          '{"data":false,"error":"success"}',
+        ]),
+      )!;
+      expect(s.positionSeconds, 7);
+      expect(s.activity, PlayerActivity.playing);
     });
 
     test('unrelated event messages are ignored', () {
-      expect(
-          parseMpvPosition(replies([
-            '{"event":"playback-restart"}',
-            '{"data":7.2,"error":"success"}',
-          ])),
-          7);
+      final s = parseMpvStatus(
+        replies(['{"event":"playback-restart"}', timePos(7.2), pause(false)]),
+      )!;
+      expect(s.positionSeconds, 7);
     });
 
-    test('a failed reply carries no usable position', () {
-      expect(
-          parseMpvPosition(
-              replies(['{"data":null,"error":"property unavailable"}'])),
-          isNull);
+    test('a failed reply is skipped per-property', () {
+      // eof-reached unavailable during load simply reads as false; the
+      // position from the same tick is still used.
+      final s = parseMpvStatus(
+        replies([
+          timePos(5.0),
+          pause(false),
+          '{"data":null,"error":"property unavailable","request_id":$mpvEofRequestId}',
+        ]),
+      )!;
+      expect(s.positionSeconds, 5);
+      expect(s.eofReached, isFalse);
     });
 
     test('one malformed line does not discard the rest', () {
-      expect(
-          parseMpvPosition(replies([
-            'not json at all',
-            '{"data":5.0,"error":"success"}',
-          ])),
-          5);
+      final s = parseMpvStatus(
+        replies(['not json at all', timePos(5.0), pause(false)]),
+      )!;
+      expect(s.positionSeconds, 5);
     });
 
-    test('no position reply at all reports nothing', () {
-      expect(parseMpvPosition(''), isNull);
-      expect(parseMpvPosition(replies(['{"data":false,"error":"success"}'])),
-          isNull);
+    test('nothing usable at all is null', () {
+      expect(parseMpvStatus(''), isNull);
+      expect(
+        parseMpvStatus(
+          replies(['{"data":null,"error":"property unavailable"}']),
+        ),
+        isNull,
+      );
+      expect(parseMpvStatus(replies(['{"event":"seek"}'])), isNull);
     });
 
-    test('position zero is reported, unlike the other two players', () {
-      // MPV's pause flag is authoritative, so a genuine 0.0 while playing
-      // means the user seeked back to the start - which should be recorded.
-      expect(
-          parseMpvPosition(replies([
-            '{"data":0.0,"error":"success"}',
-            '{"data":false,"error":"success"}',
-          ])),
-          0);
+    test('pause alone still yields a status with no position', () {
+      final s = parseMpvStatus(replies([pause(false)]))!;
+      expect(s.activity, PlayerActivity.playing);
+      expect(s.positionSeconds, isNull);
+    });
+
+    test('position zero is reported', () {
+      final s = parseMpvStatus(
+        replies([timePos(0.0), pause(false), eofReached(false)]),
+      )!;
+      expect(s.positionSeconds, 0);
+      expect(s.activity, PlayerActivity.playing);
     });
   });
 
-  group('parseMpcHcPosition', () {
+  group('parseMpcHcStatus', () {
     String page(String state, int posMs) =>
         '<html><p id="position">$posMs</p><p id="statestring">$state</p></html>';
 
     test('converts milliseconds to seconds', () {
-      expect(parseMpcHcPosition(page('Playing', 90_600)), 91);
+      final s = parseMpcHcStatus(page('Playing', 90600))!;
+      expect(s.activity, PlayerActivity.playing);
+      expect(s.positionSeconds, 91);
     });
 
-    test('only a playing state counts', () {
-      expect(parseMpcHcPosition(page('Paused', 90_600)), isNull);
-      expect(parseMpcHcPosition(page('Stopped', 90_600)), isNull);
+    test('paused and stopped are distinct, position kept', () {
+      final paused = parseMpcHcStatus(page('Paused', 90600))!;
+      expect(paused.activity, PlayerActivity.paused);
+      expect(paused.positionSeconds, 91);
+
+      final stopped = parseMpcHcStatus(page('Stopped', 90600))!;
+      expect(stopped.activity, PlayerActivity.stopped);
     });
 
     test('the state match is case-insensitive', () {
-      expect(parseMpcHcPosition(page('playing', 5000)), 5);
+      expect(parseMpcHcStatus(page('playing', 5000))!.positionSeconds, 5);
     });
 
-    test('a page without the fields reports nothing', () {
-      expect(parseMpcHcPosition('<html></html>'), isNull);
-      expect(parseMpcHcPosition(''), isNull);
-      expect(parseMpcHcPosition(page('Playing', 0)), isNull);
+    test(
+      'a page without a state is null; without a position, position-less',
+      () {
+        expect(parseMpcHcStatus('<html></html>'), isNull);
+        expect(parseMpcHcStatus(''), isNull);
+        final s = parseMpcHcStatus(
+          '<html><p id="statestring">Playing</p></html>',
+        )!;
+        expect(s.positionSeconds, isNull);
+      },
+    );
+
+    test('position zero is a position', () {
+      expect(parseMpcHcStatus(page('Playing', 0))!.positionSeconds, 0);
     });
   });
 }

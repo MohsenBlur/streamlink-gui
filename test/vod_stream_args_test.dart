@@ -59,9 +59,43 @@ void main() {
       expect(cmd.appliedStart, 0);
       expect(cmd.args, isNot(contains('--hls-start-offset')));
     });
+
+    test('mpv gets --keep-open=yes so a dead stream idles instead of exiting',
+        () {
+      // The pause-death disambiguator: with keep-open, a false end-of-file
+      // leaves mpv alive for the tracker to read `eof-reached`, so "the
+      // stream died" (heal) and "the user quit" (respect) stay separate.
+      final cmd = build(kind: PlayerKind.mpv, playerExe: r'C:\mpv\mpv.exe');
+      expect(playerArgsOf(cmd.args), contains('--keep-open=yes'));
+    });
+
+    test('keep-open is mpv-only; the others idle at EOF natively', () {
+      expect(playerArgsOf(build(kind: PlayerKind.mpcHc).args),
+          isNot(contains('--keep-open')));
+      final vlc = build(
+          kind: PlayerKind.vlc,
+          playerExe: r'C:\Program Files\VideoLAN\VLC\vlc.exe');
+      expect(playerArgsOf(vlc.args), isNot(contains('--keep-open')));
+    });
+
+    test('the player speaks into the log: --player-verbose is passed', () {
+      // Without it the player's output goes to DEVNULL inside streamlink and
+      // a VOD session's log is four startup lines and then silence.
+      expect(build().args, contains('--player-verbose'));
+    });
   });
 
   group('passthrough off', () {
+    test('piping keeps mpv default close-at-end: no --keep-open', () {
+      // Under piping, streamlink owns the segment fetching and pipe-EOF
+      // really is the end; an idling player would just be a stale window.
+      final cmd = build(
+          seekable: false, kind: PlayerKind.mpv, playerExe: r'C:\mpv\mpv.exe');
+      final pa = playerArgsOf(cmd.args);
+      expect(pa == null || !pa.contains('--keep-open'), isTrue);
+    });
+
+
     test('falls back to streamlink skipping ahead', () {
       final cmd = build(seekable: false, resume: 600);
       expect(cmd.args, containsAllInOrder(['--hls-start-offset', '600s']));
@@ -140,6 +174,12 @@ void main() {
       final args = live();
       expect(args[args.length - 2], 'twitch.tv/shroud');
       expect(args.last, 'best');
+    });
+
+    test('live sessions do not get --player-verbose', () {
+      // Live keeps streamlink's own reader logs; the second voice is for
+      // passthrough VODs, where it is the only voice.
+      expect(live(), isNot(contains('--player-verbose')));
     });
 
     test('low latency is opt-in and passed through when on', () {

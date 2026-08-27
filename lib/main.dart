@@ -2265,10 +2265,30 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     setState(() {
       _localVodsProgress.clear();
       for (final vod in _channelVods) {
+        // Both fields, not just the percentage: zeroing watchProgress while
+        // leaving watchPosition was an internally inconsistent state, and
+        // _playVod now derives progress FROM position - so a lone position
+        // would resurrect the "progress" this action exists to clear.
         vod.watchProgress = 0.0;
+        vod.watchPosition = 0;
       }
     });
     await _saveChannels();
+
+    // Best-effort push of the reset to Twitch, else the remote max-merge
+    // restores the old positions on the next fetch and the clear appears
+    // not to have worked. Mirrors _bulkUpdateSelectedVods.
+    String webToken = _settings.twitchWebOauthToken.trim();
+    if (webToken.startsWith('oauth:')) webToken = webToken.substring(6);
+    if (webToken.isNotEmpty) {
+      for (final vod in _channelVods) {
+        try {
+          await _apiService.syncSingleVODProgressDirect(vod.id, 0, webToken);
+        } catch (_) {
+          break; // one failure means the rest will fail the same way
+        }
+      }
+    }
     _showSnackBar('Local watch progress history cleared!', isError: false);
   }
 
@@ -3917,10 +3937,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final localPos = _localVodsProgress[vod.id];
     if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
       vod.watchPosition = localPos;
-      final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
-      if (totalSeconds > 0) {
-        vod.watchProgress = localPos / totalSeconds;
-      }
+    }
+    // Recompute progress from position UNCONDITIONALLY, not only when the
+    // local value raised it. A stale-high watchProgress riding on a correct
+    // watchPosition survives the raise-merge, crosses the watched threshold,
+    // and zeroes the resume - the "my progress mark vanished" half of the
+    // pause-death bug. Position is the ground truth; the percentage is
+    // derived, so derive it.
+    final knownTotalSeconds = _apiService.parseDurationToSeconds(vod.duration);
+    if (knownTotalSeconds > 0 && vod.watchPosition != null) {
+      vod.watchProgress = vod.watchPosition! / knownTotalSeconds;
     }
 
     _activePlayingVideos[vod.id] = vod;
