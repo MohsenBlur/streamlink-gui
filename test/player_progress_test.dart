@@ -232,8 +232,10 @@ void main() {
   });
 
   group('parseMpcHcStatus', () {
-    String page(String state, int posMs) =>
-        '<html><p id="position">$posMs</p><p id="statestring">$state</p></html>';
+    String page(String state, int posMs, {int? durMs}) =>
+        '<html><p id="position">$posMs</p>'
+        '${durMs == null ? '' : '<p id="duration">$durMs</p>'}'
+        '<p id="statestring">$state</p></html>';
 
     test('converts milliseconds to seconds', () {
       final s = parseMpcHcStatus(page('Playing', 90600))!;
@@ -268,6 +270,43 @@ void main() {
 
     test('position zero is a position', () {
       expect(parseMpcHcStatus(page('Playing', 0))!.positionSeconds, 0);
+    });
+
+    test('paused at the duration is end-of-file, not a pause', () {
+      // Measured against MPC-HC 2.7.4: at EOF it pauses on the last frame,
+      // and when a stream DIES it jumps the position to the full duration
+      // and pauses there - the dying gasp that used to mark a half-watched
+      // VOD complete. A real user pause never moves the position, so
+      // paused-at-end is unambiguous.
+      final s = parseMpcHcStatus(page('Paused', 60000, durMs: 60000))!;
+      expect(s.activity, PlayerActivity.stopped);
+      expect(s.eofReached, isTrue);
+    });
+
+    test('a few hundred ms of overshoot past the duration still reads EOF',
+        () {
+      // Also measured: a 12000ms file paused at 12023ms after playing out.
+      final s = parseMpcHcStatus(page('Paused', 12023, durMs: 12000))!;
+      expect(s.eofReached, isTrue);
+    });
+
+    test('paused mid-file stays an ordinary pause', () {
+      final s = parseMpcHcStatus(page('Paused', 30000, durMs: 60000))!;
+      expect(s.activity, PlayerActivity.paused);
+      expect(s.eofReached, isFalse);
+    });
+
+    test('without a duration the EOF signal cannot fire', () {
+      final s = parseMpcHcStatus(page('Paused', 60000))!;
+      expect(s.activity, PlayerActivity.paused);
+      expect(s.eofReached, isFalse);
+    });
+
+    test('playing at the duration is not EOF - the jump comes with a pause',
+        () {
+      final s = parseMpcHcStatus(page('Playing', 60000, durMs: 60000))!;
+      expect(s.activity, PlayerActivity.playing);
+      expect(s.eofReached, isFalse);
     });
   });
 }
