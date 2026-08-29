@@ -81,6 +81,7 @@ class LitSpec {
     this.grainAmp = 0.0,
     this.grainAcross = 3.0,
     this.grainAngleDeg = 0.0,
+    this.grainTexStrength = 0.0,
     this.shadowDyPerDepth = 1.1,
     this.shadowBlurPerDepth = 2.2,
     this.shadowOpacity = 0.55,
@@ -164,6 +165,13 @@ class LitSpec {
 
   final double grainAngleDeg;
 
+  /// The sampled hairline grain: how hard the device-pixel scratch texture
+  /// tilts the normal. Zero disables the sampler entirely. This is the
+  /// term that makes the brush SPECULAR - the scratches are lit, not
+  /// painted - so its visible strength varies across the face with the
+  /// lighting, exactly as metal does.
+  final double grainTexStrength;
+
   /// Depth-relative shadow model, authored against the same convention as
   /// `ShadowLayer`: multiplied by the surface's elevation depth at paint time.
   final double shadowDyPerDepth, shadowBlurPerDepth, shadowOpacity;
@@ -233,6 +241,7 @@ class LitSpec {
       grainAmp: d(a.grainAmp, b.grainAmp),
       grainAcross: d(a.grainAcross, b.grainAcross),
       grainAngleDeg: d(a.grainAngleDeg, b.grainAngleDeg),
+      grainTexStrength: d(a.grainTexStrength, b.grainTexStrength),
       shadowDyPerDepth: d(a.shadowDyPerDepth, b.shadowDyPerDepth),
       shadowBlurPerDepth: d(a.shadowBlurPerDepth, b.shadowBlurPerDepth),
       shadowOpacity: d(a.shadowOpacity, b.shadowOpacity),
@@ -279,6 +288,7 @@ class LitSpec {
       other.grainAmp == grainAmp &&
       other.grainAcross == grainAcross &&
       other.grainAngleDeg == grainAngleDeg &&
+      other.grainTexStrength == grainTexStrength &&
       other.shadowDyPerDepth == shadowDyPerDepth &&
       other.shadowBlurPerDepth == shadowBlurPerDepth &&
       other.shadowOpacity == shadowOpacity &&
@@ -305,7 +315,7 @@ class LitSpec {
         chamferWidth, chamferProfile, landAngle,
         lightElevationDeg, key, ambient, sheen,
         sky, ground, envAmount, horizon, softbox, rim,
-        grainAmp, grainAcross, grainAngleDeg,
+        grainAmp, grainAcross, grainAngleDeg, grainTexStrength,
         shadowDyPerDepth, shadowBlurPerDepth, shadowOpacity,
         aoOpacity, aoReachPerDepth, innerBlurPerDepth, innerOpacity,
         exposure, white, dither, faceLiftLevels, faceDropLevels,

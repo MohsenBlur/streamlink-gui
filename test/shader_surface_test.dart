@@ -1,7 +1,10 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/theme/material/material_palette.dart';
+import 'package:streamlink_gui/theme/material/texture_cache.dart';
 
 /// The lit-surface shader, asserted on properties a gradient cannot have.
 ///
@@ -32,6 +35,16 @@ void main() {
   });
 
   const pad = 24.0;
+
+  ui.Image? dummyCache;
+  ui.Image dummyGrain() {
+    if (dummyCache != null) return dummyCache!;
+    final rec = ui.PictureRecorder();
+    ui.Canvas(rec).drawRect(const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()..color = const Color(0x00000000));
+    dummyCache = rec.endRecording().toImageSync(1, 1);
+    return dummyCache!;
+  }
 
   ui.FragmentShader shade({
     required double w,
@@ -79,6 +92,8 @@ void main() {
     double patternStrength = 0.0,
     double patternStrength2 = 0.0,
     List<double> patternColor = const [1.0, 1.0, 1.0],
+    double grainTexStrength = 0.0,
+    ui.Image? grainImage,
   }) {
     final s = program.fragmentShader();
     var i = 0;
@@ -131,6 +146,14 @@ void main() {
     f(patternStrength);
     f(patternStrength2); // uPattern
     patternColor.forEach(f); // uPatternColor
+    f(grainTexStrength);
+    f((grainImage?.width ?? 1).toDouble());
+    f((grainImage?.height ?? 1).toDouble());
+    f(0.175); // uGrainTex (mean)
+    // A declared child sampler must ALWAYS be bound - Skia refuses to
+    // instantiate the effect otherwise - so strength-zero renders bind a
+    // 1x1 transparent stand-in.
+    s.setImageSampler(0, grainImage ?? dummyGrain());
     return s;
   }
 
@@ -285,30 +308,36 @@ void main() {
             'is aliased');
   });
 
-  test('the grain actually renders, at every common display scale', () async {
-    // The v1.8.0 regression this replaces a vacuous test for: one shared
-    // Nyquist fade derived from the FINE octave multiplied both octaves, so
-    // every shipped grainAcross rendered amplitude ZERO at dpr 1.0/1.25/1.5
-    // - brushed aluminium that never showed its brush on an ordinary
-    // display. The fades are per-octave now, and this asserts the coarse
-    // octave survives where the fine one dies.
-    //
-    // Dither OFF: +/-1 LSB of isotropic noise on every pixel would swamp
-    // the roughness deltas being measured.
+  Future<ui.Image> brushedTile() => TextureCache.generateForTest(
+      const TileKey(
+          kind: TextureKind.brushed,
+          width: 512,
+          height: 128,
+          amplitude: 255,
+          seed: 0x5EED));
+
+  test('the sampled grain renders, at every common display scale', () async {
+    // The scratches are geometry now - a device-pixel tile tilting the
+    // normal - so this drives the real sampler path with the real
+    // generator's tile and asserts the lighting makes them visible. The
+    // v1.8.0 regression this file remembers (a fade guard erasing all
+    // grain at ordinary display scales) cannot come back silently: the
+    // sampled path has no Nyquist guard to mis-derive, and this measures
+    // at both common scales anyway.
+    final tile = await brushedTile();
     for (final px in [1.0, 1 / 1.5]) {
       final off = await render(
-          shade(w: w, h: h, grainAmp: 0, grainAcross: 3.5, dither: 0, px: px),
-          w,
-          h);
+          shade(w: w, h: h, dither: 0, px: px, rough: 0.40), w, h);
       final on = await render(
           shade(
               w: w,
               h: h,
-              grainAmp: 0.3,
-              grainAcross: 3.5,
-              rough: 0.40,
               dither: 0,
-              px: px),
+              px: px,
+              rough: 0.40,
+              aniso: 0.85,
+              grainTexStrength: 0.55,
+              grainImage: tile),
           w,
           h);
       double vRough(ByteData b) {
@@ -326,11 +355,87 @@ void main() {
       final base = vRough(off);
       final grained = vRough(on);
       expect(grained, greaterThan(base * 3),
-          reason: 'at px=$px the grain must be measurably rougher than the '
-              'plain face (off=${base.toStringAsFixed(2)} '
-              'on=${grained.toStringAsFixed(2)}) - a fade guard that erases '
-              'it is the v1.8.0 bug back again');
+          reason: 'at px=$px the sampled scratches must be measurably '
+              'rougher than the plain face '
+              '(off=${base.toStringAsFixed(2)} '
+              'on=${grained.toStringAsFixed(2)})');
     }
+  });
+
+  test('the sampled grain is LIT: scratches follow the lighting, not a stamp',
+      () async {
+    // The painted-on defect, held out forever: if the scratches were a
+    // luminance layer their contrast would be identical everywhere. As
+    // geometry their visibility must vary across the face with the
+    // specular response - measurably rougher in the lit upper half than in
+    // the shaded lower half.
+    final tile = await brushedTile();
+    final b = await render(
+        shade(
+            w: w,
+            h: h,
+            dither: 0,
+            rough: 0.40,
+            aniso: 0.85,
+            grainTexStrength: 0.55,
+            grainImage: tile),
+        w,
+        h);
+    double bandRough(int y0, int y1) {
+      var v = 0.0;
+      var n = 0;
+      for (var y = y0; y < y1; y++) {
+        for (var x = 60; x < 160; x++) {
+          v += (lum(b, stride, x, y + 1) - lum(b, stride, x, y)).abs();
+          n++;
+        }
+      }
+      return v / n;
+    }
+
+    // Direction deliberately unasserted: where the contrast peaks depends
+    // on the tone map (a saturated sheen band COMPRESSES its scratches and
+    // the flanks show them hardest - measured, not guessed). What a stamp
+    // can never do is VARY: a luminance layer has identical contrast in
+    // every band.
+    final bands = [
+      bandRough(48, 78),
+      bandRough(85, 115),
+      bandRough(120, 150),
+    ]..sort();
+    expect(bands.last, greaterThan(bands.first * 1.3),
+        reason: 'scratch contrast must vary across the face with the '
+            'lighting (bands=${bands.map((b) => b.toStringAsFixed(2)).join(', ')})'
+            ' - equal contrast everywhere is the painted-on defect');
+  });
+
+  test('the grain is anisotropic: streaks along the brush, not noise',
+      () async {
+    final tile = await brushedTile();
+    final b = await render(
+        shade(
+            w: w,
+            h: h,
+            dither: 0,
+            rough: 0.40,
+            aniso: 0.85,
+            grainTexStrength: 0.55,
+            grainImage: tile),
+        w,
+        h);
+    var along = 0.0, across = 0.0;
+    var n = 0;
+    for (var y = 70; y < 110; y++) {
+      for (var x = 60; x < 160; x++) {
+        along += (lum(b, stride, x + 1, y) - lum(b, stride, x, y)).abs();
+        across += (lum(b, stride, x, y + 1) - lum(b, stride, x, y)).abs();
+        n++;
+      }
+    }
+    expect(across / n, greaterThan(4 * along / n),
+        reason: 'a horizontal brush varies fast across the grain, slow '
+            'along it (along=${(along / n).toStringAsFixed(3)} '
+            'across=${(across / n).toStringAsFixed(3)})');
   });
 
   test('pattern kind 0 ignores every other pattern parameter', () async {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/material/lit_surface.dart';
+import 'package:streamlink_gui/theme/material/texture_cache.dart';
 import 'package:streamlink_gui/theme/material/skeuo_decoration.dart';
 
 /// Calibration instrument, not a gate: prints the measured lift/drop for
@@ -15,6 +16,21 @@ import 'package:streamlink_gui/theme/material/skeuo_decoration.dart';
 void main() {
   setUpAll(() async {
     await LitSurfaceProgram.load();
+    // Prime what the painter samples, or this probe measures a different
+    // surface than the gate it calibrates.
+    for (final spec in MaterialSpec.available) {
+      for (final isDark in [false, true]) {
+        final t = spec.palette(isDark).texture;
+        if (t == null) continue;
+        await TextureCache.prime(TileKey(
+          kind: t.kind,
+          width: t.tileDevicePx.width.round(),
+          height: t.tileDevicePx.height.round(),
+          amplitude: 255,
+          seed: t.seed,
+        ));
+      }
+    }
   });
 
   Future<({double lift, double drop})> measure(

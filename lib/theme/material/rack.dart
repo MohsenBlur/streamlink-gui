@@ -154,8 +154,11 @@ const MaterialPalette _rackDark = MaterialPalette(
   //
   // These are the measured minima on the worst ground the app can produce, not
   // round numbers - see the note on `worstGround`.
-  subtext: Color(0xFFD0D7E1),
-  disabledText: Color(0xFFA8B0BC),
+  // Re-derived a second time when the sheen band opened to +32: the worst
+  // panel ground is now the deepest overlay under the full lit lift
+  // (#61656B), and these are the measured minima against it.
+  subtext: Color(0xFFDFE4EB),
+  disabledText: Color(0xFFB5BCC6),
   border: Color(0xFF737A88),
   // The legacy highlight/shadow pair, still read by eight sites outside the
   // engine - the switch knob, the LED collar, the avatar frame. Graphite
@@ -226,8 +229,8 @@ const MaterialPalette _rackDark = MaterialPalette(
 /// text-hostile) object.
 const LitSpec _rackDarkLit = LitSpec(
   f0: Color(0xFFE9EDF2),
-  metalness: 0.30,
-  roughness: 0.44,
+  metalness: 0.45,
+  roughness: 0.40,
   anisotropy: 0.85,
   bow: 0.15,
   chamferWidth: 3.0,
@@ -237,9 +240,12 @@ const LitSpec _rackDarkLit = LitSpec(
   sheen: 0.03,
   sky: Color(0xFF737C8C),
   ground: Color(0xFF07080A),
-  envAmount: 0.20,
+  // The room, turned up. "No reflection, flat lighting" was the honest
+  // verdict on the first values: an anodised face DOES catch its room, and
+  // the soft-box streak is most of what "metal" means on a broad panel.
+  envAmount: 0.36,
   horizon: 0.30,
-  softbox: 0.05,
+  softbox: 0.20,
   rim: 0.38,
   // High enough to actually read as brush at arm's length. The grain tilts
   // normals rather than tinting, so most of what it does shows in the
@@ -252,6 +258,9 @@ const LitSpec _rackDarkLit = LitSpec(
   // the visible scratches; this term only streaks the specular.
   grainAmp: 0.12,
   grainAcross: 3.5,
+  // The scratches themselves, as geometry: the device-pixel tile tilts the
+  // normal, and the specular above decides which scratch is visible where.
+  grainTexStrength: 0.55,
   // The reference boards read as keys sitting in near-black pockets: the
   // gutter between controls is the darkest thing on the panel. That is the
   // contact term's job, so it is strong here - and it lands OUTSIDE the
@@ -263,14 +272,18 @@ const LitSpec _rackDarkLit = LitSpec(
   aoReachPerDepth: 1.1,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.70,
-  // Measured by lit_ground_test. The proud bound is the one every dark ink
-  // pays for - the sheen is deliberately capped so subtext stays a step
-  // below text instead of chasing it; the drama lives on the chamfer, in
-  // the grain and in the shadow, which no glyph ever sits on.
-  faceLiftLevels: 21,
+  // A higher white point than the default 2.2: metal's sheen band needs
+  // headroom above 1.0 or the tone map's shoulder flattens exactly the
+  // highlight that says "metal".
+  white: 3.2,
+  // Measured through the real painter with the lamps up and the scratches
+  // sampled. The sheen band now reaches +32 on a shallow panel - that is
+  // the "metal" the flat first draft lacked - and every light ink below
+  // is re-derived against it.
+  faceLiftLevels: 32,
   faceDropLevels: 20,
-  recessLiftLevels: 24,
-  recessDropLevels: 12,
+  recessLiftLevels: 31,
+  recessDropLevels: 11,
 );
 
 /// The dial window: polished dielectric glass over an emissive display.
@@ -396,8 +409,8 @@ const MaterialPalette _rackLight = MaterialPalette(
 /// that stay translucent - a dark shadow on a warm ground reads as a hole.
 const LitSpec _rackLightLit = LitSpec(
   f0: Color(0xFFF3EBDB),
-  metalness: 0.32,
-  roughness: 0.40,
+  metalness: 0.45,
+  roughness: 0.38,
   anisotropy: 0.80,
   bow: 0.13,
   chamferWidth: 3.0,
@@ -407,12 +420,17 @@ const LitSpec _rackLightLit = LitSpec(
   sheen: 0.08,
   sky: Color(0xFFFFFDF6),
   ground: Color(0xFF8D877B),
-  envAmount: 0.30,
+  envAmount: 0.44,
   horizon: 0.28,
-  softbox: 0.12,
+  softbox: 0.24,
   rim: 0.40,
   grainAmp: 0.08,
   grainAcross: 3.0,
+  // Shallower than the dark theme's cut, and not for taste: a scratch
+  // valley is a place a glyph can land, and the light theme's dark ink
+  // pays for every level the valleys dig. 0.28 keeps the brush visible
+  // while the drop stays affordable.
+  grainTexStrength: 0.28,
   shadowDyPerDepth: 1.3,
   shadowBlurPerDepth: 2.6,
   shadowOpacity: 0.42,
@@ -424,7 +442,13 @@ const LitSpec _rackLightLit = LitSpec(
   // map's shoulder compresses every bright face and the champagne renders 44
   // levels darker than its own albedo - a grey afternoon, not a lit room.
   exposure: 2.2,
-  // Measured: +12.4 lit, plus the 8-level hairline tile.
-  faceLiftLevels: 21,
-  faceDropLevels: 12,
+  white: 3.0,
+  // Measured after the turn-up: the linearised tone curve holds the face
+  // AT its albedo (lift is dither-deep) and spends everything downward -
+  // shading and scratch valleys dig to -21, which is what the dark inks
+  // now price in.
+  faceLiftLevels: 2,
+  faceDropLevels: 21,
+  recessLiftLevels: 2,
+  recessDropLevels: 20,
 );

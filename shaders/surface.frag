@@ -80,6 +80,26 @@ uniform vec4 uPattern;  // 53..56  x kind: 0 none, 1 scanline, 2 dialGlow
                         //           strength, dialGlow = falloff exponent
 uniform vec3 uPatternColor; // 57..59  dialGlow emissive tint (sRGB)
 
+// --- sampled micro-normal grain ---------------------------------------------
+uniform vec4 uGrainTex; // 60..63  x strength (normal tilt), y tile W dev px,
+                        //         z tile H dev px, w mean of the tile's
+                        //           distribution (subtracted so the tilt is
+                        //           signed)
+// The hairline source. A DEVICE-PIXEL texture, not an analytic field,
+// because analytic noise has a ~2.5 logical px Nyquist floor and real brush
+// is finer than that. Sampled in CANVAS space so the scratches continue
+// across neighbouring surfaces like parts cut from one sheet, and applied
+// as a NORMAL perturbation - never a luminance add - so every scratch is
+// lit by the same specular, environment and key terms as the face it is
+// cut into: blazing inside the sheen band, gone in shadow. Adding the
+// scratches as luminance was the "painted-on lines" defect.
+//
+// sampler2D, not `uniform shader`: the .frag is GLSL, and impellerc maps
+// sampler2D onto the runtime effect's child slot that setImageSampler
+// fills. Sampling coordinates are NORMALISED, hence the divide by the tile
+// size carried in uGrainTex.yz.
+uniform sampler2D uGrainImg;
+
 out vec4 fragColor;
 
 // --- colour space -----------------------------------------------------------
@@ -322,6 +342,17 @@ void main() {
   T = (dot(T, T) > 1e-8) ? normalize(T) : vec3(1.0, 0.0, 0.0);
   vec3 B = cross(n, T);
   n = normalize(n - T * (nn.y * sc.x * amp) - B * (nn.z * sc.y * amp));
+
+  // The sampled hairlines. fc is canvas-local; dividing by px converts to
+  // device pixels, so one tile row is one physical scratch at every window
+  // scale. The tilt is across-grain only (B), exactly like a real groove:
+  // its walls face up-slope and down-slope, never along the cut.
+  if (uGrainTex.x > 0.001) {
+    vec2 gq = vec2(ca * fc.x + sa * fc.y, -sa * fc.x + ca * fc.y) / px;
+    vec2 tcoord = mod(gq, uGrainTex.yz) / uGrainTex.yz;
+    float scratch = texture(uGrainImg, tcoord).r - uGrainTex.w;
+    n = normalize(n - B * (scratch * uGrainTex.x));
+  }
 
   // --- shading --------------------------------------------------------------
   vec3 V = vec3(0.0, 0.0, 1.0);          // orthographic UI: V is constant

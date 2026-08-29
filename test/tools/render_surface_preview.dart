@@ -14,6 +14,16 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// Named as a test so it can use the asset bundle, which is the only way to
 /// reach `FragmentProgram.fromAsset` outside a running app.
+ui.Image? _previewDummy;
+ui.Image dummyGrain() {
+  if (_previewDummy != null) return _previewDummy!;
+  final rec = ui.PictureRecorder();
+  ui.Canvas(rec).drawRect(const Rect.fromLTWH(0, 0, 1, 1),
+      Paint()..color = const Color(0x00000000));
+  _previewDummy = rec.endRecording().toImageSync(1, 1);
+  return _previewDummy!;
+}
+
 void main() {
   test('render', () async {
     final program = await ui.FragmentProgram.fromAsset('shaders/surface.frag');
@@ -111,6 +121,11 @@ void main() {
       f(1.0);
       f(1.0);
       f(1.0); // uPatternColor
+      f(0.0);
+      f(1.0);
+      f(1.0);
+      f(0.175); // uGrainTex (off)
+      s.setImageSampler(0, dummyGrain());
 
       final dw = w + pad * 2, dh = h + pad * 2;
       final rec = ui.PictureRecorder();

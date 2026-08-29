@@ -170,6 +170,7 @@ const LitSpec _analogueDarkLit = LitSpec(
   // Wood pore: broader wavelength than metal brush, softer tilt.
   grainAmp: 0.22,
   grainAcross: 4.5,
+  grainTexStrength: 0.30,
   shadowDyPerDepth: 1.35,
   shadowBlurPerDepth: 2.8,
   shadowOpacity: 0.70,
@@ -181,9 +182,10 @@ const LitSpec _analogueDarkLit = LitSpec(
   // peak at +13.4 (the chip) and -7.1 (deep cards, where the overlay lifts
   // the albedo above the shaded floor); the well's lamplit far wall reaches
   // +15.2 on its own darker ground.
-  // +2 for the fibre tile the lit path now composites on panels.
+  // Measured with the sampled pore relief: the walnut's grooves shade to
+  // -8.8 on a shallow panel.
   faceLiftLevels: 17,
-  faceDropLevels: 8,
+  faceDropLevels: 12,
   recessLiftLevels: 16,
   recessDropLevels: 5,
 );
@@ -326,6 +328,7 @@ const LitSpec _analogueLightLit = LitSpec(
   // Paper tooth: fine and isotropic.
   grainAmp: 0.12,
   grainAcross: 3.0,
+  grainTexStrength: 0.22,
   shadowDyPerDepth: 1.25,
   shadowBlurPerDepth: 2.8,
   shadowOpacity: 0.38,

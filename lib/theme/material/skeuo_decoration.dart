@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 
@@ -944,6 +945,26 @@ class _SkeuoPainter extends BoxPainter {
 ///    instance. Uniforms are snapshotted per draw (verified), so mutating
 ///    the shared instance between draws is correct - and 5x cheaper than
 ///    allocating per surface.
+/// The mean of `TextureCache._brushed`'s value distribution, subtracted in
+/// the shader so the scratch tilt is signed. Measured from the generator's
+/// statistics; a few percent of error here only biases the face's mean
+/// normal imperceptibly.
+const double _brushedTileMean = 0.175;
+
+/// A 1x1 transparent stand-in for the grain sampler. A declared `uniform
+/// shader` must always be bound - Skia refuses to instantiate the effect
+/// with an unbound child - so frames without a resident tile bind this and
+/// write strength zero.
+ui.Image? _fallbackGrainImage;
+ui.Image _fallbackGrain() {
+  if (_fallbackGrainImage != null) return _fallbackGrainImage!;
+  final rec = ui.PictureRecorder();
+  ui.Canvas(rec).drawRect(
+      const Rect.fromLTWH(0, 0, 1, 1), Paint()..color = const Color(0x00000000));
+  _fallbackGrainImage = rec.endRecording().toImageSync(1, 1);
+  return _fallbackGrainImage!;
+}
+
 class _LitPainter extends BoxPainter {
   _LitPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
 
@@ -1074,32 +1095,52 @@ class _LitPainter extends BoxPainter {
     f(spec.patternColor.r);
     f(spec.patternColor.g);
     f(spec.patternColor.b); // uPatternColor
-    assert(i == 60,
-        'uniform count drifted: wrote $i, the shader declares 60 floats');
+
+    // The sampled hairline grain. The tile is requested at FULL range
+    // (amplitude 255) because it is a normal SOURCE here, not a luminance
+    // layer - the shader recentres it around the distribution's mean and
+    // tilts the surface with it, and the lighting does everything else.
+    // Not resident yet: strength zero this frame, repaint on arrival - the
+    // same first-frame contract every texture in this engine has.
+    var texStrength = 0.0;
+    var tileW = 1.0, tileH = 1.0;
+    ui.Image grainImage = _fallbackGrain();
+    final tex = p.texture;
+    if (spec.grainTexStrength > 0 && tex != null && p.textureScale > 0) {
+      final key = TileKey(
+        kind: tex.kind,
+        width: tex.tileDevicePx.width.round(),
+        height: tex.tileDevicePx.height.round(),
+        amplitude: 255,
+        seed: tex.seed,
+      );
+      final tile = TextureCache.lookup(key);
+      if (tile != null) {
+        grainImage = tile;
+        texStrength = spec.grainTexStrength;
+        tileW = tex.tileDevicePx.width;
+        tileH = tex.tileDevicePx.height;
+      } else {
+        final notify = onChanged;
+        if (notify != null) {
+          TextureCache.request(key, () {
+            if (!_disposed) notify();
+          });
+        }
+      }
+    }
+    f(texStrength);
+    f(tileW);
+    f(tileH);
+    f(_brushedTileMean); // uGrainTex
+    s.setImageSampler(0, grainImage);
+    assert(i == 64,
+        'uniform count drifted: wrote $i, the shader declares 64 floats');
 
     canvas.save();
     canvas.translate(draw.left, draw.top);
     canvas.drawRect(Offset.zero & draw.size, Paint()..shader = s);
     canvas.restore();
-
-    // The hairline layer. The shader's own grain is an analytic noise field
-    // and CANNOT go finer than ~2.5 logical px without its Nyquist guard
-    // erasing it - which is physics, not a tuning problem: a continuous
-    // field that fine aliases. Real brush is finer than that. The
-    // procedural tile has no such floor, because a tile is device-pixel
-    // art: one row, one scratch. So the lit path composites the same tile
-    // the Canvas path always had - the shader carries the LIGHTING of the
-    // brush (anisotropic sheen), the tile carries its RESOLUTION.
-    //
-    // `worstGround`'s lit branch folds the tile amplitude into the ground
-    // model, and lit_ground_test warms the tiles before measuring, so this
-    // layer is priced into every derived ink like everything else.
-    final p2 = decoration.params;
-    if (p2.texture != null &&
-        p2.textureScale > 0 &&
-        p2.textureAmplitude > 0) {
-      _paintTile(canvas, rect, p2, configuration);
-    }
 
 
     // Layer 7 stays on the Canvas: a caller-supplied ring is a decoration a
@@ -1116,50 +1157,4 @@ class _LitPainter extends BoxPainter {
     }
   }
 
-  void _paintTile(Canvas canvas, Rect rect, SurfaceParams p,
-      ImageConfiguration configuration) {
-    final spec = p.texture!;
-    if (rect.shortestSide < spec.dropBelowPx) return;
-
-    final dpr = configuration.devicePixelRatio ?? 1.0;
-    final key = TileKey(
-      kind: spec.kind,
-      width: spec.tileDevicePx.width.round(),
-      height: spec.tileDevicePx.height.round(),
-      amplitude: (p.textureAmplitude * p.textureScale).round(),
-      seed: spec.seed,
-    );
-
-    final tile = TextureCache.lookup(key);
-    if (tile == null) {
-      final notify = onChanged;
-      if (notify != null) {
-        TextureCache.request(key, () {
-          if (!_disposed) notify();
-        });
-      }
-      return;
-    }
-
-    // Box-anchored matrix, same reasoning as the Canvas path: a
-    // RepaintBoundary repaints its child at Offset.zero, and an identity
-    // matrix would make the grain jump phase when one is added.
-    final matrix = Matrix4.identity()
-      ..translateByDouble(rect.left, rect.top, 0, 1)
-      ..rotateZ(spec.grainAngleDeg * math.pi / 180.0)
-      ..scaleByDouble(1.0 / dpr, 1.0 / dpr, 1, 1);
-
-    final paint = Paint()
-      ..blendMode = BlendMode.plus
-      ..shader = ImageShader(
-          tile, TileMode.repeated, TileMode.repeated, matrix.storage);
-
-    canvas.save();
-    try {
-      canvas.clipPath(decoration.getClipPath(rect, TextDirection.ltr));
-      canvas.drawRect(rect, paint);
-    } finally {
-      canvas.restore();
-    }
-  }
 }

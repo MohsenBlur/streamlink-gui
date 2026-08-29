@@ -46,6 +46,14 @@ void main() {
             amplitude: (amp * RoleModifier.of(role).textureScale).round(),
             seed: t.seed,
           ));
+          // The full-range twin the lit path samples as its micro-normal.
+          await TextureCache.prime(TileKey(
+            kind: t.kind,
+            width: t.tileDevicePx.width.round(),
+            height: t.tileDevicePx.height.round(),
+            amplitude: 255,
+            seed: t.seed,
+          ));
         }
       }
     }

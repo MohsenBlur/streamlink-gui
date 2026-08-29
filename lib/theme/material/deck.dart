@@ -171,6 +171,7 @@ const LitSpec _deckDarkLit = LitSpec(
   // reading as wet.
   grainAmp: 0.14,
   grainAcross: 2.8,
+  grainTexStrength: 0.12,
   shadowDyPerDepth: 1.35,
   shadowBlurPerDepth: 2.6,
   shadowOpacity: 0.72,
@@ -333,6 +334,7 @@ const LitSpec _deckLightLit = LitSpec(
   rim: 0.32,
   grainAmp: 0.12,
   grainAcross: 2.8,
+  grainTexStrength: 0.10,
   shadowDyPerDepth: 1.25,
   shadowBlurPerDepth: 2.6,
   shadowOpacity: 0.40,
