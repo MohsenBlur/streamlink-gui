@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_progress.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
@@ -147,6 +148,56 @@ void main() {
             find.byType(CircularProgressIndicator));
         expect(ring.strokeWidth, strokeFor(size));
       }
+    });
+  });
+
+  group('meter styles', () {
+    test('segment math: pitch fills the width, never fewer than four', () {
+      expect(MeterPainter.segmentCount(200),
+          ((200 - 2) / MeterPainter.segmentPitch).floor());
+      expect(MeterPainter.segmentCount(20), 4);
+    });
+
+    test('lit segments round to the reading, and never zero while running',
+        () {
+      expect(MeterPainter.litSegments(0.0, 20), 0);
+      expect(MeterPainter.litSegments(0.01, 20), 1,
+          reason: 'a running meter must show life at once');
+      expect(MeterPainter.litSegments(0.5, 20), 10);
+      expect(MeterPainter.litSegments(1.0, 20), 20);
+    });
+
+    test('every material declares the meter its world calls for', () {
+      expect(MaterialSpec.of(AppMaterial.rack).instruments.meterStyle,
+          MeterStyle.ledSegments);
+      expect(MaterialSpec.of(AppMaterial.analogue).instruments.meterStyle,
+          MeterStyle.needle);
+      expect(MaterialSpec.of(AppMaterial.deck).instruments.meterStyle,
+          MeterStyle.vfdSegments);
+      expect(MaterialSpec.of(AppMaterial.soft).instruments.meterStyle,
+          MeterStyle.slot,
+          reason: 'Soft keeps the v1.8.0 meter forever');
+    });
+
+    test('style and metal participate in repaint identity', () {
+      const a = MeterPainter(
+          value: 0.5,
+          fill: Color(0xFF112233),
+          track: Color(0xFF445566),
+          radius: 2,
+          slotted: true,
+          shade: Color(0xFF000000),
+          light: Color(0xFFFFFFFF));
+      const b = MeterPainter(
+          value: 0.5,
+          fill: Color(0xFF112233),
+          track: Color(0xFF445566),
+          radius: 2,
+          slotted: true,
+          shade: Color(0xFF000000),
+          light: Color(0xFFFFFFFF),
+          style: MeterStyle.needle);
+      expect(a.shouldRepaint(b), isTrue);
     });
   });
 }

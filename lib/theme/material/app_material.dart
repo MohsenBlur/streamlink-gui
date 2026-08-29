@@ -69,6 +69,45 @@ class MaterialType {
   double weightFor(bool isDark) => isDark ? labelWeightDark : labelWeightLight;
 }
 
+/// How a material renders live values.
+enum MeterStyle {
+  /// The milled slot with an emissive fill - the v1.8.0 default, and Soft's
+  /// forever.
+  slot,
+
+  /// Discrete LED segments in visible sockets, the top of the scale amber -
+  /// the broadcast console's channel meter.
+  ledSegments,
+
+  /// An engraved scale with a metal pointer at the value - the receiver's
+  /// tuning needle. No fill at all: position IS the reading.
+  needle,
+
+  /// Fluorescent segments with dim ghosts and a bloom - the deck's VFD bar.
+  vfdSegments,
+}
+
+/// The ring a lamp sits in.
+enum LampCollar { none, machined, brass }
+
+/// The per-material instrument treatments, resolved by the widgets that own
+/// meters, lamps and readouts. Defaults are the v1.8.0 behaviour, so Soft
+/// (and any material that declares nothing) is untouched by construction.
+@immutable
+class InstrumentSpec {
+  const InstrumentSpec({
+    this.meterStyle = MeterStyle.slot,
+    this.lampCollar = LampCollar.none,
+    this.vfdReadout = false,
+  });
+
+  final MeterStyle meterStyle;
+  final LampCollar lampCollar;
+
+  /// Deck: readout figures spread like a fluorescent display's fixed cells.
+  final bool vfdReadout;
+}
+
 /// One material world: two palettes, its ornament, and its type.
 @immutable
 class MaterialSpec {
@@ -80,6 +119,7 @@ class MaterialSpec {
     required this.dark,
     this.furniture = const Furniture.none(),
     this.type = const MaterialType(),
+    this.instruments = const InstrumentSpec(),
     this.overlayBlur,
   });
 
@@ -91,6 +131,7 @@ class MaterialSpec {
   final MaterialPalette light, dark;
   final Furniture furniture;
   final MaterialType type;
+  final InstrumentSpec instruments;
 
   /// Null for every material that does not refract its backdrop.
   ///

@@ -583,6 +583,7 @@ class MaterialPalette {
     required this.contact,
     this.screenIsEmissive = false,
     this.chrome,
+    this.accentMetal,
     Color? screenText,
     Color? screenSubtext,
     this.diagonalCompensation = true,
@@ -638,6 +639,11 @@ class MaterialPalette {
   /// band. Null for every single-tone material; the title bar falls back to
   /// its usual canvas panel.
   final Color? chrome;
+
+  /// The material's metal accent - analogue's brass. Consumed by ornament
+  /// (the lamp collar, the needle pointer), never by the focus ring, which
+  /// stays accent-derived for contrast reasons that predate materials.
+  final Color? accentMetal;
 
   // --- inks ----------------------------------------------------------------
   //
@@ -997,6 +1003,7 @@ class MaterialPalette {
       other.screen == screen &&
       other.screenIsEmissive == screenIsEmissive &&
       other.chrome == chrome &&
+      other.accentMetal == accentMetal &&
       other.screenText == screenText &&
       other.screenSubtext == screenSubtext &&
       other.text == text &&
@@ -1031,7 +1038,7 @@ class MaterialPalette {
 
   @override
   int get hashCode => Object.hashAll([
-        canvas, surface, well, screen, screenIsEmissive, chrome,
+        canvas, surface, well, screen, screenIsEmissive, chrome, accentMetal,
         screenText, screenSubtext,
         text, subtext, border, highlight, shadow, disabledText,
         lightAzimuthDeg, diagonalCompensation,

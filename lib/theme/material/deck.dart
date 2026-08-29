@@ -39,6 +39,10 @@ const MaterialSpec deckSpec = MaterialSpec(
       toneDark: Color(0xFF1B1917),
     ),
   ),
+  instruments: InstrumentSpec(
+    meterStyle: MeterStyle.vfdSegments,
+    vfdReadout: true,
+  ),
   type: MaterialType(
     // The same DIN family as Rack at deliberately different axes: full
     // width and near-bold, which is the lettering the black decks actually

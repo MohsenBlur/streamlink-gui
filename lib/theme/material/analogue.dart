@@ -45,6 +45,10 @@ const MaterialSpec analogueSpec = MaterialSpec(
       edgeClearance: 14,
     ),
   ),
+  instruments: InstrumentSpec(
+    meterStyle: MeterStyle.needle,
+    lampCollar: LampCollar.brass,
+  ),
   type: MaterialType(
     // A serif, because consoles labelled their furniture in one and their
     // instruments in DIN: the engraving on a walnut cabinet is not the
@@ -92,6 +96,7 @@ const MaterialPalette _analogueDark = MaterialPalette(
   subtext: Color(0xFFD8CDBC),
   disabledText: Color(0xFFAC9F8C),
   border: Color(0xFF7C6F5E),
+  accentMetal: Color(0xFFB08D57),
   // The legacy pair, for the switch knob, LED collar and avatar frame:
   // walnut lifted toward the lamp, and the room's warm black.
   highlight: Color(0xFF3E332A),
@@ -256,6 +261,7 @@ const MaterialPalette _analogueLight = MaterialPalette(
   subtext: Color(0xFF4C4133),
   disabledText: Color(0xFF68604F),
   border: Color(0xFF75695A),
+  accentMetal: Color(0xFF8F6B36),
   highlight: Color(0xFFFFFFFF),
   shadow: Color(0xFF40301C),
   lightAzimuthDeg: 90,

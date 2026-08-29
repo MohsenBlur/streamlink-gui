@@ -175,9 +175,17 @@ abstract final class NeuType {
   /// not line up reads as a rendering fault.
   ///
   /// [mono] adopts nothing: `tnum` on a fixed-pitch face is a no-op.
-  static TextStyle readout(TextStyle style) => style.copyWith(
-        fontFeatures: const [FontFeature.tabularFigures()],
-      );
+  static TextStyle readout(TextStyle style) {
+    // Deck's readouts spread like a fluorescent display's fixed cells: the
+    // figures gain tracking, never size (panel_type_test holds that line
+    // for every material treatment).
+    final vfd = !suppressMaterialFace &&
+        MaterialSpec.of(NeuTheme.activeMaterial).instruments.vfdReadout;
+    return style.copyWith(
+      fontFeatures: const [FontFeature.tabularFigures()],
+      letterSpacing: vfd ? 1.1 : style.letterSpacing,
+    );
+  }
 
   /// 12/400 monospace. Log output, file paths, anything column-aligned.
   static TextStyle mono(bool isDark, {Color? color}) => TextStyle(

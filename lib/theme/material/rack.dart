@@ -70,6 +70,10 @@ const MaterialSpec rackSpec = MaterialSpec(
       toneDark: Color(0xFF20242B),
     ),
   ),
+  instruments: InstrumentSpec(
+    meterStyle: MeterStyle.ledSegments,
+    lampCollar: LampCollar.machined,
+  ),
   type: MaterialType(
     labelFamily: 'Bahnschrift',
     labelWidth: 87.5,
