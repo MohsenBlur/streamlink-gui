@@ -28,7 +28,23 @@ const MaterialSpec analogueSpec = MaterialSpec(
   blurb: 'Lamplit walnut, paper cards, a listening room at night.',
   light: _analogueLight,
   dark: _analogueDark,
-  furniture: Furniture(plates: true, bezels: true),
+  furniture: Furniture(
+    plates: true,
+    bezels: true,
+    // THE signature: the walnut sleeve every silver-face receiver sat in.
+    // Four mitred bands with the grain turning each corner; the top band is
+    // slim because that is where the faceplate meets the lid - and where
+    // the title bar's controls live. The title bar honours edgeClearance so
+    // no chrome ever sits under wood.
+    chassis: ChassisSpec(
+      kind: ChassisKind.woodFrame,
+      bandExtent: 10,
+      topExtent: 6,
+      tone: Color(0xFF7A5A3C),
+      toneDark: Color(0xFF352519),
+      edgeClearance: 14,
+    ),
+  ),
   type: MaterialType(
     // A serif, because consoles labelled their furniture in one and their
     // instruments in DIN: the engraving on a walnut cabinet is not the

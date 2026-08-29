@@ -52,7 +52,24 @@ const MaterialSpec rackSpec = MaterialSpec(
   // `plates` and `bezels` stay: those are drawn ON surfaces that genuinely
   // have margins - the engraved legend on the title bar, the rim around a
   // recessed thumbnail - rather than on the window.
-  furniture: Furniture(plates: true, bezels: true),
+  furniture: Furniture(
+    plates: true,
+    bezels: true,
+    // The mounting flange: a milled rail along the window's bottom edge with
+    // socket-head bolts at rack pitch. Bottom only - a top band would cross
+    // the title bar's controls, which is the v1.7.1 failure by another
+    // route. The finding in the comment above still stands for CORNER
+    // ornament; the rail carries its own margin and its bolts stay
+    // 90px clear of every corner.
+    chassis: ChassisSpec(
+      kind: ChassisKind.rails,
+      bandExtent: 10,
+      boltPitchPx: 180,
+      cornerAvoidPx: 90,
+      tone: Color(0xFFB7B1A4),
+      toneDark: Color(0xFF20242B),
+    ),
+  ),
   type: MaterialType(
     labelFamily: 'Bahnschrift',
     labelWidth: 87.5,

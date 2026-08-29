@@ -19,7 +19,6 @@ import 'state/activity_state.dart';
 import 'state/download_registry.dart';
 import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
-import 'theme/material/chassis_furniture.dart';
 import 'widgets/shell/edge_fade.dart';
 import 'widgets/shell/app_chassis.dart';
 import 'widgets/shell/engraved_rule.dart';
@@ -2491,12 +2490,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           child: Column(
         children: [
           NeuTitleBar(
-            // The corner screws land here. Asking the chassis rather than
+            // The chassis ornament lands here. Asking the chassis rather than
             // recomputing the predicate keeps the clearance and the ornament
-            // from ever disagreeing about whether there is a screw.
-            edgeInset: AppChassis.showsFurniture(context)
-                ? ChassisFurniture.edgeClearance
-                : 0,
+            // from ever disagreeing about what is drawn at the edges.
+            edgeInset: AppChassis.edgeClearance(context),
             liveCount: _channels.where((c) => c.isLive).length,
             actions: [
               ActivityPill(

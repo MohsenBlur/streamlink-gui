@@ -52,6 +52,21 @@ class AppChassis extends StatelessWidget {
     return f.hasChassisOrnament && !layout.isRail;
   }
 
+  /// How far the title bar must hold its content off the window's sides.
+  ///
+  /// Per material now, because the ornament is: the walnut case needs 14px,
+  /// the rail and the vent live on the bottom edge and need none, and legacy
+  /// screw/seam ornament keeps its historic clearance. Zero whenever the
+  /// ornament is suppressed, so a rail layout loses the inset with the
+  /// frame - the pair can never disagree.
+  static double edgeClearance(BuildContext context) {
+    if (!showsFurniture(context)) return 0;
+    final f = MaterialSpec.of(NeuTheme.activeMaterial).furniture;
+    final chassis = f.chassis;
+    if (chassis != null) return chassis.edgeClearance;
+    return f.screws || f.seams ? ChassisFurniture.edgeClearance : 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     // `maybeOf`, never `of`. This widget wraps the app body, so an `AppLayout`

@@ -27,7 +27,18 @@ const MaterialSpec deckSpec = MaterialSpec(
   blurb: 'Moulded bakelite, grey ABS, a fluorescent readout.',
   light: _deckLight,
   dark: _deckDark,
-  furniture: Furniture(plates: true, bezels: true),
+  furniture: Furniture(
+    plates: true,
+    bezels: true,
+    // The machine breathes through its bottom edge: a perforated vent strip,
+    // the black deck's most recognisable non-control feature.
+    chassis: ChassisSpec(
+      kind: ChassisKind.ventStrip,
+      bandExtent: 8,
+      tone: Color(0xFFC4C6C3),
+      toneDark: Color(0xFF1B1917),
+    ),
+  ),
   type: MaterialType(
     // The same DIN family as Rack at deliberately different axes: full
     // width and near-bold, which is the lettering the black decks actually
@@ -71,6 +82,11 @@ const MaterialPalette _deckDark = MaterialPalette(
   screenIsEmissive: true,
   screenText: Color(0xFFA5F2E3),
   screenSubtext: Color(0xFF5FB8AA),
+  // The transport strip: every black deck wore a silver control band. Dark
+  // theme gets bounded GUNMETAL rather than mirror silver - the ceiling is
+  // set so the light text ink still clears 4.5:1 against the band plus its
+  // lit face lift; true silver needs band-scoped inks, deferred.
+  chrome: Color(0xFF43474D),
   text: Color(0xFFEDEBE7),
   // Lifted for the elevation overlay, same discipline as Rack and Analogue:
   // the worst ground is the deepest overlay under the lit lift.
@@ -248,6 +264,7 @@ const MaterialPalette _deckLight = MaterialPalette(
   screenIsEmissive: true,
   screenText: Color(0xFFA5F2E3),
   screenSubtext: Color(0xFF5FB8AA),
+  chrome: Color(0xFFCDCFD2),
   text: Color(0xFF262723),
   subtext: Color(0xFF41433E),
   disabledText: Color(0xFF5D6058),

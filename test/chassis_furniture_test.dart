@@ -200,15 +200,45 @@ void main() {
           reason: 'the chassis painter has stopped drawing anything');
     });
 
-    test('a surface-only material asks the painter for nothing', () {
-      // The other half: declaring plates and bezels must NOT put a groove or a
-      // screw on the window. This is the assertion that would have caught the
-      // v1.7.0 arrangement, where `isNone` conflated the two and the title bar
-      // gave up 26 logical pixels to clear a screw.
-      final f = MaterialSpec.of(AppMaterial.rack).furniture;
-      expect(f.isNone, isFalse, reason: 'rack does declare furniture');
-      expect(f.hasChassisOrnament, isFalse,
-          reason: 'rack draws on surfaces, not on the window');
+    test('every material declares the chassis its world calls for', () {
+      // This test spent one release asserting rack had NO chassis ornament -
+      // a correct pin for the v1.7.1 screws-and-groove retreat, flipped
+      // deliberately by the differentiation work: the window-level
+      // composition is now the strongest at-a-glance difference between the
+      // materials. What SURVIVES from v1.7.1 is the placement law, asserted
+      // below: nothing near the window's corners, where the controls live.
+      expect(MaterialSpec.of(AppMaterial.rack).furniture.chassis?.kind,
+          ChassisKind.rails);
+      expect(MaterialSpec.of(AppMaterial.analogue).furniture.chassis?.kind,
+          ChassisKind.woodFrame);
+      expect(MaterialSpec.of(AppMaterial.deck).furniture.chassis?.kind,
+          ChassisKind.ventStrip);
+      expect(MaterialSpec.of(AppMaterial.soft).furniture.chassis, isNull,
+          reason: 'Soft is the shipped look and never grows ornament');
+    });
+
+    test('the placement law: bolts stay clear of the window corners', () {
+      // The v1.7.1 finding, kept as a rule instead of a retreat: corner
+      // ornament imitates window controls. Any railed material must hold its
+      // bolts at least 80px off each corner, and only bottom-edge or
+      // side-frame ornament may exist at all - the top corners belong to the
+      // close button.
+      for (final spec in MaterialSpec.available) {
+        final c = spec.furniture.chassis;
+        if (c == null) continue;
+        if (c.boltPitchPx > 0) {
+          expect(c.cornerAvoidPx, greaterThanOrEqualTo(80),
+              reason: '${spec.id.key}: bolts near a corner read as a fourth '
+                  'window control');
+        }
+        if (c.kind == ChassisKind.woodFrame) {
+          expect(c.edgeClearance, greaterThanOrEqualTo(c.bandExtent),
+              reason: '${spec.id.key}: the title bar must clear the frame');
+          expect(c.resolvedTopExtent, lessThanOrEqualTo(8),
+              reason: '${spec.id.key}: a thick top band crosses the window '
+                  'controls');
+        }
+      }
     });
 
     test('equal specs compare equal', () {

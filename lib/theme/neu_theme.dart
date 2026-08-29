@@ -514,6 +514,22 @@ class NeuTheme {
       );
 
   /// A faceplate: textured, bevelled, lightly shadowed.
+  /// The title bar's body: the material's second tone where it has one.
+  ///
+  /// Deck is two-tone - a black machine wearing a silver transport band -
+  /// and the band IS the title bar. Materials without a [MaterialPalette.chrome]
+  /// get exactly the decoration the title bar always had, so this helper is
+  /// unconditional at the call site, the same shape as [bezel].
+  static Decoration titleBarSurface(bool isDark, {Border? border}) {
+    final p = palette(isDark);
+    return panel(
+      isDark,
+      radius: 0,
+      base: p.chrome ?? p.canvas,
+      border: border,
+    );
+  }
+
   static Decoration panel(
     bool isDark, {
     Color? base,

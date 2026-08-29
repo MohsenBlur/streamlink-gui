@@ -358,6 +358,87 @@ enum BoundaryStrategy {
 
 /// Ornament: what a material's furniture is made of.
 ///
+/// What shape the window's body takes, per material.
+enum ChassisKind {
+  /// A milled mounting rail along the window's bottom edge, with socket-head
+  /// bolts at a regular pitch. The broadcast machine's flange.
+  rails,
+
+  /// A wood case framing all four edges - the way every silver-face receiver
+  /// sat in its walnut sleeve. The top band is slimmer than the others:
+  /// that is where the faceplate meets the lid, and it must clear the title
+  /// bar's controls.
+  woodFrame,
+
+  /// A perforated vent strip along the bottom edge. The black machine
+  /// breathes through it.
+  ventStrip,
+}
+
+/// The window-level composition of a material - the single strongest
+/// at-a-glance differentiator, because it reshapes the app's silhouette
+/// rather than retinting its surfaces.
+///
+/// Every band is drawn as foreground ornament over EXISTING padding: nothing
+/// here claims layout, and the whole spec is suppressed on rail layouts by
+/// the same predicate that suppressed the v1.7.1 screws. The v1.7.1 findings
+/// hold as rules: no ornament imitating a control, no ornament near the
+/// window corners' controls, no marginless hairlines - which is why the rail
+/// and the vent live on the BOTTOM edge and the wood frame's top band is
+/// slim.
+@immutable
+class ChassisSpec {
+  const ChassisSpec({
+    required this.kind,
+    required this.bandExtent,
+    this.topExtent,
+    this.boltPitchPx = 0,
+    this.cornerAvoidPx = 80,
+    this.tone,
+    this.toneDark,
+    this.edgeClearance = 0,
+  });
+
+  final ChassisKind kind;
+
+  /// Band thickness in logical px (rail height, frame width, strip height).
+  final double bandExtent;
+
+  /// The wood frame's top band, when it differs. Null = [bandExtent].
+  final double? topExtent;
+
+  /// Bolt spacing along a rail; 0 = no bolts.
+  final double boltPitchPx;
+
+  /// No bolt lands within this of a corner - the window controls live there.
+  final double cornerAvoidPx;
+
+  /// The band's base colour per brightness; null derives from the palette.
+  final Color? tone, toneDark;
+
+  /// Horizontal hold-back the title bar must honour, so its content never
+  /// sits under a frame band.
+  final double edgeClearance;
+
+  double get resolvedTopExtent => topExtent ?? bandExtent;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ChassisSpec &&
+      other.kind == kind &&
+      other.bandExtent == bandExtent &&
+      other.topExtent == topExtent &&
+      other.boltPitchPx == boltPitchPx &&
+      other.cornerAvoidPx == cornerAvoidPx &&
+      other.tone == tone &&
+      other.toneDark == toneDark &&
+      other.edgeClearance == edgeClearance;
+
+  @override
+  int get hashCode => Object.hash(kind, bandExtent, topExtent, boltPitchPx,
+      cornerAvoidPx, tone, toneDark, edgeClearance);
+}
+
 /// A data record, not a painter layer. Screws, seams, engraved plates and rims
 /// are drawn by the widget that owns the surface, because a `BoxPainter`
 /// receives no `BuildContext` and its `ImageConfiguration.size` is the
@@ -372,6 +453,7 @@ class Furniture {
     this.plates = false,
     this.bezels = false,
     this.rim = RimStyle.none,
+    this.chassis,
   });
 
   const Furniture.none()
@@ -379,7 +461,8 @@ class Furniture {
         seams = false,
         plates = false,
         bezels = false,
-        rim = RimStyle.none;
+        rim = RimStyle.none,
+        chassis = null;
 
   final bool screws, seams, plates;
 
@@ -394,8 +477,14 @@ class Furniture {
 
   final RimStyle rim;
 
+  /// The window-level composition, or null for a material whose window body
+  /// is plain surface (Soft, and any material that differentiates through
+  /// its faces alone).
+  final ChassisSpec? chassis;
+
   bool get isNone =>
-      !screws && !seams && !plates && !bezels && rim == RimStyle.none;
+      !screws && !seams && !plates && !bezels && rim == RimStyle.none &&
+      chassis == null;
 
   /// Whether anything is drawn on the WINDOW itself, as opposed to on a
   /// surface inside it.
@@ -406,7 +495,7 @@ class Furniture {
   /// widget that owns it; screws, seams and a rim are drawn on the chassis by
   /// `AppChassis`, and only those force the window's own chrome to leave room.
   bool get hasChassisOrnament =>
-      screws || seams || rim != RimStyle.none;
+      screws || seams || rim != RimStyle.none || chassis != null;
 
   @override
   bool operator ==(Object other) =>
@@ -415,10 +504,12 @@ class Furniture {
       other.seams == seams &&
       other.plates == plates &&
       other.bezels == bezels &&
-      other.rim == rim;
+      other.rim == rim &&
+      other.chassis == chassis;
 
   @override
-  int get hashCode => Object.hash(screws, seams, plates, bezels, rim);
+  int get hashCode =>
+      Object.hash(screws, seams, plates, bezels, rim, chassis);
 }
 
 enum RimStyle { none, chrome, brass, moulded }
@@ -491,6 +582,7 @@ class MaterialPalette {
     required this.bevelShade,
     required this.contact,
     this.screenIsEmissive = false,
+    this.chrome,
     Color? screenText,
     Color? screenSubtext,
     this.diagonalCompensation = true,
@@ -541,6 +633,11 @@ class MaterialPalette {
   /// this field a light theme either loses its readout or ships an unvalidated
   /// ink pair on a light one.
   final bool screenIsEmissive;
+
+  /// A second body tone for two-tone materials - deck's silver transport
+  /// band. Null for every single-tone material; the title bar falls back to
+  /// its usual canvas panel.
+  final Color? chrome;
 
   // --- inks ----------------------------------------------------------------
   //
@@ -899,6 +996,7 @@ class MaterialPalette {
       other.well == well &&
       other.screen == screen &&
       other.screenIsEmissive == screenIsEmissive &&
+      other.chrome == chrome &&
       other.screenText == screenText &&
       other.screenSubtext == screenSubtext &&
       other.text == text &&
@@ -933,7 +1031,7 @@ class MaterialPalette {
 
   @override
   int get hashCode => Object.hashAll([
-        canvas, surface, well, screen, screenIsEmissive,
+        canvas, surface, well, screen, screenIsEmissive, chrome,
         screenText, screenSubtext,
         text, subtext, border, highlight, shadow, disabledText,
         lightAzimuthDeg, diagonalCompensation,
