@@ -72,6 +72,14 @@ uniform vec4 uOcc;      // 45..48  x contact-AO opacity, y AO reach,
 uniform vec4 uTone;     // 49..52  x exposure, y white point,
                         //         z dither in 8-bit LSB, w surface opacity
 
+// --- surface pattern --------------------------------------------------------
+uniform vec4 uPattern;  // 53..56  x kind: 0 none, 1 scanline, 2 dialGlow
+                        //         y period in DEVICE px
+                        //         z primary strength
+                        //         w secondary: scanline = aperture-grille
+                        //           strength, dialGlow = falloff exponent
+uniform vec3 uPatternColor; // 57..59  dialGlow emissive tint (sRGB)
+
 out vec4 fragColor;
 
 // --- colour space -----------------------------------------------------------
@@ -350,6 +358,26 @@ void main() {
   vec3 F = F0 + (1.0 - F0) * pow(1.0 - max(dot(H, V), 0.0), 5.0);
 
   vec3 albedo = toLinear(uAlbedo);
+
+  // SCANLINE (pattern kind 1): a luminance modulation of the surface itself,
+  // not a lighting term - a CRT's raster darkens the phosphor gaps whatever
+  // the room does. Multiplicative and applied to the albedo, so text drawn
+  // over the screen keeps its contrast: the modulation can only DARKEN the
+  // ground, never lift it toward a light ink. The period arrives in device
+  // pixels so the raster stays crisp at every window scale; px converts.
+  if (uPattern.x > 0.5 && uPattern.x < 1.5) {
+    float rowPhase = 6.2831853 * p.y / max(uPattern.y * px, 2.0 * px);
+    float rows = 0.5 + 0.5 * cos(rowPhase);
+    float grille = 0.0;
+    if (uPattern.w > 0.001) {
+      // The aperture grille: a finer vertical mask at 1/3 the row strength,
+      // which is what separates "CRT" from "venetian blind".
+      float colPhase = 6.2831853 * p.x / max(uPattern.y * px, 2.0 * px);
+      grille = uPattern.w * (0.5 + 0.5 * cos(colPhase));
+    }
+    albedo *= 1.0 - uPattern.z * rows - grille;
+  }
+
   vec3 kd = albedo * (1.0 - metal);   // metals have no diffuse term at all
 
   // Wrapped Lambert: a hard terminator across a 3px chamfer looks like a
@@ -399,6 +427,17 @@ void main() {
   col += F * env * occ * cavity;
   col += sky * (pow(ndh, 2.5) * uKey.z) * occ;
   col += sky * rim;
+
+  // DIAL GLOW (pattern kind 2): the lamp behind a receiver's dial window.
+  // Emissive - added AFTER the surface shading, because backlight is not
+  // reflection - and strongest at the top of the pane, falling away with
+  // the secondary exponent. Occlusion still applies: a recessed pane's
+  // walls shade its own lamp.
+  if (uPattern.x > 1.5 && uPattern.x < 2.5) {
+    float gT = clamp(0.5 + 0.5 * (p.y / b.y), 0.0, 1.0);
+    float glow = pow(gT, max(uPattern.w, 0.25));
+    col += toLinear(uPatternColor) * (uPattern.z * glow) * occ;
+  }
 
   // --- tone map -------------------------------------------------------------
   // NOT optional decoration. An energy-normalised GGX lobe peaks far above 1.0

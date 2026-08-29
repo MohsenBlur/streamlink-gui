@@ -74,6 +74,11 @@ void main() {
     double dither = 1.0,
     double opacity = 1.0,
     double px = 1.0,
+    double patternKind = 0.0,
+    double patternPeriod = 4.0,
+    double patternStrength = 0.0,
+    double patternStrength2 = 0.0,
+    List<double> patternColor = const [1.0, 1.0, 1.0],
   }) {
     final s = program.fragmentShader();
     var i = 0;
@@ -121,6 +126,11 @@ void main() {
     f(white);
     f(dither);
     f(opacity); // uTone
+    f(patternKind);
+    f(patternPeriod);
+    f(patternStrength);
+    f(patternStrength2); // uPattern
+    patternColor.forEach(f); // uPatternColor
     return s;
   }
 
@@ -321,6 +331,89 @@ void main() {
               'on=${grained.toStringAsFixed(2)}) - a fade guard that erases '
               'it is the v1.8.0 bug back again');
     }
+  });
+
+  test('pattern kind 0 ignores every other pattern parameter', () async {
+    // The no-op guard: three materials ship with patternKind 0, and a stray
+    // strength or colour must not leak one pixel of raster into them.
+    final a = await render(shade(w: w, h: h, dither: 0), w, h);
+    final b = await render(
+        shade(
+            w: w,
+            h: h,
+            dither: 0,
+            patternStrength: 0.9,
+            patternStrength2: 0.9,
+            patternPeriod: 3,
+            patternColor: const [1.0, 0.2, 0.2]),
+        w,
+        h);
+    for (var y = 40; y < 160; y += 7) {
+      for (var x = 40; x < 200; x += 7) {
+        expect(lum(b, stride, x, y), lum(a, stride, x, y),
+            reason: 'kind 0 must be bit-identical at ($x,$y)');
+      }
+    }
+  });
+
+  test('the scanline darkens, periodically, and never lifts', () async {
+    // A CRT raster is a property of the SURFACE: multiplicative, so it can
+    // only darken the ground under a light ink - the direction the contrast
+    // model is safe in.
+    final off = await render(shade(w: w, h: h, dither: 0), w, h);
+    final on = await render(
+        shade(
+            w: w,
+            h: h,
+            dither: 0,
+            patternKind: 1,
+            patternPeriod: 4,
+            patternStrength: 0.3),
+        w,
+        h);
+    var lifted = 0, darkened = 0;
+    for (var y = 60; y < 140; y++) {
+      final a = lum(off, stride, 110, y), b2 = lum(on, stride, 110, y);
+      if (b2 > a + 1) lifted++;
+      if (b2 < a - 1) darkened++;
+    }
+    expect(lifted, 0, reason: 'a multiplicative raster must never lift');
+    expect(darkened, greaterThan(20), reason: 'and must visibly darken rows');
+
+    // Periodicity: 4 device px at px=1 - the darkened rows repeat.
+    var flips = 0;
+    var wasDark = false;
+    for (var y = 60; y < 140; y++) {
+      final dark =
+          lum(on, stride, 110, y) < lum(off, stride, 110, y) - 1;
+      if (dark != wasDark) flips++;
+      wasDark = dark;
+    }
+    expect(flips, greaterThan(15),
+        reason: 'the darkening must alternate at the period, not be a wash');
+  });
+
+  test('the dial glow lifts toward the top of the pane and stays bounded',
+      () async {
+    final off = await render(shade(w: w, h: h, dither: 0), w, h);
+    final on = await render(
+        shade(
+            w: w,
+            h: h,
+            dither: 0,
+            patternKind: 2,
+            patternStrength: 0.10,
+            patternStrength2: 2.0,
+            patternColor: const [1.0, 0.85, 0.6]),
+        w,
+        h);
+    // y-UP shader frame: the TOP of the pane is the low image y.
+    final topLift = lum(on, stride, 110, 50) - lum(off, stride, 110, 50);
+    final bottomLift = lum(on, stride, 110, 150) - lum(off, stride, 110, 150);
+    expect(topLift, greaterThan(bottomLift + 2),
+        reason: 'the lamp sits above the dial, so the glow must fall away '
+            'downward (top=+$topLift bottom=+$bottomLift)');
+    expect(topLift, lessThan(80), reason: 'a glow, not a floodlight');
   });
 
   test('the grain is anisotropic: streaks along the brush, not noise',

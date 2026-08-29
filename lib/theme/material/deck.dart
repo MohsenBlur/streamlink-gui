@@ -191,9 +191,17 @@ const LitSpec _deckDarkVfd = LitSpec(
   rim: 0.50,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.80,
-  // Measured: -2.9 peak lift (one level declared for the dither), 11.5 drop.
+  // The raster: 3-device-px rows with a whisper of aperture grille. It
+  // multiplies the albedo, so it can only DARKEN - the safe direction for
+  // the cyan ink - and the period is device pixels, so it stays crisp at
+  // every window scale.
+  patternKind: 1,
+  patternPeriodPx: 3,
+  patternStrength: 0.30,
+  patternStrength2: 0.05,
+  // Re-measured with the raster: it darkens (-4.5 peak lift, 14.3 drop).
   faceLiftLevels: 1,
-  faceDropLevels: 12,
+  faceDropLevels: 15,
 );
 
 const LitSpec _deckLightVfd = LitSpec(
@@ -219,9 +227,13 @@ const LitSpec _deckLightVfd = LitSpec(
   rim: 0.45,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.65,
-  // Measured after the dimming: +6.3 / -5.7.
-  faceLiftLevels: 7,
-  faceDropLevels: 7,
+  patternKind: 1,
+  patternPeriodPx: 3,
+  patternStrength: 0.30,
+  patternStrength2: 0.05,
+  // Re-measured with the raster: +5.6 / -7.2.
+  faceLiftLevels: 6,
+  faceDropLevels: 8,
 );
 
 const MaterialPalette _deckLight = MaterialPalette(

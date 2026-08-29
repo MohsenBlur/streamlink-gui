@@ -186,11 +186,16 @@ const LitSpec _analogueDarkGlass = LitSpec(
   rim: 0.50,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.80,
-  // Measured: the lamp's glint never lifts the pane's mean above its albedo
-  // (-2.2 at peak), and the vignette reaches 11.7 below. The lift is one
-  // level rather than zero for the shader's dither.
-  faceLiftLevels: 1,
-  faceDropLevels: 12,
+  // The incandescent lamp behind the dial - warmer and a touch stronger
+  // than Rack's blue, because tungsten through amber plastic is the whole
+  // mood of a lamplit receiver. Bounds re-measured with the lamp lit.
+  patternKind: 2,
+  patternStrength: 0.065,
+  patternStrength2: 2.0,
+  patternColor: Color(0xFFFFCF8F),
+  // Re-measured with the lamp lit: tungsten carries the top +29.6.
+  faceLiftLevels: 30,
+  faceDropLevels: 3,
 );
 
 const LitSpec _analogueLightGlass = LitSpec(
@@ -212,9 +217,13 @@ const LitSpec _analogueLightGlass = LitSpec(
   rim: 0.50,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.65,
-  // Measured: +4.5 / -8.6.
-  faceLiftLevels: 5,
-  faceDropLevels: 9,
+  patternKind: 2,
+  patternStrength: 0.055,
+  patternStrength2: 2.0,
+  patternColor: Color(0xFFFFCF8F),
+  // Re-measured with the lamp: +17.3 / -4.0.
+  faceLiftLevels: 18,
+  faceDropLevels: 1,
 );
 
 const MaterialPalette _analogueLight = MaterialPalette(

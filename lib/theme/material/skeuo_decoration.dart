@@ -1056,8 +1056,15 @@ class _LitPainter extends BoxPainter {
     f(spec.white);
     f(spec.dither);
     f(p.litOpacity); // uTone
-    assert(i == 53,
-        'uniform count drifted: wrote $i, the shader declares 53 floats');
+    f(spec.patternKind);
+    f(spec.patternPeriodPx);
+    f(spec.patternStrength);
+    f(spec.patternStrength2); // uPattern
+    f(spec.patternColor.r);
+    f(spec.patternColor.g);
+    f(spec.patternColor.b); // uPatternColor
+    assert(i == 60,
+        'uniform count drifted: wrote $i, the shader declares 60 floats');
 
     canvas.save();
     canvas.translate(draw.left, draw.top);

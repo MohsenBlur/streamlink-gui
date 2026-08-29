@@ -95,6 +95,11 @@ class LitSpec {
     this.faceDropLevels = 24,
     double? recessLiftLevels,
     double? recessDropLevels,
+    this.patternKind = 0,
+    this.patternPeriodPx = 4,
+    this.patternStrength = 0,
+    this.patternStrength2 = 0,
+    this.patternColor = const Color(0xFFFFFFFF),
   })  : recessLiftLevels = recessLiftLevels ?? faceLiftLevels,
         recessDropLevels = recessDropLevels ?? faceDropLevels;
 
@@ -179,6 +184,14 @@ class LitSpec {
   /// same discipline the grain amplitude already lives under.
   final double faceLiftLevels, faceDropLevels;
 
+  /// The surface pattern: 0 none, 1 scanline (multiplicative raster over the
+  /// albedo - deck's VFD), 2 dialGlow (additive lamp behind the pane - the
+  /// receivers' dial windows). Period is in DEVICE pixels so the raster is
+  /// crisp at every scale; strength2 is the scanline's aperture-grille
+  /// strength or the glow's falloff exponent.
+  final double patternKind, patternPeriodPx, patternStrength, patternStrength2;
+  final Color patternColor;
+
   /// The recessed roles' own bounds, defaulting to the proud ones.
   ///
   /// Split because the two worst cases do not co-occur: a recess's lit far
@@ -234,6 +247,11 @@ class LitSpec {
       faceDropLevels: d(a.faceDropLevels, b.faceDropLevels),
       recessLiftLevels: d(a.recessLiftLevels, b.recessLiftLevels),
       recessDropLevels: d(a.recessDropLevels, b.recessDropLevels),
+      patternKind: t < 0.5 ? a.patternKind : b.patternKind,
+      patternPeriodPx: d(a.patternPeriodPx, b.patternPeriodPx),
+      patternStrength: d(a.patternStrength, b.patternStrength),
+      patternStrength2: d(a.patternStrength2, b.patternStrength2),
+      patternColor: Color.lerp(a.patternColor, b.patternColor, t)!,
     );
   }
 
@@ -274,7 +292,12 @@ class LitSpec {
       other.faceLiftLevels == faceLiftLevels &&
       other.faceDropLevels == faceDropLevels &&
       other.recessLiftLevels == recessLiftLevels &&
-      other.recessDropLevels == recessDropLevels;
+      other.recessDropLevels == recessDropLevels &&
+      other.patternKind == patternKind &&
+      other.patternPeriodPx == patternPeriodPx &&
+      other.patternStrength == patternStrength &&
+      other.patternStrength2 == patternStrength2 &&
+      other.patternColor == patternColor;
 
   @override
   int get hashCode => Object.hashAll([
@@ -287,5 +310,7 @@ class LitSpec {
         aoOpacity, aoReachPerDepth, innerBlurPerDepth, innerOpacity,
         exposure, white, dither, faceLiftLevels, faceDropLevels,
         recessLiftLevels, recessDropLevels,
+        patternKind, patternPeriodPx, patternStrength, patternStrength2,
+        patternColor,
       ]);
 }

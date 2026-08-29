@@ -95,6 +95,10 @@ const MaterialPalette _rackDark = MaterialPalette(
   well: Color(0xFF171A1F),
   screen: Color(0xFF0C0F13),
   screenIsEmissive: true,
+  // The dial's own inks: blue-white over the blue lamp, the way a Marantz
+  // tuner scale reads. The faceplate text stays neutral below.
+  screenText: Color(0xFFD9E4F5),
+  screenSubtext: Color(0xFF9FB4D4),
   text: Color(0xFFE8EBEF),
   // Both lightened after `worstGround` learned about the elevation overlay.
   //
@@ -247,9 +251,15 @@ const LitSpec _rackDarkGlass = LitSpec(
   rim: 0.50,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.80,
-  // Glass barely moves its face: the glint is focused, the rest stays dark.
-  faceLiftLevels: 8,
-  faceDropLevels: 14,
+  // The Marantz signature: a cool blue lamp behind the dial, strongest at
+  // the top of the pane. Emissive, so it reads as backlight, not sheen.
+  patternKind: 2,
+  patternStrength: 0.055,
+  patternStrength2: 2.2,
+  patternColor: Color(0xFF9FBEE8),
+  // Re-measured with the lamp lit: the glow carries the pane's top +17.
+  faceLiftLevels: 18,
+  faceDropLevels: 4,
 );
 
 const LitSpec _rackLightGlass = LitSpec(
@@ -271,8 +281,13 @@ const LitSpec _rackLightGlass = LitSpec(
   rim: 0.50,
   innerBlurPerDepth: 2.2,
   innerOpacity: 0.65,
-  faceLiftLevels: 10,
-  faceDropLevels: 14,
+  patternKind: 2,
+  patternStrength: 0.045,
+  patternStrength2: 2.2,
+  patternColor: Color(0xFF9FBEE8),
+  // Re-measured with the lamp: +8.4 / -2.1.
+  faceLiftLevels: 9,
+  faceDropLevels: 1,
 );
 
 const MaterialPalette _rackLight = MaterialPalette(
@@ -284,8 +299,8 @@ const MaterialPalette _rackLight = MaterialPalette(
   // measured 1.08:1 here, because both are dark.
   screen: Color(0xFF2B2E33),
   screenIsEmissive: true,
-  screenText: Color(0xFFE8EBEF),
-  screenSubtext: Color(0xFFB9C3D2),
+  screenText: Color(0xFFD9E4F5),
+  screenSubtext: Color(0xFF9FB4D4),
   text: Color(0xFF2B2823),
   subtext: Color(0xFF454138),
   // #6B665D measured 2.66:1 against this palette's own worst ground - the well

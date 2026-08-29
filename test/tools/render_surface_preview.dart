@@ -104,6 +104,13 @@ void main() {
       f(white);
       f(1.0);
       f(1.0); // uTone (dither, opacity)
+      f(0.0);
+      f(4.0);
+      f(0.0);
+      f(0.0); // uPattern (none)
+      f(1.0);
+      f(1.0);
+      f(1.0); // uPatternColor
 
       final dw = w + pad * 2, dh = h + pad * 2;
       final rec = ui.PictureRecorder();
