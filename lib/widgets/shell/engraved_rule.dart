@@ -58,3 +58,57 @@ class EngravedRule extends StatelessWidget {
     );
   }
 }
+
+
+/// The engraved pair as a [Decoration], for rows that separate themselves.
+///
+/// A console's channel strips are divided by grooves in the panel between
+/// them, not by lines on the strips. Installed as a `foregroundDecoration`
+/// on a row whose own margin provides the gap, the pair lands in that gap -
+/// the groove is cut into the panel, exactly where the hardware cuts it.
+class EngravedEdgeDecoration extends Decoration {
+  const EngravedEdgeDecoration({required this.shade, required this.light});
+
+  final Color shade, light;
+
+  @override
+  BoxPainter createBoxPainter([VoidCallback? onChanged]) =>
+      _EngravedEdgePainter(this);
+
+  @override
+  bool hitTest(Size size, Offset position, {TextDirection? textDirection}) =>
+      false;
+
+  @override
+  bool operator ==(Object other) =>
+      other is EngravedEdgeDecoration &&
+      other.shade == shade &&
+      other.light == light;
+
+  @override
+  int get hashCode => Object.hash(shade, light);
+}
+
+class _EngravedEdgePainter extends BoxPainter {
+  _EngravedEdgePainter(this.spec);
+
+  final EngravedEdgeDecoration spec;
+
+  @override
+  void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
+    final size = configuration.size;
+    if (size == null || size.isEmpty) return;
+    final rect = offset & size;
+    // Held back from the ends like every groove in this app: a cut milled to
+    // the very edge reads as a saw mark.
+    const indent = 10.0;
+    final y = rect.bottom - 1;
+    canvas
+      ..drawLine(Offset(rect.left + indent, y - 1),
+          Offset(rect.right - indent, y - 1),
+          Paint()..strokeWidth = 1..color = spec.shade)
+      ..drawLine(Offset(rect.left + indent, y),
+          Offset(rect.right - indent, y),
+          Paint()..strokeWidth = 1..color = spec.light);
+  }
+}

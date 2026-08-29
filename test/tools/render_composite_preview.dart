@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/material/lit_surface.dart';
 import 'package:streamlink_gui/theme/material/texture_cache.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';

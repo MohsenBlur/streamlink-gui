@@ -597,28 +597,40 @@ class _LibraryRowState extends State<_LibraryRow> {
                 child: Row(
                   children: [
                     if (showThumb) ...[
-                      ClipRRect(
-                        // Concentric with the row: inner = outer - inset, and
-                        // the governing inset is the row's s8 vertical
-                        // padding. At inner(r12, s4) = 8 the thumbnail's arc
-                        // was not parallel with the row's - corners read
-                        // subtly wrong on every downloaded row.
-                        borderRadius: BorderRadius.circular(
-                            NeuRadius.inner(NeuRadius.r12, NeuSpace.s8)),
-                        // 16:9. The old 72x40 was 1.8:1, so every real
-                        // thumbnail was cropped top and bottom.
-                        child: SizedBox(
-                          width: 96,
-                          height: 54,
-                          child: thumbUrl != null
-                              ? Image.network(
-                                  thumbUrl,
-                                  fit: BoxFit.cover,
-                                  gaplessPlayback: true,
-                                  errorBuilder: (context, error, stack) =>
-                                      _thumbFallback(isDark),
-                                )
-                              : _thumbFallback(isDark),
+                      Container(
+                        // The material's display bezel, drawn OVER the
+                        // picture - the same contract as the VOD card's
+                        // thumbnail: null on a material that declares none,
+                        // so Soft's rows are untouched. Deck's is the wide
+                        // cassette-window ring.
+                        foregroundDecoration: NeuTheme.bezel(
+                          isDark,
+                          radius: NeuRadius.inner(NeuRadius.r12, NeuSpace.s8),
+                          depth: NeuElevation.d1,
+                        ),
+                        child: ClipRRect(
+                          // Concentric with the row: inner = outer - inset,
+                          // and the governing inset is the row's s8 vertical
+                          // padding. At inner(r12, s4) = 8 the thumbnail's
+                          // arc was not parallel with the row's - corners
+                          // read subtly wrong on every downloaded row.
+                          borderRadius: BorderRadius.circular(
+                              NeuRadius.inner(NeuRadius.r12, NeuSpace.s8)),
+                          // 16:9. The old 72x40 was 1.8:1, so every real
+                          // thumbnail was cropped top and bottom.
+                          child: SizedBox(
+                            width: 96,
+                            height: 54,
+                            child: thumbUrl != null
+                                ? Image.network(
+                                    thumbUrl,
+                                    fit: BoxFit.cover,
+                                    gaplessPlayback: true,
+                                    errorBuilder: (context, error, stack) =>
+                                        _thumbFallback(isDark),
+                                  )
+                                : _thumbFallback(isDark),
+                          ),
                         ),
                       ),
                       const SizedBox(width: NeuSpace.s12),

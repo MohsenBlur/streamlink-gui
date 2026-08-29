@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'material/app_material.dart';
+import '../widgets/shell/engraved_rule.dart';
 import 'material/skeuo_decoration.dart';
 
 export 'neu_tokens.dart';
@@ -514,6 +515,20 @@ class NeuTheme {
       );
 
   /// A faceplate: textured, bevelled, lightly shadowed.
+  /// The engraved divider between a console's channel strips, or null.
+  ///
+  /// Only the railed material separates its rows this way - strips are a
+  /// broadcast-console idiom, not a receiver's or a deck's. Null everywhere
+  /// else, so the call site is unconditional in the [bezel] pattern.
+  static Decoration? stripSeparator(bool isDark, {AppMaterial? material}) {
+    final id = material ?? activeMaterial;
+    if (MaterialSpec.of(id).furniture.chassis?.kind != ChassisKind.rails) {
+      return null;
+    }
+    final p = palette(isDark, material: id);
+    return EngravedEdgeDecoration(shade: p.bevelShade, light: p.bevelLight);
+  }
+
   /// The title bar's body: the material's second tone where it has one.
   ///
   /// Deck is two-tone - a black machine wearing a silver transport band -
@@ -604,13 +619,27 @@ class NeuTheme {
     AppMaterial? material,
   }) {
     final id = material ?? activeMaterial;
-    if (!MaterialSpec.of(id).furniture.bezels) return null;
+    final spec = MaterialSpec.of(id);
+    if (!spec.furniture.bezels) return null;
+    final p = palette(isDark, material: id);
+    // Deck's displays sit behind a cassette window: a wider moulded ring
+    // with a visible inner rim, where the other materials take a thin
+    // machined edge. Expressed as a caller border (which REPLACES the
+    // material bevel by the factory's own rule), so the ring is part of the
+    // one decoration rather than a second stacked box.
+    final effectiveBorder = border ??
+        (spec.instruments.meterStyle == MeterStyle.vfdSegments
+            ? Border.all(
+                color: Color.lerp(p.surface, p.highlight, 0.25)!,
+                width: 2.5,
+              )
+            : null);
     return SkeuoDecoration.role(
-      palette: palette(isDark, material: id),
+      palette: p,
       role: SurfaceRole.screen,
       depth: depth,
       radius: radius,
-      border: border,
+      border: effectiveBorder,
       fillOpacity: 0,
     );
   }
