@@ -122,6 +122,16 @@ class LitSpec {
   final double chamferProfile;
 
   /// Land angle as a fraction of 90°, for the machined profile.
+  ///
+  /// KNOWN QUIRK: only 0.5 closes flush with the face. The shader's land
+  /// formula reaches phi = 90° * (landAngle * 2) at the face-side arris, so
+  /// any other value leaves a small constant normal tilt toward the nearest
+  /// edge across the ENTIRE face - invisible on a chip, but on a
+  /// window-sized panel the nearest-edge regions meet in 45° miter seams
+  /// (measured: ~3 sRGB levels on deck's first draft at 0.45). Hold this at
+  /// 0.5 until the shader gates the face-side arris to land exactly flat;
+  /// that edit re-baselines every material's measured bounds, so it belongs
+  /// to its own change, not to a material's.
   final double landAngle;
 
   /// Light elevation above the surface plane, degrees. The azimuth is the

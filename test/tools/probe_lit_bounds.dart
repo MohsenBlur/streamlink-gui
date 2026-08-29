@@ -3,14 +3,15 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:streamlink_gui/theme/material/analogue.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/material/lit_surface.dart';
 import 'package:streamlink_gui/theme/material/skeuo_decoration.dart';
 
 /// Calibration instrument, not a gate: prints the measured lift/drop for
-/// every analogue lit role in one pass, so the declared bounds can be set to
-/// measurement instead of iterated one gate-failure at a time.
+/// every lit role of every registered material in one pass, so a new
+/// material's declared bounds can be set to measurement instead of iterated
+/// one gate-failure at a time. Register the draft spec, run this, copy the
+/// numbers in.
 void main() {
   setUpAll(() async {
     await LitSurfaceProgram.load();
@@ -65,30 +66,33 @@ void main() {
     return (lift: maxL - albedo, drop: albedo - minL);
   }
 
-  test('print analogue measured bounds', () async {
-    for (final isDark in [false, true]) {
-      final p = analogueSpec.palette(isDark);
-      final mode = isDark ? 'dark ' : 'light';
-      for (final (role, depths) in [
-        (SurfaceRole.panel, const [2.0, 3.0]),
-        (SurfaceRole.raised, const [2.0, 3.0, 5.0]),
-        (SurfaceRole.sunken, const [3.0]),
-        (SurfaceRole.well, const [1.0]),
-        (SurfaceRole.screen, const [2.0]),
-      ]) {
-        for (final depth in depths) {
-          final m = await measure(p, role, depth);
-          // ignore: avoid_print
-          print('$mode ${role.name.padRight(6)} d$depth  '
-              'lift=${m.lift.toStringAsFixed(1)}  '
-              'drop=${m.drop.toStringAsFixed(1)}');
+  test('print measured bounds for every lit material', () async {
+    for (final spec in MaterialSpec.available) {
+      for (final isDark in [false, true]) {
+        final p = spec.palette(isDark);
+        if (p.lit == null) continue;
+        final mode = '${spec.id.key} ${isDark ? 'dark ' : 'light'}';
+        for (final (role, depths) in [
+          (SurfaceRole.panel, const [2.0, 3.0]),
+          (SurfaceRole.raised, const [2.0, 3.0, 5.0]),
+          (SurfaceRole.sunken, const [3.0]),
+          (SurfaceRole.well, const [1.0]),
+          (SurfaceRole.screen, const [2.0]),
+        ]) {
+          for (final depth in depths) {
+            final m = await measure(p, role, depth);
+            // ignore: avoid_print
+            print('$mode ${role.name.padRight(6)} d$depth  '
+                'lift=${m.lift.toStringAsFixed(1)}  '
+                'drop=${m.drop.toStringAsFixed(1)}');
+          }
         }
+        final chip = await measure(p, SurfaceRole.raised, 2,
+            size: const Size(120, 34));
+        // ignore: avoid_print
+        print('$mode raised CHIP    lift=${chip.lift.toStringAsFixed(1)}  '
+            'drop=${chip.drop.toStringAsFixed(1)}');
       }
-      final chip =
-          await measure(p, SurfaceRole.raised, 2, size: const Size(120, 34));
-      // ignore: avoid_print
-      print('$mode raised CHIP    lift=${chip.lift.toStringAsFixed(1)}  '
-          'drop=${chip.drop.toStringAsFixed(1)}');
     }
   });
 }

@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../neu_theme.dart';
 import 'material_palette.dart';
 import 'analogue.dart';
+import 'deck.dart';
 import 'rack.dart';
 
 export 'material_palette.dart';
@@ -109,6 +110,7 @@ class MaterialSpec {
   static final Map<AppMaterial, MaterialSpec> _registry = {
     AppMaterial.rack: rackSpec,
     AppMaterial.analogue: analogueSpec,
+    AppMaterial.deck: deckSpec,
     AppMaterial.soft: softSpec,
   };
 
