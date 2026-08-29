@@ -236,5 +236,21 @@ void main() {
       expect(settingsSource, contains('material: spec.id'),
           reason: 'the tiles must resolve their surfaces by parameter');
     });
+
+    test('the tiles carry no Tooltip, and must never again', () {
+      // A framework Tooltip's overlay is hit-testable and spawns below the
+      // target's centre - for a tile this tall, exactly under the hovering
+      // pointer - so the first click DISMISSED the tooltip instead of
+      // selecting the material. The blurb is on the tile face and in the
+      // Semantics label; a tooltip here only ever duplicated it at the cost
+      // of eating the click. Source-scanned because the defect is the
+      // wrapper's existence, not its behaviour in any one pump.
+      final source = File('lib/widgets/settings_dialog.dart')
+          .readAsStringSync();
+      final tileClass = source.substring(source.indexOf('class _MaterialTile'));
+      expect(tileClass, isNot(contains('Tooltip(')),
+          reason: 'a Tooltip on a tall tile eats the click that sits under '
+              'the pointer');
+    });
   });
 }

@@ -1616,13 +1616,20 @@ class _MaterialTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // No Tooltip, and the absence is a fix: the framework tooltip's overlay
+    // is hit-testable (RawTooltip.ignorePointer defaults false and Material's
+    // Tooltip does not expose it), and it spawns below the TARGET CENTRE -
+    // which for a tile this tall is exactly where the pointer hovers. The
+    // first press then dismissed the tooltip instead of selecting the
+    // material. The blurb is already printed on the tile face and spoken by
+    // the Semantics label, so the tooltip only ever duplicated it - at the
+    // cost of eating the click it sat under. Icon-sized targets elsewhere
+    // keep their tooltips: a small target cannot overlap its own tooltip.
     return Semantics(
       button: true,
       selected: selected,
       label: '${spec.name}. ${spec.blurb}',
-      child: Tooltip(
-        message: spec.blurb,
-        child: GestureDetector(
+      child: GestureDetector(
           onTap: onTap,
           child: SizedBox(
             width: 168,
@@ -1693,7 +1700,6 @@ class _MaterialTile extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }
