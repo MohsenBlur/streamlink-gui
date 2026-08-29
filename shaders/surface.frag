@@ -287,17 +287,27 @@ void main() {
   // wavelength the display can resolve reads as horizontal BANDING - regular
   // stripes, not brush. Two octaves at 2.7x break up that regularity.
   vec3 n2 = noised(q * sc * 2.7 + vec2(19.3, 7.1));
-  // Chain rule through the second octave's frequency, or the tilt is wrong.
-  vec3 nn = vec3(n1.x + 0.5 * n2.x,
-                 n1.y + 0.5 * 2.7 * n2.y,
-                 n1.z + 0.5 * 2.7 * n2.z) * (1.0 / 1.5);
 
-  // Analytic LOD. We know the pixel footprint exactly, so we know how many
-  // noise cells a pixel spans and can fade the grain out before it aliases -
-  // the job fwidth would normally do, done without fwidth. Half a cell per
-  // pixel IS the Nyquist limit, so the fade has to begin below it.
-  float cells = max(sc.x, sc.y * 2.7) * px;
-  float amp = uGrain.x * (1.0 - smoothstep(0.24, 0.50, cells));
+  // Analytic LOD, PER OCTAVE. We know the pixel footprint exactly, so we
+  // know how many noise cells a pixel spans and can fade each octave out
+  // before it aliases - the job fwidth would normally do, done without
+  // fwidth. Half a cell per pixel IS the Nyquist limit, so the fade has to
+  // begin below it.
+  //
+  // Per octave, and this is a bug fix with a release of history behind it:
+  // v1.8.0 derived ONE fade from the finer octave and multiplied the whole
+  // grain by it, which erased BOTH octaves the moment the fine one aliased.
+  // Every shipped material's grainAcross sat in exactly that band, so at
+  // 100%/125%/150% Windows scaling the grain amplitude was mathematically
+  // zero - brushed aluminium that never showed its brush on any ordinary
+  // display, and one root of "the materials all look like tints".
+  float aFine = 1.0 - smoothstep(0.24, 0.50, (sc.y * 2.7) * px);
+  float aCoarse = 1.0 - smoothstep(0.24, 0.50, sc.y * px);
+  // Chain rule through the second octave's frequency, or the tilt is wrong.
+  vec3 nn = vec3(n1.x * aCoarse + 0.5 * n2.x * aFine,
+                 n1.y * aCoarse + 0.5 * 2.7 * n2.y * aFine,
+                 n1.z * aCoarse + 0.5 * 2.7 * n2.z * aFine) * (1.0 / 1.5);
+  float amp = uGrain.x;
 
   vec3 gdir = vec3(ca, sa, 0.0);
   vec3 T = gdir - n * dot(n, gdir);

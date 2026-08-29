@@ -160,7 +160,7 @@ const LitSpec _analogueDarkLit = LitSpec(
   // peak at +13.4 (the chip) and -7.1 (deep cards, where the overlay lifts
   // the albedo above the shaded floor); the well's lamplit far wall reaches
   // +15.2 on its own darker ground.
-  faceLiftLevels: 14,
+  faceLiftLevels: 15,
   faceDropLevels: 8,
   recessLiftLevels: 16,
   recessDropLevels: 5,

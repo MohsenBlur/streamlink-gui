@@ -275,27 +275,76 @@ void main() {
             'is aliased');
   });
 
+  test('the grain actually renders, at every common display scale', () async {
+    // The v1.8.0 regression this replaces a vacuous test for: one shared
+    // Nyquist fade derived from the FINE octave multiplied both octaves, so
+    // every shipped grainAcross rendered amplitude ZERO at dpr 1.0/1.25/1.5
+    // - brushed aluminium that never showed its brush on an ordinary
+    // display. The fades are per-octave now, and this asserts the coarse
+    // octave survives where the fine one dies.
+    //
+    // Dither OFF: +/-1 LSB of isotropic noise on every pixel would swamp
+    // the roughness deltas being measured.
+    for (final px in [1.0, 1 / 1.5]) {
+      final off = await render(
+          shade(w: w, h: h, grainAmp: 0, grainAcross: 3.5, dither: 0, px: px),
+          w,
+          h);
+      final on = await render(
+          shade(
+              w: w,
+              h: h,
+              grainAmp: 0.3,
+              grainAcross: 3.5,
+              rough: 0.40,
+              dither: 0,
+              px: px),
+          w,
+          h);
+      double vRough(ByteData b) {
+        var v = 0.0;
+        var n = 0;
+        for (var y = 70; y < 110; y++) {
+          for (var x = 60; x < 160; x++) {
+            v += (lum(b, stride, x, y + 1) - lum(b, stride, x, y)).abs();
+            n++;
+          }
+        }
+        return v / n;
+      }
+
+      final base = vRough(off);
+      final grained = vRough(on);
+      expect(grained, greaterThan(base * 3),
+          reason: 'at px=$px the grain must be measurably rougher than the '
+              'plain face (off=${base.toStringAsFixed(2)} '
+              'on=${grained.toStringAsFixed(2)}) - a fade guard that erases '
+              'it is the v1.8.0 bug back again');
+    }
+  });
+
   test('the grain is anisotropic: streaks along the brush, not noise',
       () async {
     // Brushed metal varies fast across the grain and slowly along it.
     // Isotropic noise reads as dirt, and is the commonest tell in fake metal.
-    //
-    // Dither OFF: it is +/-1 LSB of isotropic noise on every pixel, which is
-    // the whole point of it, and it would swamp the signal being measured.
     final b = await render(
         shade(
-            w: w, h: h, grainAmp: 0.16, grainAcross: 3.0, rough: 0.28, dither: 0),
+            w: w, h: h, grainAmp: 0.3, grainAcross: 3.5, rough: 0.40, dither: 0),
         w,
         h);
     var along = 0.0, across = 0.0;
-    const y0 = 60;
-    for (var x = 60; x < 160; x++) {
-      along += (lum(b, stride, x + 1, y0) - lum(b, stride, x, y0)).abs();
-      across += (lum(b, stride, x, y0 + 1) - lum(b, stride, x, y0)).abs();
+    var n = 0;
+    for (var y = 70; y < 110; y++) {
+      for (var x = 60; x < 160; x++) {
+        along += (lum(b, stride, x + 1, y) - lum(b, stride, x, y)).abs();
+        across += (lum(b, stride, x, y + 1) - lum(b, stride, x, y)).abs();
+        n++;
+      }
     }
-    expect(across, greaterThan(along),
+    expect(across / n, greaterThan(4 * along / n),
         reason: 'a horizontal brush varies fast across the grain, slow along '
-            'it (along=$along across=$across)');
+            'it (along=${(along / n).toStringAsFixed(3)} '
+            'across=${(across / n).toStringAsFixed(3)})');
   });
 
   test('a metal reflects its own tint; a dielectric does not', () async {
