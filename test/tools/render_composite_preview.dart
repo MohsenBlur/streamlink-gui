@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/theme/material/lit_surface.dart';
+import 'package:streamlink_gui/theme/material/texture_cache.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_badge.dart';
@@ -26,6 +27,27 @@ import 'package:streamlink_gui/widgets/shell/engraved_rule.dart';
 void main() {
   setUpAll(() async {
     await LitSurfaceProgram.load();
+    // Prime every hairline tile, or the preview paints the one layer this
+    // harness exists to judge as MISSING - the calibration eye would be
+    // tuning the shader grain while believing it was seeing the brush.
+    for (final spec in MaterialSpec.available) {
+      for (final isDark in [false, true]) {
+        final t = spec.palette(isDark).texture;
+        if (t == null) continue;
+        for (final role in SurfaceRole.values) {
+          final amp = t.amplitudeFor(role);
+          final scale = RoleModifier.of(role).textureScale;
+          if (amp <= 0 || scale <= 0) continue;
+          await TextureCache.prime(TileKey(
+            kind: t.kind,
+            width: t.tileDevicePx.width.round(),
+            height: t.tileDevicePx.height.round(),
+            amplitude: (amp * scale).round(),
+            seed: t.seed,
+          ));
+        }
+      }
+    }
   });
 
   Future<void> snap(WidgetTester tester, Widget scene, Size size, String name,

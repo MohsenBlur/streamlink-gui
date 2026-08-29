@@ -183,7 +183,8 @@ const LitSpec _deckDarkLit = LitSpec(
   // because with the bow flattened and the land closed the drama lives
   // entirely on the moulded edge and in the casts, which no glyph ever
   // sits on.
-  faceLiftLevels: 3,
+  // +2 for the pebble tile on panels.
+  faceLiftLevels: 5,
   faceDropLevels: 7,
   recessLiftLevels: 4,
   recessDropLevels: 5,
@@ -343,7 +344,8 @@ const LitSpec _deckLightLit = LitSpec(
   // Measured: daylight ABS floats high - +17.4 at the sheen - and, like
   // Analogue's paper, never paints below its albedo; one level for the
   // dither.
-  faceLiftLevels: 18,
+  // +2 for the pebble tile the lit path now composites on panels.
+  faceLiftLevels: 20,
   faceDropLevels: 1,
   recessLiftLevels: 17,
   recessDropLevels: 1,

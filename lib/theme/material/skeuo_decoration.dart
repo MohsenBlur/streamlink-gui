@@ -949,6 +949,17 @@ class _LitPainter extends BoxPainter {
 
   final SkeuoDecoration decoration;
 
+  /// Same contract as `_SkeuoPainter._disposed`: `TextureCache` holds
+  /// `onChanged` in a static queue with no unregister path, so a painter
+  /// that dies while its tile is generating must absorb the callback.
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
     final size = configuration.size;
@@ -1071,6 +1082,26 @@ class _LitPainter extends BoxPainter {
     canvas.drawRect(Offset.zero & draw.size, Paint()..shader = s);
     canvas.restore();
 
+    // The hairline layer. The shader's own grain is an analytic noise field
+    // and CANNOT go finer than ~2.5 logical px without its Nyquist guard
+    // erasing it - which is physics, not a tuning problem: a continuous
+    // field that fine aliases. Real brush is finer than that. The
+    // procedural tile has no such floor, because a tile is device-pixel
+    // art: one row, one scratch. So the lit path composites the same tile
+    // the Canvas path always had - the shader carries the LIGHTING of the
+    // brush (anisotropic sheen), the tile carries its RESOLUTION.
+    //
+    // `worstGround`'s lit branch folds the tile amplitude into the ground
+    // model, and lit_ground_test warms the tiles before measuring, so this
+    // layer is priced into every derived ink like everything else.
+    final p2 = decoration.params;
+    if (p2.texture != null &&
+        p2.textureScale > 0 &&
+        p2.textureAmplitude > 0) {
+      _paintTile(canvas, rect, p2, configuration);
+    }
+
+
     // Layer 7 stays on the Canvas: a caller-supplied ring is a decoration a
     // call site asked for, not part of the material.
     final b = decoration.border;
@@ -1082,6 +1113,53 @@ class _LitPainter extends BoxPainter {
         borderRadius: p.circle ? null : BorderRadius.circular(p.radius),
         textDirection: configuration.textDirection,
       );
+    }
+  }
+
+  void _paintTile(Canvas canvas, Rect rect, SurfaceParams p,
+      ImageConfiguration configuration) {
+    final spec = p.texture!;
+    if (rect.shortestSide < spec.dropBelowPx) return;
+
+    final dpr = configuration.devicePixelRatio ?? 1.0;
+    final key = TileKey(
+      kind: spec.kind,
+      width: spec.tileDevicePx.width.round(),
+      height: spec.tileDevicePx.height.round(),
+      amplitude: (p.textureAmplitude * p.textureScale).round(),
+      seed: spec.seed,
+    );
+
+    final tile = TextureCache.lookup(key);
+    if (tile == null) {
+      final notify = onChanged;
+      if (notify != null) {
+        TextureCache.request(key, () {
+          if (!_disposed) notify();
+        });
+      }
+      return;
+    }
+
+    // Box-anchored matrix, same reasoning as the Canvas path: a
+    // RepaintBoundary repaints its child at Offset.zero, and an identity
+    // matrix would make the grain jump phase when one is added.
+    final matrix = Matrix4.identity()
+      ..translateByDouble(rect.left, rect.top, 0, 1)
+      ..rotateZ(spec.grainAngleDeg * math.pi / 180.0)
+      ..scaleByDouble(1.0 / dpr, 1.0 / dpr, 1, 1);
+
+    final paint = Paint()
+      ..blendMode = BlendMode.plus
+      ..shader = ImageShader(
+          tile, TileMode.repeated, TileMode.repeated, matrix.storage);
+
+    canvas.save();
+    try {
+      canvas.clipPath(decoration.getClipPath(rect, TextDirection.ltr));
+      canvas.drawRect(rect, paint);
+    } finally {
+      canvas.restore();
     }
   }
 }

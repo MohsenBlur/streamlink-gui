@@ -110,6 +110,28 @@ const TextureSpec _brushed = TextureSpec(
   secondTileAngleDeg: 29,
 );
 
+/// The light theme's brush, louder on purpose - and free.
+///
+/// A lighten-only tile at +3 is invisible on champagne: three levels over a
+/// ~230 ground is a 1.3% change. The dark theme cannot go louder without
+/// taxing its light inks, but the light theme CAN - it carries dark ink,
+/// and a tile that only lightens the ground only ever helps dark ink. So
+/// the brightness split exists precisely because the contrast economics
+/// are opposite on the two sides.
+const TextureSpec _brushedLight = TextureSpec(
+  kind: TextureKind.brushed,
+  amplitude: {
+    SurfaceRole.panel: 8,
+    SurfaceRole.raised: 5,
+    SurfaceRole.sunken: 5,
+  },
+  grainAngleDeg: 0,
+  tileDevicePx: Size(512, 128),
+  dropBelowPx: 40,
+  secondTileScale: 0.75,
+  secondTileAngleDeg: 29,
+);
+
 const MaterialPalette _rackDark = MaterialPalette(
   canvas: Color(0xFF16181C),
   surface: Color(0xFF2A2E35),
@@ -224,7 +246,11 @@ const LitSpec _rackDarkLit = LitSpec(
   // specular - the streaks sparkle under the sheen and vanish in shadow -
   // and the face-level luminance cost stays inside the declared bounds,
   // which lit_ground_test verifies.
-  grainAmp: 0.30,
+  // Demoted to sheen duty: the analytic grain's floor is ~2.5 logical px
+  // (its Nyquist guard is physics), which is COARSER than real brush and
+  // read as wavy corduroy at full strength. The hairline tile now carries
+  // the visible scratches; this term only streaks the specular.
+  grainAmp: 0.12,
   grainAcross: 3.5,
   // The reference boards read as keys sitting in near-black pockets: the
   // gutter between controls is the darkest thing on the panel. That is the
@@ -347,7 +373,7 @@ const MaterialPalette _rackLight = MaterialPalette(
   gloss: 0.10,
   glossBreak: 0.38,
   glossColour: Color(0xFFFFFFFF),
-  texture: _brushed,
+  texture: _brushedLight,
   // Warm shadows, not black. A neutral-black shadow on a warm ground reads as
   // a hole; the shadow of a champagne panel is the panel's own hue, darker.
   contact: [
@@ -385,7 +411,7 @@ const LitSpec _rackLightLit = LitSpec(
   horizon: 0.28,
   softbox: 0.12,
   rim: 0.40,
-  grainAmp: 0.17,
+  grainAmp: 0.08,
   grainAcross: 3.0,
   shadowDyPerDepth: 1.3,
   shadowBlurPerDepth: 2.6,
@@ -398,7 +424,7 @@ const LitSpec _rackLightLit = LitSpec(
   // map's shoulder compresses every bright face and the champagne renders 44
   // levels darker than its own albedo - a grey afternoon, not a lit room.
   exposure: 2.2,
-  // Measured: +15 at the sheen, -8 on the shaded side.
-  faceLiftLevels: 19,
+  // Measured: +12.4 lit, plus the 8-level hairline tile.
+  faceLiftLevels: 21,
   faceDropLevels: 12,
 );

@@ -147,6 +147,14 @@ class TextureCache {
   @visibleForTesting
   static Future<ui.Image> generateForTest(TileKey key) => _generate(key);
 
+  /// Generates [key] and inserts it, for gates that must measure WITH the
+  /// grain resident rather than racing its async arrival mid-run.
+  @visibleForTesting
+  static Future<void> prime(TileKey key) async {
+    if (_tiles.containsKey(key)) return;
+    _tiles[key] = await _generate(key);
+  }
+
   static Future<ui.Image> _generate(TileKey key) {
     final w = key.width, h = key.height;
     final pixels = Uint8List(w * h * 4);
@@ -180,28 +188,35 @@ class TextureCache {
   /// reads as an abraded surface. The micro grain doubles as dither, which is
   /// what stops a three-level ramp banding.
   static void _brushed(Uint8List out, int w, int h, int amplitude, _Lcg rand) {
-    // Per-row intensities, so streaks run along x. Two independent noise
-    // fields at different scales, smoothed along y.
-    //
-    // The fine period is small on purpose. An early version used 32 rows for
-    // the fine field and 160 for the coarse, and the result measured no
-    // rougher than a plain gradient: with a three-level budget, spending it
-    // almost entirely on components that vary over tens of rows leaves nothing
-    // to distinguish one row from the next, and streaks you cannot see between
-    // adjacent rows are not streaks. Fine varies every few rows and carries
-    // most of the budget; coarse is the envelope that stops it reading as a
-    // regular comb.
-    final fine = _smoothNoise(h, 3, rand);
+    // Dense hairlines, not waves - and that distinction is what separates
+    // brushed metal from corduroy. The first generator smoothed its noise
+    // over a 3-row period, which renders as soft undulating bands; a real
+    // brush leaves INDEPENDENT scratches, one device-pixel row each, most
+    // of them faint, a heavy tail of them deep. So each row draws its own
+    // line depth from a squared distribution (most rows whisper), roughly
+    // one row in twenty gets a true scratch, and each line fades along its
+    // length with its own phase so the field reads as thousands of strokes
+    // rather than as printed stripes. A slow 40-row envelope keeps the
+    // sheet from being statistically uniform, which no rolled sheet is.
     final coarse = _smoothNoise(h, 40, rand);
 
     for (var y = 0; y < h; y++) {
-      final rowBase = fine[y] * 0.66 + coarse[y] * 0.34;
+      final r1 = rand.nextDouble();
+      var line = r1 * r1 * 0.50;
+      if (rand.nextDouble() > 0.95) {
+        line = 0.70 + 0.30 * rand.nextDouble();
+      }
+      final phase = rand.nextDouble() * 6.2831853;
+      final cycles = 2.0 + 3.0 * rand.nextDouble();
+
       for (var x = 0; x < w; x++) {
-        // A slow drift along the streak keeps it from reading as a printed
-        // line, and the per-texel jitter is the dither.
-        final drift = 0.5 + 0.5 * math.sin((x / w) * math.pi * 2 + y * 0.13);
+        // The along-length fade: a scratch is a stroke with ends, not a
+        // stripe. Kept tile-periodic (whole cycles across the width) so the
+        // seam never shows.
+        final along =
+            0.55 + 0.45 * math.sin((x / w) * 6.2831853 * cycles + phase);
         final jitter = rand.nextDouble();
-        final v = (rowBase * 0.80 + drift * 0.08 + jitter * 0.12)
+        final v = (line * along * 0.86 + coarse[y] * 0.10 + jitter * 0.06)
             .clamp(0.0, 1.0);
         final dev = (v * amplitude).round().clamp(0, 255);
         final i = (y * w + x) * 4;

@@ -859,13 +859,22 @@ class MaterialPalette {
     final litSpec = litFor(role);
     if (litSpec != null && role != SurfaceRole.flat) {
       final recessed = RoleModifier.of(role).insetScale > 0;
-      final delta = (inkIsDark
-              ? -(recessed
-                  ? litSpec.recessDropLevels
-                  : litSpec.faceDropLevels)
-              : (recessed
-                  ? litSpec.recessLiftLevels
-                  : litSpec.faceLiftLevels)) /
+      // The hairline tile composites over the lit output with BlendMode.plus
+      // - lighten-only, so like the Canvas branch's grain it worsens a
+      // light-ink ground and is a non-event for dark ink.
+      final tileAmp = inkIsDark
+          ? 0
+          : (RoleModifier.of(role).textureScale > 0
+              ? (texture?.amplitudeFor(role) ?? 0)
+              : 0);
+      final delta = ((inkIsDark
+                  ? -(recessed
+                      ? litSpec.recessDropLevels
+                      : litSpec.faceDropLevels)
+                  : (recessed
+                      ? litSpec.recessLiftLevels
+                      : litSpec.faceLiftLevels)) +
+              tileAmp) /
           255;
       return Color.from(
         alpha: 1,
