@@ -432,7 +432,11 @@ void main() {
         n++;
       }
     }
-    expect(across / n, greaterThan(4 * along / n),
+    // 2.5x, recalibrated for the satin distribution: the quieter tile
+    // trades some across-grain contrast for realism, measuring ~3.1x here.
+    // Isotropic noise measures ~1x, so the margin still catches the
+    // dirt-not-brush failure this exists for.
+    expect(across / n, greaterThan(2.5 * along / n),
         reason: 'a horizontal brush varies fast across the grain, slow '
             'along it (along=${(along / n).toStringAsFixed(3)} '
             'across=${(across / n).toStringAsFixed(3)})');

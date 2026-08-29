@@ -256,11 +256,11 @@ const LitSpec _rackDarkLit = LitSpec(
   // (its Nyquist guard is physics), which is COARSER than real brush and
   // read as wavy corduroy at full strength. The hairline tile now carries
   // the visible scratches; this term only streaks the specular.
-  grainAmp: 0.12,
+  grainAmp: 0.16,
   grainAcross: 3.5,
   // The scratches themselves, as geometry: the device-pixel tile tilts the
   // normal, and the specular above decides which scratch is visible where.
-  grainTexStrength: 0.55,
+  grainTexStrength: 0.30,
   // The reference boards read as keys sitting in near-black pockets: the
   // gutter between controls is the darkest thing on the panel. That is the
   // contact term's job, so it is strong here - and it lands OUTSIDE the
@@ -430,7 +430,7 @@ const LitSpec _rackLightLit = LitSpec(
   // valley is a place a glyph can land, and the light theme's dark ink
   // pays for every level the valleys dig. 0.28 keeps the brush visible
   // while the drop stays affordable.
-  grainTexStrength: 0.28,
+  grainTexStrength: 0.22,
   shadowDyPerDepth: 1.3,
   shadowBlurPerDepth: 2.6,
   shadowOpacity: 0.42,

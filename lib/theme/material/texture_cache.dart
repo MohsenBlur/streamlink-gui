@@ -188,35 +188,35 @@ class TextureCache {
   /// reads as an abraded surface. The micro grain doubles as dither, which is
   /// what stops a three-level ramp banding.
   static void _brushed(Uint8List out, int w, int h, int amplitude, _Lcg rand) {
-    // Dense hairlines, not waves - and that distinction is what separates
-    // brushed metal from corduroy. The first generator smoothed its noise
-    // over a 3-row period, which renders as soft undulating bands; a real
-    // brush leaves INDEPENDENT scratches, one device-pixel row each, most
-    // of them faint, a heavy tail of them deep. So each row draws its own
-    // line depth from a squared distribution (most rows whisper), roughly
-    // one row in twenty gets a true scratch, and each line fades along its
-    // length with its own phase so the field reads as thousands of strokes
-    // rather than as printed stripes. A slow 40-row envelope keeps the
-    // sheet from being statistically uniform, which no rolled sheet is.
+    // A SATIN finish, not a scratched-up one - the second rebalance of this
+    // generator, and the statistics are the whole lesson. Machine brushing
+    // is a rotating abrasive making uniform passes: the individual grooves
+    // are close to invisible, the metal look comes from the anisotropic
+    // sheen playing over thousands of near-identical micro-lines, and only
+    // the occasional stray scratch reads as a LINE. The previous
+    // distribution (base r^2, one row in twenty a deep scratch) rendered
+    // exactly what it was - dense high-contrast lines - which reads as
+    // corduroy or record grooves, never as metal.
+    //
+    // So: a quartic base (most rows a whisper), a scratch tail at one row
+    // in ~70 and capped well below full depth, and a longer along-fade so
+    // what lines exist read as continuous draws rather than strokes.
     final coarse = _smoothNoise(h, 40, rand);
 
     for (var y = 0; y < h; y++) {
       final r1 = rand.nextDouble();
-      var line = r1 * r1 * 0.50;
-      if (rand.nextDouble() > 0.95) {
-        line = 0.70 + 0.30 * rand.nextDouble();
+      var line = r1 * r1 * r1 * r1 * 0.30;
+      if (rand.nextDouble() > 0.986) {
+        line = 0.40 + 0.25 * rand.nextDouble();
       }
       final phase = rand.nextDouble() * 6.2831853;
-      final cycles = 2.0 + 3.0 * rand.nextDouble();
+      final cycles = 1.0 + 2.0 * rand.nextDouble();
 
       for (var x = 0; x < w; x++) {
-        // The along-length fade: a scratch is a stroke with ends, not a
-        // stripe. Kept tile-periodic (whole cycles across the width) so the
-        // seam never shows.
         final along =
-            0.55 + 0.45 * math.sin((x / w) * 6.2831853 * cycles + phase);
+            0.72 + 0.28 * math.sin((x / w) * 6.2831853 * cycles + phase);
         final jitter = rand.nextDouble();
-        final v = (line * along * 0.86 + coarse[y] * 0.10 + jitter * 0.06)
+        final v = (line * along * 0.88 + coarse[y] * 0.07 + jitter * 0.05)
             .clamp(0.0, 1.0);
         final dev = (v * amplitude).round().clamp(0, 255);
         final i = (y * w + x) * 4;
