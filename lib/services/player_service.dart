@@ -921,7 +921,10 @@ class PlayerService {
           // Only the passthrough path carries a player-side start flag; under
           // piping streamlink itself skips ahead, so the player legitimately
           // begins at 0 and there is nothing to verify.
-          intendedResume: cmd.passthrough ? cmd.appliedStart : 0);
+          intendedResume: cmd.passthrough ? cmd.appliedStart : 0,
+          // ...but under piping every reported position is short by exactly
+          // that skip, and must be put back before anything believes it.
+          positionOffset: cmd.passthrough ? 0 : cmd.appliedStart);
 
       // allowMalformed: a single non-UTF-8 byte from the child used to raise
       // a FormatException into the zone, silently killing the listener - and
@@ -1062,7 +1065,10 @@ class PlayerService {
   }
 
   void _startVODProgressTracker(TwitchVideo vod, int port, AppSettings settings,
-      {String? channelName, bool selfHeal = false, int intendedResume = 0}) {
+      {String? channelName,
+      bool selfHeal = false,
+      int intendedResume = 0,
+      int positionOffset = 0}) {
     int lastSynced = -1;
     final sessionStartedMs = DateTime.now().millisecondsSinceEpoch;
     String webToken = settings.twitchWebOauthToken.trim();
@@ -1251,6 +1257,31 @@ class PlayerService {
       }
 
       if (!isLive()) return;
+
+      // Piping reports a RELATIVE clock, and everything downstream assumes an
+      // absolute one.
+      //
+      // Under piping the player gets no start flag: streamlink skips ahead with
+      // --hls-start-offset and feeds the player a stream that, as far as the
+      // player is concerned, begins at zero. Measured against MPC-HC with a 60s
+      // offset, it reports 1s, 2s, 3s, 4s. So a session resumed at 2h34m used
+      // to report a handful of seconds and the tracker wrote that straight over
+      // the stored position - locally and to Twitch, where max(local, remote)
+      // cannot undo it - within about four seconds of every resumed piping
+      // session. No heal and no dying player required.
+      //
+      // docs/vod-seeking.md concluded the opposite in 2026-08 from an ffprobe
+      // reading of start_time. That measured the container's timestamp base;
+      // the player rebases it for its own UI, which is the number this tracker
+      // actually consumes. The note's own caveat said as much.
+      if (positionOffset > 0 && status?.positionSeconds != null) {
+        status = PlayerStatus(
+          activity: status!.activity,
+          positionSeconds: status.positionSeconds! + positionOffset,
+          eofReached: status.eofReached,
+        );
+      }
+
       final result = monitor.onSample(
           status: status, nowMs: DateTime.now().millisecondsSinceEpoch);
 

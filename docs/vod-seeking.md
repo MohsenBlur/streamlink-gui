@@ -116,7 +116,7 @@ work. But a media player gives no way to set that, so the local-file variant is
 a dead end. Serving over localhost HTTP sidesteps it entirely: the playlist
 arrives over `http`, and nested `https` segments are then ordinary HLS.
 
-## Settled: piping mode does not corrupt watch progress
+## CORRECTED: piping mode DOES corrupt watch progress
 
 While designing this, a plausible pre-existing bug was flagged: under piping
 with `--hls-start-offset X`, if the player reported position starting at 0
@@ -131,14 +131,34 @@ bin/bin/streamlink.exe --stdout --hls-start-offset 600s "twitch.tv/videos/<id>" 
 # start_time=668.149000
 ```
 
-`start_time` is ~668s, not 0 — streamlink preserves the source timestamps
-rather than rebasing them, so the player receives an absolute clock and
-progress stays correct. No offset compensation is needed in either mode.
-(Confirmed independently for passthrough: resume works, since the player holds
-the whole playlist.)
+`start_time` is ~668s, not 0, and the conclusion drawn from it — "the player
+receives an absolute clock, no offset compensation is needed" — **was wrong**.
 
-Note this measures the container's timestamp base, which is what a player
-surfaces; it is strong evidence rather than a direct read of MPC-HC's UI.
+The note's own caveat is where it went wrong: this measures the *container's*
+timestamp base, not what the player surfaces. Re-measured 2026-09-11 by running
+the app's real piping invocation into MPC-HC 2.7.4 and reading
+`/variables.html`, with a 60s offset:
+
+```
+t=1s  player reports 1s
+t=2s  player reports 2s
+t=3s  player reports 3s
+t=4s  player reports 4s
+```
+
+**MPC-HC rebases to zero for its own position display.** So a session resumed at
+2h34m reported a handful of seconds, and the tracker wrote that over the stored
+position — locally and pushed to Twitch, where the `max(local, remote)` merge
+cannot undo it — within about four seconds of *every* resumed piping session.
+No heal, no dying player, no stream death required.
+
+The tracker now adds the skip back before anything downstream sees the position
+(`positionOffset` in `_startVODProgressTracker`). Passthrough is unaffected: the
+player holds the whole playlist and its clock is genuinely absolute.
+
+The lesson is the caveat, not the number. Measuring the layer below the one that
+matters produces a real result and a false conclusion — and this one sat in the
+repo for three weeks reassuring everybody who read it.
 
 ## Related fix that rode along
 
