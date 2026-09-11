@@ -27,10 +27,12 @@ import 'player_args.dart';
 
 /// How far a landing may miss before it is treated as a failed resume.
 ///
-/// Generous on purpose: players snap to a keyframe, and HLS keyframes are
-/// commonly several seconds apart. Below about this the correction would fight
-/// the container rather than fix anything.
-const int kSeekToleranceSeconds = 12;
+/// Measured rather than guessed: seeking a Twitch 1080p60 VOD lands on a
+/// segment boundary, and the observed snap was about 27s short of the target.
+/// At the 12s this started as, a correct seek still read as a miss and burned
+/// both attempts fighting the container. Well under a minute, so a genuinely
+/// failed resume is still unmistakable.
+const int kSeekToleranceSeconds = 45;
 
 /// How long to keep trying to land before giving up and letting playback be.
 ///
@@ -136,6 +138,7 @@ class LandingCheck {
   final int tolerance;
 
   int _corrections = 0;
+  int _samples = 0;
   bool _settled = false;
 
   int get corrections => _corrections;
@@ -151,15 +154,27 @@ class LandingCheck {
   bool get mayWriteProgress => isSettled;
 
   /// Feed a confirmed position. Returns the position to seek to, or null.
+  ///
+  /// The FIRST reading is the landing, and it is corrected in either
+  /// direction. Landing too far *forward* is a real failure mode, not a
+  /// courtesy: MPC-HC restores its own remembered position for a URL it has
+  /// seen before, which can be an hour past what the app's own progress says.
+  /// Observed live — the app showed 15% watched, the player opened at 72%.
+  /// The stored position is what the user saw and clicked, so overshooting it
+  /// is a surprise that can spoil an hour of content.
+  ///
+  /// Every reading after the first is the user's, and a forward position then
+  /// means they seeked. That is left alone.
   int? evaluate(int positionSeconds) {
     if (isSettled) return null;
+    final wasFirst = _samples == 0;
+    _samples++;
+
     if ((positionSeconds - intendedSeconds).abs() <= tolerance) {
       _settled = true;
       return null;
     }
-    // A position PAST the intent is the user seeking forward, not a failed
-    // launch. Correcting that would yank them backwards.
-    if (positionSeconds > intendedSeconds) {
+    if (!wasFirst && positionSeconds > intendedSeconds) {
       _settled = true;
       return null;
     }

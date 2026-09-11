@@ -180,10 +180,27 @@ void main() {
           reason: 'giving up must not freeze progress for the whole session');
     });
 
-    test('a position past the intent is the user seeking, not a failure', () {
+    test('overshooting on the FIRST reading is corrected down', () {
+      // Observed live: the app showed 15% watched and MPC-HC opened at 72%,
+      // because it restores its own remembered position for a URL it has seen.
+      // The stored position is what the user saw and clicked.
       final l = LandingCheck(intendedSeconds: 600);
+      expect(l.evaluate(9000), 600);
+    });
+
+    test('overshooting LATER is the user seeking, and is left alone', () {
+      final l = LandingCheck(intendedSeconds: 600);
+      l.evaluate(0); // the landing, corrected
       expect(l.evaluate(1200), isNull,
-          reason: 'correcting that would yank the user backwards');
+          reason: 'yanking a user back from their own seek would be worse');
+      expect(l.isSettled, isTrue);
+    });
+
+    test('a keyframe snap short of the target still counts as landed', () {
+      // A Twitch 1080p60 seek snapped ~27s back from its target; at the
+      // tolerance this started with, a correct seek read as a miss.
+      final l = LandingCheck(intendedSeconds: 9292);
+      expect(l.evaluate(9265), isNull);
       expect(l.isSettled, isTrue);
     });
 

@@ -1139,7 +1139,9 @@ class PlayerService {
           case MonitorEvent.firstContact:
             log(vod.id, '[System] Player interface responding on port $port.');
           case MonitorEvent.firstConfirmedPosition:
-            log(vod.id, '[System] Watch position confirmed at ${confirmed}s.');
+            log(vod.id,
+                '[System] Watch position corroborated at ${confirmed}s; '
+                'progress is being saved from here.');
           case MonitorEvent.paused:
             log(vod.id, '[System] Playback paused.');
           case MonitorEvent.resumed:
@@ -1151,8 +1153,12 @@ class PlayerService {
           case MonitorEvent.stallRecovered:
             log(vod.id, '[System] Playback recovered.');
           case MonitorEvent.eofObserved:
-            log(vod.id,
-                '[System] Player reports end of stream at ~${confirmed}s of ${durationSeconds}s.');
+            log(
+                vod.id,
+                confirmed == null
+                    ? '[System] Player reports no stream yet (it is still opening).'
+                    : '[System] Player reports end of stream at ~${confirmed}s '
+                        'of ${durationSeconds}s.');
           case MonitorEvent.prematureEof:
             log(vod.id,
                 '[System] Premature end-of-stream verdict at ${confirmed}s '
@@ -1299,7 +1305,8 @@ class PlayerService {
           await _seekPlayer(seekChannel, port, target, durationSeconds, vod.id);
         } else if (landing.isSettled) {
           log(vod.id,
-              '[System] Playback position confirmed at ${status.positionSeconds}s.');
+              '[System] Playback started where it was asked to, at '
+              '${status.positionSeconds}s.');
         }
       }
 
