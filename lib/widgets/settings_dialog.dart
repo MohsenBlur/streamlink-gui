@@ -8,7 +8,9 @@ import '../services/update_service.dart';
 import '../utils/color_utils.dart';
 import '../theme/neu_material_themes.dart';
 import '../theme/material/app_material.dart';
+import '../state/twitch_auth_notifier.dart';
 import '../theme/neu_theme.dart';
+import '../utils/twitch_auth_status.dart';
 import 'neumorphic/neu_progress.dart';
 import 'shell/engraved_rule.dart';
 import 'shell/neu_dialog.dart';
@@ -57,6 +59,12 @@ class SettingsDialog {
     required AppSettings settings,
     required ThemeUpdateListener themeNotifier,
     required String? authenticatedUserLogin,
+
+    /// Re-probes the account token. Called once when the dialog opens, so the
+    /// status row shows what Twitch says NOW rather than what it said at
+    /// launch - the row used to be a string-emptiness check that could never
+    /// go stale because it never consulted anything.
+    required Future<void> Function() onRevalidateHelix,
     required VoidCallback onConnectAccount,
     required void Function(AppSettings) onSave,
     required void Function(String) openExternalLink,
@@ -135,9 +143,18 @@ class SettingsDialog {
     bool isCheckingUpdates = false;
     bool obscureToken = true;
     bool obscureWebToken = true;
+    // Two tokens, two result slots. They were never separate before, which is
+    // how a passing BROWSER token test came to read as "everything is
+    // connected" while the ACCOUNT token was dead.
     bool isTestingToken = false;
     String? tokenTestResult;
     bool isTokenValid = false;
+    bool isTestingAccount = false;
+    String? accountTestResult;
+    bool isAccountValid = false;
+
+    // Opening Settings is itself the check.
+    WidgetsBinding.instance.addPostFrameCallback((_) => onRevalidateHelix());
 
     // The Styling tab edits the theme notifier live so the user sees the change
     // immediately. Remember the entry state so Cancel can put it back, instead
@@ -839,21 +856,46 @@ class SettingsDialog {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Row(
-                                        children: [
-                                          Icon(
-                                            settings.twitchOauthToken.trim().isNotEmpty ? Icons.check_circle : Icons.error_outline,
-                                            color: settings.twitchOauthToken.trim().isNotEmpty ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.warningText(themeNotifier.isDarkTheme),
-                                            size: 16,
-                                          ),
-                                          const SizedBox(width: NeuSpace.s8),
-                                          Text(
-                                            settings.twitchOauthToken.trim().isNotEmpty
-                                                ? (authenticatedUserLogin != null ? 'Connected: $authenticatedUserLogin' : 'Connected')
-                                                : 'Not connected',
-                                            style: NeuType.label(themeNotifier.isDarkTheme, color: settings.twitchOauthToken.trim().isNotEmpty ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.warningText(themeNotifier.isDarkTheme)),
-                                          ),
-                                        ],
+                                      // The indicator used to be
+                                      // `twitchOauthToken.isNotEmpty`, which
+                                      // reports that a STRING exists - a test
+                                      // a revoked token passes forever. It now
+                                      // shows what Twitch last said about the
+                                      // ACCOUNT token, and says which token
+                                      // that is.
+                                      Flexible(
+                                        child: ValueListenableBuilder<TwitchAuthStatus>(
+                                          valueListenable: twitchAuth.helix,
+                                          builder: (context, status, _) {
+                                            final ok = status.isUsable;
+                                            final bad = status.needsReconnect;
+                                            final ink = ok
+                                                ? NeuTheme.liveText(themeNotifier.isDarkTheme)
+                                                : (bad
+                                                    ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
+                                                    : NeuTheme.warningText(themeNotifier.isDarkTheme));
+                                            return Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  ok
+                                                      ? Icons.check_circle
+                                                      : (bad ? Icons.link_off : Icons.help_outline),
+                                                  color: ink,
+                                                  size: 16,
+                                                ),
+                                                const SizedBox(width: NeuSpace.s8),
+                                                Flexible(
+                                                  child: Text(
+                                                    connectionLabel(status),
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: NeuType.label(themeNotifier.isDarkTheme, color: ink),
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
                                       ),
                                       ElevatedButton.icon(
                                         style: ElevatedButton.styleFrom(
@@ -885,13 +927,32 @@ class SettingsDialog {
                                       ),
                                     ],
                                   ),
-                                  if (settings.twitchOauthToken.trim().isNotEmpty) ...[
-                                    const SizedBox(height: NeuSpace.s8),
-                                    Text(
-                                      'Connecting allows you to automatically load your followed channels, view channel VOD lists, stream subscriber-only feeds, and remove ads.',
-                                      style: NeuType.caption(themeNotifier.isDarkTheme),
-                                    ),
-                                  ],
+                                  ValueListenableBuilder<TwitchAuthStatus>(
+                                    valueListenable: twitchAuth.helix,
+                                    builder: (context, status, _) {
+                                      final detail = connectionDetail(status);
+                                      if (detail != null) {
+                                        return Padding(
+                                          padding: const EdgeInsets.only(top: NeuSpace.s8),
+                                          child: Text(
+                                            detail,
+                                            style: NeuType.caption(themeNotifier.isDarkTheme,
+                                                color: NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                          ),
+                                        );
+                                      }
+                                      if (settings.twitchOauthToken.trim().isEmpty) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: NeuSpace.s8),
+                                        child: Text(
+                                          'Connecting allows you to automatically load your followed channels, view channel VOD lists, stream subscriber-only feeds, and remove ads.',
+                                          style: NeuType.caption(themeNotifier.isDarkTheme),
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ],
                               ),
                             ),
@@ -929,7 +990,7 @@ class SettingsDialog {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Twitch OAuth Token (Optional)', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                Text('Account token \u2014 followed channels, VOD lists, ad-free', style: NeuType.label(themeNotifier.isDarkTheme)),
                                 TextButton(
                                   style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                                   onPressed: () => openExternalLink('https://twitchapps.com/tmi/'),
@@ -938,26 +999,100 @@ class SettingsDialog {
                               ],
                             ),
                             const SizedBox(height: NeuSpace.s6),
-                            TextField(
-                              controller: tokenController,
-                              obscureText: obscureToken,
-                              style: NeuType.bodySm(themeNotifier.isDarkTheme),
-                              decoration: InputDecoration(
-                                hintText: 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-                                contentPadding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
-                                suffixIcon: IconButton(
-                                  icon: Icon(obscureToken ? Icons.visibility : Icons.visibility_off, size: 16),
-                                  onPressed: () => setDialogState(() => obscureToken = !obscureToken),
-                                  constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-                                  padding: EdgeInsets.zero,
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: tokenController,
+                                    obscureText: obscureToken,
+                                    style: NeuType.bodySm(themeNotifier.isDarkTheme),
+                                    decoration: InputDecoration(
+                                      hintText: 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(obscureToken ? Icons.visibility : Icons.visibility_off, size: 16),
+                                        onPressed: () => setDialogState(() => obscureToken = !obscureToken),
+                                        constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                                        padding: EdgeInsets.zero,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: NeuSpace.s8),
+                                SizedBox(
+                                  height: 36,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: isTestingAccount ? NeuTheme.surface(themeNotifier.isDarkTheme) : themeNotifier.primaryColor,
+                                      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeuRadius.r6)),
+                                    ),
+                                    // Tests the TYPED token against the TYPED
+                                    // Client ID - the pairing every Helix call
+                                    // actually sends, and the pairing that was
+                                    // failing while each field looked fine on
+                                    // its own.
+                                    onPressed: isTestingAccount
+                                        ? null
+                                        : () async {
+                                            setDialogState(() {
+                                              isTestingAccount = true;
+                                              accountTestResult = null;
+                                            });
+                                            final status = await TwitchApiService()
+                                                .validateHelixToken(
+                                                    tokenController.text,
+                                                    clientIdController.text);
+                                            setDialogState(() {
+                                              isTestingAccount = false;
+                                              isAccountValid = status.isUsable;
+                                              accountTestResult = status.isUsable
+                                                  ? 'Account token OK \u2014 signed in as ${status.login}, follows permission granted'
+                                                  : (connectionDetail(status) ?? connectionLabel(status));
+                                            });
+                                            twitchAuth.recordHelixProbe(status);
+                                          },
+                                    child: isTestingAccount
+                                        ? SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: NeuProgressRing(
+                                                size: NeuProgressRingSize.xs,
+                                                color: NeuTheme.onAccent(themeNotifier.primaryColor),
+                                                semanticLabel: 'Testing account token'),
+                                          )
+                                        : Text('Test', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.onAccent(themeNotifier.primaryColor))),
+                                  ),
+                                ),
+                              ],
                             ),
+                            if (accountTestResult != null) ...[
+                              const SizedBox(height: NeuSpace.s6),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    isAccountValid ? Icons.check_circle : Icons.error,
+                                    size: 14,
+                                    color: isAccountValid ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                  ),
+                                  const SizedBox(width: NeuSpace.s6),
+                                  Expanded(
+                                    child: Text(
+                                      accountTestResult!,
+                                      style: NeuType.caption(themeNotifier.isDarkTheme,
+                                          color: isAccountValid ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                             const SizedBox(height: NeuSpace.s12),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Twitch Browser Token (Optional, for VOD Sync)', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                Text('Browser token \u2014 watch-progress sync only', style: NeuType.label(themeNotifier.isDarkTheme)),
                                 IconButton(
                                   icon: const Icon(Icons.help_outline, size: 16),
                                   color: themeNotifier.accentInk,
@@ -1406,6 +1541,10 @@ class SettingsDialog {
                                 playerType: tempPlayerType,
                                 watchedThreshold: tempWatchedThreshold,
                                 twitchOauthToken: tokenController.text.trim(),
+                                twitchTokenClientId:
+                                    tokenController.text.trim() == settings.twitchOauthToken
+                                        ? settings.twitchTokenClientId
+                                        : '',
                                 twitchWebOauthToken: webTokenController.text.trim(),
                                 customPlayerPath: playerPathController.text.trim(),
                                 customPlayerArgs: playerArgsController.text.trim(),

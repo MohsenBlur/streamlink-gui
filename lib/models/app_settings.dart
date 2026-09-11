@@ -21,6 +21,16 @@ class AppSettings {
   /// Turning this off restores piping, where no timeline exists at all.
   bool seekableVodStreaming;
   String twitchClientId;
+
+  /// The Client ID the stored account token was actually minted for.
+  ///
+  /// Blank means unknown. It exists because [twitchClientId] is a free-text
+  /// field the user can edit at any time AFTER connecting, and every Helix
+  /// call pairs the CURRENT Client ID with the OLD token. That mismatch
+  /// returns a bare 401 indistinguishable from expiry, so without recording
+  /// the mint the app cannot tell "your token expired" from "you changed the
+  /// Client ID", and would give the wrong advice for one of them.
+  String twitchTokenClientId;
   int localServerPort;
   int watchedThreshold;
   bool sidebarCollapsed;
@@ -107,6 +117,7 @@ class AppSettings {
     this.customPlayerArgs = '',
     this.seekableVodStreaming = true,
     this.twitchClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+    this.twitchTokenClientId = '',
     this.localServerPort = 65432,
     this.watchedThreshold = 96,
     this.sidebarCollapsed = false,
@@ -176,6 +187,7 @@ class AppSettings {
     String? customPlayerArgs,
     bool? seekableVodStreaming,
     String? twitchClientId,
+    String? twitchTokenClientId,
     int? localServerPort,
     int? watchedThreshold,
     bool? sidebarCollapsed,
@@ -225,6 +237,7 @@ class AppSettings {
       customPlayerArgs: customPlayerArgs ?? this.customPlayerArgs,
       seekableVodStreaming: seekableVodStreaming ?? this.seekableVodStreaming,
       twitchClientId: twitchClientId ?? this.twitchClientId,
+      twitchTokenClientId: twitchTokenClientId ?? this.twitchTokenClientId,
       localServerPort: localServerPort ?? this.localServerPort,
       watchedThreshold: watchedThreshold ?? this.watchedThreshold,
       sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
@@ -275,6 +288,7 @@ class AppSettings {
         'custom_player_args': customPlayerArgs,
         'seekable_vod_streaming': seekableVodStreaming,
         'twitch_client_id': twitchClientId,
+        'twitch_token_client_id': twitchTokenClientId,
         'local_server_port': localServerPort,
         'watched_threshold': watchedThreshold,
         'sidebar_collapsed': sidebarCollapsed,
@@ -393,6 +407,7 @@ class AppSettings {
         seekableVodStreaming: _flag(json['seekable_vod_streaming'], true),
         twitchClientId: _str(
             json['twitch_client_id'], 'kimne78kx3ncx6brgo4mv6wki5h1ko'),
+        twitchTokenClientId: _str(json['twitch_token_client_id'], ''),
         localServerPort: _clampInt(json['local_server_port'], 65432, 1, 65535),
         watchedThreshold: _clampInt(json['watched_threshold'], 96, 50, 100),
         sidebarCollapsed: _flag(json['sidebar_collapsed'], false),

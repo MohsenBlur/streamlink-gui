@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
+import '../state/twitch_auth_notifier.dart';
+import '../utils/twitch_auth_status.dart';
 import '../models/twitch_video.dart';
 
 class FollowedChannelsResult {
@@ -22,7 +24,44 @@ class TokenValidationResult {
   final bool isValid;
   final String message;
   final String? login;
-  const TokenValidationResult({required this.isValid, required this.message, this.login});
+
+  /// The Client ID the token was minted for, and the scopes it carries.
+  ///
+  /// Both were decoded and thrown away until v1.9.1. That discard is exactly
+  /// why a token minted for a different Client ID passed the Test button and
+  /// then 401'd on every real request: /oauth2/validate is the ONLY endpoint
+  /// that reports the minting client, so discarding it made the one
+  /// diagnosable failure mode undiagnosable.
+  final String? clientId;
+  final List<String> scopes;
+  final int? statusCode;
+
+  const TokenValidationResult({
+    required this.isValid,
+    required this.message,
+    this.login,
+    this.clientId,
+    this.scopes = const <String>[],
+    this.statusCode,
+  });
+}
+
+/// A Twitch API call that did not return 200.
+///
+/// Carries the body for the log without inviting it into the UI: the reported
+/// bug put a raw `{"error":"Unauthorized",...}` blob in a snackbar because the
+/// only thing available to print was an exception whose message WAS the body.
+class TwitchApiException implements Exception {
+  TwitchApiException(this.statusCode, this.endpoint, this.body);
+
+  final int statusCode;
+  final String endpoint;
+  final String body;
+
+  bool get isAuthFailure => statusCode == 401 || statusCode == 403;
+
+  @override
+  String toString() => 'Twitch API returned $statusCode for $endpoint';
 }
 
 class TwitchApiService {
@@ -44,15 +83,70 @@ class TwitchApiService {
         headers: {'Authorization': 'OAuth $token'},
       ).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
-        final decoded = json.decode(response.body);
+        final decoded = json.decode(response.body) as Map<String, dynamic>;
         final login = decoded['login'] as String?;
+        final clientId = decoded['client_id'] as String?;
+        final scopes = <String>[
+          for (final s in (decoded['scopes'] as List<dynamic>? ?? const []))
+            if (s is String) s,
+        ];
         return TokenValidationResult(
-            isValid: true, message: 'Success! Connected as: $login', login: login);
+          isValid: true,
+          // Names the credential. The old text was a bare "Success! Connected
+          // as: x" shared by both token fields, which is what let a passing
+          // browser-token test read as "the whole app is connected".
+          message: 'Browser token OK — VOD progress will sync as $login',
+          login: login,
+          clientId: clientId,
+          scopes: scopes,
+          statusCode: 200,
+        );
       }
       return TokenValidationResult(
-          isValid: false, message: 'Invalid token (Status ${response.statusCode})');
+          isValid: false,
+          message: 'Invalid token (Status ${response.statusCode})',
+          statusCode: response.statusCode);
     } catch (e) {
-      return TokenValidationResult(isValid: false, message: 'Connection error: $e');
+      return TokenValidationResult(
+          isValid: false, message: 'Connection error: ${describeTwitchError(e)}');
+    }
+  }
+
+  /// Validates the ACCOUNT token against the Client ID it will be paired with.
+  ///
+  /// Separate from [validateOAuthToken] because it answers a different
+  /// question: not "is this string a live token" but "will this token work for
+  /// the requests this app makes, with the Client ID this app is configured
+  /// with". A live token and a valid Client ID can still be a broken pair, and
+  /// that pair is what every Helix call actually sends.
+  Future<TwitchAuthStatus> validateHelixToken(
+      String rawToken, String configuredClientId) async {
+    var token = rawToken.trim();
+    if (token.isEmpty) return TwitchAuthStatus.absent;
+    if (token.startsWith('oauth:')) token = token.substring(6);
+    try {
+      final response = await http.get(
+        Uri.parse('https://id.twitch.tv/oauth2/validate'),
+        headers: {'Authorization': 'OAuth $token'},
+      ).timeout(const Duration(seconds: 5));
+      Map<String, dynamic>? body;
+      try {
+        final decoded = json.decode(response.body);
+        if (decoded is Map<String, dynamic>) body = decoded;
+      } catch (_) {
+        body = null;
+      }
+      return statusFromValidation(
+        statusCode: response.statusCode,
+        body: body,
+        configuredClientId: configuredClientId,
+        now: DateTime.now(),
+        previous: twitchAuth.helix.value,
+      );
+    } catch (_) {
+      // A timeout or a dead network says nothing about the token, and must
+      // never produce a "reconnect your account" prompt.
+      return statusFromTransportError(twitchAuth.helix.value, DateTime.now());
     }
   }
 
@@ -63,8 +157,24 @@ class TwitchApiService {
   /// no re-entrancy guard the stalled passes accumulated.
   static const Duration _requestTimeout = Duration(seconds: 12);
 
-  Future<http.Response> _get(Uri url, {Map<String, String>? headers}) {
-    return http.get(url, headers: headers).timeout(_requestTimeout);
+  /// Every Helix response updates the account token's status, from here
+  /// rather than from the seven call sites.
+  ///
+  /// A chokepoint because the alternative is remembering to report at each
+  /// call, and the bug being fixed is precisely that the one call which threw
+  /// on a 401 was the only one anybody noticed - `fetchChannelStats` silently
+  /// converged on marking channels Offline, so a dead token looked like four
+  /// offline streamers. A new Helix call added later is covered for free.
+  Future<http.Response> _get(Uri url, {Map<String, String>? headers}) async {
+    final isHelix = url.host == 'api.twitch.tv';
+    try {
+      final res = await http.get(url, headers: headers).timeout(_requestTimeout);
+      if (isHelix) twitchAuth.recordHelixResponse(res.statusCode);
+      return res;
+    } catch (e) {
+      if (isHelix) twitchAuth.recordHelixTransportError();
+      rethrow;
+    }
   }
 
   Future<http.Response> _post(Uri url, {Map<String, String>? headers, Object? body}) {
@@ -351,7 +461,7 @@ class TwitchApiService {
     );
 
     if (userRes.statusCode != 200) {
-      throw Exception('Failed to get user profile: ${userRes.body}');
+      throw TwitchApiException(userRes.statusCode, 'helix/users', userRes.body);
     }
 
     final userData = json.decode(userRes.body);
@@ -384,7 +494,8 @@ class TwitchApiService {
         // Keep whatever was already collected rather than losing every page to
         // a failure on the last one.
         if (tempFollowed.isNotEmpty) break;
-        throw Exception('Failed to get followed channels: ${followsRes.body}');
+        throw TwitchApiException(
+            followsRes.statusCode, 'helix/channels/followed', followsRes.body);
       }
 
       final followsData = json.decode(followsRes.body);
@@ -479,7 +590,8 @@ class TwitchApiService {
     final response = await _get(Uri.parse(url), headers: headers);
 
     if (response.statusCode != 200) {
-      throw Exception('Twitch API error: ${response.statusCode} - ${response.body}');
+      throw TwitchApiException(
+          response.statusCode, 'helix/videos', response.body);
     }
 
     final data = json.decode(response.body);
@@ -586,6 +698,10 @@ class TwitchApiService {
             }
           } else if (progressResponse.statusCode == 401) {
             isWebTokenExpired = true;
+            // Same notifier as the account token, different instance - so the
+            // UI has to name which credential expired and cannot imply the
+            // other one did too.
+            twitchAuth.recordBrowserExpired();
           }
         } catch (_) {}
       }
@@ -660,6 +776,7 @@ class TwitchApiService {
     );
 
     if (response.statusCode == 401) {
+      twitchAuth.recordBrowserExpired();
       throw Exception('Unauthorized GQL web token');
     }
   }

@@ -11,6 +11,8 @@ import 'models/app_settings.dart';
 import 'models/twitch_channel.dart';
 import 'models/twitch_video.dart';
 import 'services/storage_service.dart';
+import 'state/twitch_auth_notifier.dart';
+import 'utils/twitch_auth_status.dart';
 import 'services/twitch_api_service.dart';
 import 'services/player_service.dart';
 import 'services/update_service.dart';
@@ -391,6 +393,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// disk problem does not become an undismissable wall. Reset whenever a save
   /// succeeds, so a NEW failure is reported again.
   bool _saveWarningDismissed = false;
+
+  /// Dismissal of the reconnect banner, reset whenever the reason changes so
+  /// a dismissed "expired" does not also hide a later "wrong Client ID".
+  bool _authWarningDismissed = false;
+  TwitchAuthFault _dismissedFault = TwitchAuthFault.none;
 
   /// Re-arms the save-failure banner once a save succeeds, so a dismissal
   /// covers the problem the user saw and not every future one.
@@ -1414,7 +1421,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
 
       await _refreshAllChannels(isInitialLoad: true);
-      if (_settings.twitchOauthToken.trim().isNotEmpty) {
+      // Ask Twitch whether the token works BEFORE using it. The old gate was
+      // `isNotEmpty`, which is a test of the string and not of the account, so
+      // a revoked token spent every launch failing a real request and pasting
+      // the raw 401 body into a snackbar.
+      await _refreshHelixAuth();
+      if (twitchAuth.helix.value.isUsable) {
         _loadFollowedChannels();
       }
       final recents = await _storageService.loadRecentWatchedVods();
@@ -1425,7 +1437,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         });
       }
     } catch (e) {
-      _showSnackBar('Error loading saved channels: $e', isError: true);
+      _showSnackBar('Error loading saved channels: ${describeTwitchError(e)}', isError: true);
     } finally {
       setState(() => _isGlobalLoading = false);
     }
@@ -1537,10 +1549,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           if (token != null && token.isNotEmpty) {
             setState(() {
               _settings.twitchOauthToken = 'oauth:$token';
+              // Record WHICH client minted it. Without this, editing the
+              // Client ID field later produces a 401 the app would have to
+              // guess at, and it would guess "expired" - sending the user
+              // through a reconnect that cannot fix a mismatch.
+              _settings.twitchTokenClientId = _settings.twitchClientId.trim();
             });
             await _saveChannels();
+            twitchAuth.setHelix(statusForToken(_settings.twitchOauthToken,
+                mintedClientId: _settings.twitchTokenClientId));
             _showSnackBar('Twitch account connected successfully!', isError: false);
-            _loadFollowedChannels();
+            await _refreshHelixAuth(force: true);
+            if (twitchAuth.helix.value.isUsable) _loadFollowedChannels();
           }
           response.write('OK');
           await response.close();
@@ -1554,7 +1574,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         }
       });
     } catch (e) {
-      _showSnackBar('Failed to start local login server: $e', isError: true);
+      _showSnackBar('Failed to start local login server: ${describeTwitchError(e)}', isError: true);
     }
   }
 
@@ -1577,12 +1597,56 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         });
       }
     } catch (e) {
-      _showSnackBar('Error loading followed channels: $e', isError: true);
+      if (e is TwitchApiException && e.isAuthFailure) {
+        // The banner does the talking, and it offers the one button that
+        // actually fixes this. A snackbar cannot: it scrolls away, it has no
+        // remedy on it, and it used to carry a raw JSON body.
+        unawaited(_refreshHelixAuth(force: true));
+      } else {
+        _showSnackBar(
+            'Could not load followed channels: ${describeTwitchError(e)}',
+            isError: true);
+      }
     } finally {
       setState(() {
         _isLoadingFollowed = false;
       });
     }
+  }
+
+  /// Probes the account token and publishes the verdict.
+  ///
+  /// [force] re-probes even when the status is already known, which is what a
+  /// Helix 401 and a fresh OAuth capture both need.
+  Future<void> _refreshHelixAuth({bool force = false}) async {
+    final token = _settings.twitchOauthToken.trim();
+    if (token.isEmpty) {
+      twitchAuth.setHelix(TwitchAuthStatus.absent);
+      return;
+    }
+    final current = twitchAuth.helix.value;
+    if (!force && current.state == TwitchAuthState.valid) return;
+
+    // A mismatch between the token's mint and the configured Client ID is
+    // detectable with no request at all, which matters on an offline launch.
+    final minted = _settings.twitchTokenClientId.trim();
+    final configured = _settings.twitchClientId.trim();
+    if (minted.isNotEmpty && configured.isNotEmpty && minted != configured) {
+      twitchAuth.setHelix(TwitchAuthStatus(
+        state: TwitchAuthState.invalid,
+        fault: TwitchAuthFault.clientIdMismatch,
+        login: current.login,
+        tokenClientId: minted,
+        checkedAt: DateTime.now(),
+      ));
+      return;
+    }
+
+    twitchAuth.setHelix(statusChecking(current));
+    final status =
+        await _apiService.validateHelixToken(token, _settings.twitchClientId);
+    twitchAuth.recordHelixProbe(status);
+    if (mounted) setState(() {});
   }
 
   final VodCache _vodCache = VodCache();
@@ -2317,6 +2381,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       settings: _settings,
       themeNotifier: themeNotifier,
       authenticatedUserLogin: _authenticatedUserLogin,
+      onRevalidateHelix: () => _refreshHelixAuth(force: true),
       onConnectAccount: _startOAuthServer,
       openExternalLink: _openExternalLink,
       onClearWatchHistory: _clearWatchProgress,
@@ -2519,6 +2584,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 return const SizedBox.shrink();
               }
               return _buildSaveFailureBanner(failure);
+            },
+          ),
+          ValueListenableBuilder<TwitchAuthStatus>(
+            valueListenable: twitchAuth.helix,
+            builder: (context, status, _) {
+              if (status.needsReconnect &&
+                  _authWarningDismissed &&
+                  status.fault != _dismissedFault) {
+                // A different problem is a different message; a dismissal
+                // covers the reason it was shown for, not the topic.
+                _authWarningDismissed = false;
+              }
+              if (!status.needsReconnect || _authWarningDismissed) {
+                return const SizedBox.shrink();
+              }
+              return _buildTwitchAuthBanner(status);
             },
           ),
           Expanded(
@@ -3127,8 +3208,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             ),
           ),
           TextButton(
+            // Same fix as the reconnect banner: the accent ink vanished into
+            // the danger wash.
             onPressed: () => _showSaveFailureDetail(failure),
-            child: const Text('Details', style: NeuType.captionMetrics),
+            style: TextButton.styleFrom(
+              foregroundColor: NeuTheme.dangerText(isDark),
+            ),
+            child: Text('Details',
+                style: NeuType.captionStrong(isDark,
+                    color: NeuTheme.dangerText(isDark))),
           ),
           // NeuIconAction, whose whole reason to exist is ending exactly
           // this: a dismiss target collapsed to its 14px glyph.
@@ -3143,6 +3231,62 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       ),
     ),
     EngravedRule(),
+    ]);
+  }
+
+  /// The account token was rejected, and this is where it gets fixed.
+  ///
+  /// Persistent rather than a snackbar, and carrying the remedy rather than
+  /// describing it: the failure this replaces greeted the user on every
+  /// launch with a raw `{"error":"Unauthorized"...}` blob that scrolled away
+  /// before it could be acted on, while Settings kept showing a green tick.
+  Widget _buildTwitchAuthBanner(TwitchAuthStatus status) {
+    final isDark = themeNotifier.isDarkTheme;
+    final detail = connectionDetail(status);
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(
+            horizontal: NeuSpace.s16, vertical: NeuSpace.s8),
+        color: NeuTheme.danger.withValues(alpha: 0.12),
+        child: Row(
+          children: [
+            Icon(Icons.link_off, size: 16, color: NeuTheme.dangerText(isDark)),
+            const SizedBox(width: NeuSpace.s8),
+            Expanded(
+              child: Text(
+                detail ??
+                    'Your Twitch account token was rejected. Followed channels '
+                        'and VOD lists are unavailable until you reconnect.',
+                style: NeuType.label(isDark, color: NeuTheme.dangerText(isDark)),
+              ),
+            ),
+            TextButton(
+              // Reconnecting happens HERE. Sending the user to Settings to
+              // find the button is the extra step that makes a warning feel
+              // like a scolding.
+              onPressed: _startOAuthServer,
+              style: TextButton.styleFrom(
+                foregroundColor: NeuTheme.dangerText(isDark),
+              ),
+              child: Text('Reconnect',
+                  style: NeuType.captionStrong(isDark,
+                      color: NeuTheme.dangerText(isDark))),
+            ),
+            NeuIconAction(
+              icon: Icons.close,
+              tooltip: 'Dismiss',
+              size: NeuActionSize.sm,
+              style: NeuActionStyle.flat,
+              onPressed: () => setState(() {
+                _authWarningDismissed = true;
+                _dismissedFault = status.fault;
+              }),
+            ),
+          ],
+        ),
+      ),
+      EngravedRule(),
     ]);
   }
 
@@ -3975,7 +4119,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     launch.catchError((Object e) {
       _activePlayingVideos.remove(vod.id);
       if (mounted) {
-        _showSnackBar('Could not start playback: $e', isError: true);
+        _showSnackBar('Could not start playback: ${describeTwitchError(e)}', isError: true);
       }
     });
   }

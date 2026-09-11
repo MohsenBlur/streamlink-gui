@@ -14,6 +14,7 @@ AppSettings buildNonDefaultSettings() {
     customPlayerArgs: '--ontop --no-border',
     seekableVodStreaming: false,
     twitchClientId: 'custom-client-id',
+    twitchTokenClientId: 'the-client-that-minted-it',
     localServerPort: 54321,
     watchedThreshold: 88,
     sidebarCollapsed: true,
