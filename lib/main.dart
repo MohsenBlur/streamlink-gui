@@ -12,6 +12,7 @@ import 'models/twitch_channel.dart';
 import 'models/twitch_video.dart';
 import 'services/storage_service.dart';
 import 'state/twitch_auth_notifier.dart';
+import 'state/watch_progress_store.dart';
 import 'utils/twitch_auth_status.dart';
 import 'services/twitch_api_service.dart';
 import 'services/player_service.dart';
@@ -383,7 +384,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _isMultiSelectMode = false;
   final Set<String> _selectedVodIds = {};
   bool _isBulkUpdatingVods = false;
+  /// The flat view every reader already uses, derived from [_progressStore].
+  ///
+  /// Kept so no call site changes, and still written into channels_config.json
+  /// so an older build finds positions where it expects them.
   Map<String, int> _localVodsProgress = {};
+
+  /// The durable layer underneath it: the furthest point ever reached, a short
+  /// undo trail, and the guard that stops a player which came up in the wrong
+  /// place from writing over a good position.
+  WatchProgressStore _progressStore = WatchProgressStore();
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
   final Map<String, TwitchVideo> _activePlayingVideos = {};
@@ -500,7 +510,26 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     };
 
-    _playerService.onWatchProgressUpdated = (vodId, position, progress) {
+    _playerService.onWatchProgressUpdated =
+        (vodId, position, progress, sessionAgeMs) {
+      // One chokepoint, and it can say no. A relaunched player that came up at
+      // the top of a five-hour VOD used to write its way over the stored
+      // position within seconds - here and on Twitch, where max(local, remote)
+      // cannot undo it.
+      final result = _progressStore.record(vodId, position,
+          nowMs: DateTime.now().millisecondsSinceEpoch,
+          sessionAgeMs: sessionAgeMs);
+      if (!result.accepted) {
+        if (result.outcome == ProgressWriteOutcome.rejectedSuspectRegression) {
+          _logNotifier.appendLog(
+              vodId,
+              '[System] Ignored a watch position of ${position}s: it is far behind '
+              'the furthest point reached (${result.entry.best}s) and arrived in the '
+              'first seconds of this session, which is what a failed resume looks '
+              'like.');
+        }
+        return;
+      }
       if (mounted) {
         setState(() {
           _localVodsProgress[vodId] = position;
@@ -1409,6 +1438,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             if (position != null) progress[k.toString()] = position;
           });
           _localVodsProgress = progress;
+          _progressStore = WatchProgressStore.fromJson(
+              progress.map((k, v) => MapEntry(k, v as dynamic)));
         }
         final downloadedVodsJson = config['downloaded_vods'];
         if (downloadedVodsJson is Map) {
@@ -1437,6 +1468,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       if (twitchAuth.helix.value.isUsable) {
         _loadFollowedChannels();
       }
+      // The sidecar is authoritative where it has an entry: it carries the
+      // furthest point and the undo trail, which the flat compatibility copy
+      // in the config cannot express.
+      final sidecar = await _storageService.loadWatchProgress();
+      if (sidecar.isNotEmpty) {
+        final merged = <String, dynamic>{
+          ..._progressStore.toJson(),
+          ...sidecar,
+        };
+        _progressStore = WatchProgressStore.fromJson(merged);
+        _localVodsProgress = _progressStore.toFlatMap();
+      }
+
       final recents = await _storageService.loadRecentWatchedVods();
       if (mounted) {
         setState(() {
@@ -1490,6 +1534,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Future<void> _saveChannels() async {
     await _storageService.saveConfig(_channels, _settings, _localVodsProgress, _downloadedVodsRegistry);
+    // The rich record goes to its own file; the config keeps the flat copy for
+    // compatibility. A config rewrite can no longer take the history with it.
+    await _storageService.saveWatchProgress(_progressStore.toJson());
   }
 
   Future<void> _startOAuthServer() async {
@@ -2177,6 +2224,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
       setState(() {
         _localVodsProgress[videoId] = targetPosition;
+        // An explicit user action, so it may move the furthest point too -
+        // "mark unwatched" has to genuinely mean unwatched.
+        if (targetPosition <= 0) {
+          _progressStore.clear(videoId);
+        } else {
+          _progressStore.record(videoId, targetPosition,
+              nowMs: DateTime.now().millisecondsSinceEpoch,
+              sessionAgeMs: kSessionGraceSeconds * 1000 + 1);
+        }
         vod.watchPosition = targetPosition;
         vod.watchProgress = markAsWatched ? 1.0 : 0.0;
       });
@@ -2392,6 +2448,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Future<void> _clearWatchProgress() async {
     setState(() {
       _localVodsProgress.clear();
+      _progressStore.clearAll();
       for (final vod in _channelVods) {
         // Both fields, not just the percentage: zeroing watchProgress while
         // leaving watchPosition was an internally inconsistent state, and
@@ -3522,6 +3579,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     setState(() {
       _recentWatchedVods.removeWhere((v) => v.id == entry.vodId);
       _localVodsProgress.remove(entry.vodId);
+      _progressStore.clear(entry.vodId);
     });
     await _storageService.saveRecentWatchedVods(
       _recentWatchedVods.map((v) => v.toJson()).toList(),

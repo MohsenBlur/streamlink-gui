@@ -7,6 +7,7 @@ import '../models/app_settings.dart';
 import '../state/activity_state.dart';
 import '../utils/player_args.dart';
 import '../utils/player_progress.dart';
+import '../utils/player_seek.dart';
 import '../utils/vod_playback_monitor.dart';
 import '../models/twitch_video.dart';
 import 'twitch_api_service.dart';
@@ -134,7 +135,11 @@ class PlayerService {
   /// callers do not report a deliberate stop as a failure.
   void Function(String key, int exitCode, bool userInitiated)? onPlayerStopped;
   void Function(String key, String line)? onPlayerLog;
-  void Function(String vodId, int position, double progress)? onWatchProgressUpdated;
+  /// [sessionAgeMs] lets the store tell a failed resume from a deliberate
+  /// seek: a large backwards jump seconds into a session is a player that
+  /// came up in the wrong place, not a user rewatching.
+  void Function(String vodId, int position, double progress, int sessionAgeMs)?
+      onWatchProgressUpdated;
 
   int getNextAvailablePlayerPort() {
     int port = 8089;
@@ -911,7 +916,12 @@ class PlayerService {
       }
 
       _startVODProgressTracker(vod, port, settings,
-          channelName: channelName, selfHeal: true);
+          channelName: channelName,
+          selfHeal: true,
+          // Only the passthrough path carries a player-side start flag; under
+          // piping streamlink itself skips ahead, so the player legitimately
+          // begins at 0 and there is nothing to verify.
+          intendedResume: cmd.passthrough ? cmd.appliedStart : 0);
 
       // allowMalformed: a single non-UTF-8 byte from the child used to raise
       // a FormatException into the zone, silently killing the listener - and
@@ -1052,8 +1062,9 @@ class PlayerService {
   }
 
   void _startVODProgressTracker(TwitchVideo vod, int port, AppSettings settings,
-      {String? channelName, bool selfHeal = false}) {
+      {String? channelName, bool selfHeal = false, int intendedResume = 0}) {
     int lastSynced = -1;
+    final sessionStartedMs = DateTime.now().millisecondsSinceEpoch;
     String webToken = settings.twitchWebOauthToken.trim();
     if (webToken.startsWith('oauth:')) {
       webToken = webToken.substring(6);
@@ -1078,6 +1089,21 @@ class PlayerService {
     final monitor = VodPlaybackMonitor(durationSeconds: durationSeconds);
     bool pollErrorLogged = false;
 
+    // Did the player actually start where it was told to?
+    //
+    // MPC-HC discards `/start` on a network stream (measured: asked 60s,
+    // landed 0s) and only appeared to resume because it separately restores
+    // its own remembered position - which a taskkill /F denies it. So the
+    // launch flag is verified rather than trusted, and corrected over the
+    // control channel this tracker is already talking to.
+    final landing = LandingCheck(intendedSeconds: intendedResume);
+    final seekChannel = seekChannelFor(kind);
+    if (seekChannel == SeekChannel.none) {
+      // Nothing to correct with; never hold progress hostage to a check that
+      // can never pass.
+      landing.abandon();
+    }
+
     late final Timer timer;
     bool tickInFlight = false;
 
@@ -1090,9 +1116,14 @@ class PlayerService {
 
     void syncIfLive(int seconds) {
       if (!isLive()) return;
+      // A session that has not landed writes NOTHING. Persisting the position
+      // of a player that restarted at the top - locally and to Twitch, where
+      // max(local, remote) cannot undo it - is how a bad relaunch became
+      // permanent data loss rather than a moment's annoyance.
+      if (!landing.mayWriteProgress) return;
       if ((seconds - lastSynced).abs() < 1) return;
       lastSynced = seconds;
-      _syncProgress(vod, seconds, webToken);
+      _syncProgress(vod, seconds, webToken, sessionStartedMs);
     }
 
     void handleEvents(List<MonitorEvent> events) {
@@ -1222,6 +1253,25 @@ class PlayerService {
       if (!isLive()) return;
       final result = monitor.onSample(
           status: status, nowMs: DateTime.now().millisecondsSinceEpoch);
+
+      // Verify the landing BEFORE the commit is allowed through, so a session
+      // that came up in the wrong place never writes its way over a good
+      // stored position while we are still correcting it.
+      if (!landing.isSettled && status?.positionSeconds != null &&
+          status!.activity == PlayerActivity.playing) {
+        final target = landing.evaluate(status.positionSeconds!);
+        if (target != null) {
+          log(vod.id,
+              '[System] Player started at ${status.positionSeconds}s but was asked '
+              'for ${intendedResume}s - correcting (attempt ${landing.corrections} '
+              'of $kMaxSeekCorrections).');
+          await _seekPlayer(seekChannel, port, target, durationSeconds, vod.id);
+        } else if (landing.isSettled) {
+          log(vod.id,
+              '[System] Playback position confirmed at ${status.positionSeconds}s.');
+        }
+      }
+
       if (result.commitPositionSeconds != null) {
         syncIfLive(result.commitPositionSeconds!);
       }
@@ -1258,11 +1308,13 @@ class PlayerService {
     activePlayerTimers.remove(videoID)?.cancel();
   }
 
-  Future<void> _syncProgress(TwitchVideo vod, int position, String webToken) async {
+  Future<void> _syncProgress(TwitchVideo vod, int position, String webToken,
+      int sessionStartedMs) async {
     // 1. Always update local progress immediately
     final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
     final progress = totalSeconds > 0 ? position / totalSeconds : 0.0;
-    onWatchProgressUpdated?.call(vod.id, position, progress);
+    onWatchProgressUpdated?.call(vod.id, position, progress,
+        DateTime.now().millisecondsSinceEpoch - sessionStartedMs);
 
     // 2. Sync to Twitch in the background if token exists
     if (webToken.isNotEmpty) {
@@ -1361,7 +1413,7 @@ class PlayerService {
       log(vod.id,
           '[System] Relaunching the stream (attempt ${ledger.attempts} of 2) '
           'to resume at ${confirmed}s - a fresh launch gets a fresh Twitch URL.');
-      killProcess(vod.id);
+      unawaited(_killGracefully(vod.id));
     } else {
       log(vod.id,
           '[System] Giving up: the stream ended prematurely again without '
@@ -1369,8 +1421,70 @@ class PlayerService {
       _vodRestartLedgers.remove(vod.id);
       // NOT marked user-initiated: the taskkill'd tree exits non-zero, so the
       // existing failure snackbar with its View-log action fires.
-      killProcess(vod.id, markUserInitiated: false);
+      unawaited(_killGracefully(vod.id, markUserInitiated: false));
     }
+  }
+
+  /// Tells a running player to jump to [target].
+  ///
+  /// Uses the same control channel the progress tracker already polls, so this
+  /// needs no new plumbing and no new port.
+  Future<void> _seekPlayer(SeekChannel channel, int port, int target,
+      int durationSeconds, String logKey) async {
+    try {
+      if (channel == SeekChannel.mpvIpc) {
+        final socket = await Socket.connect('127.0.0.1', port,
+            timeout: const Duration(seconds: 2));
+        socket.write(mpvSeekCommand(target));
+        await socket.flush();
+        socket.destroy();
+        return;
+      }
+      final path = seekRequestPath(channel,
+          targetSeconds: target, durationSeconds: durationSeconds);
+      if (path == null) return;
+      final uri = Uri.parse('http://127.0.0.1:$port/$path');
+      if (channel == SeekChannel.vlcHttp) {
+        final auth = base64Encode(utf8.encode(':streamlink'));
+        await http.get(uri, headers: {'Authorization': 'Basic $auth'})
+            .timeout(const Duration(seconds: 2));
+      } else {
+        await http.get(uri).timeout(const Duration(seconds: 2));
+      }
+    } catch (e) {
+      log(logKey, '[System] Could not correct the playback position: $e');
+    }
+  }
+
+  /// Ends the tree, giving the player a chance to shut down cleanly first.
+  ///
+  /// `taskkill /F` terminates immediately, which denies MPC-HC the graceful
+  /// exit it needs to persist its own remembered position — the very thing
+  /// streamed resume has been silently relying on, since MPC-HC discards the
+  /// `/start` flag on a network stream. So a heal that force-killed destroyed
+  /// the fallback it was about to depend on.
+  ///
+  /// Without `/F`, taskkill posts WM_CLOSE to the tree's windows: the player
+  /// saves and exits on its own terms. Console members ignore it, hence the
+  /// bounded wait and the forceful second pass.
+  Future<void> _killGracefully(String key,
+      {bool markUserInitiated = true}) async {
+    final proc = activePlayerProcesses[key];
+    if (proc == null) return;
+    if (markUserInitiated) _stoppedByUser.add(key);
+
+    if (Platform.isWindows) {
+      try {
+        Process.runSync('taskkill', ['/T', '/PID', '${proc.pid}']);
+      } catch (_) {}
+      // Poll rather than sleep a fixed guess: a player that closes in 200ms
+      // should not cost two seconds on every stop.
+      for (var i = 0; i < 12; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        if (!activePlayerProcesses.containsKey(key)) return;
+      }
+    }
+    killProcess(key, markUserInitiated: markUserInitiated);
   }
 
   void killProcess(String key, {bool markUserInitiated = true}) {

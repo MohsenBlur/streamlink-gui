@@ -363,4 +363,32 @@ class StorageService {
     final file = getStorageFile('recent_watched_vods.json');
     await _writerFor(file).write(json.encode(list));
   }
+
+  /// Watch progress lives in its own file, not inside channels_config.json.
+  ///
+  /// `saveConfig` rewrites that config wholesale with no merge, so anything
+  /// sharing it rides on every unrelated save — a window resize included. A
+  /// position someone spent five hours reaching should not depend on the
+  /// integrity of a file that is rewritten when the window moves. The flat
+  /// `local_vods_progress` key stays in the config as a compatibility copy, so
+  /// an older build still finds positions where it expects them.
+  Future<Map<String, dynamic>> loadWatchProgress() async {
+    final file = getStorageFile('watch_progress.json');
+    try {
+      if (!await file.exists()) return {};
+      final content = await file.readAsString();
+      if (content.trim().isEmpty) return {};
+      final decoded = json.decode(content);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      _quarantineCorruptFile(file);
+    } catch (_) {
+      _quarantineCorruptFile(file);
+    }
+    return {};
+  }
+
+  Future<void> saveWatchProgress(Map<String, dynamic> data) async {
+    final file = getStorageFile('watch_progress.json');
+    await _writerFor(file).write(json.encode(data));
+  }
 }
