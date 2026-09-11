@@ -84,6 +84,32 @@ void main() {
     });
   });
 
+  group('recovering from a rejection refreshes what it made stale', () {
+    // Reconnecting used to reload only the followed list, so every favourite
+    // kept the error text stamped on it during the outage - "Helix Stream API
+    // error: status 401" sat on the open channel until the one-minute poll
+    // happened to clear it, minutes after the account was working again.
+    test('the auth status drives a refresh of both lists and the open VODs', () {
+      final src = File('lib/main.dart').readAsStringSync();
+      expect(src, contains('_onAuthStatusChanged'));
+      final start = src.indexOf('void _onAuthStatusChanged()');
+      expect(start, greaterThan(-1));
+      final body = src.substring(start, start + 1400);
+      expect(body, contains('_refreshAllChannels('),
+          reason: 'the favourites carry the stale per-channel error');
+      expect(body, contains('_loadFollowedChannels('));
+      expect(body, contains('_fetchVodsForChannel('),
+          reason: 'the open VOD grid holds its own stale 401');
+    });
+
+    test('the listener is attached and detached', () {
+      final src = File('lib/main.dart').readAsStringSync();
+      expect(src, contains('twitchAuth.helix.addListener(_onAuthStatusChanged)'));
+      expect(src, contains('twitchAuth.helix.removeListener(_onAuthStatusChanged)'),
+          reason: 'a listener on a global notifier outlives the widget otherwise');
+    });
+  });
+
   test('a rejected account token raises a banner with a remedy on it', () {
     final src = read('lib/main.dart');
     expect(src, contains('_buildTwitchAuthBanner'));

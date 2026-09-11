@@ -399,6 +399,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _authWarningDismissed = false;
   TwitchAuthFault _dismissedFault = TwitchAuthFault.none;
 
+  /// Whether the account token was usable at the last notification, and
+  /// whether the startup sequence has finished. Together they identify a
+  /// RECOVERY - the moment a rejected token starts working again.
+  bool _lastAuthUsable = false;
+  bool _startupComplete = false;
+
   /// Re-arms the save-failure banner once a save succeeds, so a dismissal
   /// covers the problem the user saw and not every future one.
   void _watchSaveFailures() {
@@ -601,6 +607,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     };
 
     _watchSaveFailures();
+    twitchAuth.helix.addListener(_onAuthStatusChanged);
     _loadChannels();
     
     _downloadCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -882,6 +889,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
     _windowSaveTimer?.cancel();
+    twitchAuth.helix.removeListener(_onAuthStatusChanged);
     _activity.dispose();
     _logNotifier.dispose();
     super.dispose();
@@ -1439,7 +1447,44 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     } catch (e) {
       _showSnackBar('Error loading saved channels: ${describeTwitchError(e)}', isError: true);
     } finally {
+      // Arms the recovery refresh. Startup already fetches everything, so
+      // arming earlier would make the first successful probe refresh it all a
+      // second time.
+      _startupComplete = true;
       setState(() => _isGlobalLoading = false);
+    }
+  }
+
+  /// Re-fetches what a rejected token left stale.
+  ///
+  /// Reconnecting reloaded the FOLLOWED list and nothing else, so every
+  /// favourite kept the error text stamped on it while the token was dead -
+  /// "Helix Stream API error: status 401" sat on the selected channel until
+  /// the one-minute favourites poll happened to clear it, minutes after the
+  /// account was working again. The data was stale, not wrong, which is the
+  /// worst kind of wrong to show someone who has just fixed the problem.
+  void _onAuthStatusChanged() {
+    final usable = twitchAuth.helix.value.isUsable;
+    final recovered = usable && !_lastAuthUsable;
+    _lastAuthUsable = usable;
+
+    if (usable && _authWarningDismissed) {
+      // A dismissal covers the rejection it was shown for. Without this, one
+      // dismissal would silence every future rejection carrying the same
+      // reason, for the life of the process.
+      _authWarningDismissed = false;
+      _dismissedFault = TwitchAuthFault.none;
+    }
+
+    if (!recovered || !_startupComplete) return;
+    unawaited(_refreshAllChannels());
+    unawaited(_loadFollowedChannels());
+    // ...and the open channel's VOD list, which is fetched per selection and
+    // would otherwise keep its 401 until the user clicked away and back.
+    final open = _selectedChannel;
+    if (open != null) {
+      setState(() => _vodsError = null);
+      unawaited(_fetchVodsForChannel(open));
     }
   }
 
@@ -1559,8 +1604,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
             twitchAuth.setHelix(statusForToken(_settings.twitchOauthToken,
                 mintedClientId: _settings.twitchTokenClientId));
             _showSnackBar('Twitch account connected successfully!', isError: false);
+            // No explicit reload here: the probe publishes the new status,
+            // and _onAuthStatusChanged refreshes both lists off that
+            // transition. Calling it here too fetched the followed list twice
+            // on every reconnect.
             await _refreshHelixAuth(force: true);
-            if (twitchAuth.helix.value.isUsable) _loadFollowedChannels();
           }
           response.write('OK');
           await response.close();
@@ -1720,7 +1768,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       if (!mounted || requestId != _vodRequestId) return;
       if (_channelVods.isEmpty) {
         setState(() {
-          _vodsError = e.toString().replaceFirst('Exception: ', '');
+          _vodsError = describeTwitchError(e);
         });
       }
     } finally {
