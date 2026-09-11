@@ -141,9 +141,27 @@ class PlayerService {
   void Function(String vodId, int position, double progress, int sessionAgeMs)?
       onWatchProgressUpdated;
 
+  /// Ports released recently, and when.
+  ///
+  /// A bounce used to hand the new player the port the old one had just been
+  /// killed on: the exit handler clears `activePlayerPorts` BEFORE the relaunch
+  /// allocates, and the allocator only consults that map. `taskkill /F` returns
+  /// before its targets actually die, so the corpse can still hold the socket —
+  /// and the new player, unable to bind, comes up with no web interface at all.
+  /// Every poll then fails for the rest of playback: no progress saved, no
+  /// second heal possible, silently.
+  final Map<int, DateTime> _coolingPorts = {};
+
+  /// Long enough to outlast a terminated process's socket, short enough that
+  /// restarting a VOD twice does not march up the port range.
+  static const Duration _portCooldown = Duration(seconds: 20);
+
   int getNextAvailablePlayerPort() {
+    final now = DateTime.now();
+    _coolingPorts.removeWhere((_, at) => now.difference(at) > _portCooldown);
     int port = 8089;
-    while (activePlayerPorts.containsValue(port)) {
+    while (activePlayerPorts.containsValue(port) ||
+        _coolingPorts.containsKey(port)) {
       port++;
     }
     return port;
@@ -882,6 +900,7 @@ class PlayerService {
 
       playingVodIds.add(vod.id);
       activePlayerPorts[vod.id] = port;
+      activePlayerDurations[vod.id] = vod.duration;
 
       if (isRestart) {
         // A self-heal bounce is one continuous session, not a new one:
@@ -950,7 +969,8 @@ class PlayerService {
         log(key, '[System] Streamlink process for VOD ${vod.id} exited with code $exitCode');
         playingVodIds.remove(vod.id);
         activePlayerProcesses.remove(vod.id);
-        activePlayerPorts.remove(vod.id);
+        final releasedPort = activePlayerPorts.remove(vod.id);
+        if (releasedPort != null) _coolingPorts[releasedPort] = DateTime.now();
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
         // A premature-EOF verdict parked a resume position here before
@@ -1307,6 +1327,10 @@ class PlayerService {
           log(vod.id,
               '[System] Playback started where it was asked to, at '
               '${status.positionSeconds}s.');
+          // A relaunch that landed is a relaunch that worked: forget the
+          // attempts so a later, unrelated stall gets its own two tries
+          // instead of inheriting a spent budget.
+          _vodRestartLedgers.remove(vod.id);
         }
       }
 
@@ -1463,6 +1487,30 @@ class PlayerService {
     }
   }
 
+  /// Jumps the VOD currently playing to [seconds].
+  ///
+  /// Public because the furthest-point recovery offers it: when a VOD opens
+  /// behind where you actually got to, the remedy is one seek, and the app
+  /// already holds the port and the player kind needed to send it.
+  Future<bool> seekActiveVod(
+      String vodId, int seconds, AppSettings settings) async {
+    final port = activePlayerPorts[vodId];
+    if (port == null) return false;
+    final kind =
+        classifyPlayer(resolveEffectivePlayerType(settings), settings.customPlayerPath);
+    final channel = seekChannelFor(kind);
+    if (channel == SeekChannel.none) return false;
+    final duration = _apiService.parseDurationToSeconds(
+        activePlayerDurations[vodId] ?? '');
+    await _seekPlayer(channel, port, seconds, duration, vodId);
+    log(vodId, '[System] Jumped to ${seconds}s at your request.');
+    return true;
+  }
+
+  /// Duration string per playing VOD, so a seek can be expressed as a
+  /// percentage if a player ever needs that form.
+  final Map<String, String> activePlayerDurations = {};
+
   /// Tells a running player to jump to [target].
   ///
   /// Uses the same control channel the progress tracker already polls, so this
@@ -1538,11 +1586,22 @@ class PlayerService {
       if (markUserInitiated) _stoppedByUser.add(key);
       try {
         if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+          final r =
+              Process.runSync('taskkill', ['/F', '/T', '/PID', '${proc.pid}']);
+          if (r.exitCode != 0) {
+            // Swallowed silently until now. If the kill misses, the tree never
+            // dies, `proc.exitCode` never fires, and a heal waiting on that
+            // exit simply never happens — with nothing anywhere saying so.
+            log(key,
+                '[System] Could not end the player process (taskkill exit '
+                '${r.exitCode}): ${r.stderr.toString().trim()}');
+          }
         } else {
           proc.kill();
         }
-      } catch (_) {}
+      } catch (e) {
+        log(key, '[System] Could not end the player process: $e');
+      }
     }
   }
 

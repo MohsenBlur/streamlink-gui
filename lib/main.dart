@@ -1499,6 +1499,48 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
+  /// Offers to jump to the furthest point reached, when playback starts behind it.
+  ///
+  /// Deferred rather than immediate: the player needs a moment to come up and
+  /// register its control port before a seek can land, and the message is
+  /// useless before there is something to seek.
+  void _offerFurthestPosition(TwitchVideo vod) {
+    final entry = _progressStore[vod.id];
+    if (entry == null || !entry.hasRecoverablePosition) return;
+    final best = entry.best;
+
+    Future<void>.delayed(const Duration(seconds: 6), () {
+      if (!mounted) return;
+      if (!_playerService.playingVodIds.contains(vod.id)) return;
+      final label = _formatClock(best);
+      _showSnackBar(
+        'You had reached $label in this VOD.',
+        isError: false,
+        action: SnackBarAction(
+          label: 'Jump there',
+          onPressed: () async {
+            final ok =
+                await _playerService.seekActiveVod(vod.id, best, _settings);
+            if (!mounted) return;
+            _showSnackBar(
+                ok
+                    ? 'Jumped to $label.'
+                    : 'Could not reach the player to jump; seek there manually.',
+                isError: !ok);
+          },
+        ),
+      );
+    });
+  }
+
+  String _formatClock(int totalSeconds) {
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    final sec = totalSeconds % 60;
+    String two(int v) => v < 10 ? '0$v' : '$v';
+    return h > 0 ? '$h:${two(m)}:${two(sec)}' : '${two(m)}:${two(sec)}';
+  }
+
   /// Re-fetches what a rejected token left stale.
   ///
   /// Reconnecting reloaded the FOLLOWED list and nothing else, so every
@@ -4238,6 +4280,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final Future<void> launch = (file != null && file.existsSync())
         ? _playerService.playDownloadedVod(file, vod, _settings)
         : _playerService.launchStreamlinkForVod(vod, channelName, _settings);
+
+    // If this VOD is opening behind the furthest point ever reached, say so and
+    // offer the one action that fixes it. The furthest point is only a safety
+    // net if the user can actually reach it; a value kept in a file that
+    // nothing surfaces would be a backup in name only.
+    _offerFurthestPosition(vod);
 
     launch.catchError((Object e) {
       _activePlayingVideos.remove(vod.id);
