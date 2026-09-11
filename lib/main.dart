@@ -2181,8 +2181,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // that job - so a browser started through cmd became a job member and was
       // killed the moment the app closed. Explorer is already running outside
       // our job, so handing the URL to it launches the browser out of reach.
-      // This also drops the `&` -> `^&` shell escaping the cmd form needed.
-      await Process.start('explorer.exe', [url], mode: ProcessStartMode.detached);
+      //
+      // THE TRAILING SPACE IS LOAD-BEARING. Do not "clean it up".
+      //
+      // explorer.exe does not parse its command line with the standard argv
+      // rules - handed a bare URL containing `&` it splits it and passes a
+      // fragment to the shell. The Twitch sign-in URL ends in
+      // `scope=user:read:follows`, so Windows was asked to open a `user:`
+      // protocol and answered with "Get an app to open this 'user' link"
+      // instead of opening a browser. Every link with a query string was
+      // affected; the OAuth one just happened to end in something that looks
+      // like a URL scheme.
+      //
+      // Dart quotes an argument only when it contains a space, tab or quote,
+      // and a URL contains none of those, so it arrived unquoted. Appending a
+      // space forces the quoting, and a quoted URL is what explorer accepts
+      // whole. Measured against a local listener: bare delivers nothing,
+      // quoted delivers the full query string, and explorer trims the space.
+      await Process.start('explorer.exe', ['$url '],
+          mode: ProcessStartMode.detached);
     } catch (e) {
       _showSnackBar('Failed to open link: $e', isError: true);
     }
