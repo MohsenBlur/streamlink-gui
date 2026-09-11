@@ -1505,13 +1505,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// register its control port before a seek can land, and the message is
   /// useless before there is something to seek.
   void _offerFurthestPosition(TwitchVideo vod) {
-    final entry = _progressStore[vod.id];
-    if (entry == null || !entry.hasRecoverablePosition) return;
-    final best = entry.best;
+    if (_progressStore[vod.id]?.hasRecoverablePosition != true) return;
 
     Future<void>.delayed(const Duration(seconds: 6), () {
       if (!mounted) return;
       if (!_playerService.playingVodIds.contains(vod.id)) return;
+      // Re-read at fire time, not before the wait. The session writes its own
+      // position as soon as it has landed, so by now playback may already be
+      // past the furthest point - in which case there is nothing to offer and
+      // saying otherwise would just be noise.
+      final entry = _progressStore[vod.id];
+      if (entry == null || !entry.hasRecoverablePosition) return;
+      final best = entry.best;
       final label = _formatClock(best);
       _showSnackBar(
         'You had reached $label in this VOD.',
