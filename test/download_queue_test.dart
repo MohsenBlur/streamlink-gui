@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -329,43 +330,120 @@ void main() {
           reason: 'a Downloads row left showing 45% for good');
       expect(lateDeaths.activeDownloadsProgress, isEmpty);
     });
-
-    test('can be downloaded again once a yt-dlp it could not stop has exited',
-        () async {
-      // Cancelled before its yt-dlp had started, so the cancel had no process
-      // to end, and the yt-dlp started anyway.
-      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
-      await lateDeaths.cancelVodDownload('1', 'chan', temp.path);
-      await pumpEventQueue();
-      final straggler = launcher.launched.single;
-      await straggler.exit(1);
-      await pumpEventQueue();
-
-      expect(lateDeaths.activeDownloadProcesses, isEmpty,
-          reason: 'a dead process on record refuses every later queueing');
-      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
-      await pumpEventQueue();
-      expect(launcher.launched, hasLength(2));
-    });
   });
 
-  test('a yt-dlp a cancel could not stop stays on show, to be cancelled again',
-      () async {
-    // Cancelled while it was starting: the cancel had no process to end.
-    final settings = AppSettings(vodDownloadFolder: temp.path);
-    service.queueVodDownload(vod('1'), 'chan', settings);
-    await service.cancelVodDownload('1', 'chan', temp.path);
-    await pumpEventQueue();
-    final straggler = launcher.launched.single;
-    straggler.printOut('[download]  45.0% of ~1.00GiB at 2.00MiB/s ETA 05:12\n');
-    await pumpEventQueue();
+  group('a download cancelled while its yt-dlp is starting', () {
+    // Until the process exists the cancel has nothing to end. It marked
+    // nothing either, so the yt-dlp started anyway and downloaded the whole
+    // VOD - with the cancel having cleared every trace of it on screen.
+    late AppSettings settings;
+    setUp(() => settings = AppSettings(vodDownloadFolder: temp.path));
 
-    expect(service.activeDownloadTasks['1'], startsWith('Downloading: 45.0%'),
-        reason: 'hidden, it would download in the background, out of reach');
-    await service.cancelVodDownload('1', 'chan', temp.path);
-    await pumpEventQueue();
-    expect(straggler.hasExited, isTrue);
-    expect(service.activeDownloadTasks, isEmpty);
+    test('is ended the moment its yt-dlp exists', () async {
+      launcher.startGate = Completer<void>();
+      service.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      expect(launcher.starting, 1, reason: 'held mid-start');
+
+      await service.cancelVodDownload('1', 'chan', temp.path);
+      expect(cancelled, ['1']);
+      launcher.startGate!.complete();
+      launcher.startGate = null;
+      await pumpEventQueue();
+
+      final straggler = launcher.launched.single;
+      expect(straggler.hasExited, isTrue);
+      expect(service.activeDownloadProcesses, isEmpty,
+          reason: 'a process on record refuses every later queueing');
+      expect(service.activeDownloadTasks, isEmpty);
+      expect(ended, ['1'], reason: 'its log session is closed');
+      expect(failed, isEmpty, reason: 'cancelled, not failed');
+      expect(service.isQueueProcessing, isFalse);
+      expect(logs['dl-1']!.last, contains('cancelled'));
+
+      service.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      expect(launcher.launched, hasLength(2), reason: 'it can be queued again');
+    });
+
+    test('before yt-dlp was even asked for starts none', () async {
+      // Queued and cancelled in one go: the start was still waiting for the
+      // archive's rewrites.
+      service.queueVodDownload(vod('1'), 'chan', settings);
+      await service.cancelVodDownload('1', 'chan', temp.path);
+      await pumpEventQueue();
+
+      expect(launcher.launched, isEmpty);
+      expect(ended, ['1']);
+      expect(failed, isEmpty);
+      expect(service.activeDownloadTasks, isEmpty);
+      expect(service.isQueueProcessing, isFalse);
+    });
+
+    test('and queued again, downloads in the new run only', () async {
+      launcher.startGate = Completer<void>();
+      service.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      await service.cancelVodDownload('1', 'chan', temp.path);
+      service.queueVodDownload(vod('1'), 'chan', settings);
+      launcher.startGate!.complete();
+      launcher.startGate = null;
+      await pumpEventQueue();
+
+      expect(launcher.launched, hasLength(2));
+      expect(launcher.launched.first.hasExited, isTrue);
+      expect(launcher.launched.last.hasExited, isFalse);
+      expect(service.activeDownloadProcesses['1'], same(launcher.launched.last));
+      expect(service.downloadChannelNames['1'], 'chan',
+          reason: "the old run's end leaves the new run's state alone");
+
+      await launcher.launched.last.exit(0);
+      await pumpEventQueue();
+      expect(failed, isEmpty);
+      expect(service.downloadQueue, isEmpty);
+    });
+
+    test('whose start then fails is reported as cancelled, not failed',
+        () async {
+      final gate = Completer<void>();
+      final broken = PlayerService(
+        startProcess: (executable, arguments, {environment}) async {
+          await gate.future;
+          throw const ProcessException('yt-dlp', [], 'not found');
+        },
+        runProcess: FakeTaskkill(launcher).run,
+      )
+        ..onDownloadFailed = ((id, title, code) => failed.add(id))
+        ..onDownloadEnded = ((id, code) => ended.add(id));
+      addTearDown(broken.stopAll);
+
+      broken.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      await broken.cancelVodDownload('1', 'chan', temp.path);
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(failed, isEmpty);
+      expect(ended, ['1']);
+      expect(broken.isQueueProcessing, isFalse);
+    });
+
+    test('is ended by stopping everything too, its queue entry kept',
+        () async {
+      launcher.startGate = Completer<void>();
+      service.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      await service.stopAll();
+      launcher.startGate!.complete();
+      launcher.startGate = null;
+      await pumpEventQueue();
+
+      expect(launcher.launched.single.hasExited, isTrue,
+          reason: 'it outlived an exit or an update that stopped everything');
+      expect(failed, isEmpty);
+      expect(cancelled, isEmpty,
+          reason: 'not cancelled: the saved queue resumes it next launch');
+    });
   });
 
   test('a download it already has is not announced as queued', () async {
