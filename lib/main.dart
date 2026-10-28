@@ -1652,7 +1652,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         actions: [
           NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
           NeuDialogAction.primary('Choose folder', () async {
-            final String? path = await FilePicker.platform.getDirectoryPath();
+            final String? path = await FilePicker.getDirectoryPath();
             if (path != null && path.isNotEmpty) {
               setState(() {
                 _settings.vodDownloadFolder = path;

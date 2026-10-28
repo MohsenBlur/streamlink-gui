@@ -291,7 +291,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
           onPressed: () async {
-            final path = await FilePicker.platform.getDirectoryPath();
+            final path = await FilePicker.getDirectoryPath();
             if (path != null && path.isNotEmpty) {
               setState(() => _downloadFolder = path);
             }
