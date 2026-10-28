@@ -91,47 +91,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
-  int x = 10;
-  int y = 10;
-  int width = 1280;
-  int height = 720;
-  
-  HKEY hKey;
-  if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\TwitchStreamlinkGUI", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-    DWORD dwType = REG_DWORD;
-    DWORD dwSize = sizeof(DWORD);
-    DWORD dwVal = 0;
-    
-    if (RegQueryValueExW(hKey, L"WindowX", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
-      x = static_cast<int>(dwVal);
-    }
-    if (RegQueryValueExW(hKey, L"WindowY", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
-      y = static_cast<int>(dwVal);
-    }
-    if (RegQueryValueExW(hKey, L"WindowW", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
-      width = static_cast<int>(dwVal);
-    }
-    if (RegQueryValueExW(hKey, L"WindowH", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
-      height = static_cast<int>(dwVal);
-    }
-    
-    RegCloseKey(hKey);
-  }
-
-  // This pre-Flutter positioning happens before the Dart-side geometry
-  // sanitizer can run, so apply the same guard here: if the saved rectangle
-  // touches no live monitor (undocked laptop, changed layout), fall back to
-  // the defaults instead of materializing the window off-screen.
-  RECT probe = {x, y, x + width, y + height};
-  if (::MonitorFromRect(&probe, MONITOR_DEFAULTTONULL) == nullptr) {
-    x = 10;
-    y = 10;
-  }
-
+  // Always created at the template defaults, hidden until the first frame.
+  // Geometry has one owner, the Dart side (settings.windowX/Y/W/H, sanitized
+  // by lib/utils/window_bounds.dart). This used to restore a second, native
+  // copy from HKCU\Software\TwitchStreamlinkGUI first, which only added one
+  // more geometry change before the first frame, the startup race behind the
+  // invisible-window bug. It was also wrong: it saved physical pixels and
+  // restored them as logical ones, so Create() scaled them by the monitor DPI
+  // again and the window grew by that factor on every launch, while the
+  // off-screen guard checked the rectangle before that scaling.
   FlutterWindow window(project);
   window.SetStartHidden(start_hidden);
-  Win32Window::Point origin(x, y);
-  Win32Window::Size size(width, height);
+  Win32Window::Point origin(10, 10);
+  Win32Window::Size size(1280, 720);
   if (!window.Create(L"streamlink_gui", origin, size)) {
     return EXIT_FAILURE;
   }
