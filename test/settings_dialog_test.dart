@@ -657,6 +657,24 @@ void main() {
       await _settle(tester);
     });
 
+    testWidgets("both Browse dialogs are owned by the app's window",
+        (tester) async {
+      final picker = HeldFilePicker.install();
+      ownDialogsBy(0x2A0B4);
+      await openSettings(tester, AppSettings()..playerType = 'custom');
+
+      await tapVisible(tester, browse());
+      picker.files.single.complete(null);
+      await _settle(tester);
+      await showTab(tester, 'Downloads');
+      await tapVisible(tester, browse());
+      picker.folders.single.complete(null);
+      await _settle(tester);
+
+      expect(picker.windowsOptions, [ownedBy(0x2A0B4), ownedBy(0x2A0B4)],
+          reason: 'the player file and the download folder');
+    });
+
     testWidgets('a folder picked after Cancel is not written into the '
         'closing dialog', (tester) async {
       // The builder outlives the pop by the whole exit animation, so

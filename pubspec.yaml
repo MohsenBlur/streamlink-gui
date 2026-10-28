@@ -47,6 +47,10 @@ dependencies:
   # modern IFileOpenDialog. Still owed: a real launch through the four
   # pickers (Settings x2, onboarding, the download-folder prompt).
   file_picker: ^13.3.0
+  # file_picker's Windows implementation, named directly for one type it does
+  # not re-export: FilePickerWindowsOptions, the only way to give a dialog an
+  # owner window (lib/services/file_dialogs.dart). Moves with file_picker.
+  windows_file_picker: ^2.0.1
   path: ^1.9.0
   # 4.x since audit I7. This is the updater's zip extraction, so the bump came
   # with test/update_service_zip_test.dart, which extracts a real ZipEncoder

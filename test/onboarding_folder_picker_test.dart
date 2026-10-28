@@ -86,4 +86,12 @@ void main() {
     await tester.pump();
     expect(picker.folders, hasLength(2), reason: 'closed, it works again');
   });
+
+  testWidgets("the folder dialog is owned by the app's window", (tester) async {
+    ownDialogsBy(0x2A0B4);
+    await openFolderStep(tester);
+    expect(picker.windowsOptions.single, ownedBy(0x2A0B4));
+    picker.folders.single.complete(null);
+    await tester.pumpAndSettle();
+  });
 }

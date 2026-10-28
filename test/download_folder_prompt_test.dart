@@ -46,6 +46,18 @@ void main() {
     expect(find.text('Where should VODs be saved?'), findsNothing);
   });
 
+  testWidgets("the folder dialog is owned by the app's window", (tester) async {
+    // Unowned, it fell behind the app at the first click back on it.
+    ownDialogsBy(0x2A0B4);
+    await openPrompt(tester);
+    await tester.tap(find.text('Choose folder'));
+    await tester.pump();
+
+    expect(picker.windowsOptions.single, ownedBy(0x2A0B4));
+    picker.folders.single.complete(null);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('a cancelled folder dialog leaves the prompt up', (tester) async {
     await openPrompt(tester);
     await tester.tap(find.text('Choose folder'));
