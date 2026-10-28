@@ -469,6 +469,22 @@ class PlayerService {
     return deleted;
   }
 
+  /// Whether [line] of yt-dlp's download archive records [vodId].
+  ///
+  /// yt-dlp records a Twitch VOD as `twitchvod v2821242888`: its own id
+  /// carries a `v` the app's ids do not, the same `v` [vodFinalFilePattern]
+  /// allows in file names. This compared the bare id, so it never matched a
+  /// Twitch line and no VOD was ever taken out of the archive: one deleted,
+  /// whether by hand, by a scan that found its file gone or by retention,
+  /// and then downloaded again was skipped as already done, and the run
+  /// exited 0 with no file.
+  static bool isArchiveLineFor(String line, String vodId) {
+    final parts = line.trim().split(RegExp(r'\s+'));
+    if (parts.length < 2) return false;
+    final id = parts.last;
+    return id == vodId || id == 'v$vodId';
+  }
+
   void removeVodFromArchive(String vodId) {
     if (downloadArchiveFilePath == null) return;
     final file = File(downloadArchiveFilePath!);
@@ -479,8 +495,7 @@ class PlayerService {
       final newLines = <String>[];
       bool changed = false;
       for (final line in lines) {
-        final parts = line.split(RegExp(r'\s+'));
-        if (parts.length >= 2 && parts.last.trim() == vodId) {
+        if (isArchiveLineFor(line, vodId)) {
           changed = true;
           continue;
         }
