@@ -32,13 +32,13 @@ import 'widgets/shell/channel_dashboard.dart';
 import 'widgets/shell/home_view.dart';
 import 'widgets/shell/status_banners.dart';
 import 'widgets/shell/update_flow.dart';
+import 'widgets/shell/vod_actions.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
 import 'state/channels_controller.dart';
 import 'state/vod_browser_controller.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
-import 'widgets/download_folder_prompt.dart';
 import 'widgets/settings_dialog.dart';
 
 import 'services/startup_service.dart';
@@ -342,6 +342,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     onLoadError: (e, st) =>
         CrashLog.current?.error('loading watch history', e, st),
     clock: _services.clock,
+  );
+
+  /// What a VOD's own buttons do (VodActions): play, download, cancel and
+  /// delete, one VOD or a selection.
+  late final VodActions _vods = VodActions(
+    player: _playerService,
+    api: _apiService,
+    history: _history,
+    settings: () => _settings,
+    registry: () => _downloadedVodsRegistry,
+    context: () => context,
+    mounted: () => mounted,
+    showMessage: _showSnackBar,
+    save: _saveChannels,
+    rescan: _checkDownloadedVods,
+    changed: () {
+      if (mounted) setState(() {});
+    },
   );
 
   // ---- Persistence and downloads -------------------------------------------
@@ -966,28 +984,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _ensureDownloadFolderConfigured(VoidCallback onConfigured) async {
-    if (_settings.vodDownloadFolder.trim().isNotEmpty) {
-      onConfigured();
-      return;
-    }
-
-    // Null when the prompt was cancelled or dismissed - including while its
-    // folder dialog was still open, whose late answer the prompt drops.
-    final path = await DownloadFolderPrompt.show(context);
-    if (!mounted) return;
-    if (path == null) {
-      _showSnackBar('Download cancelled: VOD Download Folder is required.', isError: true);
-      return;
-    }
-    setState(() {
-      _settings.vodDownloadFolder = path;
-    });
-    await _saveChannels();
-    _checkDownloadedVods();
-    onConfigured();
-  }
-
   /// Queues the downloads the last run left unfinished.
   ///
   /// Their saved copy was adopted by DownloadsController.restore when the
@@ -1155,33 +1151,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _startupComplete = true;
       if (mounted) setState(() => _isGlobalLoading = false);
     }
-  }
-
-  /// Offers to jump to the furthest point reached, when playback starts
-  /// behind it (WatchHistoryController.offerFurthestPosition says when).
-  void _offerFurthestPosition(TwitchVideo vod) {
-    _history.offerFurthestPosition(vod,
-        stillPlaying: () => _playerService.playingVodIds.contains(vod.id),
-        offer: (best) {
-      final label = WatchHistoryController.clockLabel(best);
-      _showSnackBar(
-        'You had reached $label in this VOD.',
-        isError: false,
-        action: SnackBarAction(
-          label: 'Jump there',
-          onPressed: () async {
-            final ok =
-                await _playerService.seekActiveVod(vod.id, best, _settings);
-            if (!mounted) return;
-            _showSnackBar(
-                ok
-                    ? 'Jumped to $label.'
-                    : 'Could not reach the player to jump; seek there manually.',
-                isError: !ok);
-          },
-        ),
-      );
-    });
   }
 
   /// Re-fetches what a rejected token left stale.
@@ -1881,11 +1850,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     switch (item.kind) {
       case ActivityKind.queued:
         // Nothing has started, so nothing is lost.
-        await _cancelVodDownload(
+        await _vods.cancelDownload(
             item.id, _playerService.downloadChannelNames[item.id] ?? 'VOD');
       case ActivityKind.downloading:
         if (!await _confirmStop(isDownload: true)) return;
-        await _cancelVodDownload(
+        await _vods.cancelDownload(
             item.id, _playerService.downloadChannelNames[item.id] ?? 'VOD');
       case ActivityKind.liveStream:
         if (!await _confirmStop(isDownload: false)) return;
@@ -2194,7 +2163,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           _settings,
         );
       },
-      onPlayRecent: (video) => _playVod(video, _channelNameForVod(video.id)),
+      onPlayRecent: _vods.playRecent,
       onOpenLibrary: _openLibrary,
       onOpenSettings: _showSettingsDialog,
       onConnectAccount: _startOAuthServer,
@@ -2252,19 +2221,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Channel a VOD belongs to, best-effort: the registry path's channel
-  /// folder, then this session's download bookkeeping. The recents carousel
-  /// previously hardcoded 'VOD', which made _playVod look for the local file
-  /// under `<root>/VOD/` and re-stream VODs that were sitting on disk.
-  String _channelNameForVod(String vodId) {
-    final path = _downloadedVodsRegistry[vodId];
-    if (path != null) {
-      final parsed = channelFromDownloadPath(path, _settings.vodDownloadFolder);
-      if (parsed != null && parsed.isNotEmpty) return parsed;
-    }
-    return _playerService.downloadChannelNames[vodId] ?? 'VOD';
-  }
-
   /// Opens Explorer with [filePath] selected (AppLauncher.reveal).
   Future<void> _revealInExplorer(String filePath) async {
     try {
@@ -2276,7 +2232,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   void _playLibraryEntry(LibraryEntry entry) {
     // Registry-only entries carry no Twitch metadata; a minimal synthesized
-    // video is enough for _playVod's local-file path.
+    // video is enough for a play's local-file path.
     final video = entry.video ??
         TwitchVideo(
           id: entry.vodId,
@@ -2289,7 +2245,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // '' resolves to the download root itself, which is exactly where a file
     // with no channel folder lives - that is the only way channel is null for
     // a downloaded entry.
-    _playVod(video, entry.channel ?? '');
+    _vods.play(video, entry.channel ?? '');
   }
 
   Future<void> _deleteLibraryEntry(LibraryEntry entry) async {
@@ -2297,7 +2253,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // != true, not == false: a dismissed dialog returns null, and null must
     // never mean "yes, delete it".
     if (confirmed != true) return;
-    await _deleteDownloadedVod(entry.vodId, entry.channel ?? '');
+    await _vods.deleteDownload(entry.vodId, entry.channel ?? '');
     _refreshLibraryEntries();
   }
 
@@ -2374,17 +2330,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _isMultiSelectMode = true;
         _selectedVodIds.clear();
       }),
-      onExitSelection: () => setState(() {
-        _isMultiSelectMode = false;
-        _selectedVodIds.clear();
-      }),
+      onExitSelection: _endSelection,
       onClearSelection: () => setState(() => _selectedVodIds.clear()),
       onSelectAllVisible: () => setState(() {
         _selectedVodIds.addAll(_filteredChannelVods().map((v) => v.id));
       }),
       onBulkMark: _bulkUpdateSelectedVods,
-      onBulkDownload: _bulkDownloadSelectedVods,
-      onBulkDelete: _bulkDeleteSelectedVods,
+      // In the grid's order, as the order dialog lists them.
+      onBulkDownload: () => _vods.downloadSelection(
+          _channelVods.where((v) => _selectedVodIds.contains(v.id)).toList(),
+          channelName: () => _selectedChannel?.username ?? 'VOD',
+          endSelection: _endSelection),
+      // In the selection's order, and only what the grid still shows: a
+      // selection can outlive a refresh.
+      onBulkDelete: () => _vods.deleteSelection([
+        for (final id in _selectedVodIds)
+          ..._channelVods.where((v) => v.id == id).take(1),
+      ], channelName: _selectedChannel?.username ?? '', endSelection: _endSelection),
       onRefreshVods: () => _refreshSelectedVods(silent: false),
       onUpdateToken: _showSettingsDialog,
       onDismissWebTokenWarning: () => setState(() {
@@ -2400,10 +2362,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         });
       },
       onClearGameFilter: () => setState(() => _selectedGamesFilter.clear()),
-      onPlayVod: (vod) => _playVod(vod, channelName),
-      onDownloadVod: (vod) => _queueVodDownload(vod, channelName),
-      onDeleteDownload: (id) => _deleteDownloadedVod(id, channelName),
-      onCancelDownload: (id) => _cancelVodDownload(id, channelName),
+      onPlayVod: (vod) => _vods.play(vod, channelName),
+      onDownloadVod: (vod) => _vods.download(vod, channelName),
+      onDeleteDownload: (id) => _vods.deleteDownload(id, channelName),
+      onCancelDownload: (id) => _vods.cancelDownload(id, channelName),
       onVodSelectedChange: (id, isSelected) {
         setState(() {
           if (isSelected) {
@@ -2421,173 +2383,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
-  void _playVod(TwitchVideo vod, String channelName) {
-    // The service refuses a second launch silently, which is right for the
-    // automation paths but reads as a broken button here: the card's corner
-    // play control is not visibly disabled while a VOD is playing.
-    if (_playerService.playingVodIds.contains(vod.id)) {
-      _showSnackBar('Already playing "${vod.title}".', isError: false);
-      return;
-    }
-
-    final localPos = _history.flat[vod.id];
-    if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
-      vod.watchPosition = localPos;
-    }
-    // Recompute progress from position UNCONDITIONALLY, not only when the
-    // local value raised it. A stale-high watchProgress riding on a correct
-    // watchPosition survives the raise-merge, crosses the watched threshold,
-    // and zeroes the resume - the "my progress mark vanished" half of the
-    // pause-death bug. Position is the ground truth; the percentage is
-    // derived, so derive it.
-    final knownTotalSeconds = _apiService.parseDurationToSeconds(vod.duration);
-    if (knownTotalSeconds > 0 && vod.watchPosition != null) {
-      vod.watchProgress = vod.watchPosition! / knownTotalSeconds;
-    }
-
-    _history.startPlaying(vod);
-    File? file;
-    final registeredPath = _downloadedVodsRegistry[vod.id];
-    if (registeredPath != null) {
-      file = File(registeredPath);
-      if (!file.existsSync()) {
-        file = null;
-      }
-    }
-    
-    file ??= _playerService.getDownloadedVodFile(
-      vod.id,
-      channelName,
-      _settings.vodDownloadFolder,
-    );
-
-    
-    // The playing set is what _isWatchingVod reads, and only
-    // onPlayerStopped clears it. If a launch fails before the service can
-    // arrange that callback, auto-play and auto-download stand down for the
-    // rest of the session - the exact failure already documented and fixed
-    // once for the live path.
-    final Future<void> launch = (file != null && file.existsSync())
-        ? _playerService.playDownloadedVod(file, vod, _settings)
-        : _playerService.launchStreamlinkForVod(vod, channelName, _settings);
-
-    // If this VOD is opening behind the furthest point ever reached, say so and
-    // offer the one action that fixes it. The furthest point is only a safety
-    // net if the user can actually reach it; a value kept in a file that
-    // nothing surfaces would be a backup in name only.
-    _offerFurthestPosition(vod);
-
-    launch.catchError((Object e) {
-      _history.launchFailed(vod.id);
-      if (mounted) {
-        _showSnackBar('Could not start playback: ${describeTwitchError(e)}', isError: true);
-      }
+  /// Leaves selection mode, with nothing selected.
+  void _endSelection() {
+    if (!mounted) return;
+    setState(() {
+      _isMultiSelectMode = false;
+      _selectedVodIds.clear();
     });
-  }
-
-  void _queueVodDownload(TwitchVideo vod, String channelName) {
-    _ensureDownloadFolderConfigured(() {
-      _playerService.queueVodDownload(vod, channelName, _settings,
-          byHand: true);
-      setState(() {});
-    });
-  }
-
-  Future<void> _cancelVodDownload(String vodId, String channelName) async {
-    await _playerService.cancelVodDownload(vodId, channelName, _settings.vodDownloadFolder);
-    if (mounted) setState(() {});
-  }
-
-  /// Deletes the files for [vodId], preferring the path recorded in the
-  /// registry over re-deriving it from the currently selected channel.
-  /// Returns how many files were actually removed.
-  int _deleteVodFilesFor(String vodId, String channelName) {
-    var deleted = 0;
-
-    // The registry holds where the file really landed. Re-deriving
-    // `<folder>/<selectedChannel>` orphaned files whenever the download
-    // belonged to a different channel than the one currently selected.
-    final registeredPath = _downloadedVodsRegistry[vodId];
-    if (registeredPath != null) {
-      try {
-        final file = File(registeredPath);
-        if (file.existsSync()) {
-          file.deleteSync();
-          deleted++;
-        }
-      } catch (_) {}
-    }
-
-    deleted += _playerService.deleteVodFiles(
-      vodId,
-      channelName,
-      _settings.vodDownloadFolder,
-    );
-    return deleted;
-  }
-
-  Future<void> _deleteDownloadedVod(String vodId, String channelName) async {
-    final deleted = _deleteVodFilesFor(vodId, channelName);
-
-    _playerService.removeVodFromArchive(vodId);
-    _downloadedVodsRegistry.remove(vodId);
-    await _saveChannels();
-    _checkDownloadedVods();
-
-    // Report what actually happened rather than claiming success
-    // unconditionally, which previously hid a failed delete while still
-    // dropping the registry entry and orphaning the file.
-    if (deleted > 0) {
-      _showSnackBar('Deleted $deleted file(s) for VOD $vodId.', isError: false);
-    } else {
-      _showSnackBar('No downloaded files found for VOD $vodId.', isError: true);
-    }
-  }
-
-  void _bulkDownloadSelectedVods() {
-    if (_selectedVodIds.isEmpty) return;
-    final selectedVods = _channelVods.where((v) => _selectedVodIds.contains(v.id)).toList();
-    if (selectedVods.isEmpty) return;
-    
-    _ensureDownloadFolderConfigured(() {
-      final channelName = _selectedChannel?.username ?? 'VOD';
-      if (selectedVods.length == 1) {
-        _playerService.queueVodDownload(
-            selectedVods.first, channelName, _settings,
-            byHand: true);
-        setState(() {
-          _isMultiSelectMode = false;
-          _selectedVodIds.clear();
-        });
-      } else {
-        _showDownloadOrderDialog(selectedVods);
-        setState(() {
-          _isMultiSelectMode = false;
-          _selectedVodIds.clear();
-        });
-      }
-    });
-  }
-
-  Future<void> _showDownloadOrderDialog(List<TwitchVideo> selectedVods) async {
-    String? chosenOrder = await chooseDownloadOrder(context, selectedVods.length);
-
-    if (chosenOrder == null) return;
-
-    final channelName = _selectedChannel?.username ?? 'VOD';
-
-    final sortedVods = List<TwitchVideo>.from(selectedVods);
-    if (chosenOrder == 'newest') {
-      sortedVods.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-    } else {
-      sortedVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
-    }
-    _showSnackBar('Queueing ${sortedVods.length} downloads...', isError: false);
-    for (final vod in sortedVods) {
-      _playerService.queueVodDownload(vod, channelName, _settings,
-          byHand: true);
-    }
-    setState(() {});
   }
 
   /// The VODs the grid is currently showing, i.e. what "All" selects.
@@ -2607,51 +2409,4 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }).toList();
   }
 
-  Future<void> _bulkDeleteSelectedVods() async {
-    final toDelete = <TwitchVideo>[];
-    final channelName = _selectedChannel?.username ?? '';
-    for (final id in _selectedVodIds) {
-      // firstWhere without orElse threw a StateError whenever the selection
-      // referenced a VOD no longer present in the list (after a refresh or a
-      // channel switch).
-      final matches = _channelVods.where((v) => v.id == id);
-      if (matches.isEmpty) continue;
-
-      final hasFile = _downloadedVodsRegistry.containsKey(id) ||
-          _playerService.getDownloadedVodFile(id, channelName, _settings.vodDownloadFolder) != null;
-      if (hasFile) {
-        toDelete.add(matches.first);
-      }
-    }
-    
-    if (toDelete.isEmpty) {
-      _showSnackBar('No fully downloaded VODs found among selection.', isError: true);
-      return;
-    }
-    
-    final confirm = await confirmDeleteDownloads(context, toDelete);
-    
-    if (confirm != true) return;
-    
-    // Counts files actually deleted. This previously incremented once per
-    // existing channel *directory*, so it reported a count even when nothing
-    // was removed.
-    int count = 0;
-    for (final vod in toDelete) {
-      try {
-        count += _deleteVodFilesFor(vod.id, channelName);
-        _playerService.removeVodFromArchive(vod.id);
-        _downloadedVodsRegistry.remove(vod.id);
-      } catch (_) {}
-    }
-    await _saveChannels();
-    if (!mounted) return;
-
-    _checkDownloadedVods();
-    setState(() {
-      _selectedVodIds.clear();
-      _isMultiSelectMode = false;
-    });
-    _showSnackBar('Deleted $count downloaded VOD files.', isError: false);
-  }
 }
