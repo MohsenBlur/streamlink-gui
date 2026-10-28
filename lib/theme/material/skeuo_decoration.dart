@@ -800,6 +800,36 @@ class _SkeuoPainter extends BoxPainter with _TileRequester {
     _draw(canvas, rect, p, Paint()..shader = gradient.createShader(rect));
   }
 
+  /// The bevel's envelope, or null for a uniform ring.
+  ///
+  /// A function of the params alone, which a painter never outlives, so it is
+  /// built once per painter. It used to be rebuilt - seventeen stops and a
+  /// `pow` each - on every paint of every bezel in a scrolling grid. Only
+  /// `createShader` depends on the rect, and that stays per paint.
+  late final SweepGradient? _bevelSweep = _bevelEnvelope(decoration.params);
+
+  static SweepGradient? _bevelEnvelope(SurfaceParams p) {
+    if (p.bevelAmbientFloor >= 1.0) return null;
+    // A sweep centred on the shape, peaking toward the light and dimming to
+    // the ambient floor on the far side. A constant-alpha ring reads as a CSS
+    // border rather than a curved edge catching a light.
+    final l = p.toLight;
+    final lightAngle = math.atan2(l.dy, l.dx);
+    const steps = 16;
+    final colors = <Color>[];
+    final stops = <double>[];
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final delta = math.cos(t * 2 * math.pi - lightAngle).clamp(-1.0, 1.0);
+      final env = p.bevelAmbientFloor +
+          (1 - p.bevelAmbientFloor) *
+              math.pow(math.max(0.0, delta), p.bevelSweepExponent).toDouble();
+      colors.add(p.bevelColour.withValues(alpha: p.bevelColour.a * env));
+      stops.add(t);
+    }
+    return SweepGradient(colors: colors, stops: stops);
+  }
+
   /// Layer 5 — the edge.
   ///
   /// A uniform ring when the material says so; otherwise an envelope that is
@@ -810,29 +840,11 @@ class _SkeuoPainter extends BoxPainter with _TileRequester {
     final w = p.bevelWidth;
     final paint = Paint();
 
-    if (p.bevelAmbientFloor >= 1.0) {
+    final sweep = _bevelSweep;
+    if (sweep == null) {
       paint.color = p.bevelColour;
     } else {
-      // A sweep centred on the shape, peaking toward the light and dimming to
-      // the ambient floor on the far side. A constant-alpha ring reads as a CSS
-      // border rather than a curved edge catching a light.
-      final l = p.toLight;
-      final lightAngle = math.atan2(l.dy, l.dx);
-      const steps = 16;
-      final colors = <Color>[];
-      final stops = <double>[];
-      for (var i = 0; i <= steps; i++) {
-        final t = i / steps;
-        final delta =
-            math.cos(t * 2 * math.pi - lightAngle).clamp(-1.0, 1.0);
-        final env = p.bevelAmbientFloor +
-            (1 - p.bevelAmbientFloor) *
-                math.pow(math.max(0.0, delta), p.bevelSweepExponent).toDouble();
-        colors.add(p.bevelColour.withValues(alpha: p.bevelColour.a * env));
-        stops.add(t);
-      }
-      paint.shader = SweepGradient(colors: colors, stops: stops)
-          .createShader(rect);
+      paint.shader = sweep.createShader(rect);
     }
 
     // Matched to `BoxBorder._paintUniformBorderWithRadius`, which fills the
@@ -862,6 +874,13 @@ class _SkeuoPainter extends BoxPainter with _TileRequester {
   /// leaves a dark band on the edge the light does not reach, which is what an
   /// inset shadow is. `BlurStyle.inner` fades inward from every edge equally
   /// and cannot express the offset.
+  ///
+  /// The band is a `drawDRRect` - the outer rect and the hole as one even-odd
+  /// ring - rather than a `Path.combine` difference. Same region, same blur,
+  /// same pixels (`bezel_equivalence_test` holds every shipped bezel and recess
+  /// byte-for-byte to the boolean version), but without a PathOps boolean per
+  /// layer per paint on the UI thread: every VOD card and Library thumbnail
+  /// carries a bezel, and bezels always paint through here.
   void _paintInset(Canvas canvas, Rect rect, SurfaceParams p) {
     if (p.inset.isEmpty || p.depth <= 0) return;
     final clip = decoration.getClipPath(rect, TextDirection.ltr);
@@ -883,25 +902,38 @@ class _SkeuoPainter extends BoxPainter with _TileRequester {
         // oval pressed into a round hole. Every channel avatar in the sidebar
         // and the rail is one of these, and so is the circular add button.
         //
-        // `_draw` cannot be reused here because this is a Path for
-        // `Path.combine`, not a fill.
-        final hole = Path();
-        if (p.circle) {
-          hole.addOval(shifted);
+        // `_draw` cannot be reused here because this is a ring, not a fill.
+        // An RRect whose radii are half its sides IS an oval to Skia, which
+        // adds it to the ring exactly as `addOval` would.
+        final hole = p.circle
+            ? RRect.fromRectXY(shifted, shifted.width / 2, shifted.height / 2)
+            : RRect.fromRectAndRadius(shifted, Radius.circular(p.radius));
+        final outer = rect.inflate(
+            sigma * 4 + (p.circle ? rect.shortestSide / 2 : p.radius));
+        final paint = Paint()
+          ..color = l.color.withValues(alpha: l.color.a * p.insetStrength)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma);
+        // drawDRRect's precondition is Skia's, not ours: it draws NOTHING
+        // when the hole is empty or pokes outside the outer rect, where the
+        // difference still leaves a band. The outer rect is inflated by four
+        // sigmas plus the radius, so no shipped material comes near that -
+        // but an extreme offset must lose its speed, not its recess.
+        final contained = shifted.width > 0 &&
+            shifted.height > 0 &&
+            outer.left <= shifted.left &&
+            outer.top <= shifted.top &&
+            outer.right >= shifted.right &&
+            outer.bottom >= shifted.bottom;
+        if (contained) {
+          canvas.drawDRRect(RRect.fromRectAndRadius(outer, Radius.zero), hole,
+              paint);
         } else {
-          hole.addRRect(
-              RRect.fromRectAndRadius(shifted, Radius.circular(p.radius)));
+          canvas.drawPath(
+            Path.combine(PathOperation.difference, Path()..addRect(outer),
+                Path()..addRRect(hole)),
+            paint,
+          );
         }
-        final outer = Path()
-          ..addRect(rect.inflate(
-              sigma * 4 + (p.circle ? rect.shortestSide / 2 : p.radius)));
-        final band = Path.combine(PathOperation.difference, outer, hole);
-        canvas.drawPath(
-          band,
-          Paint()
-            ..color = l.color.withValues(alpha: l.color.a * p.insetStrength)
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma),
-        );
       }
     } finally {
       // RenderDecoratedBox throws in debug if the painter's save count differs.
