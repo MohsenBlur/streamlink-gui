@@ -116,6 +116,34 @@ void main() {
       expect(p.dy, 800 - 8 - 700);
     });
 
+    test('a trigger scrolled out of the window takes its popover with it', () {
+      // Clamped, the popover stayed pinned 8px inside the top edge over
+      // whatever had scrolled in, its trigger gone.
+      expect(place(const Rect.fromLTWH(500, -100, 100, 30)),
+          const Offset(260, -64));
+      // Still partly on screen, it is kept inside as before: below a
+      // trigger whose bottom is 1px into the window it would start at 7.
+      expect(place(const Rect.fromLTWH(500, -29, 100, 30)).dy, 8);
+    });
+
+    test('a trigger gone off the top keeps the slide that held it across',
+        () {
+      // The activity popover's 380px case, scrolled out: while the trigger
+      // showed, the popover sat 8px in from the left edge. Unclamped on both
+      // axes it jumped to -110 the moment the trigger left.
+      final p = place(const Rect.fromLTWH(180, -40, 50, 28),
+          overlay: const Size(380, 500));
+      expect(p, const Offset(8, -6));
+    });
+
+    test('a trigger gone off the bottom takes the popover down above it', () {
+      // Near the bottom edge it opens upward. Once the trigger was gone it
+      // went back below it, wholly out of the window in one frame (847).
+      expect(place(const Rect.fromLTWH(500, 770, 100, 40)).dy, 770 - 6 - 200);
+      expect(place(const Rect.fromLTWH(500, 801, 100, 40)),
+          const Offset(260, 801 - 6 - 200));
+    });
+
     test('it is never larger than the window less its margins', () {
       final c = const PopoverPlacement(
         trigger: Rect.zero,
@@ -267,10 +295,13 @@ void main() {
 
   testWidgets('Esc on the trigger closes an open popover, and only then',
       (tester) async {
-    // Enter or Space on a focused trigger opens the popover and leaves focus
+    // Enter or Space on a focused trigger opens the popover with focus still
     // on the trigger, outside the popover, where the overlay's own Esc
     // binding cannot hear it: the page's Esc closed the Library behind a
-    // popover that stayed open.
+    // popover that stayed open. Focus now moves inside once the popover's
+    // first frame is up, so an Esc before that frame is the trigger's alone
+    // to hear - and with a frame pumped first, this test stopped reaching
+    // the trigger's handler at all.
     var pageEscapes = 0;
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -300,11 +331,12 @@ void main() {
             ?.findAncestorWidgetOfExactType<InteractivePopover>(),
         isNotNull,
         reason: 'the trigger has focus');
+    final trigger = FocusManager.instance.primaryFocus;
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
-    expect(find.byKey(const ValueKey('menu')), findsOneWidget);
-
+    // No frame in between.
+    expect(FocusManager.instance.primaryFocus, same(trigger));
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
     await tester.pump();
     expect(find.byKey(const ValueKey('menu')), findsNothing);
     expect(pageEscapes, 0, reason: 'the open popover took the Esc');
@@ -313,6 +345,176 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     expect(pageEscapes, 1);
+  });
+
+  group('focus', () {
+    // The page as main.dart builds it: Esc bound to close the Library, under
+    // a Focus(autofocus) that holds focus whenever nothing else does.
+    Widget page({
+      required VoidCallback onPageEscape,
+      Widget popover =
+          const SizedBox(key: ValueKey('menu'), width: 200, height: 80),
+      Widget? elsewhere,
+    }) =>
+        MaterialApp(
+          home: Scaffold(
+            body: CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.escape): onPageEscape,
+              },
+              child: Focus(
+                autofocus: true,
+                child: Column(
+                  children: [
+                    ?elsewhere,
+                    Center(
+                      child: InteractivePopover(
+                        popover: popover,
+                        child: const SizedBox(width: 60, height: 30),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+    bool focusInPopover() {
+      final focus = FocusManager.instance.primaryFocus;
+      return focus != null &&
+          [focus, ...focus.ancestors].any((n) => n.debugLabel == 'popover');
+    }
+
+    testWidgets('Esc closes a popover a mouse click opened', (tester) async {
+      // A click leaves focus where it was - the page - and the popover's Esc
+      // binding only hears keys from inside the popover, so the page's Esc
+      // closed the Library behind a popover that stayed open.
+      var pageEscapes = 0;
+      await tester.pumpWidget(page(onPageEscape: () => pageEscapes++));
+      await tester.tap(find.byType(InteractivePopover));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsOneWidget);
+      expect(focusInPopover(), isTrue, reason: 'opening moved focus inside');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsNothing);
+      expect(pageEscapes, 0, reason: 'the page never saw the Esc');
+
+      // Focus went back to the page, whose Esc works as before.
+      expect(focusInPopover(), isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(pageEscapes, 1);
+    });
+
+    testWidgets('closing gives focus back to the trigger that opened it',
+        (tester) async {
+      await tester.pumpWidget(page(onPageEscape: () {}));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final trigger = FocusManager.instance.primaryFocus;
+      expect(
+          trigger?.context?.findAncestorWidgetOfExactType<InteractivePopover>(),
+          isNotNull,
+          reason: 'the trigger has focus');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(focusInPopover(), isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsNothing);
+      expect(FocusManager.instance.primaryFocus, same(trigger));
+    });
+
+    testWidgets('an autofocus field inside a popover gets focus',
+        (tester) async {
+      // Flutter drops an autofocus request when the field's scope already
+      // has a focused child, and the page's Focus(autofocus) was that child:
+      // the field opened with no caret. In the popover's own scope it takes.
+      await tester.pumpWidget(page(
+        onPageEscape: () {},
+        popover: const SizedBox(
+            key: ValueKey('menu'),
+            width: 200,
+            child: TextField(autofocus: true)),
+      ));
+      await tester.tap(find.byType(InteractivePopover));
+      await tester.pump();
+      await tester.pump();
+      expect(
+          FocusManager.instance.primaryFocus?.context
+              ?.findAncestorWidgetOfExactType<TextField>(),
+          isNotNull);
+    });
+
+    testWidgets('focus moved elsewhere on the page closes the popover',
+        (tester) async {
+      // Ctrl+F sends focus to the sidebar search while a popover is open. An
+      // open popover without focus could not hear its Esc any more.
+      final elsewhere = FocusNode();
+      addTearDown(elsewhere.dispose);
+      await tester.pumpWidget(page(
+        onPageEscape: () {},
+        elsewhere: SizedBox(
+            width: 200, child: TextField(focusNode: elsewhere)),
+      ));
+      await tester.tap(find.byType(InteractivePopover));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsOneWidget);
+
+      elsewhere.requestFocus();
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsNothing);
+      expect(elsewhere.hasPrimaryFocus, isTrue,
+          reason: 'closing did not pull focus back from where it went');
+    });
+
+    testWidgets('a dialog opened from a popover, or the window deactivating, '
+        'leaves it open', (tester) async {
+      await tester.pumpWidget(page(
+        onPageEscape: () {},
+        popover: Builder(
+          builder: (context) => TextButton(
+            key: const ValueKey('menu'),
+            onPressed: () => Navigator.of(context).push(DialogRoute<void>(
+              context: context,
+              builder: (_) => const Material(
+                child: TextField(key: ValueKey('dialog'), autofocus: true),
+              ),
+            )),
+            child: const Text('Open dialog'),
+          ),
+        ),
+      ));
+      await tester.tap(find.byType(InteractivePopover));
+      await tester.pump();
+
+      // On Windows the FocusManager parks focus on the root scope when the
+      // app loses activation, and gives it back on resume.
+      final suspended = FocusManager.instance.primaryFocus!;
+      FocusManager.instance.rootScope.requestScopeFocus();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsOneWidget);
+      suspended.requestFocus();
+      await tester.pump();
+      expect(focusInPopover(), isTrue);
+
+      await tester.tap(find.text('Open dialog'));
+      await tester.pumpAndSettle();
+      expect(
+          FocusManager.instance.primaryFocus?.context
+              ?.findAncestorWidgetOfExactType<TextField>()
+              ?.key,
+          const ValueKey('dialog'));
+      expect(find.byKey(const ValueKey('menu')), findsOneWidget,
+          reason: 'focus went to another route, not elsewhere on the page');
+    });
   });
 
   testWidgets('a popover follows a trigger that scrolls', (tester) async {
@@ -353,5 +555,20 @@ void main() {
     await tester.pump();
     final after = tester.getRect(find.byKey(const ValueKey('menu')));
     expect(after.top, moreOrLessEquals(before.top - 50));
+
+    // Scrolled clean off the top (and still inside the list's cache
+    // extent, so still built), the trigger takes the popover with it.
+    scroll.jumpTo(250);
+    await tester.pump();
+    // Out of the viewport, so offstage to a default finder - the popover
+    // too, whose element sits under the trigger's.
+    final trigger = tester
+        .getRect(find.byType(InteractivePopover, skipOffstage: false));
+    expect(trigger.bottom, lessThan(0), reason: 'precondition');
+    expect(
+        tester
+            .getRect(find.byKey(const ValueKey('menu'), skipOffstage: false))
+            .top,
+        moreOrLessEquals(trigger.bottom + 6));
   });
 }

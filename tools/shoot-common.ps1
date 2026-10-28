@@ -75,3 +75,24 @@ function Set-IsolatedConfig([string]$exePath, [hashtable]$settings) {
     # readAsString) strips it, so the file still loads.
     $json | ConvertTo-Json -Depth 64 | Set-Content $cfgPath -Encoding utf8
 }
+
+# Config settings that open the window at $position ("x,y", physical
+# virtual-desktop pixels) rather than where the copied config last left it.
+#
+# The staged config starts as a copy of the user's own, so without this a
+# launch opens the build wherever the user keeps the app - on their working
+# monitor, maximised if they keep it so - before shoot.ps1 -Position could
+# move it. The size is a placeholder; shoot.ps1 sizes the window itself.
+function Get-PlacementSettings([string]$position) {
+    $parts = $position.Split(',')
+    if ($parts.Count -ne 2) { throw "-Position must be 'x,y'." }
+    return @{
+        is_window_maximized = $false
+        window_placement    = @{
+            left   = [int]$parts[0].Trim()
+            top    = [int]$parts[1].Trim()
+            width  = 1280
+            height = 720
+        }
+    }
+}

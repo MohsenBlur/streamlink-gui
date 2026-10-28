@@ -1,6 +1,3 @@
-import 'dart:async';
-
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
@@ -8,35 +5,12 @@ import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/widgets/onboarding_wizard.dart';
 import 'package:streamlink_gui/widgets/shell/app_layout.dart';
 
-/// A folder picker that stays open until the test answers for the user.
-class _HeldPicker extends FilePickerPlatform {
-  final List<Completer<String?>> opened = [];
-
-  @override
-  Future<String?> getDirectoryPath({
-    String? dialogTitle,
-    String? initialDirectory,
-    AndroidOptions androidOptions = const AndroidOptions(),
-    WindowsOptions windowsOptions = const WindowsOptions(),
-    LinuxOptions linuxOptions = const LinuxOptions(),
-    WebOptions webOptions = const WebOptions(),
-  }) {
-    final answer = Completer<String?>();
-    opened.add(answer);
-    return answer.future;
-  }
-}
+import 'support/held_file_picker.dart';
 
 void main() {
-  late FilePickerPlatform original;
-  late _HeldPicker picker;
+  late HeldFilePicker picker;
 
-  setUp(() {
-    original = FilePickerPlatform.instance;
-    picker = _HeldPicker();
-    FilePickerPlatform.instance = picker;
-  });
-  tearDown(() => FilePickerPlatform.instance = original);
+  setUp(() => picker = HeldFilePicker.install());
 
   Future<void> openFolderStep(WidgetTester tester) async {
     const size = Size(1280, 800);
@@ -70,7 +44,7 @@ void main() {
     }
     await tester.tap(find.text('Browse'));
     await tester.pump();
-    expect(picker.opened, hasLength(1));
+    expect(picker.folders, hasLength(1));
   }
 
   testWidgets('a folder picked after the wizard was skipped is ignored',
@@ -85,7 +59,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Browse'), findsNothing, reason: 'the wizard is gone');
 
-    picker.opened.single.complete(r'D:\VODs');
+    picker.folders.single.complete(r'D:\VODs');
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
@@ -93,8 +67,23 @@ void main() {
   testWidgets('a folder picked while the wizard is open is shown',
       (tester) async {
     await openFolderStep(tester);
-    picker.opened.single.complete(r'D:\VODs');
+    picker.folders.single.complete(r'D:\VODs');
     await tester.pumpAndSettle();
     expect(find.text(r'D:\VODs'), findsOneWidget);
+  });
+
+  testWidgets('Browse opens one folder dialog at a time', (tester) async {
+    // The dialog no longer holds the app, so a second click on Browse
+    // opened a second dialog, and whichever answered last won.
+    await openFolderStep(tester);
+    await tester.tap(find.text('Browse'));
+    await tester.pump();
+    expect(picker.folders, hasLength(1));
+
+    picker.folders.single.complete(null);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Browse'));
+    await tester.pump();
+    expect(picker.folders, hasLength(2), reason: 'closed, it works again');
   });
 }

@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:system_tray/system_tray.dart';
 import 'package:local_notifier/local_notifier.dart';
-import 'package:file_picker/file_picker.dart';
 
 import 'models/app_settings.dart';
 import 'models/twitch_channel.dart';
@@ -45,6 +44,7 @@ import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
 import 'widgets/dashboard_header.dart';
+import 'widgets/download_folder_prompt.dart';
 import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
@@ -1774,41 +1774,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       return;
     }
 
-    final bool? proceed = await NeuDialog.show<bool>(
-      context,
-      dismissible: true,
-      builder: (context) => NeuDialog(
-        title: 'Where should VODs be saved?',
-        icon: Icons.folder_copy,
-        content: Text(
-          'No download folder is set yet. Pick one and the download starts '
-          'straight away; everything you download later goes there too.',
-          style: NeuType.body(themeNotifier.isDarkTheme),
-        ),
-        actions: [
-          NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
-          NeuDialogAction.primary('Choose folder', () async {
-            final String? path = await FilePicker.getDirectoryPath();
-            if (path != null && path.isNotEmpty && mounted) {
-              setState(() {
-                _settings.vodDownloadFolder = path;
-              });
-              await _saveChannels();
-              _checkDownloadedVods();
-              if (context.mounted) {
-                Navigator.pop(context, true);
-              }
-            }
-          }),
-        ],
-      ),
-    );
-
-    if (proceed == true && _settings.vodDownloadFolder.trim().isNotEmpty) {
-      onConfigured();
-    } else {
+    // Null when the prompt was cancelled or dismissed - including while its
+    // folder dialog was still open, whose late answer the prompt drops.
+    final path = await DownloadFolderPrompt.show(context);
+    if (!mounted) return;
+    if (path == null) {
       _showSnackBar('Download cancelled: VOD Download Folder is required.', isError: true);
+      return;
     }
+    setState(() {
+      _settings.vodDownloadFolder = path;
+    });
+    await _saveChannels();
+    _checkDownloadedVods();
+    onConfigured();
   }
 
   /// Queues the downloads the last run left unfinished.

@@ -251,6 +251,11 @@ class SettingsDialog {
     bool isTestingAccount = false;
     String? accountTestResult;
     bool isAccountValid = false;
+    // A file dialog is open for that field. It no longer blocks the app
+    // (file_picker 13), so each Browse stayed pressable and opened another
+    // dialog per click, the last to answer overwriting the field.
+    bool isPickingPlayer = false;
+    bool isPickingFolder = false;
 
     // Opening Settings is itself the check.
     WidgetsBinding.instance.addPostFrameCallback((_) => onRevalidateHelix());
@@ -687,7 +692,9 @@ class SettingsDialog {
                                       backgroundColor: themeNotifier.primaryColor,
                                       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s16),
                                     ),
-                                    onPressed: () async {
+                                    onPressed: isPickingPlayer ? null : () async {
+                                      final route = ModalRoute.of(context);
+                                      setDialogState(() => isPickingPlayer = true);
                                       // pickFile, not pickFiles: since
                                       // file_picker 12, pickFiles allows a
                                       // multi-pick by default, and one
@@ -695,12 +702,16 @@ class SettingsDialog {
                                       final PlatformFile? picked = await FilePicker.pickFile(
                                         type: FileType.custom,
                                         allowedExtensions: ['exe', 'app', 'sh', 'bat', 'cmd'],
-                                      );
+                                      ).whenComplete(() {
+                                        if (context.mounted) setDialogState(() => isPickingPlayer = false);
+                                      });
                                       // The same guard as the token tests:
                                       // nothing here may touch the dialog,
                                       // or its disposed controllers, once it
-                                      // has closed.
-                                      if (!context.mounted) return;
+                                      // has closed - nor fill in a field of
+                                      // one that Cancel or Save already
+                                      // closed and is only animating out.
+                                      if (!context.mounted || route?.isActive == false) return;
                                       final pickedPath = picked?.path;
                                       if (pickedPath != null) {
                                         setDialogState(() {
@@ -813,9 +824,16 @@ class SettingsDialog {
                                     backgroundColor: themeNotifier.primaryColor,
                                     padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s16),
                                   ),
-                                  onPressed: () async {
-                                    final String? selectedDirectory = await FilePicker.getDirectoryPath();
-                                    if (!context.mounted) return;
+                                  onPressed: isPickingFolder ? null : () async {
+                                    final route = ModalRoute.of(context);
+                                    setDialogState(() => isPickingFolder = true);
+                                    final String? selectedDirectory =
+                                        await FilePicker.getDirectoryPath().whenComplete(() {
+                                      if (context.mounted) setDialogState(() => isPickingFolder = false);
+                                    });
+                                    // As the player Browse above: not into
+                                    // a dialog that has closed or is closing.
+                                    if (!context.mounted || route?.isActive == false) return;
                                     if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
                                       setDialogState(() {
                                         downloadFolderController.text = selectedDirectory;
