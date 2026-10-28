@@ -13,6 +13,11 @@
 /// This record outlives the file, the registry entry and the archive line.
 /// Only the pass reads it: a download queued by hand goes ahead, which is
 /// how a VOD deleted on purpose is brought back.
+///
+/// A VOD whose download the user cancelled is recorded too. Nothing else
+/// remembered the cancel either, so the pass queued that VOD again a minute
+/// later. Recorded, it holds its place in its window like one downloaded
+/// and deleted.
 class DownloadHistory {
   /// How long an id is kept. The pass reads past broadcasts only, which
   /// Twitch deletes after 60 days at the most, and a VOD is downloaded after

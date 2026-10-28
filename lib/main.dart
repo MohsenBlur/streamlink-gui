@@ -311,8 +311,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
 
-  /// Every VOD ever downloaded, file or no file, so auto-download never
-  /// fetches one twice (DownloadHistory); saved with the registry.
+  /// Every VOD ever downloaded, file or no file, or cancelled by the user,
+  /// so auto-download never fetches one twice (DownloadHistory); saved with
+  /// the registry.
   final DownloadHistory _downloadHistory = DownloadHistory();
 
   /// Watch positions, the recently-watched list and the VODs playing

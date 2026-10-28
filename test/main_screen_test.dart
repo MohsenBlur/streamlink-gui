@@ -989,5 +989,86 @@ void main() {
 
       await h.close(tester);
     });
+
+    /// Right-clicks [title]'s card and picks [item] from its menu.
+    Future<void> fromMenu(WidgetTester tester, ScreenHarness h, String title,
+        String item) async {
+      await tester.tap(find.text(title).first,
+          buttons: kSecondaryMouseButton);
+      // The menu grows open; until it has, its items are clipped away.
+      await h.advance(tester, const Duration(milliseconds: 500),
+          step: const Duration(milliseconds: 100));
+      await tester.tap(find.text(item).last);
+      await h.settle(tester);
+    }
+
+    testWidgets(
+        'a VOD whose auto-download the user cancelled is not queued again, '
+        'and Download by hand still fetches it', (tester) async {
+      // The cancel was recorded nowhere, so the next pass, a minute later,
+      // queued the same VOD again.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final vod = h.helix.addVideo('alpha',
+          title: 'Not this one',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo());
+      expect(ytDlpFor(h, vod), hasLength(1),
+          reason: 'precondition: the pass queued it');
+
+      await openChannel(tester, h, 'alpha');
+      await fromMenu(tester, h, 'Not this one', 'Cancel download');
+      // taskkill's yt-dlp ends on a zero-length timer.
+      await h.advance(tester, const Duration(milliseconds: 50),
+          step: const Duration(milliseconds: 10));
+      expect(find.text('Download cancelled.'), findsOneWidget);
+
+      await h.advance(tester, const Duration(minutes: 3));
+      expect(ytDlpFor(h, vod), hasLength(1), reason: 'three passes later');
+      expect(h.storage.config!['download_history'], contains(vod));
+
+      await fromMenu(tester, h, 'Not this one', 'Download');
+      // Queued by hand, it waits for its archive line to be taken out, which
+      // is real file I/O.
+      for (var i = 0; i < 100 && ytDlpFor(h, vod).length < 2; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await h.settle(tester);
+      }
+      expect(ytDlpFor(h, vod), hasLength(2));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'an auto-download an exit stops is not taken for a cancel: it is '
+        'saved to resume', (tester) async {
+      // Only the user's Cancel says no to a VOD. An exit stops every
+      // download without it, and the next launch resumes them.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final vod = h.helix.addVideo('alpha',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo());
+      expect(ytDlpFor(h, vod), hasLength(1),
+          reason: 'precondition: the pass queued it');
+
+      h.tray.choose('Exit');
+      await h.settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Exit and save queue'));
+      await tester.pump(AppShellController.stopAllTimeout);
+      await h.settle(tester);
+      expect(h.window.destroyed, isTrue);
+
+      expect(h.storage.config!['download_history'], isNot(contains(vod)));
+      expect(h.storage.savedSettings?.unfinishedDownloads, hasLength(1));
+
+      await h.close(tester);
+    });
   });
 }
