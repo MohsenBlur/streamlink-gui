@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -7,12 +8,14 @@ import 'package:streamlink_gui/app_startup.dart';
 import 'package:streamlink_gui/main.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_channel.dart';
+import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/player_service.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
+import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 
 import 'fake_desktop.dart';
 import 'fake_helix.dart';
@@ -59,12 +62,21 @@ class ScreenHarness {
   static AppSettings defaultSettings() =>
       AppSettings()..twitchOauthToken = 'oauth:account-token';
 
+  /// [defaultSettings] with a player named outright, for the tests that play
+  /// a VOD: nothing goes looking for an installed one, and a player of no
+  /// known kind has no interface to poll or seek, so where it is comes only
+  /// from [RecordingPlayerService.feedPosition].
+  static AppSettings playbackSettings() => defaultSettings()
+    ..playerType = 'custom'
+    ..customPlayerPath = r'C:\nowhere\player.exe';
+
   /// Starts the app with [favorites] in its config and runs its startup.
   ///
   /// [channels] are favourites with settings of their own, after
   /// [favorites]; [config] adds to or replaces the rest of the file.
   /// [files] are written into the storage folder, by name, before the app
-  /// starts - yt-dlp's archive, for one.
+  /// starts - yt-dlp's archive, for one. [watchProgress] and [recents] are
+  /// what watch_progress.json and the recently-watched list hold.
   Future<void> launch(
     WidgetTester tester, {
     List<String> favorites = const <String>[],
@@ -72,6 +84,8 @@ class ScreenHarness {
     AppSettings? settings,
     Map<String, dynamic> config = const <String, dynamic>{},
     Map<String, String> files = const <String, String>{},
+    Map<String, dynamic> watchProgress = const <String, dynamic>{},
+    List<TwitchVideo> recents = const <TwitchVideo>[],
     Size size = const Size(1400, 900),
   }) async {
     final effective = settings ?? defaultSettings();
@@ -85,7 +99,10 @@ class ScreenHarness {
       'downloaded_vods': <String, dynamic>{},
       ...config,
     };
-    storage = MemoryStorageService(log: log, config: stored);
+    storage = MemoryStorageService(log: log, config: stored)
+      ..watchProgress = json.decode(json.encode(watchProgress))
+          as Map<String, dynamic>
+      ..recents = [for (final vod in recents) vod.toJson()];
     files.forEach(
         (name, text) => storage.getStorageFile(name).writeAsStringSync(text));
 
@@ -166,6 +183,48 @@ class ScreenHarness {
     await settle(tester);
   }
 
+  /// [name]'s row in the sidebar.
+  static Finder sidebarRow(String name) => find.descendant(
+      of: find.byType(SidebarPanel), matching: find.text(name));
+
+  /// Clicks [name] in the sidebar, which opens its VOD list.
+  Future<void> openChannel(WidgetTester tester, String name) async {
+    await tester.tap(sidebarRow(name).first);
+    await settle(tester);
+  }
+
+  /// Back to the welcome screen, from a channel.
+  Future<void> goHome(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Dashboard Hub (Return Home)').first);
+    await settle(tester);
+  }
+
+  /// Lets a dialog or a snackbar finish coming in (or going).
+  Future<void> settleRoute(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await settle(tester);
+  }
+
+  /// The player playing [vodId] exits by itself, as when the user closes it.
+  ///
+  /// A fake process ends on a zero-length timer, which only a pump that
+  /// moves the clock fires; awaited here, it would never come.
+  Future<void> playerExits(WidgetTester tester, String vodId,
+      {int exitCode = 0}) async {
+    unawaited(player.playerOf(vodId).exit(exitCode));
+    await advance(tester, const Duration(milliseconds: 50),
+        step: const Duration(milliseconds: 10));
+  }
+
+  /// Chooses Exit in the tray menu and lets the shutdown finish: the players
+  /// it stops end on the same zero-length timers.
+  Future<void> exitFromTray(WidgetTester tester) async {
+    tray.choose('Exit');
+    await advance(tester, const Duration(milliseconds: 100),
+        step: const Duration(milliseconds: 10));
+  }
+
   /// Requests to [path] since [mark] (an index into [FakeHelix.requests]).
   int requestsTo(String path, {int since = 0}) =>
       helix.requests.skip(since).where((r) => r.url.path == path).length;
@@ -178,20 +237,61 @@ class ScreenHarness {
   }
 }
 
-/// The real player service, with its stopAll on the shared log.
+/// The real player service, with its stopAll on the shared log, a port
+/// check that binds nothing, and a fake feed of where a playing VOD is.
 class RecordingPlayerService extends PlayerService {
   RecordingPlayerService(
     this.events, {
     super.startProcess,
     super.runProcess,
     super.apiService,
-  });
+  }) : _api = apiService ?? TwitchApiService();
 
   final List<String> events;
+  final TwitchApiService _api;
+  int _nextPort = PlayerService.firstPlayerPort;
 
   @override
   Future<void> stopAll() {
     events.add('player.stopAll');
     return super.stopAll();
+  }
+
+  /// A port of its own for each player, without the probe: binding a real
+  /// socket never completes inside testWidgets' fake-async zone, so a launch
+  /// stalled there. No process is real, so nothing listens on it either.
+  @override
+  Future<int> getNextAvailablePlayerPort() async => _nextPort++;
+
+  /// The player playing [vodId] says it is at [seconds], [sessionAge] into
+  /// its session; answers whether the app kept the position.
+  ///
+  /// Through the one seam the progress tracker reports through, with what
+  /// it reports: the same progress fraction, the same age. The tracker
+  /// itself - polling a player, corroborating what it says, holding back a
+  /// session that has not landed - has its own tests against a fake VLC
+  /// (watch_progress_sync_test, player_progress_test); this is what the
+  /// screen does with a position once one arrives.
+  bool feedPosition(
+    String vodId,
+    int seconds, {
+    String? duration,
+    Duration sessionAge = const Duration(minutes: 5),
+  }) {
+    final total =
+        _api.parseDurationToSeconds(duration ?? activePlayerDurations[vodId] ?? '');
+    final progress = total > 0 ? seconds / total : 0.0;
+    return recordWatchProgress?.call(
+            vodId, seconds, progress, sessionAge.inMilliseconds) ??
+        true;
+  }
+
+  /// The fake process playing [vodId].
+  FakeProcess playerOf(String vodId) {
+    final proc = activePlayerProcesses[vodId];
+    if (proc is! FakeProcess) {
+      throw StateError('no player is running for $vodId');
+    }
+    return proc;
   }
 }
