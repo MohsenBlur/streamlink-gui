@@ -4,9 +4,9 @@
 
 .DESCRIPTION
   A visual refresh cannot be verified by reasoning or by unit tests - the only
-  honest check is to look at the result. This finds the app's window by class,
-  optionally resizes it to an exact LOGICAL size, and captures that window
-  alone (not the desktop).
+  honest check is to look at the result. This finds the app's main window
+  (see .NOTES for which one), optionally resizes it to an exact LOGICAL size,
+  and captures that window alone (not the desktop).
 
   Two details that are easy to get wrong and produce a useless black image:
 
@@ -594,4 +594,6 @@ if ($script:restoreTopmost) {
 }
 
 Write-Host ("Saved {0} ({1}x{2})" -f $Out, $w, $h) -ForegroundColor Green
-if ($uniform) { Write-Warning 'Capture may be blank - two sampled pixels are identical. Check PW_RENDERFULLCONTENT and that the window is not occluded.' }
+# The window is no longer raised for a capture, so a covered one is now a
+# possible cause; -Focus raises it.
+if ($uniform) { Write-Warning 'Capture may be blank - every sampled pixel is the same colour. A uniform grey is a release-build crash (build debug to read it); otherwise check PW_RENDERFULLCONTENT and that the window is not covered, or retry with -Focus.' }
