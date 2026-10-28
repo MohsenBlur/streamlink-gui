@@ -652,6 +652,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // Initialize player service archive path and listener hooks
     _playerService.downloadArchiveFilePath = _storageService.getStorageFile('yt_dlp_archive.txt').path;
     _playerService.onPlayerLog = (key, line) {
+      // Not once the screen is gone: dispose stops the players, which is
+      // asynchronous, and their last lines arrived after the log was
+      // disposed - an error for each, like the callbacks below already
+      // guard against.
+      if (!mounted) return;
       _logNotifier.appendLog(key, line);
     };
 

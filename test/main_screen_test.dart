@@ -482,6 +482,31 @@ void main() {
     });
   });
 
+  testWidgets("the tray's Watch opens the channel as it is when clicked",
+      (tester) async {
+    final h = ScreenHarness();
+    h.helix.user('alpha');
+    h.helix.user('beta');
+    h.helix.goLive('alpha');
+    h.helix.goLive('beta');
+    await h.launch(tester, favorites: ['alpha', 'beta']);
+    final staleBeta = h.tray.menu.firstWhere((e) => e.label == 'Watch beta');
+
+    h.tray.choose('Watch alpha');
+    await h.settle(tester);
+    expect(h.player.runningChannels, ['alpha']);
+    expect(h.launcher.launched.single.arguments.join(' '), contains('alpha'));
+
+    // A menu item outlives the poll that took its channel offline.
+    h.helix.goOffline('beta');
+    await h.advance(tester, const Duration(seconds: 61));
+    staleBeta.onClicked!();
+    await h.settle(tester);
+    expect(h.player.runningChannels, ['alpha']);
+
+    await h.close(tester);
+  });
+
   testWidgets('a close with the default action hides to the tray, once',
       (tester) async {
     final h = ScreenHarness();
