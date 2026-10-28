@@ -23,6 +23,7 @@ import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/settings_repository.dart';
 import 'services/downloads_controller.dart';
+import 'services/session_end.dart';
 import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
 import 'widgets/shell/edge_fade.dart';
@@ -787,6 +788,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _checkDownloadedVods();
     });
 
+    // Windows ending the session (shutdown, restart, sign-out) is given the
+    // chance to save the queue, the progress and the window first.
+    SessionEnd.listen(
+      onEnding: _saveForSessionEnd,
+      onCancelled: _downloads.unfreeze,
+    );
+
     _favoritesLiveCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       _refreshAllChannels();
     });
@@ -1049,6 +1057,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _channels, _settings, _localVodsProgress, _downloadedVodsRegistry);
   }
 
+  /// Windows is ending the session: save what a restart should find.
+  ///
+  /// No dialogs and no stopping anything: the session is going whatever
+  /// happens, and the runner only waits a few seconds. Downloads are ended
+  /// by Windows along with everything else, and report that as failures, so
+  /// the queue is frozen first and resumes at the next launch.
+  Future<void> _saveForSessionEnd() async {
+    final log = CrashLog.current;
+    log?.milestone('[session] Windows is ending the session; saving');
+    _downloads.freeze();
+    try {
+      await _captureWindowState();
+      await _settingsRepo.flushNow();
+      log?.milestone('[session] saved');
+    } catch (e, st) {
+      log?.error('session end: saving', e, st);
+    }
+  }
+
   /// Scroll state for the "Continue watching" strip, so its edges can fade.
   ///
   /// A horizontally scrolling row whose last card is hard-clipped at the window
@@ -1090,6 +1117,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _favoritesLiveCheckTimer?.cancel();
     _windowSaveTimer?.cancel();
     // Persistence and downloads: anything still held is written out.
+    SessionEnd.stopListening();
     _downloads.dispose();
     _settingsRepo.dispose();
     twitchAuth.helix.removeListener(_onAuthStatusChanged);
@@ -1306,6 +1334,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     windowManager.removeListener(this);
     _singleInstanceChannel.setMethodCallHandler(null);
+    SessionEnd.stopListening();
     try {
       await _systemTray.destroy();
     } catch (_) {}

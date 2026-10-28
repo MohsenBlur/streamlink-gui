@@ -224,6 +224,9 @@ class DownloadsController {
   /// has, there is nothing here to save over it with.
   bool _restored = false;
 
+  /// The queue as it was when Windows began ending the session; see [freeze].
+  List<Map<String, dynamic>>? _frozen;
+
   /// Adopts the queue saved at the last run, and returns what to queue again.
   ///
   /// The saved copy is NOT cleared: each entry stays saved until its download
@@ -287,6 +290,8 @@ class DownloadsController {
   /// dialog, say, from a copy taken before the queue moved) cannot bring an
   /// old queue back.
   List<Map<String, dynamic>>? get persisted {
+    final frozen = _frozen;
+    if (frozen != null) return _copy(frozen);
     if (!_restored) return null;
     return _copy(_unfinished.values);
   }
@@ -294,6 +299,25 @@ class DownloadsController {
   static List<Map<String, dynamic>> _copy(
           Iterable<Map<String, dynamic>> entries) =>
       [for (final entry in entries) Map<String, dynamic>.from(entry)];
+
+  /// Holds the saved queue as it is now, whatever happens to the downloads,
+  /// until [unfreeze].
+  ///
+  /// For Windows ending the session: it ends the downloads along with
+  /// everything else, and a download ended that way reports itself as failed
+  /// - which would otherwise drop it from the queue that is about to be
+  /// saved for the next launch.
+  void freeze() {
+    if (!_restored) return;
+    _frozen = _copy(_unfinished.values);
+  }
+
+  /// The session is going on after all: back to saving the queue as it is.
+  void unfreeze() {
+    if (_frozen == null) return;
+    _frozen = null;
+    _onQueueChanged();
+  }
 
   // ---- The downloaded-file scan ----
 

@@ -52,6 +52,18 @@ class FlutterWindow : public Win32Window {
   flutter::EncodableValue ApplyInitialPlacement(
       const flutter::EncodableMap& args);
 
+  // Windows ending the session (WM_QUERYENDSESSION / WM_ENDSESSION): tells
+  // Dart, and for a real end waits a bounded time for it to save, since the
+  // process can be ended as soon as WM_ENDSESSION returns. See
+  // lib/services/session_end.dart.
+  void NotifySession(const char* method);
+  void WaitForSessionSave();
+
+  // Native -> Dart session-end notifications ("streamlink_gui/session"). Uses
+  // the engine's messenger, so it must be released before flutter_controller_.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      session_channel_;
+
   // Dart-to-native window geometry ("streamlink_gui/window"): monitors in
   // physical pixels, the restorable window state, the initial placement and
   // a placement-aware show. Uses the engine's messenger, so it must be

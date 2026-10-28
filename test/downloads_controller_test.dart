@@ -154,6 +154,23 @@ void main() {
       expect(savedIds(), ['7']);
       expect(changes, 1);
     });
+
+    test('while frozen, downloads Windows ends stay saved', () async {
+      downloads.restore(const []);
+      player.queueVodDownload(_vod('1'), 'chan', settings);
+      player.queueVodDownload(_vod('2'), 'chan', settings);
+      await pumpEventQueue();
+
+      downloads.freeze();
+      // The session end kills yt-dlp, which reports that as a failure.
+      await launcher.launched.single.exit(1);
+      await pumpEventQueue();
+      expect(savedIds(), ['1', '2']);
+
+      // ...and if the end is called off, back to the queue as it is.
+      downloads.unfreeze();
+      expect(savedIds(), ['2']);
+    });
   });
 
   group('scanDownloadFolder', () {
