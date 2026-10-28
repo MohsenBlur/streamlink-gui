@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
+import 'config_secrets.dart';
 
 /// The most recent failed save, or null when the last save succeeded.
 final ValueNotifier<StorageWriteFailure?> storageWriteFailure =
@@ -94,28 +95,33 @@ class _SerialFileWriter {
   /// all settings, the OAuth tokens and the watch history. `File.rename`
   /// replaces the destination atomically (MoveFileEx with
   /// MOVEFILE_REPLACE_EXISTING on Windows), so the delete was never needed.
+  ///
+  /// The real file is only ever replaced by that rename, never written in
+  /// place. A failure here used to fall back to writing it directly, which
+  /// opens it with truncation first: on a full disk the temp write failed,
+  /// the fallback emptied the config and then failed too, `loadConfig` read
+  /// the empty file as "no config", and the next autosave made the loss
+  /// permanent. The rename failure the fallback was aimed at (a destination
+  /// held open by a scanner or a sync client) refuses a direct write on the
+  /// same lock anyway. A failed write now leaves the last good file exactly
+  /// as it was; `_drain` retries it once and reports it if it persists.
   Future<void> _writeAtomic(String content) async {
     final dir = file.parent;
     if (!dir.existsSync()) {
       dir.createSync(recursive: true);
     }
 
-    final temp = File('${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+    final override = StorageService.tempPathOverride;
+    final temp = File(override != null
+        ? override(file.path)
+        : '${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
     try {
       await temp.writeAsString(content, flush: true);
       await temp.rename(file.path);
     } catch (_) {
-      // Best-effort fallback: a direct write is not atomic, but losing the
-      // update is worse than a narrow torn-write window.
       try {
-        await file.writeAsString(content, flush: true);
-      } finally {
-        if (await temp.exists()) {
-          try {
-            await temp.delete();
-          } catch (_) {}
-        }
-      }
+        if (await temp.exists()) await temp.delete();
+      } catch (_) {}
       rethrow;
     }
   }
@@ -153,6 +159,36 @@ class StorageService {
   /// Forces all storage into a specific directory. Used by tests; leave null in
   /// the app so the normal AppData / portable resolution applies.
   static String? storageDirectoryOverride;
+
+  /// Chooses the temp file a save writes before its rename, given the real
+  /// file's path. Used by tests to make that write fail the way a full disk
+  /// does; leave null in the app.
+  static String Function(String targetPath)? tempPathOverride;
+
+  /// Seals the account tokens at rest; see [ConfigSecrets].
+  ///
+  /// Static for the same reason as [_writers]: main and the player service
+  /// each construct their own instance, and both save the config.
+  static ConfigSecrets _secrets = ConfigSecrets(platformCipher(
+    isWindows: Platform.isWindows,
+    isTestRunner: _isTestRunner,
+  ));
+
+  /// DPAPI on Windows. Plaintext elsewhere, and under the test runner, so no
+  /// test depends on the account running it; tests that exercise sealing
+  /// supply their own cipher through [secretCipher].
+  @visibleForTesting
+  static SecretCipher? platformCipher({
+    required bool isWindows,
+    required bool isTestRunner,
+  }) =>
+      isWindows && !isTestRunner ? const DpapiSecretCipher() : null;
+
+  /// The cipher sealing tokens at rest. Setting it (tests do) starts over,
+  /// with nothing remembered from earlier loads.
+  static SecretCipher? get secretCipher => _secrets.cipher;
+  static set secretCipher(SecretCipher? cipher) =>
+      _secrets = ConfigSecrets(cipher);
 
   File getStorageFile(String filename) {
     try {
@@ -297,9 +333,22 @@ class StorageService {
     } catch (_) {}
   }
 
+  /// Reads the config once for the whole startup; see [StartupConfig].
+  Future<StartupConfig> loadStartupConfig() async {
+    // Existence BEFORE loading: loadConfig() quarantines an unreadable file
+    // and returns null, which is indistinguishable from a first run - so a
+    // user whose config got corrupted was shown the onboarding wizard.
+    final existed = configExists();
+    final data = await loadConfig();
+    return StartupConfig(existed: existed, data: data);
+  }
+
+  /// The decoded config, with its tokens already decrypted, or null when there
+  /// is none or it was unreadable (and has been quarantined).
   Future<Map<String, dynamic>?> loadConfig() async {
     final file = _getStorageFile();
     sweepTempFiles(file);
+    Map<String, dynamic>? config;
     try {
       if (!await file.exists()) return null;
       final content = await file.readAsString();
@@ -307,15 +356,35 @@ class StorageService {
 
       final decoded = json.decode(content);
       if (decoded is Map<String, dynamic>) {
-        return decoded;
+        config = decoded;
+      } else {
+        _quarantineCorruptFile(file);
       }
-      _quarantineCorruptFile(file);
     } catch (_) {
       // Unreadable or invalid JSON: preserve it rather than letting the app
       // start from defaults and immediately autosave over the user's data.
       _quarantineCorruptFile(file);
     }
-    return null;
+    // Outside the try on purpose: nothing about the tokens may quarantine a
+    // config that parsed.
+    if (config != null) await _openSecrets(file, config);
+    return config;
+  }
+
+  /// Decrypts the tokens of a freshly read [config] in place, and seals any
+  /// that are still stored in plaintext.
+  ///
+  /// That migration rewrites the file at once rather than at the next save,
+  /// so a session that happens never to save does not leave the plaintext on
+  /// disk. It writes back the map just read with only the token values
+  /// changed, so even keys this build does not know survive it.
+  Future<void> _openSecrets(File file, Map<String, dynamic> config) async {
+    final settings = config['settings'];
+    if (settings is! Map<String, dynamic>) return;
+    final sealedSettings = _secrets.openFromDisk(settings);
+    if (sealedSettings == null) return;
+    await _writerFor(file)
+        .write(json.encode({...config, 'settings': sealedSettings}));
   }
 
   Future<void> saveConfig(
@@ -327,7 +396,7 @@ class StorageService {
     final file = _getStorageFile();
     final config = {
       'channels': channels.map((c) => c.toJson()).toList(),
-      'settings': settings.toJson(),
+      'settings': _secrets.sealForDisk(settings.toJson()),
       'local_vods_progress': localProgress,
       'downloaded_vods': downloadedVods,
     };
@@ -390,5 +459,55 @@ class StorageService {
   Future<void> saveWatchProgress(Map<String, dynamic> data) async {
     final file = getStorageFile('watch_progress.json');
     await _writerFor(file).write(json.encode(data));
+  }
+}
+
+/// The config as it was on disk at launch, read and decoded once, for
+/// `main()` and the first load of the main screen to share.
+///
+/// Both used to read and decode the file, and parse the settings, on their
+/// own: twice the startup IO (and twice the token decryption), two parse
+/// paths free to drift apart, and if the file changed between the reads - a
+/// sync client, another instance - the window and theme came from one
+/// version and the app state from another.
+///
+/// A launch snapshot only. Anything that wants the config later must call
+/// [StorageService.loadConfig], since saves move the file on from here.
+class StartupConfig {
+  const StartupConfig({required this.existed, required this.data});
+
+  /// Whether a config file was present before loading, even one too damaged
+  /// to read. Distinct from [data] being null: see [isFirstRun].
+  final bool existed;
+
+  /// The decoded config with its tokens decrypted, exactly as
+  /// [StorageService.loadConfig] returned it; null when there was none or it
+  /// was unreadable (and has been quarantined).
+  final Map<String, dynamic>? data;
+
+  /// True only when there was no config file at all. A corrupted one is not a
+  /// first run, and must not show the onboarding wizard to an existing user.
+  bool get isFirstRun => !existed;
+
+  /// The stored settings, or the defaults when there are none or they cannot
+  /// be parsed.
+  ///
+  /// The single settings parse for startup. Each call returns a new and fully
+  /// independent instance, parsed from a deep copy: `AppSettings` is mutable
+  /// and keeps list values by reference, and `main()` holds its copy in a
+  /// window callback while the main screen goes on to edit its own.
+  AppSettings parseSettings() {
+    final stored = data?['settings'];
+    if (stored is Map<String, dynamic>) {
+      // Runs before the first frame, so an unparseable config here would stop
+      // the app from starting at all rather than falling back to defaults.
+      try {
+        final copy = json.decode(json.encode(stored)) as Map<String, dynamic>;
+        return AppSettings.fromJson(copy);
+      } catch (e) {
+        print('[Config] Settings unreadable, using defaults: $e');
+      }
+    }
+    return AppSettings();
   }
 }

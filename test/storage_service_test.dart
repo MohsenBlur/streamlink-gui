@@ -4,7 +4,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_channel.dart';
+import 'package:streamlink_gui/services/config_secrets.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
+
+import 'support/fake_cipher.dart';
 
 void main() {
   late Directory tempDir;
@@ -196,6 +199,48 @@ void main() {
       await save(storage, ['a']);
       expect(storageWriteFailure.value, isNull);
     });
+
+    test('a failed temp write leaves the last good config byte-identical', () async {
+      // Regression: a failed temp write fell back to writing the real file
+      // directly, which truncates it first. On a full disk that fallback
+      // failed too, leaving an empty config that loaded as defaults - and the
+      // next autosave made the loss permanent. The real file must only ever
+      // change by the atomic rename.
+      await save(storage, ['keep-me'], quality: 'good');
+      final before = configFile().readAsBytesSync();
+
+      // A temp path whose directory does not exist fails the temp write, the
+      // way a full disk does, while the real file stays perfectly writable.
+      StorageService.tempPathOverride = (target) =>
+          '${tempDir.path}${Platform.pathSeparator}missing${Platform.pathSeparator}x.tmp';
+      addTearDown(() => StorageService.tempPathOverride = null);
+
+      await save(storage, ['replacement'], quality: 'bad');
+
+      expect(storageWriteFailure.value, isNotNull,
+          reason: 'the lost save must still be reported');
+      expect(configFile().readAsBytesSync(), before,
+          reason: 'the real config must not be written in place');
+
+      StorageService.tempPathOverride = null;
+      final loaded = await storage.loadConfig();
+      expect(loaded!['settings']['default_quality'], 'good');
+    });
+
+    test('a failed rename leaves no temp file behind', () async {
+      // The target is a directory, so the temp write succeeds and the rename
+      // onto it fails - the temp must still be cleaned up on both attempts.
+      Directory(configFile().path).createSync(recursive: true);
+
+      await save(storage, ['a']);
+
+      expect(storageWriteFailure.value, isNotNull);
+      final leftovers = tempDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.tmp'));
+      expect(leftovers, isEmpty);
+    });
   });
 
   group('debris does not accumulate', () {
@@ -231,6 +276,221 @@ void main() {
           .where((f) => f.path.contains('.corrupt-'))
           .toList();
       expect(copies.length, lessThanOrEqualTo(3));
+    });
+  });
+
+  group('stored tokens are sealed at rest', () {
+    const account = 'abcdefghijklmnopqrstuvwxyz0123';
+    const browser = 'zyxwvutsrqponmlkjihgfedcba9876';
+
+    setUp(() => StorageService.secretCipher = FakeCipher());
+    tearDown(() => StorageService.secretCipher = null);
+
+    /// The next launch: nothing remembered from earlier loads or saves.
+    void relaunch() => StorageService.secretCipher = FakeCipher();
+
+    Future<void> saveTokens(String a, String b) => storage.saveConfig(
+          [TwitchChannel(username: 'alpha')],
+          AppSettings(twitchOauthToken: a, twitchWebOauthToken: b),
+          <String, int>{},
+          <String, String>{},
+        );
+
+    test('a save writes no token to disk, and a load reads both back', () async {
+      await saveTokens(account, browser);
+
+      final raw = configFile().readAsStringSync();
+      expect(raw, isNot(contains(account)));
+      expect(raw, isNot(contains(browser)));
+
+      relaunch();
+      final loaded = await storage.loadConfig();
+      expect(loaded!['settings']['twitch_oauth_token'], account);
+      expect(loaded['settings']['twitch_web_oauth_token'], browser);
+    });
+
+    test('a plaintext config from an older build is migrated on load, losing nothing', () async {
+      // Written as every build before this one wrote it, plus keys this build
+      // does not know, which the migration must not drop the way a full
+      // saveConfig would.
+      final legacy = {
+        'channels': [
+          {'username': 'alpha'},
+        ],
+        'settings': {
+          ...AppSettings(twitchOauthToken: account, twitchWebOauthToken: browser).toJson(),
+          'setting_from_a_newer_build': 'keep me',
+        },
+        'local_vods_progress': {'v1': 42},
+        'downloaded_vods': <String, String>{},
+        'key_from_a_newer_build': [1, 2, 3],
+      };
+      configFile().writeAsStringSync(json.encode(legacy));
+
+      final loaded = await storage.loadConfig();
+
+      expect(loaded!['settings']['twitch_oauth_token'], account,
+          reason: 'the app runs on the plaintext it read');
+      final onDisk = json.decode(configFile().readAsStringSync()) as Map<String, dynamic>;
+      expect(json.encode(onDisk), isNot(contains(account)));
+      expect(json.encode(onDisk), isNot(contains(browser)));
+      expect(ConfigSecrets.isSealed(onDisk['settings']['twitch_oauth_token']), isTrue);
+      expect(onDisk['settings']['setting_from_a_newer_build'], 'keep me');
+      expect(onDisk['key_from_a_newer_build'], [1, 2, 3]);
+      expect(onDisk['local_vods_progress'], {'v1': 42});
+      expect(onDisk['channels'], legacy['channels']);
+
+      // The migrated file reads back the same, and is not rewritten again.
+      relaunch();
+      final migrated = configFile().readAsBytesSync();
+      final again = await storage.loadConfig();
+      expect(again!['settings']['twitch_web_oauth_token'], browser);
+      expect(configFile().readAsBytesSync(), migrated);
+    });
+
+    test('a config with no account is left exactly as it is', () async {
+      await saveTokens('', '');
+      final before = configFile().readAsBytesSync();
+
+      relaunch();
+      await storage.loadConfig();
+
+      expect(configFile().readAsBytesSync(), before);
+      expect(json.decode(utf8.decode(before))['settings']['twitch_oauth_token'], '');
+    });
+
+    test('a token sealed elsewhere survives a load-and-save here', () async {
+      StorageService.secretCipher = FakeCipher(account: 0x11);
+      await saveTokens(account, browser);
+      final sealedElsewhere =
+          json.decode(configFile().readAsStringSync())['settings']['twitch_oauth_token'];
+
+      relaunch(); // a different account: cannot open it
+      final loaded = await storage.loadConfig();
+      expect(loaded!['settings']['twitch_oauth_token'], '');
+      await storage.saveConfig(
+        const [],
+        AppSettings.fromJson(loaded['settings']),
+        <String, int>{},
+        <String, String>{},
+      );
+
+      expect(json.decode(configFile().readAsStringSync())['settings']['twitch_oauth_token'],
+          sealedElsewhere);
+    });
+
+    test('when sealing fails, load leaves a plaintext config alone and save keeps the token',
+        () async {
+      // DPAPI refusing must neither rewrite the file on every load for nothing
+      // nor drop the account on the next save: plaintext is what every
+      // earlier build stored.
+      configFile().writeAsStringSync(json.encode({
+        'channels': <Object>[],
+        'settings':
+            AppSettings(twitchOauthToken: account, twitchWebOauthToken: browser).toJson(),
+      }));
+      final before = configFile().readAsBytesSync();
+
+      StorageService.secretCipher = FakeCipher(refuseToSeal: true);
+      final loaded = await storage.loadConfig();
+
+      expect(loaded!['settings']['twitch_oauth_token'], account);
+      expect(configFile().readAsBytesSync(), before,
+          reason: 'nothing to migrate when nothing can be sealed');
+
+      await storage.saveConfig(
+        const [],
+        AppSettings.fromJson(loaded['settings']),
+        <String, int>{},
+        <String, String>{},
+      );
+      final onDisk = json.decode(configFile().readAsStringSync())['settings'];
+      expect(onDisk['twitch_oauth_token'], account);
+      expect(onDisk['twitch_web_oauth_token'], browser);
+    });
+  });
+
+  group('loadStartupConfig', () {
+    test('no file at all is a first run, on default settings', () async {
+      final startup = await storage.loadStartupConfig();
+      expect(startup.isFirstRun, isTrue);
+      expect(startup.data, isNull);
+      expect(startup.parseSettings().defaultQuality, AppSettings().defaultQuality);
+    });
+
+    test('a corrupted file is not a first run, though there is no data', () async {
+      // The onboarding wizard must not greet an existing user whose config
+      // was damaged.
+      configFile().writeAsStringSync('{ not json');
+      final startup = await storage.loadStartupConfig();
+      expect(startup.isFirstRun, isFalse);
+      expect(startup.data, isNull);
+      expect(startup.parseSettings().defaultQuality, AppSettings().defaultQuality);
+    });
+
+    test('one read serves the settings and the rest of the config', () async {
+      await save(storage, ['alpha', 'beta'], quality: '720p');
+      final startup = await storage.loadStartupConfig();
+
+      expect(startup.isFirstRun, isFalse);
+      expect(startup.data!['channels'], hasLength(2));
+      expect(startup.parseSettings().defaultQuality, '720p');
+    });
+
+    test('each settings parse is independent of the others', () async {
+      // main() keeps its copy in a window callback while the main screen goes
+      // on to edit its own; they must never alias, lists included.
+      await storage.saveConfig(
+        const [],
+        AppSettings(unfinishedDownloads: [
+          {'channelName': 'alpha'},
+        ]),
+        <String, int>{},
+        <String, String>{},
+      );
+      final startup = await storage.loadStartupConfig();
+
+      final first = startup.parseSettings();
+      final second = startup.parseSettings();
+      expect(identical(first, second), isFalse);
+      (first.unfinishedDownloads.first as Map)['channelName'] = 'changed';
+      first.unfinishedDownloads.add({'channelName': 'extra'});
+
+      expect(second.unfinishedDownloads, [
+        {'channelName': 'alpha'},
+      ]);
+      expect(startup.parseSettings().unfinishedDownloads, hasLength(1));
+    });
+
+    test('hand-edited settings fall back field by field, a non-map wholesale', () async {
+      configFile().writeAsStringSync(json.encode({
+        'channels': [],
+        'settings': {'default_quality': 42, 'local_server_port': 'abc', 'material': 'soft'},
+      }));
+      final hostile = (await storage.loadStartupConfig()).parseSettings();
+      expect(hostile.defaultQuality, 'best');
+      expect(hostile.localServerPort, 65432);
+      expect(hostile.material, 'soft');
+
+      configFile().writeAsStringSync(json.encode({'channels': [], 'settings': 'not a map'}));
+      final startup = await storage.loadStartupConfig();
+      expect(startup.isFirstRun, isFalse);
+      expect(startup.parseSettings().material, AppSettings().material);
+    });
+
+    test('tokens arrive decrypted', () async {
+      StorageService.secretCipher = FakeCipher();
+      addTearDown(() => StorageService.secretCipher = null);
+      await storage.saveConfig(
+        const [],
+        AppSettings(twitchOauthToken: 'the-token'),
+        <String, int>{},
+        <String, String>{},
+      );
+
+      StorageService.secretCipher = FakeCipher();
+      final startup = await storage.loadStartupConfig();
+      expect(startup.parseSettings().twitchOauthToken, 'the-token');
     });
   });
 

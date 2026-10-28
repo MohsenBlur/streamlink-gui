@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -29,6 +30,35 @@ class UpdateInfo {
 }
 
 class UpdateService {
+  /// [client] and [tempRoot] exist for tests; the app passes neither, so
+  /// requests use a fresh client and update files go to the system temp.
+  UpdateService({http.Client? client, Directory? tempRoot})
+      : _client = client,
+        _tempRootOverride = tempRoot;
+
+  final http.Client? _client;
+  final Directory? _tempRootOverride;
+
+  Directory get _tempRoot => _tempRootOverride ?? Directory.systemTemp;
+
+  /// Every update attempt works in its own `<temp>/<prefix>*` directory, which
+  /// holds the ~300 MB archive and then its extracted copy.
+  static const String updateDirPrefix = 'streamlink_gui_update_';
+
+  /// How long a leftover update directory is kept before the startup sweep
+  /// deletes it.
+  ///
+  /// The updater copies the new build out of the extracted directory after
+  /// this app exits, and nothing deletes it afterwards. A day is far past any
+  /// swap, an elevated one waiting on its UAC prompt included, while still
+  /// reclaiming the space within a launch or two.
+  static const Duration staleUpdateDirAge = Duration(hours: 24);
+
+  /// Update directories this process is still working in, which the sweep
+  /// must not touch however old they look: a directory's timestamp does not
+  /// move while a slow download is still appending to the file inside it.
+  static final Set<String> _activeUpdateDirs = {};
+
   /// Sentinel used when the app is built without `--dart-define=APP_VERSION`,
   /// i.e. `flutter run` during development.
   static const String devVersion = '0.0.0-dev';
@@ -85,8 +115,16 @@ class UpdateService {
     // self-updating would replace the developer's working tree with a release.
     if (isDevBuild) return null;
 
+    // Reclaims what earlier attempts left behind. This runs on the startup
+    // check and on a manual check from Settings, so it can overlap an update
+    // in this process - whose directories the sweep skips - but never one a
+    // previous run's updater could still be copying from, which is far
+    // younger than the age limit. Not awaited: deleting a few hundred MB must
+    // not delay the prompt.
+    unawaited(sweepStaleUpdateDirs());
+
     try {
-      final response = await http.get(
+      final response = await _get(
         Uri.parse(githubApiReleaseUrl),
         headers: {
           'Accept': 'application/vnd.github.v3+json',
@@ -135,6 +173,24 @@ class UpdateService {
     }
   }
 
+  Future<http.Response> _get(Uri url, {Map<String, String>? headers}) {
+    final client = _client;
+    return client != null
+        ? client.get(url, headers: headers)
+        : http.get(url, headers: headers);
+  }
+
+  /// The name a downloaded update is saved under: the release asset's own
+  /// name, so [verifyChecksum] can find that asset's line in SHA256SUMS.
+  /// Anything that is not a plain `*.zip` file name falls back to a fixed one.
+  static String zipFileNameFor(String zipUrl) {
+    final segments = Uri.tryParse(zipUrl)?.pathSegments ?? const <String>[];
+    final last = segments.isEmpty ? '' : segments.last;
+    final plainZipName =
+        RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$', caseSensitive: false);
+    return plainZipName.hasMatch(last) ? last : 'update.zip';
+  }
+
   Future<File> downloadUpdate(
     String zipUrl,
     void Function(double progress)? onProgress,
@@ -142,7 +198,7 @@ class UpdateService {
     if (zipUrl.isEmpty || !zipUrl.startsWith('http')) {
       throw Exception('No valid download URL provided for update.');
     }
-    final client = http.Client();
+    final client = _client ?? http.Client();
     try {
       final request = http.Request('GET', Uri.parse(zipUrl));
       final response = await client.send(request);
@@ -152,62 +208,202 @@ class UpdateService {
       }
 
       final contentLength = response.contentLength ?? 0;
-      final tempDir = await Directory.systemTemp.createTemp('streamlink_gui_update_');
-      final zipFile = File(path.join(tempDir.path, 'update.zip'));
-      final sink = zipFile.openWrite();
-
-      int downloadedBytes = 0;
+      final tempDir = await _tempRoot.createTemp(updateDirPrefix);
+      _activeUpdateDirs.add(tempDir.path);
       try {
-        await for (final chunk in response.stream) {
-          sink.add(chunk);
-          downloadedBytes += chunk.length;
-          if (contentLength > 0 && onProgress != null) {
-            onProgress(downloadedBytes / contentLength);
+        final zipFile = File(path.join(tempDir.path, zipFileNameFor(zipUrl)));
+        final sink = zipFile.openWrite();
+
+        int downloadedBytes = 0;
+        try {
+          await for (final chunk in response.stream) {
+            sink.add(chunk);
+            downloadedBytes += chunk.length;
+            if (contentLength > 0 && onProgress != null) {
+              onProgress(downloadedBytes / contentLength);
+            }
           }
+          await sink.flush();
+        } finally {
+          await sink.close();
         }
-        await sink.flush();
-      } finally {
-        await sink.close();
+
+        // A connection that ends early can close the stream cleanly, and a
+        // release published without SHA256SUMS has no checksum to catch it.
+        if (contentLength > 0 && downloadedBytes != contentLength) {
+          throw Exception(
+            'The update download was cut short ($downloadedBytes of '
+            '$contentLength bytes). Your current version is unchanged.',
+          );
+        }
+        return zipFile;
+      } catch (_) {
+        // Every failed attempt used to leave its partial archive in %TEMP%.
+        await _discardUpdateDir(tempDir);
+        rethrow;
       }
-      return zipFile;
     } finally {
-      client.close();
+      if (_client == null) client.close();
     }
   }
 
-  /// Verifies [zipFile] against the release's published SHA256SUMS.
+  /// Verifies [zipFile] against the release's published SHA256SUMS, and
+  /// deletes the download if it cannot be verified.
   ///
-  /// Throws if the checksum is present but does not match. A release without a
-  /// checksum asset (anything published before they were added) is allowed
-  /// through, so older installs can still update.
-  Future<void> verifyChecksum(File zipFile, String checksumUrl) async {
+  /// Fails closed. This used to return silently when the checksum list could
+  /// not be fetched (a non-200, a timeout, a dropped connection) or held no
+  /// digest, so a flaky network that lost only that small request let an
+  /// unverified archive straight through to the installer. Now any of those
+  /// stops the update; the user retries, and nothing has been changed.
+  ///
+  /// [assetName] is the line to match in a multi-file list; by default the
+  /// name [downloadUpdate] saved the archive under, which is the asset's own.
+  ///
+  /// A release that publishes no SHA256SUMS at all ([checksumUrl] empty) is
+  /// still let through. The list comes from the same release as the archive,
+  /// so it only ever guarded against corruption, never tampering, and the
+  /// length check in [downloadUpdate] still catches a truncated transfer.
+  Future<void> verifyChecksum(File zipFile, String checksumUrl,
+      {String? assetName}) async {
     if (checksumUrl.isEmpty) return;
 
-    String expected;
     try {
-      final response = await http
-          .get(Uri.parse(checksumUrl), headers: {'User-Agent': 'TwitchStreamlinkGUI-App'})
-          .timeout(const Duration(seconds: 15));
-      if (response.statusCode != 200) return;
-      // Format: "<hex>  streamlink-gui-windows.zip"
-      final match = RegExp(r'([a-fA-F0-9]{64})').firstMatch(response.body);
-      if (match == null) return;
-      expected = match.group(1)!.toLowerCase();
-    } catch (_) {
-      // A network failure fetching the checksum must not block the update.
-      return;
-    }
+      final expected = await _fetchExpectedDigest(
+          checksumUrl, assetName ?? path.basename(zipFile.path));
 
-    final digest = await Isolate.run(() => sha256.convert(zipFile.readAsBytesSync()).toString());
-    if (digest.toLowerCase() != expected) {
-      throw Exception(
-        'The downloaded update failed its integrity check and was discarded.\n'
-        'Expected $expected but got $digest.',
-      );
+      final digest = await Isolate.run(() => sha256.convert(zipFile.readAsBytesSync()).toString());
+      if (digest.toLowerCase() != expected) {
+        throw Exception(
+          'The downloaded update failed its integrity check and was discarded.\n'
+          'Expected $expected but got $digest.',
+        );
+      }
+    } catch (_) {
+      // "Was discarded" used to be untrue: nothing deleted the download.
+      await _discardUpdateDir(zipFile.parent);
+      rethrow;
     }
   }
 
+  Future<String> _fetchExpectedDigest(String checksumUrl, String assetName) async {
+    const notApplied = 'so the download could not be verified and was not '
+        'applied. Your current version is unchanged; try again later.';
+    final http.Response response;
+    try {
+      response = await _get(Uri.parse(checksumUrl),
+              headers: {'User-Agent': 'TwitchStreamlinkGUI-App'})
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      final reason = e is TimeoutException ? 'timed out' : 'network error';
+      throw Exception("Could not download the update's checksum ($reason), $notApplied");
+    }
+    if (response.statusCode != 200) {
+      throw Exception(
+          "Could not download the update's checksum (HTTP ${response.statusCode}), $notApplied");
+    }
+    final expected = expectedDigestFor(response.body, assetName);
+    if (expected == null) {
+      throw Exception(
+          "The update's checksum list has no entry for $assetName, $notApplied");
+    }
+    return expected;
+  }
+
+  /// The lowercase SHA-256 that a `sha256sum`-style [sums] list gives for
+  /// [assetName], or null when it gives none.
+  ///
+  /// Lines look like `<64 hex>  name` (or `<64 hex> *name` in binary mode).
+  /// The line naming the asset wins, matched case-insensitively on its file
+  /// name, so a list covering several files can never hand back another
+  /// file's digest. A list holding exactly one digest is taken as the
+  /// archive's whatever it names: this app's releases publish one line, and
+  /// a wrong digest still fails the comparison rather than passing it.
+  static String? expectedDigestFor(String sums, String assetName) {
+    final line = RegExp(r'^([a-fA-F0-9]{64})(?:\s+\*?(.+))?$');
+    final entries = <({String digest, String? name})>[];
+    for (final raw in const LineSplitter().convert(sums)) {
+      final match = line.firstMatch(raw.trim());
+      if (match == null) continue;
+      entries.add((
+        digest: match.group(1)!.toLowerCase(),
+        name: match.group(2)?.trim(),
+      ));
+    }
+
+    final wanted = assetName.toLowerCase();
+    for (final entry in entries) {
+      final name = entry.name;
+      if (name == null) continue;
+      if (name.split(RegExp(r'[/\\]')).last.toLowerCase() == wanted) {
+        return entry.digest;
+      }
+    }
+    return entries.length == 1 ? entries.single.digest : null;
+  }
+
+  /// Whether [dir] is an update working directory this service created, and
+  /// so safe to delete wholesale.
+  bool _isUpdateDir(Directory dir) =>
+      path.basename(dir.path).startsWith(updateDirPrefix) &&
+      path.isWithin(_tempRoot.path, dir.path);
+
+  Future<void> _discardUpdateDir(Directory dir) async {
+    if (!_isUpdateDir(dir)) return;
+    _activeUpdateDirs.remove(dir.path);
+    try {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } catch (_) {
+      // Something still holds a file open (a scanner reading the archive);
+      // the startup sweep reclaims it on a later launch.
+    }
+  }
+
+  /// Deletes update working directories older than [olderThan] that earlier
+  /// runs left in the temp folder.
+  ///
+  /// Each attempt leaves one: a successful update's extracted build (the
+  /// updater copies out of it and never deletes it), and before failures
+  /// cleaned up after themselves, every failed attempt's archive too, at
+  /// about 300 MB apiece. Only real directories carrying [updateDirPrefix]
+  /// are touched (links are not followed), and never one this process is
+  /// still working in.
+  Future<void> sweepStaleUpdateDirs({Duration olderThan = staleUpdateDirAge}) async {
+    try {
+      final now = DateTime.now();
+      await for (final entity in _tempRoot.list(followLinks: false)) {
+        if (entity is! Directory) continue;
+        if (!path.basename(entity.path).startsWith(updateDirPrefix)) continue;
+        if (_activeUpdateDirs.contains(entity.path)) continue;
+        try {
+          final modified = (await entity.stat()).modified;
+          if (now.difference(modified) < olderThan) continue;
+          await entity.delete(recursive: true);
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  /// Unpacks [zipFile] next to itself and checks it is a complete build.
+  ///
+  /// On success the archive itself is deleted, since only the extracted copy
+  /// is used from here on; on failure the whole attempt is.
   Future<Directory> extractAndVerifyZip(File zipFile) async {
+    final workDir = zipFile.parent;
+    try {
+      final appRoot = await _extractAndVerifyZip(zipFile);
+      if (_isUpdateDir(workDir)) {
+        try {
+          await zipFile.delete();
+        } catch (_) {}
+      }
+      return appRoot;
+    } catch (_) {
+      await _discardUpdateDir(workDir);
+      rethrow;
+    }
+  }
+
+  Future<Directory> _extractAndVerifyZip(File zipFile) async {
     final extractDir = Directory(path.join(zipFile.parent.path, 'extracted'));
     if (extractDir.existsSync()) {
       extractDir.deleteSync(recursive: true);
@@ -339,6 +535,11 @@ class UpdateService {
     // If the handshake never arrived the updater could not break away and would
     // die with us, so leave the installation untouched and let the caller
     // report the failure rather than killing the app for nothing.
+    //
+    // The extracted build is deliberately NOT deleted here, unlike the other
+    // failure paths: a late updater may still be about to copy out of it, and
+    // pulling it away mid-swap would break the install. The startup sweep
+    // reclaims it once it is a day old.
     if (!sentinel.existsSync()) {
       throw Exception(
         'The updater did not start correctly, so the update was not applied. '
