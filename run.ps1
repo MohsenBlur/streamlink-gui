@@ -11,6 +11,10 @@ if (-not (Test-Path $FlutterExe)) {
     exit 1
 }
 
+# The pinned SDK, not merely an SDK - see tools\assert-flutter-sdk.ps1.
+& (Join-Path $PSScriptRoot "tools\assert-flutter-sdk.ps1") -SdkRoot (Join-Path $SdkDir "flutter")
+if ($LastExitCode -ne 0) { exit 1 }
+
 # The bundled runtime (streamlink, python, ffmpeg, yt-dlp) is not committed to
 # git. Without it the app launches but cannot play streams or download VODs.
 # Verifies the whole bundle rather than one sentinel file - see build.ps1.
