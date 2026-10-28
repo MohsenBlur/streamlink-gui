@@ -1516,6 +1516,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   void onWindowClose() async {
     final isPreventClose = await windowManager.isPreventClose();
     if (!isPreventClose) return;
+    // Already quitting, for Exit or for an update. The updater closes a
+    // portable copy's window as soon as it is running (the only mutex it
+    // waits on is the installed copy's), and that now lands while this
+    // shutdown is still saving: hiding to the tray, with its one-time
+    // "still running" toast, would be the wrong answer to it.
+    if (_isExiting) return;
     if (_settings.closeAction == 'exit') {
       await _handleAppExitRequest();
       return;
