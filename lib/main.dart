@@ -170,27 +170,7 @@ Future<void> _startApp(List<String> args) async {
   await _prepareWindow(settings,
       startHidden: startMinimized, milestone: milestone, log: crashLog);
 
-  // Seed the look from the settings already parsed above, BEFORE the first
-  // frame.
-  //
-  // `NeuTheme.activeMaterial` defaults to rack and `themeNotifier.isDarkTheme`
-  // to true, and both were only corrected later, inside `_loadChannels`'s
-  // second config read. The window is shown from the first-frame callback
-  // (`flutter_window.cpp`), so a user on Soft, or on the light theme, saw at
-  // least one fully presented frame of the wrong look before it snapped -
-  // a flash of a different material, not just a different colour.
-  //
-  // The later `setMaterial`/`setDarkTheme` calls then no-op, because both
-  // setters early-return when the value is unchanged.
-  final storedMaterial = AppMaterial.fromKey(settings.material);
-  if (storedMaterial != null && MaterialSpec.isImplemented(storedMaterial)) {
-    NeuTheme.activeMaterial = storedMaterial;
-  }
-  themeNotifier.isDarkTheme = settings.isDarkTheme;
-  themeNotifier.lightAccentColor = parseHexColor(
-      settings.lightAccentColorHex, NeuTheme.defaultLightAccent);
-  themeNotifier.darkAccentColor =
-      parseHexColor(settings.darkAccentColorHex, NeuTheme.defaultDarkAccent);
+  seedStoredLook(settings);
 
   runApp(TwitchStreamlinkApp(startup: startup, startHidden: startMinimized));
   milestone('runApp');
@@ -200,6 +180,42 @@ Future<void> _startApp(List<String> args) async {
     return _checkWindowAfterFirstFrame(
         startHidden: startMinimized, milestone: milestone);
   }));
+}
+
+/// Seeds the look from the settings main() already parsed, BEFORE the first
+/// frame.
+///
+/// `NeuTheme.activeMaterial` defaults to rack and `themeNotifier.isDarkTheme`
+/// to true, and both were only corrected later, inside `_loadChannels`'s
+/// second config read. The window is shown from the first-frame callback
+/// (`flutter_window.cpp`), so a user on Soft, or on the light theme, saw at
+/// least one fully presented frame of the wrong look before it snapped -
+/// a flash of a different material, not just a different colour.
+///
+/// The first load's own `setMaterial`/`setDarkTheme`/accent/progress calls
+/// then no-op, because every setter early-returns when the value is
+/// unchanged. They have to: the first load runs from MainScreen's initState,
+/// inside the build, and a notification from there marks the app's own
+/// ListenableBuilder dirty mid-build. The progress colours were left out of
+/// this seeding and `updateTheme` notified unconditionally, so every launch
+/// did exactly that - an assertion on each debug launch, and a second build
+/// of the whole MaterialApp in the first frame of a release one.
+void seedStoredLook(AppSettings settings) {
+  final storedMaterial = AppMaterial.fromKey(settings.material);
+  if (storedMaterial != null && MaterialSpec.isImplemented(storedMaterial)) {
+    NeuTheme.activeMaterial = storedMaterial;
+  }
+  themeNotifier.isDarkTheme = settings.isDarkTheme;
+  themeNotifier.lightAccentColor = parseHexColor(
+      settings.lightAccentColorHex, NeuTheme.defaultLightAccent);
+  themeNotifier.darkAccentColor =
+      parseHexColor(settings.darkAccentColorHex, NeuTheme.defaultDarkAccent);
+  // User-configurable hex settings; these are their defaults, as the first
+  // load reads them (_loadChannels), not theme colors.
+  themeNotifier.activeProgressColor = parseHexColor(
+      settings.activeProgressColorHex, const Color(0xFF9146FF));
+  themeNotifier.watchedProgressColor = parseHexColor(
+      settings.watchedProgressColorHex, const Color(0x804CAF50));
 }
 
 /// The frame style, close interception and geometry - all before the first

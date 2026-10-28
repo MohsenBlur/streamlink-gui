@@ -113,13 +113,23 @@ class AppThemeNotifier extends ChangeNotifier implements ThemeUpdateListener {
     notifyListeners();
   }
 
+  /// Nothing to say when nothing changed, like every setter above. The first
+  /// load calls this from MainScreen's initState - inside the build - with
+  /// the colours main() already seeded (seedStoredLook), and the
+  /// unconditional notification it used to send marked the app's own
+  /// ListenableBuilder dirty mid-build on every launch.
   @override
   void updateTheme({
     Color? activeProgress,
     Color? watchedProgress,
   }) {
-    if (activeProgress != null) activeProgressColor = activeProgress;
-    if (watchedProgress != null) watchedProgressColor = watchedProgress;
+    final active = activeProgress ?? activeProgressColor;
+    final watched = watchedProgress ?? watchedProgressColor;
+    if (active == activeProgressColor && watched == watchedProgressColor) {
+      return;
+    }
+    activeProgressColor = active;
+    watchedProgressColor = watched;
     notifyListeners();
   }
 }
