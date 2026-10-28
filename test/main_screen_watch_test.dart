@@ -4,6 +4,7 @@ import 'package:streamlink_gui/models/twitch_channel.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
+import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 import 'package:streamlink_gui/widgets/twitch_video_card.dart';
 
 import 'support/main_screen_harness.dart';
@@ -93,6 +94,31 @@ void main() {
       expect(find.text('Continue watching'), findsOneWidget);
       expect(find.byTooltip('Long VOD\nResume at 16% (3h0m0s)'),
           findsOneWidget);
+
+      await h.close(tester);
+    });
+
+    testWidgets("moves the bar on the VOD's card in the open grid",
+        (tester) async {
+      // Positions are written into the grid's own VOD objects, so only a
+      // repaint shows them: the bar is drawn from the card's last build.
+      final h = ScreenHarness();
+      final vod = await playLongVod(tester, h);
+      Finder bar() => find.descendant(
+          of: find.byWidgetPredicate(
+              (w) => w is TwitchVideoCard && w.vod.id == vod),
+          matching: find.byType(FractionallySizedBox));
+      expect(bar(), findsNothing, reason: 'nothing watched yet');
+
+      final sidebar = tester.widget(find.byType(SidebarPanel));
+      h.player.feedPosition(vod, 5400);
+      await h.settle(tester);
+      expect(tester.widget<FractionallySizedBox>(bar()).widthFactor,
+          closeTo(0.5, 1e-9));
+      expect(identical(tester.widget(find.byType(SidebarPanel)), sidebar),
+          isTrue,
+          reason: 'the grid repaints, not the whole screen: a tick every two '
+              'seconds rebuilt the sidebar and everything else with it');
 
       await h.close(tester);
     });

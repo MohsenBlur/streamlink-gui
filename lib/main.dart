@@ -557,12 +557,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // Channel and VOD refresh wiring: lib/state/channels_controller.dart and
     // vod_browser_controller.dart, driven from the block by _selectChannel.
     // Before _loadChannels, whose startup pass already reports through it.
+    // The VOD browser, the watch history and the Library repaint only what
+    // shows them (see build); the channels show nearly everywhere.
     _channelsCtl.addListener(_onRefreshStateChanged);
     _channelsCtl.onPass = _onChannelsPass;
-    _vodBrowser.addListener(_onRefreshStateChanged);
     _vodBrowser.onNewVods = _onNewVods;
-    _history.addListener(_onRefreshStateChanged);
-    _library.addListener(_onRefreshStateChanged);
 
     storageWriteFailure.addListener(_onSaveFailureChanged);
     twitchAuth.helix.addListener(_onAuthStatusChanged);
@@ -692,15 +691,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _channelsCtl
       ..removeListener(_onRefreshStateChanged)
       ..dispose();
-    _vodBrowser
-      ..removeListener(_onRefreshStateChanged)
-      ..dispose();
-    _history
-      ..removeListener(_onRefreshStateChanged)
-      ..dispose();
-    _library
-      ..removeListener(_onRefreshStateChanged)
-      ..dispose();
+    _vodBrowser.dispose();
+    _history.dispose();
+    _library.dispose();
     // Persistence and downloads: anything still held is written out.
     _downloads.dispose();
     _settingsRepo.dispose();
@@ -1253,8 +1246,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   bool get _hasAccountToken => _settings.twitchOauthToken.trim().isNotEmpty;
 
-  /// Either controller changed something on screen. Each notifies once per
-  /// refresh phase, so a poll repaints the sidebar and the welcome screen
+  /// The channels changed something on screen. The controller notifies once
+  /// per refresh phase, so a poll repaints the sidebar and the welcome screen
   /// itself - it used to rely on an unrelated ten-second timer's setState,
   /// which an unreachable download folder skipped.
   void _onRefreshStateChanged() {
@@ -1942,11 +1935,24 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         ),
       ],
       sidebar: sidebar,
-      content: _library.isOpen
-          ? _buildLibraryView()
-          : _selectedChannel == null
-              ? _buildHome()
-              : _buildDashboard(_selectedChannel!),
+      // Each part repaints with the one controller it shows, not the whole
+      // screen: these three are read nowhere else in build. The Library's
+      // flag picks the part; the welcome screen shows the recents; the open
+      // channel shows its VOD list, and the watch positions written into it.
+      content: ListenableBuilder(
+        listenable: _library,
+        builder: (context, _) {
+          if (_library.isOpen) return _buildLibraryView();
+          final open = _selectedChannel;
+          if (open == null) {
+            return ListenableBuilder(
+                listenable: _history, builder: (context, _) => _buildHome());
+          }
+          return ListenableBuilder(
+              listenable: _dashboardSources,
+              builder: (context, _) => _buildDashboard(open));
+        },
+      ),
       onEscape: _library.close,
       // Focus the sidebar search from anywhere. In layouts without the
       // inline field the search popover is the affordance instead.
@@ -2029,6 +2035,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       onStopActivity: _stopActivity,
     );
   }
+
+  /// What the open channel's dashboard shows changes with (see build).
+  late final Listenable _dashboardSources =
+      Listenable.merge([_vodBrowser, _history]);
 
   Widget _buildDashboard(TwitchChannel channel) {
     final channelName = _selectedChannel?.username ?? 'VOD';
