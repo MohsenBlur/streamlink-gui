@@ -1480,6 +1480,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _followedChannels.clear();
         _sidebarTab = 0;
       });
+      // The saved tab too, as a tab click saves it. Left at Followed, a
+      // token added again later opened the next launch on Followed.
+      if (_settings.activeSidebarTab != 0) {
+        _settings.activeSidebarTab = 0;
+        _settingsRepo.requestSave();
+      }
     },
     canvasTurnedOn: () {
       LitSurfaceProgram.disable('Simple rendering turned on in Settings');

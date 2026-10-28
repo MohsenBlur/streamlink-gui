@@ -63,6 +63,11 @@ void main() {
     expect(tester.widget<SidebarPanel>(find.byType(SidebarPanel)).sidebarTab,
         0,
         reason: 'the Followed tab goes with the token');
+    // And the saved tab with it: left at Followed, a token added again later
+    // in the session opened the next launch on Followed, though the sidebar
+    // had shown Favorites since the sign-out.
+    await h.advance(tester, const Duration(seconds: 2));
+    expect(h.storage.savedSettings?.activeSidebarTab, 0);
 
     await h.close(tester);
   });
