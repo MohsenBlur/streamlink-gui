@@ -22,7 +22,13 @@ class VodCache {
 
   /// How long an entry counts as current. Past this the prefetch fetches it
   /// again.
-  static const Duration ttl = Duration(minutes: 10);
+  ///
+  /// Half an hour, not ten minutes: at ten the prefetch alone re-read up to
+  /// ten favourites' lists every ten minutes, around the clock, for lists
+  /// nobody had opened. A favourite whose broadcast starts or ends is
+  /// fetched again regardless (VodBrowserController.prefetch), and opening a
+  /// channel always fetches its first page.
+  static const Duration ttl = Duration(minutes: 30);
 
   final DateTime Function() _now;
   final Map<String, _Entry> _byChannel = {};

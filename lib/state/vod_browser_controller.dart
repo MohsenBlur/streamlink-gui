@@ -7,6 +7,7 @@ import '../models/twitch_channel.dart';
 import '../models/twitch_video.dart';
 import '../services/twitch_api_service.dart';
 import '../utils/twitch_auth_status.dart';
+import 'channel_transitions.dart';
 import 'vod_cache.dart';
 import 'vod_merge.dart';
 
@@ -374,25 +375,50 @@ class VodBrowserController extends ChangeNotifier {
 
   bool _prefetching = false;
 
+  /// Each channel's broadcast as it was when its list last reached the
+  /// cache, by clean username: a list fetched before a broadcast started or
+  /// ended is missing that broadcast's VOD, however young it is.
+  final Map<String, ChannelSnapshot> _listedAs = <String, ChannelSnapshot>{};
+
+  /// Clean usernames whose list [checkForNewVods] is fetching right now.
+  final Set<String> _checking = <String>{};
+
   /// Fetches the lists of up to [prefetchLimit] of [channels] that have
-  /// nothing cached, or only something older than [VodCache.ttl]. One pass at
-  /// a time, one channel after another.
+  /// nothing cached, only something older than [VodCache.ttl], or a list
+  /// from before their broadcast last started or ended. One pass at a time,
+  /// one channel after another.
+  ///
+  /// Called after every poll, so this is the background's steady cost: it
+  /// used to re-read every favourite's list each ten minutes, with one GQL
+  /// request per VOD for the browser token's watch positions - about twenty a
+  /// minute, for lists nobody had opened. Those positions are skipped now
+  /// (opening a channel fetches its first page, positions and all), the open
+  /// channel is left to [refresh], and so is a channel [checkForNewVods] is
+  /// already fetching.
   Future<void> prefetch(Iterable<TwitchChannel> channels) async {
     if (_prefetching || _settings().twitchOauthToken.trim().isEmpty) return;
     _prefetching = true;
     try {
       for (final channel in channels.take(prefetchLimit).toList()) {
         if (_disposed || _api.helixRateLimitedUntil != null) return;
-        if (cache.isFresh(channel.username)) continue;
+        final key = _key(channel.username);
+        if (isShowing(channel) || _checking.contains(key)) continue;
+        if (cache.isFresh(channel.username) &&
+            !broadcastChanged(_listedAs[key], channel)) {
+          continue;
+        }
         final startedAt = _now();
         try {
           final result = await _api.fetchVodsForChannel(
             channel: channel,
             settings: _settings(),
             localVodsProgress: _localProgress(),
+            fetchWatchProgress: false,
           );
           if (_disposed) return;
-          ingest(channel, result, fetchedAt: startedAt);
+          // Not detailed: should the channel have been opened meanwhile, a
+          // list without watch positions must not count as its refresh.
+          ingest(channel, result, fetchedAt: startedAt, detailed: false);
         } catch (_) {}
       }
     } finally {
@@ -407,7 +433,9 @@ class VodBrowserController extends ChangeNotifier {
     DateTime? endedBroadcastStart,
   }) async {
     if (_settings().twitchOauthToken.trim().isEmpty) return;
+    final key = _key(channel.username);
     final startedAt = _now();
+    _checking.add(key);
     try {
       final result = await _api.fetchVodsForChannel(
         channel: channel,
@@ -420,7 +448,10 @@ class VodBrowserController extends ChangeNotifier {
           fetchedAt: startedAt,
           detailed: false,
           endedBroadcastStart: endedBroadcastStart);
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _checking.remove(key);
+    }
   }
 
   /// Folds a first page into the cache, the new-VOD check and - when
@@ -467,6 +498,7 @@ class VodBrowserController extends ChangeNotifier {
         fetchedAt: fetchedAt,
       );
     }
+    _listedAs[_key(channel.username)] = ChannelSnapshot.of(channel);
 
     final appeared = _detector.observe(
       channel.username,
@@ -523,8 +555,9 @@ class VodBrowserController extends ChangeNotifier {
   }
 
   static bool _sameChannel(TwitchChannel a, TwitchChannel b) =>
-      identical(a, b) ||
-      a.username.toLowerCase().trim() == b.username.toLowerCase().trim();
+      identical(a, b) || _key(a.username) == _key(b.username);
+
+  static String _key(String username) => username.toLowerCase().trim();
 
   void _notify() {
     if (!_disposed) notifyListeners();
