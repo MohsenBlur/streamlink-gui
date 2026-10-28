@@ -32,7 +32,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
   http: ^1.2.1
   # Verifies the SHA-256 of a downloaded update against the release's
   # published SHA256SUMS before it is applied.
