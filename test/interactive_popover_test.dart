@@ -265,6 +265,56 @@ void main() {
     expect(pageEscapes, 0, reason: 'the page never saw the Esc');
   });
 
+  testWidgets('Esc on the trigger closes an open popover, and only then',
+      (tester) async {
+    // Enter or Space on a focused trigger opens the popover and leaves focus
+    // on the trigger, outside the popover, where the overlay's own Esc
+    // binding cannot hear it: the page's Esc closed the Library behind a
+    // popover that stayed open.
+    var pageEscapes = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): () =>
+                pageEscapes++,
+          },
+          child: Focus(
+            autofocus: true,
+            child: Center(
+              child: InteractivePopover(
+                popover: const SizedBox(
+                    key: ValueKey('menu'), width: 200, height: 80),
+                child: const SizedBox(width: 60, height: 30),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(
+        FocusManager.instance.primaryFocus?.context
+            ?.findAncestorWidgetOfExactType<InteractivePopover>(),
+        isNotNull,
+        reason: 'the trigger has focus');
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('menu')), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('menu')), findsNothing);
+    expect(pageEscapes, 0, reason: 'the open popover took the Esc');
+
+    // Closed, the trigger leaves Esc to the page.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(pageEscapes, 1);
+  });
+
   testWidgets('a popover follows a trigger that scrolls', (tester) async {
     // The dashboard header's popovers sit inside the page's CustomScrollView.
     // The follower tracked the trigger at compositing time; the portal has to
