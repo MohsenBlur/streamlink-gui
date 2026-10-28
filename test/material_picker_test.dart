@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/app_startup.dart';
+import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/material/texture_cache.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
@@ -213,15 +215,27 @@ void main() {
               'Cancel leaves the app wearing a material it never saved');
     });
 
-    test('launch applies it', () {
-      final mainSource = File('lib/main.dart').readAsStringSync();
-      expect(mainSource, contains('themeNotifier.setMaterial('),
-          reason: 'nothing applies the stored material at startup, so a saved '
-              'choice is written to disk and never read back');
-      expect(mainSource, contains('AppMaterial.fromKey(_settings.material)'),
-          reason: 'the stored key must be RESOLVED rather than assumed valid, '
-              'so an unknown material from a newer build falls back for the '
-              'session instead of throwing');
+    test('launch applies it, and an unknown one falls back for the session',
+        () {
+      // What the first load does with the settings it read (applyStoredLook).
+      // This read main.dart's source for the two calls.
+      final before = NeuTheme.activeMaterial;
+      addTearDown(() => NeuTheme.activeMaterial = before);
+      final implemented =
+          AppMaterial.values.where(MaterialSpec.isImplemented).toList();
+      final other = implemented.firstWhere((m) => m != before,
+          orElse: () => before);
+
+      applyStoredLook(AppSettings(material: other.key));
+      expect(NeuTheme.activeMaterial, other,
+          reason: 'nothing applied the stored material at startup, so a '
+              'saved choice was written to disk and never read back');
+
+      applyStoredLook(AppSettings(material: 'from-a-newer-build'));
+      expect(NeuTheme.activeMaterial, other,
+          reason: 'the stored key is RESOLVED rather than assumed valid, so '
+              'an unknown material falls back for the session instead of '
+              'throwing');
     });
 
     test('the picker is actually in the Appearance panel', () {

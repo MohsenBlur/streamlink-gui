@@ -52,6 +52,42 @@ void seedStoredLook(AppSettings settings) {
       settings.watchedProgressColorHex, const Color(0x804CAF50));
 }
 
+/// The stored look, through the notifying setters: what the first load does
+/// with the settings it read (MainScreen's _loadChannels), which may be a
+/// fresher read than the one [seedStoredLook] had. Every setter returns early
+/// on an unchanged value, so after a seed from the same settings this
+/// notifies nothing (see [seedStoredLook]).
+void applyStoredLook(AppSettings settings) {
+  themeNotifier.setDarkTheme(settings.isDarkTheme);
+  // Resolved, not clamped. An unknown key - a material this build does not
+  // have, from a newer one that did - falls back for the session and is left
+  // alone in the file, rather than being rewritten to `rack` by the next
+  // window resize.
+  final storedMaterial = AppMaterial.fromKey(settings.material);
+  if (storedMaterial != null && MaterialSpec.isImplemented(storedMaterial)) {
+    themeNotifier.setMaterial(storedMaterial);
+  }
+
+  // Restore the accent the user actually picked. Previously this read
+  // `primaryColorHex`, a field no code path ever wrote, so it was always the
+  // default purple and silently overwrote the saved accent on every launch
+  // while the real value sat unused in the config.
+  themeNotifier.setLightAccent(
+    parseHexColor(settings.lightAccentColorHex, NeuTheme.defaultLightAccent),
+  );
+  themeNotifier.setDarkAccent(
+    parseHexColor(settings.darkAccentColorHex, NeuTheme.defaultDarkAccent),
+  );
+  themeNotifier.updateTheme(
+    // User-configurable hex settings; these are their defaults, not theme
+    // colors.
+    activeProgress: parseHexColor(
+        settings.activeProgressColorHex, const Color(0xFF9146FF)),
+    watchedProgress: parseHexColor(
+        settings.watchedProgressColorHex, const Color(0x804CAF50)),
+  );
+}
+
 /// The frame style, close interception and geometry - all before the first
 /// frame, while the window is still hidden.
 ///

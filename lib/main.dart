@@ -24,7 +24,6 @@ import 'state/download_history.dart';
 import 'state/settings_repository.dart';
 import 'state/settings_save.dart';
 import 'services/downloads_controller.dart';
-import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
 import 'widgets/shell/app_dialogs.dart';
 import 'widgets/shell/app_frame.dart';
@@ -57,7 +56,6 @@ import 'theme/app_theme.dart';
 import 'theme/neu_theme.dart';
 import 'widgets/neumorphic/neu_pulse.dart';
 import 'theme/theme_notifier.dart';
-import 'utils/color_utils.dart';
 
 
 Future<void> main(List<String> args) async {
@@ -934,32 +932,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             _sidebarTab = _settings.twitchOauthToken.trim().isEmpty
                 ? 0
                 : _settings.activeSidebarTab;
-            themeNotifier.setDarkTheme(_settings.isDarkTheme);
-            // Resolved, not clamped. An unknown key - a material this build
-            // does not have, from a newer one that did - falls back for the
-            // session and is left alone in the file, rather than being
-            // rewritten to `rack` by the next window resize.
-            final storedMaterial = AppMaterial.fromKey(_settings.material);
-            if (storedMaterial != null &&
-                MaterialSpec.isImplemented(storedMaterial)) {
-              themeNotifier.setMaterial(storedMaterial);
-            }
-
-            // Restore the accent the user actually picked. Previously this read
-            // `primaryColorHex`, a field no code path ever wrote, so it was
-            // always the default purple and silently overwrote the saved accent
-            // on every launch while the real value sat unused in the config.
-            themeNotifier.setLightAccent(
-              parseHexColor(_settings.lightAccentColorHex, NeuTheme.defaultLightAccent),
-            );
-            themeNotifier.setDarkAccent(
-              parseHexColor(_settings.darkAccentColorHex, NeuTheme.defaultDarkAccent),
-            );
-            themeNotifier.updateTheme(
-              // User-configurable hex settings; these are their defaults, not theme colors.
-              activeProgress: parseHexColor(_settings.activeProgressColorHex, const Color(0xFF9146FF)),
-              watchedProgress: parseHexColor(_settings.watchedProgressColorHex, const Color(0x804CAF50)),
-            );
+            applyStoredLook(_settings);
           });
           } catch (e) {
             // Keep going with what was read rather than aborting the whole
