@@ -50,7 +50,16 @@ class _DownloadFolderPromptState extends State<DownloadFolderPrompt> {
       if (mounted) setState(() => _picking = false);
     });
     if (!mounted || route?.isActive == false) return;
-    if (path != null && path.isNotEmpty) Navigator.pop(context, path);
+    if (path == null || path.isEmpty) return;
+    // This prompt's own route, not whichever is on top. A route can land over
+    // the prompt while the folder dialog is open - the update offer at
+    // startup, the tray's Exit asking about unfinished downloads - and a pop
+    // then closed that one instead, with a folder path for its answer.
+    if (route != null && !route.isCurrent) {
+      Navigator.removeRoute(context, route, path);
+    } else {
+      Navigator.pop(context, path);
+    }
   }
 
   @override

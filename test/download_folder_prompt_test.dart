@@ -96,6 +96,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a folder picked with a dialog opened over the prompt answers '
+      'the prompt, not that dialog', (tester) async {
+    // The folder dialog leaves the app live, so a route can land on top of
+    // the prompt while it is open: the update offer at startup, or the
+    // tray's Exit asking about unfinished downloads. Popping "the prompt"
+    // popped that one instead, with a folder path for its yes-or-no answer.
+    await openPrompt(tester);
+    await tester.tap(find.text('Choose folder'));
+    await tester.pump();
+
+    var exitAnswered = false;
+    showDialog<bool>(
+      context: tester.element(find.text('download')),
+      builder: (_) => const AlertDialog(content: Text('Exit anyway?')),
+    ).then((_) => exitAnswered = true);
+    await tester.pumpAndSettle();
+
+    picker.folders.single.complete(r'D:\VODs');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(answers, [r'D:\VODs']);
+    expect(find.text('Where should VODs be saved?'), findsNothing);
+    expect(find.text('Exit anyway?'), findsOneWidget,
+        reason: 'the dialog on top is still waiting for its own answer');
+    expect(exitAnswered, isFalse);
+  });
+
   testWidgets('Choose folder opens one folder dialog at a time',
       (tester) async {
     await openPrompt(tester);
