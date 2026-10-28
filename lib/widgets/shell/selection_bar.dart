@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../theme/neu_theme.dart';
 import '../../theme/theme_notifier.dart';
@@ -72,6 +75,24 @@ class SelectionBar extends StatelessWidget {
       // controls need ~300px, each labelled action ~130.
       final full = constraints.maxWidth >= 300 + actions.length * 130;
 
+      final count = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              selectedCount == 0 ? 'Select videos' : '$selectedCount selected',
+              style: NeuType.label(isDark),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: NeuSpace.s12),
+          _textButton('All', onSelectAllVisible, isDark),
+          const SizedBox(width: NeuSpace.s6),
+          _textButton('None', selectedCount == 0 ? null : onClear, isDark),
+        ],
+      );
+
       return Container(
         padding: const EdgeInsets.symmetric(
             horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
@@ -91,50 +112,30 @@ class SelectionBar extends StatelessWidget {
             ),
             const SizedBox(width: NeuSpace.s12),
             // The rest keeps its two ends at the bar's two edges, as the
-            // Spacer between them did, but the count and the Actions label
-            // can now give way. The count's side, which needs more, gets two
-            // parts in three of what is left.
+            // Spacer between them did. The labelled actions do not shrink,
+            // so beside them the count's side has whatever is left. The
+            // Actions menu does, and there the count and the menu's label
+            // give way only once both ends no longer fit (splitTwoEnds): a
+            // Row split them two parts to one whatever each needed, which cut
+            // one short while there was still room for both.
             Expanded(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Flexible(
-                    flex: 2,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+              child: full
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Flexible(
-                          child: Text(
-                            selectedCount == 0
-                                ? 'Select videos'
-                                : '$selectedCount selected',
-                            style: NeuType.label(isDark),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                        Flexible(child: count),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (final action in actions) ...[
+                              const SizedBox(width: NeuSpace.s8),
+                              _actionButton(action, isDark),
+                            ],
+                          ],
                         ),
-                        const SizedBox(width: NeuSpace.s12),
-                        _textButton('All', onSelectAllVisible, isDark),
-                        const SizedBox(width: NeuSpace.s6),
-                        _textButton(
-                            'None', selectedCount == 0 ? null : onClear, isDark),
-                      ],
-                    ),
-                  ),
-                  if (full)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (final action in actions) ...[
-                          const SizedBox(width: NeuSpace.s8),
-                          _actionButton(action, isDark),
-                        ],
                       ],
                     )
-                  else
-                    Flexible(child: _overflow(context, isDark)),
-                ],
-              ),
+                  : _TwoEnds(start: count, end: _overflow(context, isDark)),
             ),
           ],
         ),
@@ -241,4 +242,112 @@ class SelectionBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// How a row [available] wide is shared between its two ends, which want
+/// [start] and [end]: each gets what it wants while both fit. Past that, the
+/// end that wants less than its share - [startShare] of the row for the
+/// start, the rest for the end - keeps what it wants, and the other gives
+/// way; only when both want more than their shares is it [startShare] to
+/// the rest.
+({double start, double end}) splitTwoEnds(
+    double available, double start, double end,
+    {double startShare = 2 / 3}) {
+  if (start + end <= available) return (start: start, end: end);
+  final startCap = available * startShare;
+  if (start <= startCap) return (start: start, end: available - start);
+  final endCap = available - startCap;
+  if (end <= endCap) return (start: available - end, end: end);
+  return (start: startCap, end: endCap);
+}
+
+/// [start] at the row's left edge and [end] at its right, sized by
+/// [splitTwoEnds] from what each would take, and centred across the row.
+class _TwoEnds extends MultiChildRenderObjectWidget {
+  _TwoEnds({required Widget start, required Widget end})
+      : super(children: [start, end]);
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderTwoEnds();
+}
+
+class _TwoEndsParentData extends ContainerBoxParentData<RenderBox> {}
+
+class _RenderTwoEnds extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, _TwoEndsParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, _TwoEndsParentData> {
+  RenderBox get _start => firstChild!;
+  RenderBox get _end => lastChild!;
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _TwoEndsParentData) {
+      child.parentData = _TwoEndsParentData();
+    }
+  }
+
+  @override
+  double computeMinIntrinsicWidth(double height) =>
+      _start.getMinIntrinsicWidth(height) + _end.getMinIntrinsicWidth(height);
+
+  @override
+  double computeMaxIntrinsicWidth(double height) =>
+      _start.getMaxIntrinsicWidth(height) + _end.getMaxIntrinsicWidth(height);
+
+  @override
+  double computeMinIntrinsicHeight(double width) => math.max(
+      _start.getMinIntrinsicHeight(width), _end.getMinIntrinsicHeight(width));
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => math.max(
+      _start.getMaxIntrinsicHeight(width), _end.getMaxIntrinsicHeight(width));
+
+  /// The two ends' constraints: as wide as [splitTwoEnds] allows, and no
+  /// taller than the row.
+  (BoxConstraints, BoxConstraints) _childConstraints(
+      BoxConstraints constraints) {
+    final wantStart = _start.getMaxIntrinsicWidth(double.infinity);
+    final wantEnd = _end.getMaxIntrinsicWidth(double.infinity);
+    final split = constraints.hasBoundedWidth
+        ? splitTwoEnds(constraints.maxWidth, wantStart, wantEnd)
+        : (start: wantStart, end: wantEnd);
+    BoxConstraints upTo(double width) =>
+        BoxConstraints(maxWidth: width, maxHeight: constraints.maxHeight);
+    return (upTo(split.start), upTo(split.end));
+  }
+
+  Size _sizeFor(BoxConstraints constraints, Size start, Size end) =>
+      constraints.constrain(Size(
+          constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : start.width + end.width,
+          math.max(start.height, end.height)));
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) {
+    final (start, end) = _childConstraints(constraints);
+    return _sizeFor(
+        constraints, _start.getDryLayout(start), _end.getDryLayout(end));
+  }
+
+  @override
+  void performLayout() {
+    final (start, end) = _childConstraints(constraints);
+    _start.layout(start, parentUsesSize: true);
+    _end.layout(end, parentUsesSize: true);
+    size = _sizeFor(constraints, _start.size, _end.size);
+    (_start.parentData! as _TwoEndsParentData).offset =
+        Offset(0, (size.height - _start.size.height) / 2);
+    (_end.parentData! as _TwoEndsParentData).offset = Offset(
+        size.width - _end.size.width, (size.height - _end.size.height) / 2);
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      defaultHitTestChildren(result, position: position);
+
+  @override
+  void paint(PaintingContext context, Offset offset) =>
+      defaultPaint(context, offset);
 }
