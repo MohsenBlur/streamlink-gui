@@ -183,6 +183,26 @@ void main() {
     });
   });
 
+  test('a disposed lit painter leaves the engine switch\'s registry',
+      () async {
+    // The registry is a static set of each lit box's markNeedsPaint. A painter
+    // that stayed in it after its box went (a VOD card scrolled away, a
+    // decoration that changed) would keep that render object reachable for
+    // the whole session and be called on a box that no longer paints.
+    await LitSurfaceProgram.load(environment: const {});
+    expect(LitSurfaceProgram.ready, isTrue, reason: 'precondition');
+
+    var kept = 0, dropped = 0;
+    final live = raised().createBoxPainter(() => kept++);
+    raised().createBoxPainter(() => dropped++).dispose();
+
+    LitSurfaceProgram.disable('switched off by the test');
+    expect(kept, 1, reason: 'a live lit box was not told about the switch');
+    expect(dropped, 0,
+        reason: 'a disposed painter is still registered for engine switches');
+    live.dispose();
+  });
+
   testWidgets('a surface already painted lit repaints through Canvas when '
       'the engine is switched off under it', (tester) async {
     // The painter is built once per decoration and kept while the decoration

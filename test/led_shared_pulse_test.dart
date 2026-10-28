@@ -142,18 +142,50 @@ void main() {
             'LED to 75% permanently');
   });
 
+  // Both handovers move ONE LED between trees under a GlobalKey. Without it,
+  // dropping the NeuPulse from `host` changes the widget type under
+  // MediaQuery, so the framework mounts a brand-new LED - which only proves
+  // that a fresh LED outside a heartbeat pulses, not that a live one notices
+  // its heartbeat going (or arriving) through didChangeDependencies.
   testWidgets('an LED that leaves the heartbeat falls back to its own',
       (tester) async {
+    final led = GlobalKey();
     final pulse = heartbeat(tester)..value = 1.0;
     await tester.pumpWidget(
-        host(const NeuLedIndicator(isLive: true), pulse: pulse));
+        host(NeuLedIndicator(key: led, isLive: true), pulse: pulse));
     await tester.pump();
     expect(tester.binding.transientCallbackCount, 0);
+    final state = led.currentState;
 
-    await tester.pumpWidget(host(const NeuLedIndicator(isLive: true)));
+    await tester.pumpWidget(host(NeuLedIndicator(key: led, isLive: true)));
+    expect(led.currentState, same(state),
+        reason: 'precondition: the same LED moved, it was not rebuilt');
     await tester.pump(const Duration(milliseconds: 300));
     expect(tester.binding.transientCallbackCount, greaterThan(0),
         reason: 'outside any heartbeat the LED must still pulse on its own');
     expect(fadeOf(tester).opacity.value, lessThan(1.0));
+  });
+
+  testWidgets('an LED that joins a heartbeat stops its own controller',
+      (tester) async {
+    final led = GlobalKey();
+    await tester.pumpWidget(host(NeuLedIndicator(key: led, isLive: true)));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.binding.transientCallbackCount, greaterThan(0),
+        reason: 'precondition: outside a heartbeat it runs its own');
+    final state = led.currentState;
+
+    final pulse = heartbeat(tester)..value = 1.0;
+    await tester.pumpWidget(
+        host(NeuLedIndicator(key: led, isLive: true), pulse: pulse));
+    expect(led.currentState, same(state),
+        reason: 'precondition: the same LED moved, it was not rebuilt');
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.binding.transientCallbackCount, 0,
+        reason: 'the LED kept ticking its own controller after it joined '
+            'the shared heartbeat');
+    expect(fadeOf(tester).opacity.value, 1.0,
+        reason: 'it must follow the parked heartbeat, not its stopped '
+            'controller wherever that halted');
   });
 }
