@@ -21,7 +21,9 @@ import 'services/player_service.dart';
 import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
-import 'state/download_registry.dart';
+import 'state/settings_repository.dart';
+import 'services/downloads_controller.dart';
+import 'services/session_end.dart';
 import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
 import 'widgets/shell/edge_fade.dart';
@@ -441,6 +443,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   final Map<String, TwitchVideo> _activePlayingVideos = {};
   List<TwitchVideo> _recentWatchedVods = [];
 
+  // ---- Persistence and downloads -------------------------------------------
+  // When the three files are written (SettingsRepository) and the saved
+  // download queue plus the downloaded-file scan (DownloadsController). Both
+  // are created on first use rather than in initState, so a save asked for
+  // from anywhere, however early, finds them ready. Wired to PlayerService
+  // and the session-end channel in initState.
+
+  late final SettingsRepository _settingsRepo = SettingsRepository(
+    writeConfig: _writeConfigFile,
+    writeProgress: () =>
+        _storageService.saveWatchProgress(_progressStore.toJson()),
+    writeRecents: () => _storageService.saveRecentWatchedVods(
+        _recentWatchedVods.map((v) => v.toJson()).toList()),
+    onError: (e, st) => CrashLog.current?.error('saving', e, st),
+  );
+
+  late final DownloadsController _downloads = DownloadsController(
+    onQueueChanged: () => _settingsRepo.requestSave(),
+    readScanInput: _downloadScanInput,
+    onScanned: _applyDownloadScan,
+  );
+
+  /// The last whole percent rebuilt for each playing VOD's progress, so a
+  /// watch-position tick repaints only when something on screen would change.
+  final Map<String, int> _watchProgressBuckets = {};
+  // ---------------------------------------------------------------------------
+
   /// Set when the user dismisses the save-failure banner, so a persistent
   /// disk problem does not become an undismissable wall. Reset whenever a save
   /// succeeds, so a NEW failure is reported again.
@@ -570,6 +599,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // subsequent pass, silently killing BOTH priority auto-play and VOD
       // auto-download until the app was restarted.
       _activePlayingVideos.remove(key);
+      // The position playback stopped at is the one to keep, so it is
+      // written now rather than when the progress delay runs out.
+      _watchProgressBuckets.remove(key);
+      unawaited(_settingsRepo.flushProgress());
       if (!mounted) return;
       _logNotifier.endSession(key, exitCode);
 
@@ -597,12 +630,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     };
 
-    _playerService.onWatchProgressUpdated =
+    _playerService.recordWatchProgress =
         (vodId, position, progress, sessionAgeMs) {
       // One chokepoint, and it can say no. A relaunched player that came up at
       // the top of a five-hour VOD used to write its way over the stored
       // position within seconds - here and on Twitch, where max(local, remote)
-      // cannot undo it.
+      // cannot undo it. Answering false is what keeps it off Twitch: the
+      // tracker pushes only the positions kept here.
       final result = _progressStore.record(vodId, position,
           nowMs: DateTime.now().millisecondsSinceEpoch,
           sessionAgeMs: sessionAgeMs);
@@ -615,37 +649,52 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               'first seconds of this session, which is what a failed resume looks '
               'like.');
         }
-        return;
+        return false;
       }
       if (mounted) {
-        setState(() {
-          _localVodsProgress[vodId] = position;
-          final idx = _channelVods.indexWhere((v) => v.id == vodId);
-          if (idx != -1) {
-            _channelVods[idx].watchPosition = position;
-            _channelVods[idx].watchProgress = progress;
-          }
-          
-          final video = _activePlayingVideos[vodId];
-          if (video != null) {
-            video.watchPosition = position;
-            video.watchProgress = progress;
-            
+        // Every tick updates the state; only a tick that changes something on
+        // screen rebuilds it. This rebuilt the whole screen - the grid, the
+        // carousel and all - every two seconds for as long as anything
+        // played, while the cards draw progress to a whole percent.
+        var visible = progressTickIsVisible(
+          previousBucket: _watchProgressBuckets[vodId],
+          progress: progress,
+          previousStatus: null,
+          status: null,
+        );
+        _watchProgressBuckets[vodId] = (progress * 100).floor();
+
+        _localVodsProgress[vodId] = position;
+        final idx = _channelVods.indexWhere((v) => v.id == vodId);
+        if (idx != -1) {
+          _channelVods[idx].watchPosition = position;
+          _channelVods[idx].watchProgress = progress;
+        }
+
+        final video = _activePlayingVideos[vodId];
+        if (video != null) {
+          video.watchPosition = position;
+          video.watchProgress = progress;
+
+          // Moving it to the front happens once per session; after that it is
+          // already there, and nothing about the order changes.
+          if (_recentWatchedVods.isEmpty ||
+              !identical(_recentWatchedVods.first, video)) {
+            visible = true;
             _recentWatchedVods.removeWhere((v) => v.id == vodId);
             _recentWatchedVods.insert(0, video);
-            
+
             if (_recentWatchedVods.length > _settings.maxRecentlyWatched) {
               _recentWatchedVods = _recentWatchedVods.take(_settings.maxRecentlyWatched).toList();
             }
           }
-        });
-        _saveChannels();
-        if (_activePlayingVideos.containsKey(vodId)) {
-          _storageService.saveRecentWatchedVods(
-            _recentWatchedVods.map((v) => v.toJson()).toList()
-          );
         }
+        if (visible) setState(() {});
+        // Written within the repository's progress delay rather than on every
+        // tick, and at once when the player stops (onPlayerStopped).
+        _settingsRepo.noteProgress(recents: video != null);
       }
+      return true;
     };
 
     _playerService.onDownloadProgress = (vodId, progress, status) {
@@ -672,7 +721,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _logNotifier.endSession(logKeyForDownload(vodId), exitCode);
     };
 
+    // A download that completed, failed or was cancelled leaves the saved
+    // queue (DownloadsController); one queued from anywhere joins it. Ending
+    // downloads to exit or update reports none of these, so the queue stays
+    // saved for the next launch.
+    _playerService.onDownloadQueued = _downloads.remember;
+
     _playerService.onDownloadCancelled = (vodId) {
+      _downloads.forget(vodId);
       _progressBuckets.remove(vodId);
       _progressStatuses.remove(vodId);
       if (mounted) {
@@ -685,6 +741,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     };
 
     _playerService.onDownloadCompleted = (vodId, title, filePath) {
+      _downloads.forget(vodId);
       if (mounted) {
         setState(() {
           if (filePath.isNotEmpty) {
@@ -705,6 +762,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     };
 
     _playerService.onDownloadFailed = (vodId, title, exitCode) {
+      _downloads.forget(vodId);
       _progressBuckets.remove(vodId);
       _progressStatuses.remove(vodId);
       if (mounted) {
@@ -729,7 +787,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _downloadCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _checkDownloadedVods();
     });
-    
+
+    // Windows ending the session (shutdown, restart, sign-out) is given the
+    // chance to save the queue, the progress and the window first.
+    SessionEnd.listen(
+      onEnding: _saveForSessionEnd,
+      onCancelled: _downloads.unfreeze,
+    );
+
     _favoritesLiveCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       _refreshAllChannels();
     });
@@ -970,32 +1035,45 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     });
   }
 
-  /// Snapshots active and queued downloads into settings so they resume after
-  /// the app restarts. Shared by the tray-exit and update paths.
+  /// Makes sure the saved download queue is on disk before the downloads are
+  /// stopped, so they resume after the app restarts. Shared by the tray-exit
+  /// and update paths, which check storageWriteFailure right after.
+  ///
+  /// The queue is saved as it changes now (DownloadsController), so this
+  /// only makes the last change land immediately rather than a second later.
+  /// Stopping the downloads afterwards does not take them off the saved
+  /// queue: only completing, failing or being cancelled does.
   Future<void> _persistUnfinishedDownloadsForRestart() async {
-    final unfinished = <Map<String, dynamic>>[];
-    final seen = <String>{};
+    await _settingsRepo.saveNow();
+  }
 
-    // Active downloads remain at the head of downloadQueue until they finish,
-    // so de-duplicate: they used to be written into the resume list twice.
-    final ids = <String>[
-      ..._playerService.activeDownloadProcesses.keys,
-      ..._playerService.downloadQueue,
-    ];
-    for (final vodId in ids) {
-      if (!seen.add(vodId)) continue;
-      final task = _playerService.queuedDownloadTasks[vodId];
-      if (task == null) continue;
-      unfinished.add({
-        'vod': task.toJson(),
-        // The channel the download actually belongs to, not whichever channel
-        // happens to be selected in the UI right now.
-        'channelName': _playerService.downloadChannelNames[vodId] ?? 'VOD',
-      });
+  /// The config file's contents, at the moment of writing.
+  Future<void> _writeConfigFile() {
+    // The saved queue is the controller's, stamped on at every write: a
+    // settings object replaced wholesale must not bring back an old queue.
+    final unfinished = _downloads.persisted;
+    if (unfinished != null) _settings.unfinishedDownloads = unfinished;
+    return _storageService.saveConfig(
+        _channels, _settings, _localVodsProgress, _downloadedVodsRegistry);
+  }
+
+  /// Windows is ending the session: save what a restart should find.
+  ///
+  /// No dialogs and no stopping anything: the session is going whatever
+  /// happens, and the runner only waits a few seconds. Downloads are ended
+  /// by Windows along with everything else, and report that as failures, so
+  /// the queue is frozen first and resumes at the next launch.
+  Future<void> _saveForSessionEnd() async {
+    final log = CrashLog.current;
+    log?.milestone('[session] Windows is ending the session; saving');
+    _downloads.freeze();
+    try {
+      await _captureWindowState();
+      await _settingsRepo.flushNow();
+      log?.milestone('[session] saved');
+    } catch (e, st) {
+      log?.error('session end: saving', e, st);
     }
-
-    _settings.unfinishedDownloads = unfinished;
-    await _saveChannels();
   }
 
   /// Scroll state for the "Continue watching" strip, so its edges can fade.
@@ -1038,6 +1116,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
     _windowSaveTimer?.cancel();
+    // Persistence and downloads: anything still held is written out.
+    SessionEnd.stopListening();
+    _downloads.dispose();
+    _settingsRepo.dispose();
     twitchAuth.helix.removeListener(_onAuthStatusChanged);
     _activity.dispose();
     _logNotifier.dispose();
@@ -1241,17 +1323,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     await _stopAllBounded('exit');
 
     // Each save resolves only once its file's writer has drained, earlier
-    // fire-and-forget writes to the same file included.
+    // fire-and-forget writes to the same file included - and the config,
+    // progress and recents all go, including a watch position the progress
+    // delay was still holding. A file not yet read at startup is left alone.
     try {
-      await _saveChannels();
-      await _storageService.saveRecentWatchedVods(
-          _recentWatchedVods.map((v) => v.toJson()).toList());
+      await _settingsRepo.flushNow();
     } catch (e, st) {
       log?.error('exit: saving', e, st);
     }
 
     windowManager.removeListener(this);
     _singleInstanceChannel.setMethodCallHandler(null);
+    SessionEnd.stopListening();
     try {
       await _systemTray.destroy();
     } catch (_) {}
@@ -1479,86 +1562,51 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     } catch (_) {}
   }
 
+  /// Brings the downloaded badges and the registry in step with the disk.
+  ///
+  /// Asynchronous now: the scan runs off the UI isolate, one folder listing
+  /// per pass, and its result arrives in [_applyDownloadScan]. Calls while a
+  /// scan is running fold into one follow-up pass (DownloadsController).
   void _checkDownloadedVods() {
-    final downloadRoot = _settings.vodDownloadFolder.trim();
-    if (downloadRoot.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _downloadedVodIds.clear();
-        });
-      }
-      return;
-    }
+    unawaited(_downloads.rescan());
+  }
 
-    // If the download location is not reachable right now - an external or
-    // network drive that is disconnected - every existsSync() below would
-    // return false and this would prune the entire downloaded-VOD registry and
-    // strip the matching yt-dlp archive entries, permanently forgetting
-    // downloads that are merely offline. Leave all state untouched instead.
-    try {
-      if (!Directory(downloadRoot).existsSync()) return;
-    } catch (_) {
-      return;
-    }
+  /// What the next scan looks at, as it is right now.
+  DownloadScanInput _downloadScanInput() => DownloadScanInput(
+        downloadRoot: _settings.vodDownloadFolder.trim(),
+        channelName: _selectedChannel?.username ?? '',
+        vodIds: [for (final vod in _channelVods) vod.id],
+        registry: Map<String, String>.from(_downloadedVodsRegistry),
+        inFlight: {
+          ..._playerService.activeDownloadTasks.keys,
+          ..._playerService.activeDownloadProcesses.keys,
+          ..._playerService.downloadQueue,
+        },
+      );
 
-    final inFlight = <String>{
-      ..._playerService.activeDownloadTasks.keys,
-      ..._playerService.activeDownloadProcesses.keys,
-      ..._playerService.downloadQueue,
-    };
-
-    // Resolve where each of the current channel's VODs would live, so files
-    // that arrived without going through this app get picked up.
-    final candidates = <String, String>{};
-    for (final vod in _channelVods) {
-      try {
-        final file = _playerService.getDownloadedVodFile(
-            vod.id, _selectedChannel?.username ?? '', _settings.vodDownloadFolder);
-        if (file != null) candidates[vod.id] = file.path;
-      } catch (_) {}
-    }
-
-    final plan = planRegistryScan(
-      registry: Map<String, String>.from(_downloadedVodsRegistry),
-      inFlightIds: inFlight,
-      candidates: candidates,
-      fileExists: _pathIsFile,
-      directoryExists: _pathIsDirectory,
-    );
-
-    for (final vodId in plan.stripFromArchive) {
+  void _applyDownloadScan(DownloadScanOutcome outcome) {
+    if (!mounted) return;
+    for (final vodId in outcome.stripFromArchive) {
       _playerService.removeVodFromArchive(vodId);
     }
-    _downloadedVodsRegistry.removeWhere((vodId, _) => plan.prune.contains(vodId));
-    _downloadedVodsRegistry.addAll(plan.additions);
-
-    if (plan.registryChanged) {
-      _saveChannels();
+    if (outcome.registryChanged) {
+      _downloadedVodsRegistry
+          .removeWhere((vodId, _) => outcome.prune.contains(vodId));
+      _downloadedVodsRegistry.addAll(outcome.additions);
+      _settingsRepo.requestSave();
+      // The Library was built from the registry before this scan came back.
+      if (_showLibraryView) _refreshLibraryEntries();
     }
 
-    if (mounted) {
-      setState(() {
-        // Unverified entries stay badged: their location is merely unreachable
-        // right now, and flickering the badge off for an unplugged drive is a
-        // worse lie than leaving it on.
-        _downloadedVodIds = {...plan.present, ...plan.unverified};
-      });
-    }
-  }
-
-  static bool _pathIsFile(String path) {
-    try {
-      return File(path).existsSync();
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static bool _pathIsDirectory(String path) {
-    try {
-      return Directory(path).existsSync();
-    } catch (_) {
-      return false;
+    // Only when the badges actually change. This rebuilt the whole screen
+    // every ten seconds, scan or no news, for as long as the app ran - the
+    // tray included. Unverified entries stay badged: their location is
+    // merely unreachable right now, and flickering the badge off for an
+    // unplugged drive is a worse lie than leaving it on.
+    final downloaded = outcome.downloaded;
+    if (downloaded.length != _downloadedVodIds.length ||
+        !downloaded.containsAll(_downloadedVodIds)) {
+      setState(() => _downloadedVodIds = outcome.downloaded);
     }
   }
 
@@ -1605,30 +1653,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  void _resumeUnfinishedDownloads() {
-    if (_settings.unfinishedDownloads.isEmpty) return;
-    
-    final list = List<dynamic>.from(_settings.unfinishedDownloads);
-    
-    setState(() {
-      _settings.unfinishedDownloads = const [];
-    });
-    _saveChannels();
-    
-    int resumedCount = 0;
-    for (final item in list) {
-      try {
-        if (item is Map<String, dynamic>) {
-          final vod = TwitchVideo.fromJson(item['vod']);
-          final channelName = item['channelName'] as String;
-          _playerService.queueVodDownload(vod, channelName, _settings);
-          resumedCount++;
-        }
-      } catch (_) {}
+  /// Queues the downloads the last run left unfinished.
+  ///
+  /// Their saved copy was adopted by DownloadsController.restore when the
+  /// config loaded, and is NOT cleared here: this used to empty it and save
+  /// before queueing anything, so from then on the resumed queue lived only
+  /// in memory, and a crash an hour later lost every item.
+  void _resumeUnfinishedDownloads(List<ResumableDownload> downloads) {
+    for (final download in downloads) {
+      _playerService.queueVodDownload(
+          download.vod, download.channelName, _settings);
     }
-    
-    if (resumedCount > 0) {
-      _showSnackBar('Resumed $resumedCount unfinished downloads.', isError: false);
+    if (downloads.isNotEmpty) {
+      _showSnackBar('Resumed ${downloads.length} unfinished downloads.', isError: false);
     }
   }
 
@@ -1688,13 +1725,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 MaterialSpec.isImplemented(storedMaterial)) {
               themeNotifier.setMaterial(storedMaterial);
             }
-             
-            if (_settings.unfinishedDownloads.isNotEmpty) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _resumeUnfinishedDownloads();
-              });
-            }
-            
+
             // Restore the accent the user actually picked. Previously this read
             // `primaryColorHex`, a field no code path ever wrote, so it was
             // always the default purple and silently overwrote the saved accent
@@ -1749,6 +1780,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _channels.addAll(loadedChannels);
       }
 
+      // The saved download queue is adopted before anything can save the
+      // config, and stays saved until each item finishes; the downloads
+      // themselves are queued once the first frame is up.
+      final resumable = _downloads.restore(_settings.unfinishedDownloads);
+      if (resumable.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _resumeUnfinishedDownloads(resumable);
+        });
+      }
+      // Everything the config holds is in memory now, so it may be written.
+      _settingsRepo.markConfigLoaded();
+
+      // The watch history next, BEFORE any network wait. It used to be read
+      // last, after the refresh below, and anything that saved meanwhile -
+      // the resume above, the window settling - first rewrote the sidecar
+      // from the flat copy, erasing every furthest point and undo trail.
+      // Until markHistoryLoaded, no write can reach either file.
+      await _loadWatchHistory();
+
       await _refreshAllChannels(isInitialLoad: true);
       // Ask Twitch whether the token works BEFORE using it. The old gate was
       // `isNotEmpty`, which is a test of the string and not of the account, so
@@ -1758,6 +1808,28 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       if (twitchAuth.helix.value.isUsable) {
         _loadFollowedChannels();
       }
+    } catch (e) {
+      _showSnackBar('Error loading saved channels: ${describeTwitchError(e)}', isError: true);
+    } finally {
+      // Whatever went wrong above, the app goes on and must be able to save,
+      // as it always could (a no-op when already open). The history only once
+      // it has been read, though: opened unread after a failure above, its
+      // gate would let the next save replace the sidecar with the flat copy -
+      // or with nothing - which is the loss the gate exists to stop.
+      _settingsRepo.markConfigLoaded();
+      if (!_settingsRepo.historyLoaded) await _loadWatchHistory();
+      // Arms the recovery refresh. Startup already fetches everything, so
+      // arming earlier would make the first successful probe refresh it all a
+      // second time.
+      _startupComplete = true;
+      setState(() => _isGlobalLoading = false);
+    }
+  }
+
+  /// Reads watch_progress.json and the recently-watched list into memory,
+  /// then lets them be written.
+  Future<void> _loadWatchHistory() async {
+    try {
       // The sidecar is authoritative where it has an entry: it carries the
       // furthest point and the undo trail, which the flat compatibility copy
       // in the config cannot express.
@@ -1778,14 +1850,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               recents.map(TwitchVideo.tryFromJson).whereType<TwitchVideo>().toList();
         });
       }
-    } catch (e) {
-      _showSnackBar('Error loading saved channels: ${describeTwitchError(e)}', isError: true);
+    } catch (e, st) {
+      // Both readers already fall back to empty on a damaged file; this is
+      // for anything else, which must not stop the channels loading after it.
+      CrashLog.current?.error('loading watch history', e, st);
     } finally {
-      // Arms the recovery refresh. Startup already fetches everything, so
-      // arming earlier would make the first successful probe refresh it all a
-      // second time.
-      _startupComplete = true;
-      setState(() => _isGlobalLoading = false);
+      _settingsRepo.markHistoryLoaded();
     }
   }
 
@@ -1869,12 +1939,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  Future<void> _saveChannels() async {
-    await _storageService.saveConfig(_channels, _settings, _localVodsProgress, _downloadedVodsRegistry);
-    // The rich record goes to its own file; the config keeps the flat copy for
-    // compatibility. A config rewrite can no longer take the history with it.
-    await _storageService.saveWatchProgress(_progressStore.toJson());
-  }
+  /// Writes the config and the watch progress now.
+  ///
+  /// A thin wrapper kept for its many callers: the writing itself, and the
+  /// rule that nothing is written before it has been read, live in
+  /// SettingsRepository. The rich progress record goes to its own file; the
+  /// config keeps the flat copy for compatibility, so a config rewrite can no
+  /// longer take the history with it.
+  Future<void> _saveChannels() => _settingsRepo.saveNow();
 
   Future<void> _startOAuthServer() async {
     if (_oauthServer != null) {

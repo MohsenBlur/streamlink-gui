@@ -185,4 +185,44 @@ void main() {
     expect(service.activeDownloadTasks, isEmpty);
     expect(service.isQueueProcessing, isFalse);
   });
+
+  test('a VOD cancelled and queued again during that gap still downloads',
+      () async {
+    final settings = AppSettings(vodDownloadFolder: temp.path);
+    service.queueVodDownload(vod('1'), 'chan', settings);
+    await pumpEventQueue();
+    final ytdlp = launcher.launched.single;
+    ytdlp.printErr('ERROR: Initialization fragment found after media fragments\n');
+    await ytdlp.exit(1);
+    await pumpEventQueue();
+
+    // Both buttons are on offer in the gap; the user presses both.
+    await service.cancelVodDownload('1', 'chan', temp.path);
+    service.queueVodDownload(vod('1'), 'chan', settings);
+    await Future<void>.delayed(const Duration(milliseconds: 1300));
+
+    // The drain used to remove the re-queued entry when the abandoned retry
+    // returned, leaving it "Queued" with nothing to start it.
+    expect(launcher.launched, hasLength(2), reason: 'the re-queue must start');
+    expect(launcher.launched.last.arguments, isNot(contains('ffmpeg')),
+        reason: 'a fresh download, not the abandoned retry');
+    expect(service.activeDownloadProcesses.keys, ['1']);
+
+    await launcher.launched.last.exit(0);
+    await pumpEventQueue();
+    expect(service.downloadQueue, isEmpty);
+    expect(service.activeDownloadTasks, isEmpty);
+    expect(service.isQueueProcessing, isFalse);
+  });
+
+  test('a download it already has is not announced as queued', () async {
+    final settings = AppSettings(vodDownloadFolder: temp.path);
+    final queued = <String>[];
+    service.onDownloadQueued = (vod, channel) => queued.add('$channel/${vod.id}');
+    service.queueVodDownload(vod('1'), 'chan', settings);
+    service.queueVodDownload(vod('2'), 'other', settings);
+    service.queueVodDownload(vod('1'), 'chan', settings);
+    await pumpEventQueue();
+    expect(queued, ['chan/1', 'other/2']);
+  });
 }

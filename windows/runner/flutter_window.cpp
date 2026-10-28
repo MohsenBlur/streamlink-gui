@@ -1,7 +1,9 @@
 #include "flutter_window.h"
 
+#include <flutter/method_result_functions.h>
 #include <flutter/standard_method_codec.h>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
@@ -19,6 +21,20 @@ constexpr char kActivateMethod[] = "activate";
 
 // Dart -> native window geometry; see lib/services/native_window.dart.
 constexpr char kWindowChannelName[] = "streamlink_gui/window";
+
+// Native -> Dart, all with null arguments; see lib/services/session_end.dart.
+// "queryEnd" when Windows asks whether the session may end (shutdown,
+// restart, sign-out, or an installer closing the app), not awaited; "end"
+// when it is ending, whose reply is awaited for up to kSessionSaveTimeoutMs;
+// "cancelled" when another program refused and the session goes on.
+constexpr char kSessionChannelName[] = "streamlink_gui/session";
+constexpr char kSessionQueryEndMethod[] = "queryEnd";
+constexpr char kSessionEndMethod[] = "end";
+constexpr char kSessionCancelledMethod[] = "cancelled";
+
+// Windows lists an app that takes much longer than this to answer as one
+// that is preventing shutdown. The save itself takes well under a second.
+constexpr ULONGLONG kSessionSaveTimeoutMs = 3000;
 
 // An integer argument, whichever width the codec chose for it.
 std::optional<LONG> GetInt(const flutter::EncodableMap& args, const char* key) {
@@ -88,6 +104,11 @@ bool FlutterWindow::OnCreate() {
           &flutter::StandardMethodCodec::GetInstance());
   single_instance::MarkMainWindow(GetHandle());
 
+  session_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), kSessionChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+
   window_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), kWindowChannelName,
@@ -145,6 +166,7 @@ void FlutterWindow::OnDestroy() {
   // The channels talk through the engine's messenger, so they go first.
   instance_channel_ = nullptr;
   window_channel_ = nullptr;
+  session_channel_ = nullptr;
 
   if (flutter_controller_) {
     // The engine is about to destroy the view HWND, so stop tracking it first.
@@ -279,6 +301,52 @@ flutter::EncodableValue FlutterWindow::ApplyInitialPlacement(
       window_placement::DescribeWindow(window, GetChildContent()));
 }
 
+void FlutterWindow::NotifySession(const char* method) {
+  if (session_channel_) {
+    session_channel_->InvokeMethod(method, nullptr);
+  }
+}
+
+void FlutterWindow::WaitForSessionSave() {
+  if (!session_channel_) {
+    return;
+  }
+  // Shared with the reply handlers, which can run after this returns if Dart
+  // answers late; they must not write to a dead stack frame.
+  auto answered = std::make_shared<bool>(false);
+  session_channel_->InvokeMethod(
+      kSessionEndMethod, nullptr,
+      std::make_unique<flutter::MethodResultFunctions<flutter::EncodableValue>>(
+          [answered](const flutter::EncodableValue*) { *answered = true; },
+          [answered](const std::string&, const std::string&,
+                     const flutter::EncodableValue*) { *answered = true; },
+          [answered]() { *answered = true; }));
+
+  // Pump messages while waiting rather than blocking: the reply, the engine's
+  // tasks (Dart included) and the window channel the save itself calls all
+  // run on this thread's message queue.
+  const ULONGLONG deadline = ::GetTickCount64() + kSessionSaveTimeoutMs;
+  while (!*answered) {
+    const ULONGLONG now = ::GetTickCount64();
+    if (now >= deadline) {
+      break;
+    }
+    ::MsgWaitForMultipleObjectsEx(0, nullptr,
+                                  static_cast<DWORD>(deadline - now),
+                                  QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    MSG msg;
+    while (!*answered && ::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+      if (msg.message == WM_QUIT) {
+        // Not this loop's to consume: put it back for the main loop.
+        ::PostQuitMessage(static_cast<int>(msg.wParam));
+        return;
+      }
+      ::TranslateMessage(&msg);
+      ::DispatchMessage(&msg);
+    }
+  }
+}
+
 LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
@@ -292,6 +360,22 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
   if (message == WM_DESTROY) {
     single_instance::UnmarkMainWindow(hwnd);
+  }
+
+  // Windows ending the session. Nothing used to handle it, so the process
+  // was ended with whatever had not been written yet - the download queue, a
+  // watch position waiting for its write, the window's geometry - lost. Dart
+  // starts saving at the query, which is answered at once (and still passes
+  // on below, so the default "yes" is unchanged), and the end waits for the
+  // save, bounded.
+  if (message == WM_QUERYENDSESSION) {
+    NotifySession(kSessionQueryEndMethod);
+  } else if (message == WM_ENDSESSION) {
+    if (wparam) {
+      WaitForSessionSave();
+    } else {
+      NotifySession(kSessionCancelledMethod);
+    }
   }
 
   // Give Flutter, including plugins, an opportunity to handle window messages.

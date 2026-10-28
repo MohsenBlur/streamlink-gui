@@ -103,8 +103,13 @@ class FakeLauncher {
   // never name a real process, even if some path reached a real taskkill.
   var _nextPid = 900001;
 
+  /// How long each start takes before the process exists. A real start is a
+  /// CreateProcess plus whatever the child does before Dart hears back.
+  Duration startDelay = Duration.zero;
+
   Future<Process> start(String executable, List<String> arguments,
       {Map<String, String>? environment}) async {
+    if (startDelay > Duration.zero) await Future<void>.delayed(startDelay);
     final p = FakeProcess(executable, arguments, pid: _nextPid);
     _nextPid += 2;
     launched.add(p);
