@@ -12,6 +12,7 @@ import 'package:streamlink_gui/main.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_channel.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
+import 'package:streamlink_gui/services/oauth_loopback_server.dart';
 import 'package:streamlink_gui/services/player_service.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
@@ -59,6 +60,9 @@ class ScreenHarness {
     apiService: api,
   );
   late MemoryStorageService storage;
+
+  /// Every Connect Account sign-in started, oldest first.
+  final List<FakeSignIn> signIns = <FakeSignIn>[];
 
   /// The settings a launch starts from when none are given: an account
   /// token, so the followed list and VOD lists load.
@@ -176,6 +180,8 @@ class ScreenHarness {
         updates: updates,
         launcher: shell,
         clock: () => helix.now,
+        signInServer: ({required int port, required String clientId}) =>
+            (signIns..add(FakeSignIn(port: port, clientId: clientId))).last,
       ),
     ));
     await settle(tester);
@@ -317,5 +323,40 @@ class RecordingPlayerService extends PlayerService {
       throw StateError('no player is running for $vodId');
     }
     return proc;
+  }
+}
+
+/// A Connect Account sign-in that listens on nothing: the test ends it with
+/// [succeed], [deny] or [timeOut], as Twitch's redirect (or its absence)
+/// would. The real listener has its own tests (oauth_loopback_server_test).
+class FakeSignIn extends OAuthLoopbackServer {
+  FakeSignIn({required super.port, required super.clientId});
+
+  final Completer<OAuthLoopbackResult> _done =
+      Completer<OAuthLoopbackResult>();
+  bool started = false;
+  bool closed = false;
+
+  @override
+  Future<void> start() async => started = true;
+
+  @override
+  Future<OAuthLoopbackResult> get result => _done.future;
+
+  @override
+  Future<void> close() async {
+    closed = true;
+    _end(const OAuthLoopbackResult(OAuthLoopbackOutcome.cancelled));
+  }
+
+  void succeed(String token) => _end(
+      OAuthLoopbackResult(OAuthLoopbackOutcome.token, accessToken: token));
+  void deny(String why) =>
+      _end(OAuthLoopbackResult(OAuthLoopbackOutcome.denied, error: why));
+  void timeOut() =>
+      _end(const OAuthLoopbackResult(OAuthLoopbackOutcome.timedOut));
+
+  void _end(OAuthLoopbackResult result) {
+    if (!_done.isCompleted) _done.complete(result);
   }
 }

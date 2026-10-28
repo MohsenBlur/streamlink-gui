@@ -1096,7 +1096,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _oauthServer = null;
     await previous?.close();
 
-    final server = OAuthLoopbackServer(
+    final server = _services.signInServer(
       port: _settings.localServerPort,
       clientId: _settings.twitchClientId,
     );

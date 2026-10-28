@@ -36,6 +36,9 @@ class FakeHelix {
   /// helix/videos answers 500 while set.
   bool failVideos = false;
 
+  /// helix/channels/followed answers 500 while set.
+  bool failFollowed = false;
+
   /// How far into each VOD, by id, the browser token's account has watched,
   /// in seconds: what the GQL viewingHistory query answers. None for a VOD
   /// not listed.
@@ -231,6 +234,7 @@ class FakeHelix {
         return _json({'total': 1234});
       case '/helix/channels/followed':
         if (holdFollowed != null) await holdFollowed!.future;
+        if (failFollowed) return _json({'error': 'oops'}, status: 500);
         return _json({
           'data': [
             for (final login in followed)

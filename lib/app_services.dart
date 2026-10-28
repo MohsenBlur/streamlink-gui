@@ -1,4 +1,5 @@
 import 'services/desktop_shell.dart';
+import 'services/oauth_loopback_server.dart';
 import 'services/player_service.dart';
 import 'services/startup_service.dart';
 import 'services/storage_service.dart';
@@ -24,6 +25,7 @@ class AppServices {
     UpdateService? updates,
     this.launcher = const ExplorerLauncher(),
     this.clock = DateTime.now,
+    this.signInServer = OAuthLoopbackServer.new,
   })  : storage = storage ?? StorageService(),
         api = api ?? TwitchApiService(),
         player = player ?? PlayerService(),
@@ -50,4 +52,9 @@ class AppServices {
   /// What the refresh controllers read the time from, so "how old is this
   /// list" agrees with a test's fake Twitch.
   final DateTime Function() clock;
+
+  /// The listener a Connect Account sign-in redirects back to. A real one
+  /// binds a loopback port, which never completes inside a widget test.
+  final OAuthLoopbackServer Function(
+      {required int port, required String clientId}) signInServer;
 }
