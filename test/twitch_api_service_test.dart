@@ -991,6 +991,49 @@ void main() {
     });
   });
 
+  group('the token probe', () {
+    FakeTwitch validate(String mintedFor) => FakeTwitch(
+          (_) => jsonResponse({
+            'login': 'mohsenblur',
+            'client_id': mintedFor,
+            'scopes': ['user:read:follows'],
+          }),
+        );
+    const publicClient = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+    test('a blank Client ID is judged as the client actually sent', () async {
+      // Helix gets Twitch's public client when the field is blank. A token
+      // minted elsewhere 401s on every request, so the probe calling it
+      // valid set up a valid/rejected flip on every refresh.
+      final status = await serviceFor(validate('some-other-client'))
+          .validateHelixToken('account-token', '   ');
+      expect(status.state, TwitchAuthState.invalid);
+      expect(status.fault, TwitchAuthFault.clientIdMismatch);
+    });
+
+    test('a token minted for the public client still passes blank', () async {
+      final status = await serviceFor(validate(publicClient))
+          .validateHelixToken('account-token', '');
+      expect(status.state, TwitchAuthState.valid);
+    });
+
+    test('the probe stamps the pair it judged', () async {
+      // So the first Helix 200 sent with a different pair afterwards is
+      // recognised as new evidence rather than a repeat.
+      auth.recordHelixProbe(await serviceFor(validate('other'))
+          .validateHelixToken('account-token', 'mine'));
+      expect(auth.helix.value.fault, TwitchAuthFault.clientIdMismatch);
+      auth.recordHelixResponse(200,
+          credential: helixCredentialFingerprint('account-token', 'mine'));
+      expect(auth.helix.value.fault, TwitchAuthFault.clientIdMismatch,
+          reason: 'the same pair succeeding proves nothing new');
+      auth.recordHelixResponse(200,
+          credential: helixCredentialFingerprint('account-token', 'other'));
+      expect(auth.helix.value.isUsable, isTrue,
+          reason: 'a corrected Client ID clears it on its first success');
+    });
+  });
+
   group('shared transport', () {
     test('concurrency is capped across every caller', () async {
       final twitch = FakeTwitch(

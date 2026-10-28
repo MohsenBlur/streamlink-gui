@@ -394,12 +394,17 @@ class TwitchApiService {
       // The verdict about to be published describes this exact pair, so a
       // later Helix 200 sent with a different one is new evidence, not a
       // repeat of something the probe already accounted for.
-      _auth.noteHelixProbeCredential(helixCredentialFingerprint(
-          token, _effectiveClientId(configuredClientId)));
+      final sentClientId = _effectiveClientId(configuredClientId);
+      _auth.noteHelixProbeCredential(
+          helixCredentialFingerprint(token, sentClientId));
       return statusFromValidation(
         statusCode: response.statusCode,
         body: body,
-        configuredClientId: configuredClientId,
+        // The Client-Id Helix requests actually carry, not the field: a blank
+        // field sends Twitch's public client, so judging the token against
+        // the blank found no mismatch while every request 401'd - and the
+        // probe and Helix took turns flipping the status every refresh.
+        configuredClientId: sentClientId,
         now: _now(),
         previous: _auth.helix.value,
       );
