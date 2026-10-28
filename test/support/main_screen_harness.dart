@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/app_services.dart';
@@ -54,21 +53,6 @@ class ScreenHarness {
     apiService: api,
   );
   late MemoryStorageService storage;
-
-  /// Layout overflows, kept rather than failed on. `flutter test` draws
-  /// every glyph as a full em square, so a label sized for Segoe UI - the
-  /// dashboard's 'OFFLINE' in its 88px button - overflows here and fits on
-  /// Windows. Layout belongs to the sweeps in test/layout; this harness is
-  /// about wiring.
-  final List<String> overflows = <String>[];
-  FlutterExceptionHandler? _onError;
-  bool _onErrorReplaced = false;
-
-  void _restoreOnError() {
-    if (!_onErrorReplaced) return;
-    FlutterError.onError = _onError;
-    _onErrorReplaced = false;
-  }
 
   /// The settings a launch starts from when none are given: an account
   /// token, so the followed list and VOD lists load.
@@ -124,17 +108,10 @@ class ScreenHarness {
     });
     seedStoredLook(effective);
 
-    _onError = FlutterError.onError;
-    _onErrorReplaced = true;
-    FlutterError.onError = (details) {
-      final text = details.exception.toString();
-      if (details.exception is FlutterError && text.contains('overflowed')) {
-        overflows.add(text.split('\n').first);
-        return;
-      }
-      _onError?.call(details);
-    };
-    addTearDown(_restoreOnError);
+    // A layout overflow fails the test, as in any widget test. They were set
+    // aside here while the test font, which draws every glyph a full em
+    // wide, ran the dashboard's 'OFFLINE' 5.6px out of its fixed-width
+    // button (it fits on Windows); that label now scales down to fit.
 
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -197,7 +174,6 @@ class ScreenHarness {
   Future<void> close(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 30));
-    _restoreOnError();
     storage.dispose();
   }
 }

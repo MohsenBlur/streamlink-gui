@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/services/file_dialogs.dart';
+import 'package:windows_file_picker/windows_file_picker.dart';
 
 /// A file picker whose dialogs stay open until the test answers for the user.
 ///
@@ -15,6 +17,10 @@ import 'package:flutter_test/flutter_test.dart';
 class HeldFilePicker extends FilePickerPlatform {
   final List<Completer<String?>> folders = [];
   final List<Completer<PlatformFile?>> files = [];
+
+  /// The Windows options each dialog was opened with, folder and file alike,
+  /// in call order: whether it was given an owner window, and which.
+  final List<WindowsOptions> windowsOptions = [];
 
   /// Installs a fresh picker for the current test, from its body or setUp.
   /// The completers are made by the calls themselves, inside the test's
@@ -36,6 +42,7 @@ class HeldFilePicker extends FilePickerPlatform {
     LinuxOptions linuxOptions = const LinuxOptions(),
     WebOptions webOptions = const WebOptions(),
   }) {
+    this.windowsOptions.add(windowsOptions);
     final answer = Completer<String?>();
     folders.add(answer);
     return answer.future;
@@ -55,11 +62,24 @@ class HeldFilePicker extends FilePickerPlatform {
     LinuxOptions linuxOptions = const LinuxOptions(),
     WebOptions webOptions = const WebOptions(),
   }) {
+    this.windowsOptions.add(windowsOptions);
     final answer = Completer<PlatformFile?>();
     files.add(answer);
     return answer.future;
   }
 }
+
+/// Gives the dialogs [owner] as the app's window for the current test, as
+/// startup does with the real one.
+void ownDialogsBy(int owner) {
+  FileDialogs.ownerWindow = owner;
+  addTearDown(() => FileDialogs.ownerWindow = null);
+}
+
+/// Options that make the dialog owned by window [owner].
+Matcher ownedBy(int owner) => isA<FilePickerWindowsOptions>()
+    .having((o) => o.parentWindowHandle, 'parentWindowHandle', owner)
+    .having((o) => o.lockParentWindow, 'lockParentWindow', isTrue);
 
 /// A picked file that exists only as a path.
 final class PickedPath extends PlatformFile {

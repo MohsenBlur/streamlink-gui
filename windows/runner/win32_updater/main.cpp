@@ -16,6 +16,8 @@
 namespace fs = std::filesystem;
 const wchar_t* MUTEX_NAME = L"Local\\TwitchStreamlinkGUIUniqueMutexName";
 const wchar_t* BREAKAWAY_FLAG = L"--no-job";
+// The app's UpdateService.dropConfigMirrorFlag; see DropConfigMirror.
+const wchar_t* DROP_CONFIG_MIRROR_FLAG = L"--drop-config-mirror";
 
 static std::wstring g_logPath;// Set when an install failed AND its rollback could not fully restore the
 // previous files, so the installation is left in a mixed state.
@@ -271,6 +273,49 @@ bool IsPreservedConfig(const std::wstring& filename) {
            _wcsicmp(filename.c_str(), L"yt_dlp_archive.txt") == 0;
 }
 
+// Deletes the channels_config.json an older build mirrored into the install
+// folder: the whole config, Twitch tokens in plaintext, in a folder every
+// local user can read. Those builds wrote it even for an installed copy, and
+// under Program Files the app, which never runs elevated now, cannot remove
+// it - this step, which writes the folder anyway, can.
+//
+// Asked for only by an app whose config lives in AppData
+// (--drop-config-mirror), so the copy here is stale. But in a portable copy
+// that name IS the config, so a portable.txt here refuses it whatever the app
+// said, as does a folder that cannot even be checked for one. Without the
+// flag nothing here touches the file: IsPreservedConfig keeps it through the
+// swap, as it always has.
+void DropConfigMirror(const fs::path& targetDir) {
+    std::error_code ec;
+    if (fs::exists(targetDir / L"portable.txt", ec)) {
+        LogLine(L"Config mirror: kept, the target is a portable copy.");
+        return;
+    }
+    if (ec) {
+        LogLine(L"Config mirror: kept, could not check for portable.txt (error " +
+                std::to_wstring(ec.value()) + L").");
+        return;
+    }
+    const fs::path mirror = targetDir / L"channels_config.json";
+    ec.clear();
+    if (!fs::exists(mirror, ec) || ec) {
+        if (ec) {
+            LogLine(L"Config mirror: could not check for one (error " +
+                    std::to_wstring(ec.value()) + L").");
+        } else {
+            LogLine(L"Config mirror: none in the target.");
+        }
+        return;
+    }
+    ec.clear();
+    if (fs::remove(mirror, ec) && !ec) {
+        LogLine(L"Config mirror: removed " + mirror.wstring());
+    } else {
+        LogLine(L"Config mirror: could not remove " + mirror.wstring() + L" (error " +
+                std::to_wstring(ec.value()) + L").");
+    }
+}
+
 void ClearReadOnly(const fs::path& p) {
     DWORD attrs = GetFileAttributesW(p.c_str());
     if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_READONLY)) {
@@ -503,7 +548,7 @@ enum SwapOutcome { kSwapOk, kSwapFailed, kSwapCancelled };
 
 // 3. Run the swap in an elevated copy of ourselves and wait for it to finish.
 SwapOutcome RunElevatedSwap(const fs::path& targetDir, const fs::path& stagingDir,
-                            const std::wstring& exeName) {
+                            const std::wstring& exeName, bool dropConfigMirror) {
     wchar_t selfPath[MAX_PATH] = {};
     if (GetModuleFileNameW(NULL, selfPath, MAX_PATH) == 0) {
         LogLine(L"Could not determine our own path for elevation.");
@@ -520,6 +565,11 @@ SwapOutcome RunElevatedSwap(const fs::path& targetDir, const fs::path& stagingDi
 
     std::wstring params = L"\"" + targetStr + L"\" \"" + stagingStr + L"\" \"" +
                           exeName + L"\" --elevated " + BREAKAWAY_FLAG;
+    // The elevated child is the step that writes the target, so the request
+    // travels with it.
+    if (dropConfigMirror) {
+        params += std::wstring(L" ") + DROP_CONFIG_MIRROR_FLAG;
+    }
     if (!g_logPath.empty()) {
         params += L" --log-file \"" + g_logPath + L"\"";
     }
@@ -577,8 +627,10 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     const std::wstring exeName = argv[3];
 
     bool isElevated = false;
+    bool dropConfigMirror = false;
     for (int i = 4; i < argc; ++i) {
         if (wcscmp(argv[i], L"--elevated") == 0) isElevated = true;
+        if (wcscmp(argv[i], DROP_CONFIG_MIRROR_FLAG) == 0) dropConfigMirror = true;
     }
 
     // Log where this instance can actually write.
@@ -663,6 +715,8 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     // the relaunch, so the app never inherits the administrator token.
     if (isElevated) {
         const bool ok = PerformSwap(targetDir, stagingDir);
+        // Whatever the swap's outcome: the mirror is stale either way.
+        if (dropConfigMirror) DropConfigMirror(targetDir);
         LogLine(ok ? L"--- elevated swap ok ---" : L"--- elevated swap failed ---");
         LocalFree(argv);
         return ok ? 0 : 1;
@@ -672,8 +726,9 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     bool accessDenied = false;
     if (IsDirWritable(targetDir, &accessDenied)) {
         outcome = PerformSwap(targetDir, stagingDir) ? kSwapOk : kSwapFailed;
+        if (dropConfigMirror) DropConfigMirror(targetDir);
     } else if (accessDenied) {
-        outcome = RunElevatedSwap(targetDir, stagingDir, exeName);
+        outcome = RunElevatedSwap(targetDir, stagingDir, exeName, dropConfigMirror);
     } else {
         LogLine(L"Target directory is unavailable.");
     }

@@ -5,8 +5,22 @@
 
 .DESCRIPTION
   The screenshot matrix needs states no launch flag can reach - an open
-  dialog, a picked tab. This finds the main window of the copy you name,
-  brings it forward, and synthesizes one left click at the given point.
+  dialog, a picked tab. This finds the main window of the copy you name and
+  delivers one left click at the given point.
+
+  By default the click is POSTED: a mouse move, button down and button up
+  go straight to the engine's FLUTTERVIEW window, in its own client
+  coordinates. The user's cursor does not move, and the app is neither
+  activated nor raised, so a scripted click does not take focus from
+  whatever the user is typing into - the reason this no longer calls
+  SetForegroundWindow. Flutter's Windows embedder reads pointer input from
+  those window messages, so a posted click is a click to it, and one whose
+  point is behind another window still reaches the app. -RealInput
+  synthesizes a real click instead (SendInput): it moves the cursor, put
+  back afterwards, activates the app as any click does, and is refused when
+  the point is covered by another window - with nothing raising the app
+  first any more, bring it forward yourself (shoot.ps1 -Focus) if it is not
+  on top.
 
   WHICH copy is the whole point. The installed app usually rests in the
   tray while a build is under test, both executables are streamlink_gui.exe,
@@ -33,7 +47,7 @@
 
 .EXAMPLE
   # Resolve the window and the point, and say where the click would go,
-  # without raising the window or touching the mouse.
+  # without delivering it.
   ./tools/click.ps1 -ProcessId 12345 -X 40 -Y 20 -WhatIf
 #>
 [CmdletBinding(DefaultParameterSetName = 'ByPath', SupportsShouldProcess = $true)]
@@ -41,19 +55,22 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'ByPath')][string]$ExePath,
     [Parameter(Mandatory = $true, ParameterSetName = 'ById')][int]$ProcessId,
     [Parameter(Mandatory = $true)][double]$X,
-    [Parameter(Mandatory = $true)][double]$Y
+    [Parameter(Mandatory = $true)][double]$Y,
+    # A real, synthesized click (SendInput) rather than a posted one; see
+    # .DESCRIPTION.
+    [switch]$RealInput
 )
 
 $ErrorActionPreference = 'Stop'
 
 # Versioned type name: Add-Type cannot redefine a type in a session that
 # already loaded an older copy (see shoot.ps1).
-if (-not ([System.Management.Automation.PSTypeName]'ClickPokeV2').Type) {
+if (-not ([System.Management.Automation.PSTypeName]'ClickPokeV3').Type) {
 Add-Type @'
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-public class ClickPokeV2 {
+public class ClickPokeV3 {
     public delegate bool EnumProc(IntPtr h, IntPtr l);
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
@@ -64,12 +81,29 @@ public class ClickPokeV2 {
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
     [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
     [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr ctx);
     [DllImport("user32.dll", SetLastError = true)] public static extern uint SendInput(uint n, INPUT[] inputs, int size);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h, ref POINT p);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll", SetLastError = true)] public static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
+
+    // The engine's render surface, a direct child of the runner window. A
+    // real null title: PowerShell would pass $null as "" (see shoot.ps1).
+    public static IntPtr ViewOf(IntPtr main) {
+        return FindWindowExW(main, IntPtr.Zero, "FLUTTERVIEW", null);
+    }
+
+    // One posted mouse message, client coordinates packed as a real one's.
+    public static bool PostMouse(IntPtr view, uint msg, uint keys, int x, int y) {
+        IntPtr lp = new IntPtr((y << 16) | (x & 0xFFFF));
+        return PostMessageW(view, msg, new IntPtr(keys), lp);
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
@@ -116,7 +150,7 @@ public class ClickPokeV2 {
 '@
 }
 
-if (-not [ClickPokeV2]::PerMonitorAware()) {
+if (-not [ClickPokeV3]::PerMonitorAware()) {
     Write-Warning 'Could not make this thread per-monitor DPI aware; on a scaled monitor the click may land off target.'
 }
 
@@ -137,7 +171,7 @@ if ($PSCmdlet.ParameterSetName -eq 'ByPath') {
 }
 
 $windows = @()
-foreach ($p in $procs) { $windows += [ClickPokeV2]::TaggedWindowsOf([uint32]$p.Id) }
+foreach ($p in $procs) { $windows += [ClickPokeV3]::TaggedWindowsOf([uint32]$p.Id) }
 if ($windows.Count -eq 0) {
     throw ("$label has no window tagged TwitchStreamlinkGUI.MainWindow - still starting, " +
         "or a build older than the tag. Nothing was clicked.")
@@ -146,16 +180,16 @@ if ($windows.Count -gt 1) {
     throw "$label has $($windows.Count) tagged main windows; refusing to guess which one to click."
 }
 $h = [IntPtr]$windows[0]
-$ownerPid = [ClickPokeV2]::ProcessIdOf($h)
+$ownerPid = [ClickPokeV3]::ProcessIdOf($h)
 
-if (-not [ClickPokeV2]::IsWindowVisible($h) -or [ClickPokeV2]::IsIconic($h)) {
+if (-not [ClickPokeV3]::IsWindowVisible($h) -or [ClickPokeV3]::IsIconic($h)) {
     throw "$label's window is hidden or minimized (resting in the tray?). Show it first; nothing was clicked."
 }
 
 # --- the point --------------------------------------------------------------
-$r = New-Object ClickPokeV2+RECT
-[ClickPokeV2]::GetWindowRect($h, [ref]$r) | Out-Null
-$dpi = [ClickPokeV2]::GetDpiForWindow($h)
+$r = New-Object ClickPokeV3+RECT
+[ClickPokeV3]::GetWindowRect($h, [ref]$r) | Out-Null
+$dpi = [ClickPokeV3]::GetDpiForWindow($h)
 if ($dpi -le 0) { $dpi = 96 }
 $scale = $dpi / 96.0
 $cx = $r.L + [int][Math]::Round($X * $scale)
@@ -165,25 +199,65 @@ if ($cx -lt $r.L -or $cx -ge $r.R -or $cy -lt $r.T -or $cy -ge $r.B) {
         $X, $Y, ($r.R - $r.L), ($r.B - $r.T), $dpi)
 }
 
+$how = if ($RealInput) { 'Left-click (real input)' } else { 'Left-click (posted)' }
 $what = "pid $ownerPid at ($cx, $cy) physical, from ($X, $Y) logical @ $dpi dpi"
-if (-not $PSCmdlet.ShouldProcess($what, 'Left-click')) { return }
+if (-not $PSCmdlet.ShouldProcess($what, $how)) { return }
 
-[ClickPokeV2]::SetForegroundWindow($h) | Out-Null
-Start-Sleep -Milliseconds 600
+if (-not $RealInput) {
+    # Straight to the view, in its client coordinates. The window's frame is
+    # not Flutter's, so a point outside the view is refused rather than
+    # posted where it would mean nothing.
+    $view = [ClickPokeV3]::ViewOf($h)
+    if ($view -eq [IntPtr]::Zero -or -not [ClickPokeV3]::IsWindowVisible($view)) {
+        throw "$label's window has no visible FLUTTERVIEW (the invisible-window bug, audit C1?). Nothing was clicked."
+    }
+    $pt = New-Object ClickPokeV3+POINT
+    $pt.X = $cx; $pt.Y = $cy
+    [ClickPokeV3]::ScreenToClient($view, [ref]$pt) | Out-Null
+    $client = New-Object ClickPokeV3+RECT
+    [ClickPokeV3]::GetClientRect($view, [ref]$client) | Out-Null
+    if ($pt.X -lt 0 -or $pt.Y -lt 0 -or $pt.X -ge $client.R -or $pt.Y -ge $client.B) {
+        throw ("({0}, {1}) logical is on the window's frame, outside the Flutter view. Nothing was clicked." -f $X, $Y)
+    }
+    $WM_MOUSEMOVE = 0x0200; $WM_LBUTTONDOWN = 0x0201; $WM_LBUTTONUP = 0x0202; $MK_LBUTTON = 0x0001
+    # Spaced like a hand's click, the move first so the engine has the
+    # pointer before it is pressed. The engine then asks to be told when the
+    # mouse leaves, which Windows does at once since the real cursor is
+    # elsewhere, so no hover is left on whatever was clicked.
+    $ok = [ClickPokeV3]::PostMouse($view, $WM_MOUSEMOVE, 0, $pt.X, $pt.Y)
+    Start-Sleep -Milliseconds 30
+    $ok = $ok -and [ClickPokeV3]::PostMouse($view, $WM_LBUTTONDOWN, $MK_LBUTTON, $pt.X, $pt.Y)
+    Start-Sleep -Milliseconds 60
+    $ok = $ok -and [ClickPokeV3]::PostMouse($view, $WM_LBUTTONUP, 0, $pt.X, $pt.Y)
+    if (-not $ok) { throw "Posting the click to $label's view failed." }
+    Write-Output ("posted a click at ({0}, {1}) logical = ({2}, {3}) in the view of pid {4}, window at ({5}, {6}) @ {7} dpi" -f
+        $X, $Y, $pt.X, $pt.Y, $ownerPid, $r.L, $r.T, $dpi)
+    return
+}
 
 # Whatever is under the point must belong to the target: its own frame or the
 # engine's FLUTTERVIEW child. Anything else - a terminal on top, the other
-# copy's window - would receive the click instead.
-$pt = New-Object ClickPokeV2+POINT
+# copy's window - would receive the click instead. Nothing raises the app
+# first: SetForegroundWindow took the focus from the user's own window.
+$pt = New-Object ClickPokeV3+POINT
 $pt.X = $cx; $pt.Y = $cy
-$under = [ClickPokeV2]::WindowFromPoint($pt)
+$under = [ClickPokeV3]::WindowFromPoint($pt)
 $GA_ROOT = 2
-$underRoot = [ClickPokeV2]::GetAncestor($under, $GA_ROOT)
-if ($underRoot -ne $h -or [ClickPokeV2]::ProcessIdOf($under) -ne $ownerPid) {
-    throw ("Point ($cx, $cy) is covered by a window of pid {0}, not {1}'s. Nothing was clicked." -f
-        [ClickPokeV2]::ProcessIdOf($under), $label)
+$underRoot = [ClickPokeV3]::GetAncestor($under, $GA_ROOT)
+if ($underRoot -ne $h -or [ClickPokeV3]::ProcessIdOf($under) -ne $ownerPid) {
+    # Parenthesised: -f binds tighter than +, and would format only the last part.
+    throw (("Point ($cx, $cy) is covered by a window of pid {0}, not {1}'s. Nothing was clicked. " +
+        "Bring it forward first (shoot.ps1 -Focus), or leave out -RealInput to post the click.") -f
+        [ClickPokeV3]::ProcessIdOf($under), $label)
 }
 
-[ClickPokeV2]::ClickAbsolute($cx, $cy)
+# A real click moves the user's cursor; it goes back where it was after.
+$cursorBefore = New-Object ClickPokeV3+POINT
+$hadCursor = [ClickPokeV3]::GetCursorPos([ref]$cursorBefore)
+[ClickPokeV3]::ClickAbsolute($cx, $cy)
+if ($hadCursor) {
+    Start-Sleep -Milliseconds 100
+    [ClickPokeV3]::SetCursorPos($cursorBefore.X, $cursorBefore.Y) | Out-Null
+}
 Write-Output ("clicked ({0}, {1}) logical = ({2}, {3}) physical in pid {4} at ({5}, {6}) @ {7} dpi" -f
     $X, $Y, $cx, $cy, $ownerPid, $r.L, $r.T, $dpi)

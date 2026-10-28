@@ -95,29 +95,74 @@ class SelectionBar extends StatelessWidget {
               onPressed: onExit,
             ),
             const SizedBox(width: NeuSpace.s12),
-            Text(
-              selectedCount == 0
-                  ? 'Select videos'
-                  : '$selectedCount selected',
-              style: NeuType.label(isDark),
+            // The rest keeps its two ends at the bar's two edges, as the
+            // Spacer between them did, but the count and the label on the
+            // right can now give way: busy, at the 380px minimum, the bar ran
+            // 63px past its edge. The count's side, which needs more, gets
+            // two parts in three of what is left.
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(
+                    flex: 2,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            selectedCount == 0
+                                ? 'Select videos'
+                                : '$selectedCount selected',
+                            style: NeuType.label(isDark),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: NeuSpace.s12),
+                        _textButton('All', onSelectAllVisible, isDark),
+                        const SizedBox(width: NeuSpace.s6),
+                        _textButton(
+                            'None', selectedCount == 0 ? null : onClear, isDark),
+                      ],
+                    ),
+                  ),
+                  if (busy)
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(width: NeuSpace.s8),
+                          const NeuProgressRing(
+                              size: NeuProgressRingSize.xs,
+                              semanticLabel: 'Working'),
+                          const SizedBox(width: NeuSpace.s8),
+                          Flexible(
+                            child: Text(
+                              busyLabel ?? 'Working...',
+                              style: NeuType.caption(isDark),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (full)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final action in actions) ...[
+                          const SizedBox(width: NeuSpace.s8),
+                          _actionButton(action, isDark),
+                        ],
+                      ],
+                    )
+                  else
+                    Flexible(child: _overflow(context, isDark)),
+                ],
+              ),
             ),
-            const SizedBox(width: NeuSpace.s12),
-            _textButton('All', onSelectAllVisible, isDark),
-            const SizedBox(width: NeuSpace.s6),
-            _textButton('None', selectedCount == 0 ? null : onClear, isDark),
-            const Spacer(),
-            if (busy) ...[
-              const NeuProgressRing(
-                  size: NeuProgressRingSize.xs, semanticLabel: 'Working'),
-              const SizedBox(width: NeuSpace.s8),
-              Text(busyLabel ?? 'Working...', style: NeuType.caption(isDark)),
-            ] else if (full)
-              for (final action in actions) ...[
-                const SizedBox(width: NeuSpace.s8),
-                _actionButton(action, isDark),
-              ]
-            else
-              _overflow(context, isDark),
           ],
         ),
       );
@@ -206,7 +251,14 @@ class SelectionBar extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Actions', style: NeuType.captionStrong(isDark)),
+              Flexible(
+                child: Text(
+                  'Actions',
+                  style: NeuType.captionStrong(isDark),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               const SizedBox(width: NeuSpace.s4),
               Icon(Icons.arrow_drop_down,
                   size: 16, color: NeuTheme.subtext(isDark)),

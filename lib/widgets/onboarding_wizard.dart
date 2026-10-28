@@ -1,7 +1,7 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
+import '../services/file_dialogs.dart';
 import '../services/player_service.dart';
 import '../services/twitch_api_service.dart';
 import '../theme/neu_theme.dart';
@@ -297,7 +297,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
               ? null
               : () async {
                   setState(() => _pickingFolder = true);
-                  final path = await FilePicker.getDirectoryPath()
+                  final path = await FileDialogs.pickFolder()
                       .whenComplete(() {
                     if (mounted) setState(() => _pickingFolder = false);
                   });

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/app_settings.dart';
+import '../services/file_dialogs.dart';
 import '../services/player_service.dart';
 import '../services/twitch_api_service.dart';
 import '../services/update_service.dart';
@@ -699,7 +700,7 @@ class SettingsDialog {
                                       // file_picker 12, pickFiles allows a
                                       // multi-pick by default, and one
                                       // player is wanted here.
-                                      final PlatformFile? picked = await FilePicker.pickFile(
+                                      final PlatformFile? picked = await FileDialogs.pickFile(
                                         type: FileType.custom,
                                         allowedExtensions: ['exe', 'app', 'sh', 'bat', 'cmd'],
                                       ).whenComplete(() {
@@ -828,7 +829,7 @@ class SettingsDialog {
                                     final route = ModalRoute.of(context);
                                     setDialogState(() => isPickingFolder = true);
                                     final String? selectedDirectory =
-                                        await FilePicker.getDirectoryPath().whenComplete(() {
+                                        await FileDialogs.pickFolder().whenComplete(() {
                                       if (context.mounted) setDialogState(() => isPickingFolder = false);
                                     });
                                     // As the player Browse above: not into

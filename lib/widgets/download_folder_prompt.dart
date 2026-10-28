@@ -1,6 +1,6 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../services/file_dialogs.dart';
 import '../theme/neu_theme.dart';
 import '../theme/theme_notifier.dart';
 import 'shell/neu_dialog.dart';
@@ -17,7 +17,10 @@ import 'shell/neu_dialog.dart';
 /// reports the download as cancelled. A folder picked after that used to be
 /// saved anyway, as the download folder, for a download that was no longer
 /// going to happen. It is dropped now: the prompt that asked is gone, and so
-/// is the question.
+/// is the question. The dialog is owned by the app's window now
+/// ([FileDialogs]), which takes no input while it is open, but the prompt can
+/// still go first - the tray's Exit, a route landing over it - and the
+/// dialog opens unowned when the window handle is unknown.
 class DownloadFolderPrompt extends StatefulWidget {
   /// Not `const`: it reads `themeNotifier` in build, and a const instance
   /// is never rebuilt when the theme changes (see const_theme_reader_test).
@@ -46,7 +49,7 @@ class _DownloadFolderPromptState extends State<DownloadFolderPrompt> {
     // route stops being active at the pop itself.
     final route = ModalRoute.of(context);
     setState(() => _picking = true);
-    final path = await FilePicker.getDirectoryPath().whenComplete(() {
+    final path = await FileDialogs.pickFolder().whenComplete(() {
       if (mounted) setState(() => _picking = false);
     });
     if (!mounted || route?.isActive == false) return;
@@ -77,8 +80,8 @@ class _DownloadFolderPromptState extends State<DownloadFolderPrompt> {
             'straight away; everything you download later goes there too.',
             style: NeuType.body(isDark),
           ),
-          // The folder dialog does not keep itself above the app, so a click
-          // back here can bury it. Say where the answer is expected.
+          // The folder dialog is a window of its own, not part of this
+          // prompt. Say where the answer is expected.
           if (_picking) ...[
             const SizedBox(height: NeuSpace.s8),
             Text(

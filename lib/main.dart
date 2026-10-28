@@ -108,6 +108,13 @@ Future<void> _startApp(List<String> args) async {
         : (startup.data == null
             ? 'config: unreadable, quarantined; using defaults'
             : 'config: loaded'));
+    // The plaintext copy an older build left beside the exe. Only after a
+    // load: a config that would not load is quarantined, and the next
+    // launch's migration recovers from that copy.
+    if (startup.data != null) {
+      final mirror = storage.dropStaleConfigMirror();
+      if (mirror != null) milestone(mirror);
+    }
   } catch (e, st) {
     crashLog.error('config', e, st);
   }

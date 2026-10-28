@@ -37,6 +37,19 @@
   avoid: the synthetic click is a real one, so it moves the cursor (put back
   afterwards) and, like any click, activates the window it lands on.
 
+  A launch (-LaunchExe) is shown the way a user's launch is, which makes the
+  new window the active one: this script is the invisible-window check
+  (audit C1), and that is the startup path it exists to test. -NoActivate
+  launches it with SW_SHOWNOACTIVATE instead, for scripts that launch many
+  times (shoot-matrix.ps1 and shoot-materials.ps1 do by default). That keeps
+  the show from activating the window; a moment of activation as the runner
+  creates it can remain (shoot-common.ps1, Start-AppNoActivate).
+
+  -Position is refused, before the window is moved, when the window it would
+  produce - its size scaled to the DPI of the monitor it lands on - would
+  reach onto a second monitor: the point of -Position is to keep the window
+  off the monitor the user is working on.
+
 .EXAMPLE
   ./tools/shoot.ps1 -Out shots/baseline/home_1600x1000.png -Width 1600 -Height 1000
 
@@ -93,6 +106,9 @@ param(
     # Bring the window to the foreground before capturing. Not needed for
     # PrintWindow, and it takes keyboard focus from the user's own window.
     [switch]$Focus,
+    # With -LaunchExe: start the app with SW_SHOWNOACTIVATE, so its first
+    # show does not make it the active window (see .DESCRIPTION).
+    [switch]$NoActivate,
     [int]$SettleMs = 900,
     [int]$LaunchTimeoutMs = 30000
 )
@@ -115,6 +131,9 @@ function Assert-ReleaseBuild([string]$exePath) {
 }
 
 $ErrorActionPreference = 'Stop'
+
+# Start-AppNoActivate and Assert-PlacementOnOneMonitor.
+. (Join-Path $PSScriptRoot 'shoot-common.ps1')
 
 Add-Type -AssemblyName System.Drawing
 
@@ -368,6 +387,11 @@ foreach ($given in @($LaunchExe, $ExpectExe)) {
     $targetExe = (Resolve-Path $given).ProviderPath
 }
 
+if ($Position -and -not $NoResize -and $Width -and $Height) {
+    # Before anything launches, where the size is already known.
+    Assert-PlacementOnOneMonitor $Position @(@{ Width = $Width; Height = $Height })
+}
+
 $hwnd = Find-AppWindow $targetExe
 
 if (-not $hwnd -and $LaunchExe) {
@@ -387,8 +411,13 @@ if (-not $hwnd -and $LaunchExe) {
             "not $targetExe. Quit it (tray > Exit), or stage the build portable " +
             "(shoot-common.ps1 Set-IsolatedConfig), and retry.")
     }
-    Write-Host "Launching $targetExe ..." -ForegroundColor Gray
-    $launched = Start-Process -FilePath $targetExe -PassThru
+    if ($NoActivate) {
+        Write-Host "Launching $targetExe without activating it ..." -ForegroundColor Gray
+        $launched = Start-AppNoActivate $targetExe
+    } else {
+        Write-Host "Launching $targetExe ..." -ForegroundColor Gray
+        $launched = Start-Process -FilePath $targetExe -PassThru
+    }
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while (-not $hwnd -and $sw.ElapsedMilliseconds -lt $LaunchTimeoutMs) {
         Start-Sleep -Milliseconds 300
@@ -460,6 +489,16 @@ if ($Focus) {
 # from wherever it was, the user's working screen included.
 if ($Position) {
     $at = ConvertTo-Point $Position '-Position'
+    if ($NoResize) {
+        # The window keeps its logical size across the move; measured now.
+        $now = New-Object Win32ShotV4+RECT
+        [Win32ShotV4]::GetWindowRect($hwnd, [ref]$now) | Out-Null
+        $dpiNow = [Win32ShotV4]::GetDpiForWindow($hwnd); if ($dpiNow -le 0) { $dpiNow = 96 }
+        Assert-PlacementOnOneMonitor $Position @(@{
+            Width  = [int][Math]::Round(($now.Right - $now.Left) * 96.0 / $dpiNow)
+            Height = [int][Math]::Round(($now.Bottom - $now.Top) * 96.0 / $dpiNow)
+        })
+    }
     Write-Host ("Moving to ({0},{1}) physical" -f $at[0], $at[1]) -ForegroundColor Gray
     [Win32ShotV4]::SetWindowPos($hwnd, [IntPtr]::Zero, [int]$at[0], [int]$at[1], 0, 0,
         ($SWP_NOSIZE -bor $SWP_NOZORDER -bor $SWP_NOACTIVATE)) | Out-Null

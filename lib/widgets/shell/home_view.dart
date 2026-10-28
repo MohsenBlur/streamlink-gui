@@ -491,15 +491,23 @@ class HomeView extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.downloading, color: themeNotifier.accentInk, size: 20),
-                          const SizedBox(width: NeuSpace.s8),
-                          Text(
-                            'Active Downloads Running',
-                            style: NeuType.headingSm(themeNotifier.isDarkTheme),
-                          ),
-                        ],
+                      // The title gives way to the button: at the 380px
+                      // minimum the two needed 42px more than the card had.
+                      Flexible(
+                        child: Row(
+                          children: [
+                            Icon(Icons.downloading, color: themeNotifier.accentInk, size: 20),
+                            const SizedBox(width: NeuSpace.s8),
+                            Flexible(
+                              child: Text(
+                                'Active Downloads Running',
+                                style: NeuType.headingSm(themeNotifier.isDarkTheme),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       TextButton.icon(
                         onPressed: onOpenLibrary,
@@ -515,7 +523,7 @@ class HomeView extends StatelessWidget {
                     final title = item.label;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: NeuSpace.s8),
-                      child: Row(
+                      child: LayoutBuilder(builder: (context, row) => Row(
                         children: [
                           Expanded(
                             child: Column(
@@ -537,12 +545,19 @@ class HomeView extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: NeuSpace.s16),
-                          Text(
-                            taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
-                            style: NeuType.caption(themeNotifier.isDarkTheme),
+                          // At most 40% of the row, whatever its 25 characters
+                          // measure: the title and its bar keep the rest.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: row.maxWidth * 0.4),
+                            child: Text(
+                              taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
+                              style: NeuType.caption(themeNotifier.isDarkTheme),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ],
-                      ),
+                      )),
                     );
                   }).toList(),
                 ],

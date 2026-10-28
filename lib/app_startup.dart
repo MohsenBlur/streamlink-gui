@@ -3,6 +3,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'models/app_settings.dart';
 import 'services/crash_log.dart';
+import 'services/file_dialogs.dart';
 import 'services/native_window.dart';
 import 'state/app_shell_controller.dart';
 import 'theme/material/app_material.dart';
@@ -85,6 +86,9 @@ Future<void> prepareWindow(
     ));
     await windowManager.setPreventClose(true);
     await windowManager.setMinimumSize(kMinWindowSize);
+    // The owner of every file and folder dialog (FileDialogs): window_manager
+    // reports the runner's top-level window, the root of the view.
+    FileDialogs.ownerWindow = await windowManager.getId();
   } catch (e, st) {
     log.error('window setup', e, st);
   }
