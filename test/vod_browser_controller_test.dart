@@ -335,6 +335,30 @@ void main() {
       expect(browser.cache.read('summit1g'), hasLength(1));
       expect(twitch.to('/gql'), isEmpty, reason: 'the cheap check skips games');
     });
+
+    test('a broadcast end that joins the first fetch still finds its VOD',
+        () async {
+      // The poll reports the end while the channel's very first list is on
+      // its way. The refresh joins that fetch, and used to drop the start it
+      // carried, so the list became a baseline and announced nothing.
+      final start = twitch.now.subtract(const Duration(hours: 3));
+      final vodId = twitch.addVideo('summit1g', publishedAt: start);
+      final summit = FakeHelix.channel('summit1g')..wentLiveTime = start;
+      final browser = browserFor();
+
+      twitch.holdVideos = Completer<void>();
+      final opening = browser.open(summit);
+      await settle();
+      final ended = browser.refresh(endedBroadcastStart: start);
+      twitch.holdVideos!.complete();
+      twitch.holdVideos = null;
+      await Future.wait([opening, ended]);
+
+      expect(twitch.to('/helix/videos'), hasLength(1),
+          reason: 'joined, not fetched twice');
+      expect(announced, hasLength(1));
+      expect(announced.single.$2, [vodId]);
+    });
   });
 
   group('prefetch', () {

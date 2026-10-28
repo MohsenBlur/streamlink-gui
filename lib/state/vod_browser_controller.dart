@@ -170,6 +170,10 @@ class VodBrowserController extends ChangeNotifier {
   int _firstPageInFlight = -1;
   int _firstPageSession = -1;
 
+  /// What the first-page fetch in flight looks for when it lands. A refresh
+  /// that joins the fetch adds its own ask to it.
+  _FirstPageAsk? _firstPageAsk;
+
   /// Whether [channel]'s list is the one this holds.
   bool isShowing(TwitchChannel channel) =>
       _channel != null && _sameChannel(_channel!, channel);
@@ -214,6 +218,13 @@ class VodBrowserController extends ChangeNotifier {
         _firstPageInFlight == _firstPageRequest &&
         _firstPageSession == _session) {
       if (!silent) _startSpinner();
+      // Joined, so the fetch it joins carries the broadcast to look for. It
+      // was dropped here, and when that fetch was the channel's first one -
+      // a broadcast ending while the channel was just being opened - its
+      // list became the baseline and the VOD was never announced.
+      if (endedBroadcastStart != null) {
+        _firstPageAsk?.endedBroadcastStart = endedBroadcastStart;
+      }
       return running;
     }
     return _startFirstPage(
@@ -238,8 +249,8 @@ class VodBrowserController extends ChangeNotifier {
     final request = ++_firstPageRequest;
     _firstPageInFlight = request;
     _firstPageSession = _session;
-    final future = _runFirstPage(request,
-        showSpinner: showSpinner, endedBroadcastStart: endedBroadcastStart);
+    final ask = _firstPageAsk = _FirstPageAsk(endedBroadcastStart);
+    final future = _runFirstPage(request, showSpinner: showSpinner, ask: ask);
     _firstPage = future;
     return future;
   }
@@ -247,7 +258,7 @@ class VodBrowserController extends ChangeNotifier {
   Future<VodFetchOutcome?> _runFirstPage(
     int request, {
     required bool showSpinner,
-    DateTime? endedBroadcastStart,
+    required _FirstPageAsk ask,
   }) async {
     final channel = _channel!;
     final session = _session;
@@ -268,7 +279,7 @@ class VodBrowserController extends ChangeNotifier {
           fetchedAt: startedAt,
           detailed: true,
           visible: isCurrent(),
-          endedBroadcastStart: endedBroadcastStart);
+          endedBroadcastStart: ask.endedBroadcastStart);
       if (!isCurrent()) return null;
       return VodFetchOutcome(
         changedVisible: changed,
@@ -282,6 +293,7 @@ class VodBrowserController extends ChangeNotifier {
       if (_firstPageInFlight == request) {
         _firstPage = null;
         _firstPageInFlight = -1;
+        _firstPageAsk = null;
       }
       if (!_disposed && isCurrent()) {
         _isLoadingFirst = false;
@@ -515,4 +527,15 @@ class VodBrowserController extends ChangeNotifier {
     onNewVods = null;
     super.dispose();
   }
+}
+
+/// One first-page fetch's instructions for when its answer lands. Mutable,
+/// and one per fetch, so a refresh that joins the fetch reaches that fetch
+/// and no later one.
+class _FirstPageAsk {
+  _FirstPageAsk(this.endedBroadcastStart);
+
+  /// The start of a broadcast that ended on the channel (see
+  /// [NewVodDetector.observe]).
+  DateTime? endedBroadcastStart;
 }
