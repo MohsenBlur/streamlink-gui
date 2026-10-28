@@ -396,14 +396,23 @@ class VodBrowserController extends ChangeNotifier {
   /// (opening a channel fetches its first page, positions and all), the open
   /// channel is left to [refresh], and so is a channel [checkForNewVods] is
   /// already fetching.
-  Future<void> prefetch(Iterable<TwitchChannel> channels) async {
+  ///
+  /// [open] is the channel the screen has open, or null when it shows none.
+  /// Only that one is left to [refresh]: the screen refreshes the channel it
+  /// has open, while this controller goes on holding the last one opened
+  /// after the screen goes back to the dashboard. Skipping whatever it held
+  /// left that channel to no refresh at all until another one was opened.
+  Future<void> prefetch(Iterable<TwitchChannel> channels,
+      {required TwitchChannel? open}) async {
     if (_prefetching || _settings().twitchOauthToken.trim().isEmpty) return;
     _prefetching = true;
     try {
+      final refreshed = open != null && isShowing(open) ? open : null;
       for (final channel in channels.take(prefetchLimit).toList()) {
         if (_disposed || _api.helixRateLimitedUntil != null) return;
         final key = _key(channel.username);
-        if (isShowing(channel) || _checking.contains(key)) continue;
+        if (refreshed != null && _sameChannel(refreshed, channel)) continue;
+        if (_checking.contains(key)) continue;
         if (cache.isFresh(channel.username) &&
             !broadcastChanged(_listedAs[key], channel)) {
           continue;

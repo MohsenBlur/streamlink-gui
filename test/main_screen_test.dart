@@ -11,6 +11,7 @@ import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/services/update_service.dart';
 import 'package:streamlink_gui/state/app_shell_controller.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
+import 'package:streamlink_gui/state/vod_cache.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 
@@ -92,6 +93,28 @@ void main() {
       expect(find.text('Fresh broadcast'), findsOneWidget);
       expect(find.text('Older broadcast'), findsOneWidget,
           reason: 'merged into the list, not swapped for it');
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'a channel left for the dashboard is kept current by the prefetch',
+        (tester) async {
+      // The browser still holds the channel after "Go to dashboard", and the
+      // prefetch skipped what it held; the open list's cadence needs a
+      // channel open, so nothing read that one again.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.addVideo('alpha', title: 'Older broadcast');
+      await h.launch(tester, favorites: ['alpha']);
+      await openChannel(tester, h, 'alpha');
+      await tester.tap(find.byTooltip('Dashboard Hub (Return Home)').first);
+      await h.settle(tester);
+
+      final mark = h.helix.requests.length;
+      await h.advance(tester, VodCache.ttl + const Duration(minutes: 1),
+          step: const Duration(seconds: 30));
+      expect(videoFetches(h, mark), 1);
 
       await h.close(tester);
     });

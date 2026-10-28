@@ -1572,7 +1572,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       }
     }
 
-    unawaited(_vodBrowser.prefetch(_channels));
+    // The open channel is left to its own refreshes; after "Go to
+    // dashboard" there is none, though the browser still holds the last one.
+    unawaited(_vodBrowser.prefetch(_channels, open: _selectedChannel));
     _shell.rebuildTrayMenu();
   }
 

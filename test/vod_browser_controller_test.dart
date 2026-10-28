@@ -433,16 +433,16 @@ void main() {
       final browser = browserFor();
       final channels = [FakeHelix.channel('a'), FakeHelix.channel('b')];
 
-      await browser.prefetch(channels);
+      await browser.prefetch(channels, open: null);
       expect(twitch.to('/helix/videos'), hasLength(2));
 
       twitch.requests.clear();
       later(const Duration(minutes: 5));
-      await browser.prefetch(channels);
+      await browser.prefetch(channels, open: null);
       expect(twitch.to('/helix/videos'), isEmpty);
 
       later(VodCache.ttl);
-      await browser.prefetch(channels);
+      await browser.prefetch(channels, open: null);
       expect(twitch.to('/helix/videos'), hasLength(2),
           reason: 'a list from hours ago is not a cache hit');
     });
@@ -453,12 +453,12 @@ void main() {
       twitch.addVideo('a');
       final browser = browserFor();
       final channels = [FakeHelix.channel('a')];
-      await browser.prefetch(channels);
+      await browser.prefetch(channels, open: null);
       twitch.requests.clear();
 
       for (var i = 0; i < 2; i++) {
         later(const Duration(minutes: 11));
-        await browser.prefetch(channels);
+        await browser.prefetch(channels, open: null);
       }
       expect(twitch.to('/helix/videos'), isEmpty);
     });
@@ -485,13 +485,36 @@ void main() {
       later(VodCache.ttl);
       twitch.requests.clear();
 
-      await browser
-          .prefetch([FakeHelix.channel('a'), FakeHelix.channel('b'), open]);
+      await browser.prefetch(
+          [FakeHelix.channel('a'), FakeHelix.channel('b'), open],
+          open: open);
 
       expect(twitch.to('/helix/videos'), hasLength(2),
           reason: 'the open channel is kept current by its own refresh');
       expect(positionLookups(), isEmpty,
           reason: 'one GQL request per VOD, for lists nobody has opened');
+    });
+
+    test('reads the channel it still holds once the screen has none open',
+        () async {
+      // "Go to dashboard" leaves no channel open on the screen, whose
+      // refreshes then stop, while this still holds the last one. Skipping
+      // what it held left that channel to no refresh at all.
+      twitch.addVideo('last');
+      final browser = browserFor();
+      final last = FakeHelix.channel('last');
+      await browser.open(last);
+      later(VodCache.ttl);
+      twitch.requests.clear();
+
+      await browser.prefetch([last], open: null);
+      expect(twitch.to('/helix/videos'), hasLength(1));
+
+      later(VodCache.ttl);
+      twitch.requests.clear();
+      await browser.prefetch([last], open: last);
+      expect(twitch.to('/helix/videos'), isEmpty,
+          reason: 'open on the screen, it is the refreshes\' again');
     });
 
     test('a favourite whose broadcast started or ended is read again',
@@ -502,24 +525,24 @@ void main() {
       final a = FakeHelix.channel('a')..lastUpdated = twitch.now;
       final b = FakeHelix.channel('b')..lastUpdated = twitch.now;
       final browser = browserFor();
-      await browser.prefetch([a, b]);
+      await browser.prefetch([a, b], open: null);
       twitch.requests.clear();
 
       later(const Duration(minutes: 1));
       a
         ..isLive = true
         ..streamId = 'broadcast-1';
-      await browser.prefetch([a, b]);
+      await browser.prefetch([a, b], open: null);
       expect(twitch.to('/helix/videos'), hasLength(1), reason: 'a only');
 
       twitch.requests.clear();
       later(const Duration(minutes: 1));
-      await browser.prefetch([a, b]);
+      await browser.prefetch([a, b], open: null);
       expect(twitch.to('/helix/videos'), isEmpty,
           reason: 'its list is from this broadcast now');
 
       a.isLive = false;
-      await browser.prefetch([a, b]);
+      await browser.prefetch([a, b], open: null);
       expect(twitch.to('/helix/videos'), hasLength(1),
           reason: 'and again once it ends');
     });
@@ -529,7 +552,7 @@ void main() {
       twitch.addVideo('a');
       final a = FakeHelix.channel('a')..lastUpdated = twitch.now;
       final browser = browserFor();
-      await browser.prefetch([a]);
+      await browser.prefetch([a], open: null);
       twitch.requests.clear();
 
       a
@@ -537,7 +560,7 @@ void main() {
         ..streamId = 'ended';
       twitch.holdVideos = Completer<void>();
       final check = browser.checkForNewVods(a, endedBroadcastStart: twitch.now);
-      final prefetch = browser.prefetch([a]);
+      final prefetch = browser.prefetch([a], open: null);
       await settle();
       twitch.holdVideos!.complete();
       twitch.holdVideos = null;
