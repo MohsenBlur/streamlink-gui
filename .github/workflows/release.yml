@@ -154,8 +154,9 @@ jobs:
           # as well (UpdateService.expectedDigestFor): it takes the line that
           # names the asset it downloaded, streamlink-gui-windows.zip, matched
           # by file name with any stray \r trimmed, and accepts a lone digest
-          # whatever it names. Keep the name below the asset's own: a mismatch
-          # only passes while this file holds a single line.
+          # whatever it names. Keep the name on the line below equal to the
+          # asset's own: a mismatch only passes while this file holds a single
+          # line.
           $line = "$hash  streamlink-gui-windows.zip`n"
           [System.IO.File]::WriteAllText(
             (Join-Path (Get-Location) "SHA256SUMS"),

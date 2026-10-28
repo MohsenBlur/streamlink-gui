@@ -127,10 +127,11 @@ class OAuthLoopbackServer {
 
   /// Where to send the browser.
   ///
-  /// Built by hand, unencoded, exactly as it always was: it reaches the
-  /// browser through explorer.exe (see _openExternalLink in main.dart), and
-  /// the values are already URL-safe - the state is hex, and `:` and `/` are
-  /// legal in a query.
+  /// Built by hand, as it always was: it reaches the browser through
+  /// explorer.exe (see _openExternalLink in main.dart). Only the Client ID,
+  /// typed into a text field, is query-encoded (a no-op for a real one); the
+  /// other values are already URL-safe - the state is hex, and `:` and `/`
+  /// are legal in a query.
   String get authorizeUrl => 'https://id.twitch.tv/oauth2/authorize'
       '?client_id=${Uri.encodeQueryComponent(clientId)}'
       '&redirect_uri=http://localhost:$boundPort'
