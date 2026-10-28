@@ -104,17 +104,26 @@ class OAuthLoopbackServer {
   final String state;
 
   HttpServer? _server;
+  int? _boundPort;
   Timer? _timer;
+
+  /// How the sign-in ended, decided synchronously by the first request (or
+  /// the timer, or [close]) that settles it; [result] publishes it once the
+  /// listener is closed.
+  OAuthLoopbackResult? _outcome;
+  Future<void>? _closing;
   final Completer<OAuthLoopbackResult> _result =
       Completer<OAuthLoopbackResult>();
 
-  /// Completes once, with how the sign-in ended. Never with an error.
+  /// Completes once, with how the sign-in ended, and only after the port has
+  /// been released - so a new sign-in can bind it straight away. Never with
+  /// an error.
   Future<OAuthLoopbackResult> get result => _result.future;
 
   /// Whether the listener is accepting connections.
   bool get isListening => _server != null;
 
-  int get boundPort => _server?.port ?? port;
+  int get boundPort => _boundPort ?? port;
 
   /// Where to send the browser.
   ///
@@ -132,11 +141,12 @@ class OAuthLoopbackServer {
   /// Binds the listener and starts the [timeout]. Throws when the port cannot
   /// be bound (another program holds it).
   Future<void> start() async {
-    if (_server != null || _result.isCompleted) {
+    if (_server != null || _outcome != null) {
       throw StateError('This sign-in has already been started.');
     }
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
     _server = server;
+    _boundPort = server.port;
     _timer = Timer(timeout,
         () => _end(const OAuthLoopbackResult(OAuthLoopbackOutcome.timedOut)));
     server.listen(_handle, onError: (Object _) {});
@@ -150,10 +160,10 @@ class OAuthLoopbackServer {
   /// Records [outcome] if nothing has been recorded yet. Synchronous, so a
   /// second request racing the first can never also be accepted.
   bool _settle(OAuthLoopbackResult outcome) {
-    if (_result.isCompleted) return false;
+    if (_outcome != null) return false;
+    _outcome = outcome;
     _timer?.cancel();
     _timer = null;
-    _result.complete(outcome);
     return true;
   }
 
@@ -162,15 +172,21 @@ class OAuthLoopbackServer {
     await _shutDown();
   }
 
-  Future<void> _shutDown() async {
+  /// Closes the listener once, however many paths ask, then publishes the
+  /// outcome. Only called once there is one.
+  Future<void> _shutDown() => _closing ??= _closeThenPublish();
+
+  Future<void> _closeThenPublish() async {
     final server = _server;
     _server = null;
     _timer?.cancel();
     _timer = null;
-    if (server == null) return;
-    try {
-      await server.close(force: true);
-    } catch (_) {}
+    if (server != null) {
+      try {
+        await server.close(force: true);
+      } catch (_) {}
+    }
+    _result.complete(_outcome!);
   }
 
   bool _stateMatches(String? echoed) => echoed != null && echoed == state;
@@ -205,7 +221,7 @@ class OAuthLoopbackServer {
       } else if (request.uri.path == '/token') {
         final query = request.uri.queryParameters;
         final token = query['access_token']?.trim();
-        if (_result.isCompleted) {
+        if (_outcome != null) {
           response.statusCode = HttpStatus.gone;
           response.write('This sign-in has already finished.');
         } else if (!_stateMatches(query['state'])) {

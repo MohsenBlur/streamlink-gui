@@ -106,7 +106,7 @@ void main() {
     expect(result.outcome, OAuthLoopbackOutcome.token);
     expect(result.accessToken, 'tok123');
 
-    await pumpEventQueue();
+    // The result is published only once the port is released.
     expect(server.isListening, isFalse);
     expect(await accepts(port), isFalse);
   });
@@ -172,7 +172,6 @@ void main() {
     final result = await server.result;
     expect(result.outcome, OAuthLoopbackOutcome.denied);
     expect(result.error, 'The user denied you access');
-    await pumpEventQueue();
     expect(server.isListening, isFalse);
   });
 
@@ -202,11 +201,25 @@ void main() {
     final port = server.boundPort;
     await server.close();
     expect((await server.result).outcome, OAuthLoopbackOutcome.cancelled);
+    expect(server.boundPort, port, reason: 'still says which port it had');
 
     final again = OAuthLoopbackServer(port: port, clientId: 'x');
     servers.add(again);
     await again.start();
     expect(again.boundPort, port);
+  });
+
+  test('a result can be awaited and the same port bound at once, as a '
+      'second Connect does', () async {
+    for (var i = 0; i < 20; i++) {
+      final server = await started(timeout: const Duration(milliseconds: 1));
+      final port = server.boundPort;
+      expect((await server.result).outcome, OAuthLoopbackOutcome.timedOut);
+      final next = OAuthLoopbackServer(port: port, clientId: 'x');
+      servers.add(next);
+      await next.start();
+      await next.close();
+    }
   });
 
   test('closing after a result keeps the result', () async {
