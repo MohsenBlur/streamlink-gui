@@ -157,6 +157,27 @@ enum ChannelRefreshOutcome {
   rateLimited,
 }
 
+/// What [TwitchApiService.refreshLiveStatus] did with each channel.
+class ChannelsRefreshResult {
+  ChannelsRefreshResult(this.outcomes, {this.rateLimitedUntil});
+
+  /// One entry per distinct channel object passed in, keyed by identity
+  /// (TwitchChannel has no value equality): a favourite and the followed-list
+  /// object for the same streamer are two entries.
+  final Map<TwitchChannel, ChannelRefreshOutcome> outcomes;
+
+  /// Set when the pass ended with the host backing off: the earliest time a
+  /// new pass would not simply be refused.
+  final DateTime? rateLimitedUntil;
+
+  bool get wasRateLimited =>
+      outcomes.values.contains(ChannelRefreshOutcome.rateLimited);
+
+  Iterable<TwitchChannel> get failed => outcomes.entries
+      .where((e) => e.value == ChannelRefreshOutcome.failed)
+      .map((e) => e.key);
+}
+
 /// The longest any single rate-limit response can keep a host quiet.
 ///
 /// A defence against a malformed or far-future reset header: Helix's bucket
@@ -296,8 +317,10 @@ class TwitchApiService {
 
   /// When Helix requests may resume, or null when they are not being held
   /// back. A poll that starts before this would only be refused.
-  DateTime? get helixRateLimitedUntil {
-    final until = _transport.backoffUntil[_helixHost];
+  DateTime? get helixRateLimitedUntil => _backingOffUntil(_helixHost);
+
+  DateTime? _backingOffUntil(String host) {
+    final until = _transport.backoffUntil[host];
     return until != null && until.isAfter(_now()) ? until : null;
   }
 
@@ -644,7 +667,8 @@ class TwitchApiService {
   }
 
   /// Refreshes one channel completely: identity, live state and follower
-  /// count.
+  /// count. For a poll over many channels, [refreshLiveStatus] does the
+  /// live-state part in a fraction of the requests.
   Future<ChannelRefreshOutcome> fetchChannelStats(TwitchChannel channel, AppSettings settings) async {
     channel.isLoading = true;
     final previousError = channel.errorMessage;
@@ -701,31 +725,9 @@ class TwitchApiService {
         if (streamRes.statusCode == 200) {
           final streamData = json.decode(streamRes.body);
           if (streamData['data'] != null && streamData['data'].isNotEmpty) {
-            final stream = streamData['data'][0];
-            channel.isLive = true;
-            // Stable for the whole broadcast; used to identify a live session.
-            channel.streamId = stream['id']?.toString();
-            channel.streamTitle = stream['title'] as String?;
-            channel.game = stream['game_name'] as String?;
-            channel.viewerCount = stream['viewer_count']?.toString() ?? '0';
-
-            final startedAt = stream['started_at'] as String?;
-            if (startedAt != null) {
-              channel.uptime = _calculateUptime(startedAt);
-              // Derived from the broadcast itself, so it is correct even for a
-              // channel that was already live when the app started - unlike
-              // observing an offline->live edge, which never happens then.
-              channel.wentLiveTime = DateTime.tryParse(startedAt)?.toLocal();
-            } else {
-              channel.uptime = 'Live';
-            }
+            _applyLiveStream(channel, streamData['data'][0] as Map<String, dynamic>);
           } else {
-            channel.isLive = false;
-            channel.streamId = null;
-            channel.uptime = 'Offline';
-            channel.viewerCount = '0';
-            channel.game = 'Offline';
-            channel.streamTitle = 'No active broadcast';
+            _applyOffline(channel);
           }
         } else {
           throw Exception('Helix Stream API error: status ${streamRes.statusCode}');
@@ -843,6 +845,280 @@ class TwitchApiService {
     } finally {
       channel.isLoading = false;
     }
+  }
+
+  /// Helix accepts up to this many ids or logins in one helix/streams or
+  /// helix/users request.
+  static const int _helixBatchSize = 100;
+
+  /// Live state for many channels, in as few requests as Helix allows.
+  ///
+  /// The minute poll called [fetchChannelStats] once per favourite and once
+  /// per followed channel, all at the same moment: helix/streams for a single
+  /// id, the follower count, and helix/users whenever the avatar was missing -
+  /// which, for every followed channel, was the first poll. A few hundred
+  /// follows came to 600-900 requests a minute against a bucket of about 800.
+  /// Here helix/streams takes 100 ids per request and helix/users 100 lookups,
+  /// so 300 channels cost three requests once their identities are known.
+  ///
+  /// Follower counts are left out on purpose: they move slowly, are shown for
+  /// the selected channel, and cost one request per channel.
+  /// [fetchChannelStats] still fetches them for a single channel.
+  ///
+  /// Without an account token there is nothing to batch (DecAPI is one
+  /// request per field per channel), so each channel goes through
+  /// [fetchChannelStats], behind the shared concurrency cap.
+  ///
+  /// Never throws; every channel comes back with an outcome. A rate-limited
+  /// channel is left exactly as it was and must not count as a failure.
+  Future<ChannelsRefreshResult> refreshLiveStatus(
+      List<TwitchChannel> channels, AppSettings settings) async {
+    final unique = channels.toSet().toList();
+    final outcomes = <TwitchChannel, ChannelRefreshOutcome>{};
+    final token = _getRawOauthToken(settings.twitchOauthToken);
+
+    if (token.isEmpty) {
+      final results = await Future.wait(
+          unique.map((c) => fetchChannelStats(c, settings)));
+      for (var i = 0; i < unique.length; i++) {
+        outcomes[unique[i]] = results[i];
+      }
+      return ChannelsRefreshResult(outcomes,
+          rateLimitedUntil: _backingOffUntil('decapi.me'));
+    }
+
+    final headers = _helixHeaders(token, settings);
+    for (final c in unique) {
+      c.isLoading = true;
+    }
+    try {
+      await _resolveIdentities(unique, headers, outcomes);
+      final checkable = [
+        for (final c in unique)
+          if (!outcomes.containsKey(c) && isValidTwitchUserId(c.id)) c,
+      ];
+      await _checkStreams(checkable, headers, outcomes);
+    } finally {
+      for (final c in unique) {
+        c.isLoading = false;
+      }
+    }
+    return ChannelsRefreshResult(outcomes,
+        rateLimitedUntil: helixRateLimitedUntil);
+  }
+
+  /// Fills in missing ids and avatars, 100 lookups per request.
+  ///
+  /// Settles a channel's outcome only when it cannot be stream-checked at all
+  /// (no usable id). One that already has its id and only lacks an avatar
+  /// goes on to the stream check whatever happens here: the avatar can wait
+  /// for the next pass, the live state should not.
+  Future<void> _resolveIdentities(
+    List<TwitchChannel> channels,
+    Map<String, String> headers,
+    Map<TwitchChannel, ChannelRefreshOutcome> outcomes,
+  ) async {
+    final needed = <TwitchChannel>[];
+    for (final c in channels) {
+      final hasId = isValidTwitchUserId(c.id);
+      if (hasId && (c.avatarUrl ?? '').isNotEmpty) continue;
+      if (!hasId && !isValidTwitchLogin(c.username)) {
+        _recordFailure(c, '"${c.username}" is not a valid Twitch username.');
+        outcomes[c] = ChannelRefreshOutcome.failed;
+        continue;
+      }
+      needed.add(c);
+    }
+    await Future.wait([
+      for (var i = 0; i < needed.length; i += _helixBatchSize)
+        _resolveIdentityChunk(
+            needed.sublist(i, _chunkEnd(i, needed.length)), headers, outcomes),
+    ]);
+  }
+
+  Future<void> _resolveIdentityChunk(
+    List<TwitchChannel> chunk,
+    Map<String, String> headers,
+    Map<TwitchChannel, ChannelRefreshOutcome> outcomes,
+  ) async {
+    // By id when there is one: ids survive a rename, logins do not.
+    final ids = <String>{
+      for (final c in chunk)
+        if (isValidTwitchUserId(c.id)) c.id!,
+    };
+    final logins = <String>{
+      for (final c in chunk)
+        if (!isValidTwitchUserId(c.id)) c.username.toLowerCase(),
+    };
+
+    List<dynamic>? users;
+    var rateLimited = false;
+    Object? failure;
+    try {
+      final res = await _get(
+        _helix('/helix/users', {
+          if (ids.isNotEmpty) 'id': ids.toList(),
+          if (logins.isNotEmpty) 'login': logins.toList(),
+        }),
+        headers: headers,
+      );
+      if (res.statusCode != 200) {
+        throw Exception('Helix User API error: status ${res.statusCode}');
+      }
+      users = (json.decode(res.body) as Map<String, dynamic>)['data']
+              as List<dynamic>? ??
+          const <dynamic>[];
+    } on TwitchRateLimitedException {
+      rateLimited = true;
+    } catch (e) {
+      failure = e;
+    }
+
+    final byId = <String, Map<String, dynamic>>{};
+    final byLogin = <String, Map<String, dynamic>>{};
+    for (final user in users ?? const <dynamic>[]) {
+      if (user is! Map<String, dynamic>) continue;
+      final id = user['id'];
+      if (id is! String || !isValidTwitchUserId(id)) continue;
+      byId[id] = user;
+      final login = user['login'];
+      if (login is String) byLogin[login.toLowerCase()] = user;
+    }
+
+    for (final c in chunk) {
+      final hadId = isValidTwitchUserId(c.id);
+      if (users == null) {
+        if (hadId) continue;
+        if (rateLimited) {
+          outcomes[c] = ChannelRefreshOutcome.rateLimited;
+        } else {
+          _recordFailure(c, '$failure'.replaceFirst('Exception: ', ''));
+          outcomes[c] = ChannelRefreshOutcome.failed;
+        }
+        continue;
+      }
+      final user = hadId ? byId[c.id] : byLogin[c.username.toLowerCase()];
+      if (user == null) {
+        if (hadId) continue;
+        _recordFailure(c, 'Twitch user "${c.username}" not found.');
+        outcomes[c] = ChannelRefreshOutcome.failed;
+        continue;
+      }
+      c.id = user['id'] as String;
+      final avatar = user['profile_image_url'];
+      if (avatar is String && avatar.isNotEmpty) c.avatarUrl = avatar;
+    }
+  }
+
+  /// Live or offline for every channel, 100 ids per helix/streams request.
+  ///
+  /// Grouped by id, so the favourite and the followed-list object for the
+  /// same streamer cost one slot and are updated together.
+  Future<void> _checkStreams(
+    List<TwitchChannel> channels,
+    Map<String, String> headers,
+    Map<TwitchChannel, ChannelRefreshOutcome> outcomes,
+  ) async {
+    final byId = <String, List<TwitchChannel>>{};
+    for (final c in channels) {
+      (byId[c.id!] ??= <TwitchChannel>[]).add(c);
+    }
+    final ids = byId.keys.toList();
+    await Future.wait([
+      for (var i = 0; i < ids.length; i += _helixBatchSize)
+        _checkStreamChunk(ids.sublist(i, _chunkEnd(i, ids.length)), byId,
+            headers, outcomes),
+    ]);
+  }
+
+  Future<void> _checkStreamChunk(
+    List<String> ids,
+    Map<String, List<TwitchChannel>> byId,
+    Map<String, String> headers,
+    Map<TwitchChannel, ChannelRefreshOutcome> outcomes,
+  ) async {
+    void settle(ChannelRefreshOutcome outcome, [String? failure]) {
+      for (final id in ids) {
+        for (final c in byId[id]!) {
+          if (failure != null) _recordFailure(c, failure);
+          outcomes[c] = outcome;
+        }
+      }
+    }
+
+    final live = <String, Map<String, dynamic>>{};
+    try {
+      // first=100 because the page size defaults to 20: with 100 ids in one
+      // request, the 21st live channel would otherwise read as offline.
+      final res = await _get(
+        _helix('/helix/streams', {'user_id': ids, 'first': '$_helixBatchSize'}),
+        headers: headers,
+      );
+      if (res.statusCode != 200) {
+        throw Exception('Helix Stream API error: status ${res.statusCode}');
+      }
+      final data = (json.decode(res.body) as Map<String, dynamic>)['data']
+              as List<dynamic>? ??
+          const <dynamic>[];
+      for (final stream in data) {
+        if (stream is! Map<String, dynamic>) continue;
+        final userId = stream['user_id'];
+        if (userId is String) live[userId] = stream;
+      }
+    } on TwitchRateLimitedException {
+      settle(ChannelRefreshOutcome.rateLimited);
+      return;
+    } catch (e) {
+      settle(ChannelRefreshOutcome.failed, '$e'.replaceFirst('Exception: ', ''));
+      return;
+    }
+
+    for (final id in ids) {
+      final stream = live[id];
+      for (final c in byId[id]!) {
+        if (stream != null) {
+          _applyLiveStream(c, stream);
+        } else {
+          _applyOffline(c);
+        }
+        _recordRefreshed(c);
+        outcomes[c] = ChannelRefreshOutcome.updated;
+      }
+    }
+  }
+
+  static int _chunkEnd(int start, int length) =>
+      start + _helixBatchSize > length ? length : start + _helixBatchSize;
+
+  /// A helix/streams entry, applied to [channel]. Shared by the single and the
+  /// batched refresh so the two cannot drift apart.
+  void _applyLiveStream(TwitchChannel channel, Map<String, dynamic> stream) {
+    channel.isLive = true;
+    // Stable for the whole broadcast; used to identify a live session.
+    channel.streamId = stream['id']?.toString();
+    channel.streamTitle = stream['title'] as String?;
+    channel.game = stream['game_name'] as String?;
+    channel.viewerCount = stream['viewer_count']?.toString() ?? '0';
+
+    final startedAt = stream['started_at'] as String?;
+    if (startedAt != null) {
+      channel.uptime = _calculateUptime(startedAt);
+      // Derived from the broadcast itself, so it is correct even for a
+      // channel that was already live when the app started - unlike
+      // observing an offline->live edge, which never happens then.
+      channel.wentLiveTime = DateTime.tryParse(startedAt)?.toLocal();
+    } else {
+      channel.uptime = 'Live';
+    }
+  }
+
+  void _applyOffline(TwitchChannel channel) {
+    channel.isLive = false;
+    channel.streamId = null;
+    channel.uptime = 'Offline';
+    channel.viewerCount = '0';
+    channel.game = 'Offline';
+    channel.streamTitle = 'No active broadcast';
   }
 
   /// How many consecutive refresh failures before a live channel is treated as
