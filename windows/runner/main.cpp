@@ -47,8 +47,10 @@ void AssignSelfToKillOnCloseJob() {
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
-  // Enforce single instance via named Win32 Mutex
-  HANDLE hMutex = ::CreateMutexW(nullptr, TRUE, L"Local\\TwitchStreamlinkGUIUniqueMutexName");
+  // Enforce single instance via named Win32 Mutex, one per config: see
+  // single_instance.h for why a portable copy gets its own.
+  HANDLE hMutex =
+      ::CreateMutexW(nullptr, TRUE, single_instance::MutexName().c_str());
   if (hMutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
     // Hand over to the running instance and leave. It brings itself forward,
     // content view included, and tells Dart; see single_instance.h for why it

@@ -1,24 +1,115 @@
 #include "single_instance.h"
 
+#include <cwctype>
+#include <string>
+
 namespace single_instance {
 
 namespace {
 
 constexpr wchar_t kMainWindowProperty[] = L"TwitchStreamlinkGUI.MainWindow";
 constexpr wchar_t kActivateMessageName[] = L"TwitchStreamlinkGUI.Activate";
+constexpr wchar_t kMutexName[] = L"Local\\TwitchStreamlinkGUIUniqueMutexName";
 
-// EnumWindows callback: stops at the first top-level window carrying the tag.
-// EnumWindows includes hidden windows, which matters here: resting in the
-// tray, the main window is hidden, not minimized.
-BOOL CALLBACK FindTaggedWindow(HWND window, LPARAM found) {
-  if (::GetPropW(window, kMainWindowProperty) == nullptr) {
+// The tag every installed (non-portable) instance carries. Kept at 1, the
+// value tools/shoot.ps1 already accepts as "tagged".
+constexpr UINT_PTR kSharedScopeTag = 1;
+
+// The directory holding this executable, lowercased, or empty.
+std::wstring ExecutableDirectory() {
+  wchar_t path[MAX_PATH * 4];
+  const DWORD length = ::GetModuleFileNameW(nullptr, path, ARRAYSIZE(path));
+  if (length == 0 || length >= ARRAYSIZE(path)) {
+    return std::wstring();
+  }
+  std::wstring directory(path, length);
+  const size_t slash = directory.find_last_of(L"\\/");
+  if (slash == std::wstring::npos) {
+    return std::wstring();
+  }
+  directory.resize(slash);
+  for (wchar_t& c : directory) {
+    c = static_cast<wchar_t>(std::towlower(c));
+  }
+  return directory;
+}
+
+// Whether this executable runs in portable mode: a portable.txt beside it
+// puts its config beside it too (StorageService.getStorageFile).
+bool IsPortable(const std::wstring& directory) {
+  if (directory.empty()) {
+    return false;
+  }
+  const std::wstring marker = directory + L"\\portable.txt";
+  const DWORD attributes = ::GetFileAttributesW(marker.c_str());
+  return attributes != INVALID_FILE_ATTRIBUTES &&
+         (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+// FNV-1a over the directory name: stable across runs, unlike a pointer or a
+// PID, so a relaunch from the same folder finds the same instance.
+UINT_PTR HashDirectory(const std::wstring& directory) {
+  uint64_t hash = 14695981039346656037ULL;
+  for (wchar_t c : directory) {
+    hash ^= static_cast<uint64_t>(c);
+    hash *= 1099511628211ULL;
+  }
+  // Never 0 (GetPropW's "no property") and never the shared tag.
+  return static_cast<UINT_PTR>(hash | 2);
+}
+
+struct Scope {
+  std::wstring mutex_name;
+  UINT_PTR tag;
+};
+
+// Which other instance a launch hands over to.
+//
+// Instances that share a config must never run side by side - two writers of
+// one channels_config.json - so every installed copy shares one scope,
+// wherever it was installed from: a `flutter run` build and the installed app
+// both use %APPDATA%. A PORTABLE copy keeps its config beside itself, so it
+// is its own scope, keyed by its directory. Before this the mutex name was
+// fixed, and a portable test build launched while the installed app sat in
+// the tray exited at once and raised the installed app instead.
+const Scope& CurrentScope() {
+  static const Scope scope = [] {
+    const std::wstring directory = ExecutableDirectory();
+    if (!IsPortable(directory)) {
+      return Scope{kMutexName, kSharedScopeTag};
+    }
+    const UINT_PTR tag = HashDirectory(directory);
+    wchar_t suffix[32];
+    swprintf_s(suffix, L".Portable.%016llx", static_cast<unsigned long long>(tag));
+    return Scope{std::wstring(kMutexName) + suffix, tag};
+  }();
+  return scope;
+}
+
+struct Search {
+  UINT_PTR tag;
+  HWND found;
+};
+
+// EnumWindows callback: stops at the first top-level window carrying this
+// scope's tag. EnumWindows includes hidden windows, which matters here:
+// resting in the tray, the main window is hidden, not minimized.
+BOOL CALLBACK FindTaggedWindow(HWND window, LPARAM param) {
+  auto* search = reinterpret_cast<Search*>(param);
+  const auto tag = reinterpret_cast<UINT_PTR>(
+      ::GetPropW(window, kMainWindowProperty));
+  if (tag != search->tag) {
     return TRUE;
   }
-  *reinterpret_cast<HWND*>(found) = window;
+  search->found = window;
   return FALSE;
 }
 
 }  // namespace
+
+const std::wstring& MutexName() {
+  return CurrentScope().mutex_name;
+}
 
 UINT ActivateMessage() {
   static const UINT message = ::RegisterWindowMessageW(kActivateMessageName);
@@ -30,7 +121,8 @@ bool IsActivateMessage(UINT message) {
 }
 
 void MarkMainWindow(HWND window) {
-  ::SetPropW(window, kMainWindowProperty, reinterpret_cast<HANDLE>(1));
+  ::SetPropW(window, kMainWindowProperty,
+             reinterpret_cast<HANDLE>(CurrentScope().tag));
   if (ActivateMessage() != 0) {
     ::ChangeWindowMessageFilterEx(window, ActivateMessage(), MSGFLT_ALLOW,
                                   nullptr);
@@ -46,8 +138,9 @@ bool ActivateRunningInstance() {
     return false;
   }
 
-  HWND window = nullptr;
-  ::EnumWindows(FindTaggedWindow, reinterpret_cast<LPARAM>(&window));
+  Search search{CurrentScope().tag, nullptr};
+  ::EnumWindows(FindTaggedWindow, reinterpret_cast<LPARAM>(&search));
+  HWND window = search.found;
   if (window == nullptr) {
     return false;
   }

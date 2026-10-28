@@ -3,6 +3,8 @@
 
 #include <windows.h>
 
+#include <string>
+
 // How a second launch hands over to the instance that is already running.
 //
 // The running instance's main window carries a window property that only this
@@ -11,7 +13,14 @@
 // every Flutter Win32 app shares, so looking up the class alone could raise
 // another app's window and leave this one in the tray. The class name itself
 // is kept: tools/shoot.ps1 and tools/click.ps1 find the window by it.
+//
+// "The instance already running" means the one sharing this launch's config:
+// every installed copy shares one, a portable copy (portable.txt beside the
+// exe) is its own, keyed by its folder. The property's value says which.
 namespace single_instance {
+
+// The single-instance mutex for this launch's scope.
+const std::wstring& MutexName();
 
 // The registered message a second launch posts to the running instance's main
 // window ("TwitchStreamlinkGUI.Activate"). wParam and lParam are unused (0).
