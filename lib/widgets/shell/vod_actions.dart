@@ -177,20 +177,33 @@ class VodActions {
     });
   }
 
-  /// Runs [onConfigured] once there is a download folder, asking for one
-  /// first when there is none.
+  /// Runs [onConfigured] once there is a download folder VODs can be saved
+  /// in, asking for one first when there is none, or when the one set cannot
+  /// be made right now.
+  ///
+  /// None set is all this used to ask about, and it never happens:
+  /// AppSettings fills an empty folder in with Downloads\TwitchVODs. One on
+  /// an unplugged drive, a share gone away or under a file was queued
+  /// anyway, and failed with exit code -1 - one by one, for a selection.
   Future<void> ensureDownloadFolder(VoidCallback onConfigured) async {
-    if (_settings().vodDownloadFolder.trim().isNotEmpty) {
+    final folder = _settings().vodDownloadFolder.trim();
+    final problem = folder.isEmpty ? null : _folderProblem(folder);
+    if (folder.isNotEmpty && problem == null) {
       onConfigured();
       return;
     }
 
     // Null when the prompt was cancelled or dismissed - including while its
     // folder dialog was still open, whose late answer the prompt drops.
-    final path = await DownloadFolderPrompt.show(_context());
+    final path = await DownloadFolderPrompt.show(_context(),
+        unusable: problem == null ? null : (folder: folder, reason: problem));
     if (!_mounted()) return;
     if (path == null) {
-      _showMessage('Download cancelled: VOD Download Folder is required.', isError: true);
+      _showMessage(
+          problem == null
+              ? 'Download cancelled: VOD Download Folder is required.'
+              : 'Download cancelled: the download folder could not be used.',
+          isError: true);
       return;
     }
     _settings().vodDownloadFolder = path;
@@ -198,6 +211,18 @@ class VodActions {
     await _save();
     _rescan();
     onConfigured();
+  }
+
+  /// Why VODs cannot be saved in [folder] right now, or null when they can
+  /// be: it is there, or it could be made - as the download makes it, which
+  /// is why this makes it too. Synchronous, as the download's own check is.
+  static String? _folderProblem(String folder) {
+    try {
+      Directory(folder).createSync(recursive: true);
+      return null;
+    } on FileSystemException catch (e) {
+      return e.osError?.message ?? e.message;
+    }
   }
 
   /// Queues [vod]'s download, by hand.

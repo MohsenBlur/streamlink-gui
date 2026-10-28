@@ -17,14 +17,15 @@ void main() {
 
   setUp(() => answers = <String?>[]);
 
-  Future<void> openPrompt(WidgetTester tester) async {
+  Future<void> openPrompt(WidgetTester tester,
+      {({String folder, String reason})? unusable}) async {
     picker = HeldFilePicker.install();
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
-            onPressed: () async =>
-                answers.add(await DownloadFolderPrompt.show(context)),
+            onPressed: () async => answers.add(
+                await DownloadFolderPrompt.show(context, unusable: unusable)),
             child: const Text('download'),
           ),
         ),
@@ -34,6 +35,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Where should VODs be saved?'), findsOneWidget);
   }
+
+  testWidgets('with no folder set, says so', (tester) async {
+    await openPrompt(tester);
+    expect(find.textContaining('No download folder is set yet'),
+        findsOneWidget);
+  });
+
+  testWidgets('with one that cannot be used, names it and says why',
+      (tester) async {
+    await openPrompt(tester,
+        unusable: (
+          folder: r'E:\VODs',
+          reason: 'The system cannot find the path specified.',
+        ));
+    expect(
+        find.textContaining(r'VODs cannot be saved in E:\VODs right now '
+            '(The system cannot find the path specified). Pick another'),
+        findsOneWidget);
+    expect(find.textContaining('No download folder'), findsNothing);
+  });
 
   testWidgets('a picked folder is the answer', (tester) async {
     await openPrompt(tester);

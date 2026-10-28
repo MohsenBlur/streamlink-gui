@@ -8,6 +8,7 @@ import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/widgets/twitch_video_card.dart';
 
+import 'support/held_file_picker.dart';
 import 'support/main_screen_harness.dart';
 
 /// What a VOD's own buttons do, through the pumped screen (see
@@ -303,6 +304,78 @@ void main() {
               'launch');
 
       await h.close(tester);
+    });
+
+    group('to a folder that cannot be made', () {
+      // An unplugged drive, a share gone away, a parent that is a file. The
+      // download used to be queued anyway, and fail with exit code -1. The
+      // folder prompt it asks with instead was otherwise never seen: an
+      // empty folder setting is always filled in with Downloads\TwitchVODs.
+      late String unusable;
+      setUp(() {
+        final blocker = File(p.join(folder.path, 'not a folder'))
+          ..writeAsStringSync('');
+        unusable = p.join(blocker.path, 'VODs');
+      });
+
+      Future<(ScreenHarness, String)> askedWhere(WidgetTester tester) async {
+        final h = ScreenHarness();
+        h.helix.user('alpha');
+        final id = h.helix.addVideo('alpha', title: 'Somewhere else');
+        await h.launch(tester,
+            favorites: ['alpha'],
+            settings: withFolder()..vodDownloadFolder = unusable);
+        await h.openChannel(tester, 'alpha');
+        await fromMenu(tester, h, 'Somewhere else', 'Download');
+        expect(find.text('Where should VODs be saved?'), findsOneWidget);
+        expect(find.textContaining(unusable), findsOneWidget,
+            reason: 'it says which folder could not be used');
+        return (h, id);
+      }
+
+      testWidgets('asks for another, and downloads there', (tester) async {
+        final picker = HeldFilePicker.install();
+        final (h, id) = await askedWhere(tester);
+        await tester.tap(find.text('Choose folder'));
+        await tester.pump();
+        picker.folders.single.complete(folder.path);
+        await h.settleRoute(tester);
+
+        expect(find.text('Where should VODs be saved?'), findsNothing);
+        expect(h.storage.savedSettings?.vodDownloadFolder, folder.path);
+        expect(h.player.downloadQueue, [id]);
+        // Queued by hand, it waits for its archive line to be taken out,
+        // which is real file I/O.
+        for (var i = 0; i < 100 && h.launcher.launched.isEmpty; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 20)));
+          await h.settle(tester);
+        }
+        expect(h.launcher.launched.single.arguments,
+            contains(startsWith('${folder.path}/alpha/')),
+            reason: "yt-dlp writes into the new folder's channel folder");
+
+        await h.close(tester);
+      });
+
+      testWidgets('Cancel downloads nothing and keeps the folder setting',
+          (tester) async {
+        HeldFilePicker.install();
+        final (h, _) = await askedWhere(tester);
+        await tester.tap(find.text('Cancel'));
+        await h.settleRoute(tester);
+
+        expect(find.text('Download cancelled: the download folder could not '
+            'be used.'), findsOneWidget);
+        expect(h.player.downloadQueue, isEmpty);
+        expect(h.launcher.launched, isEmpty);
+        await h.advance(tester, const Duration(seconds: 2));
+        expect(h.storage.savedSettings?.vodDownloadFolder ?? unusable,
+            unusable,
+            reason: 'kept, for when the drive is back');
+
+        await h.close(tester);
+      });
     });
   });
 }
