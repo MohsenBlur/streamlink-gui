@@ -1475,9 +1475,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // step it was.
     final steps = TimedMilestones('exit', log);
 
-    // Nothing new may start while this runs.
+    // Nothing new may start while this runs - including the refresh a
+    // window coming back arms. Exit shows the window first (for its
+    // dialogs), so its own show and focus armed one, and it fired in the
+    // middle of the shutdown, which waits up to five seconds on the players.
     _favoritesLiveCheckTimer?.cancel();
     _downloadCheckTimer?.cancel();
+    _cameBackTimer?.cancel();
+    _cameBackTimer = null;
 
     // The window's last geometry, now rather than in 300ms.
     await _captureWindowState();
@@ -2335,7 +2340,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _cameBackTimer?.cancel();
     _cameBackTimer = Timer(const Duration(milliseconds: 300), () {
       _cameBackTimer = null;
-      if (!mounted || !_startupComplete) return;
+      if (!mounted || !_startupComplete || _isExiting) return;
       unawaited(_channelsCtl.refreshIfOlderThan(const Duration(seconds: 30)));
       if (backgroundVodRefreshAllowed(twitchAuth.helix.value)) {
         unawaited(

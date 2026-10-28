@@ -355,6 +355,29 @@ void main() {
 
       await h.close(tester);
     });
+
+    testWidgets("an Exit from the tray starts no refresh with its own show",
+        (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      await h.launch(tester, favorites: ['alpha']);
+      await openChannel(tester, h, 'alpha');
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+      // Old enough that coming back would refresh both the channels and the
+      // open list.
+      await h.advance(tester, const Duration(seconds: 45));
+
+      final mark = h.helix.requests.length;
+      h.tray.choose('Exit');
+      await h.settle(tester);
+      expect(h.window.destroyed, isTrue);
+      await h.advance(tester, const Duration(minutes: 3));
+      expect(h.helix.requests.length, mark,
+          reason: 'showing the window to exit is not the user coming back');
+
+      await h.close(tester);
+    });
   });
 
   testWidgets('a close with the default action hides to the tray, once',
