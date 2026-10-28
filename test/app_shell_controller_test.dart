@@ -175,6 +175,25 @@ void main() {
       await rig.finish(tester);
     });
 
+    testWidgets('a second launch clears the hidden-by-user mark',
+        (tester) async {
+      // The runner shows the window itself, past showWindow, which is what
+      // clears the mark: a window back on screen stayed marked as put away.
+      final rig = _Rig();
+      await rig.attach(tester);
+      await rig.shell.hideWindow();
+      await tester.pump();
+      expect(AppShellController.windowHiddenByUser, isTrue);
+
+      rig.window.visible = true;
+      await _fromRunner(tester, 'streamlink_gui/single_instance', 'activate');
+      expect(AppShellController.windowHiddenByUser, isFalse);
+      expect(rig.window.calls['showNative'], isNull,
+          reason: 'the runner already showed it; Dart only keeps count');
+
+      await rig.finish(tester);
+    });
+
     testWidgets('coming back is debounced, and never answered while exiting',
         (tester) async {
       final rig = _Rig();

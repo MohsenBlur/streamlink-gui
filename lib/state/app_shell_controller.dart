@@ -119,6 +119,10 @@ class AppShellController with WindowListener {
     // hide anything - it only brings Dart's bookkeeping up to date.
     _singleInstanceChannel.setMethodCallHandler((call) async {
       if (call.method == 'activate') {
+        // The runner showed the window, past [showWindow], which is what
+        // clears this mark: a window back on screen stayed marked as one
+        // the user put away.
+        windowHiddenByUser = false;
         await syncWindowVisible();
         try {
           await _window.focus();
