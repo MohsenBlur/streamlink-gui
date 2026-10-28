@@ -17,6 +17,14 @@ import '../theme/theme_notifier.dart';
 ///
 /// As a StatefulWidget the URL is minted once on open and refreshed by a
 /// timer, with gapless playback so a refresh never blanks the card.
+///
+/// The buster is bucketed again, to [refreshInterval], and the reason is the
+/// opposite end of the same problem. HoverOverlayMenu removes its overlay on
+/// exit, so every re-hover is a fresh State; with a millisecond buster every
+/// re-hover was a never-seen URL - a new CDN request, a new ImageCache entry
+/// and a blank card while it loaded, for a preview Twitch itself refreshes
+/// only every few minutes. Minted once per open AND bucketed, a re-hover
+/// within the interval reuses the image already decoded.
 class LivePreviewPopup extends StatefulWidget {
   const LivePreviewPopup({Key? key, required this.channel}) : super(key: key);
 
@@ -24,6 +32,18 @@ class LivePreviewPopup extends StatefulWidget {
 
   /// The flip-avoidance estimate HoverOverlayMenu needs for this card.
   static const Size estimatedSize = Size(260, 220);
+
+  /// How long one preview URL stays current: the open card's refresh timer
+  /// and the cache-buster's bucket are the same interval.
+  static const Duration refreshInterval = Duration(seconds: 30);
+
+  /// The preview image URL for [username] as of [now].
+  static String previewUrl(String username, DateTime now) {
+    final cleanName = username.toLowerCase().trim();
+    final bucket =
+        now.millisecondsSinceEpoch ~/ refreshInterval.inMilliseconds;
+    return 'https://static-cdn.jtvnw.net/previews-ttv/live_user_$cleanName-320x180.jpg?t=$bucket';
+  }
 
   @override
   State<LivePreviewPopup> createState() => _LivePreviewPopupState();
@@ -37,7 +57,8 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
   void initState() {
     super.initState();
     _thumbUrl = _buildUrl();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _refreshTimer =
+        Timer.periodic(LivePreviewPopup.refreshInterval, (_) {
       if (mounted) setState(() => _thumbUrl = _buildUrl());
     });
   }
@@ -48,11 +69,8 @@ class _LivePreviewPopupState extends State<LivePreviewPopup> {
     super.dispose();
   }
 
-  String _buildUrl() {
-    final cleanName = widget.channel.username.toLowerCase().trim();
-    final buster = DateTime.now().millisecondsSinceEpoch;
-    return 'https://static-cdn.jtvnw.net/previews-ttv/live_user_$cleanName-320x180.jpg?t=$buster';
-  }
+  String _buildUrl() =>
+      LivePreviewPopup.previewUrl(widget.channel.username, DateTime.now());
 
   @override
   Widget build(BuildContext context) {
