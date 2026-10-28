@@ -209,6 +209,31 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
   }
 
 
+  /// Every game the VOD covers, one per line, over [child].
+  Widget _gamesTooltip(Widget child) {
+    final isDark = themeNotifier.isDarkTheme;
+    return Tooltip(
+      message: _games!.join('\n'),
+      decoration: BoxDecoration(
+        color: NeuTheme.surface(isDark),
+        borderRadius: BorderRadius.circular(NeuRadius.r6),
+        border: Border.all(color: NeuTheme.border(isDark)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 6,
+          ),
+        ],
+      ),
+      textStyle: NeuType.captionStrong(isDark, color: NeuTheme.text(isDark))
+          .copyWith(height: 1.3),
+      padding: const EdgeInsets.symmetric(
+          horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
+      preferBelow: true,
+      child: child,
+    );
+  }
+
   Widget _buildGameBadge(ThemeData theme) {
     final firstGame = _games![0];
     final hasMultiple = _games!.length > 1;
@@ -485,7 +510,10 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                   children: [
                                     if (_games != null && _games!.isNotEmpty) ...[
                                       if (widget.showGamesOnThumbnails)
-                                        Container(
+                                        // The same tooltip as the single badge's: a pill
+                                        // cuts a long name short, and this path had no
+                                        // other way to read it.
+                                        _gamesTooltip(Container(
                                           constraints: BoxConstraints(maxWidth: widget.scale * 0.5),
                                           child: Wrap(
                                             spacing: 4,
@@ -523,26 +551,9 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                               );
                                             }).toList(),
                                           ),
-                                        )
+                                        ))
                                       else
-                                        Tooltip(
-                                          message: _games!.join('\n'),
-                                          decoration: BoxDecoration(
-                                            color: NeuTheme.surface(themeNotifier.isDarkTheme),
-                                            borderRadius: BorderRadius.circular(NeuRadius.r6),
-                                            border: Border.all(color: NeuTheme.border(themeNotifier.isDarkTheme)),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withValues(alpha: 0.2),
-                                                blurRadius: 6,
-                                              ),
-                                            ],
-                                          ),
-                                          textStyle: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)).copyWith(height: 1.3),
-                                          padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s8),
-                                          preferBelow: true,
-                                          child: _buildGameBadge(widget.theme),
-                                        ),
+                                        _gamesTooltip(_buildGameBadge(widget.theme)),
                                       const SizedBox(width: NeuSpace.s8),
                                     ],
                                     if (widget.isPlaying && widget.pulseController != null)

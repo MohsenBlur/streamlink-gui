@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
@@ -296,5 +297,84 @@ void main() {
     // Guard against the wrappers above duplicating the card in the tree.
     await pumpGrid(tester);
     expect(find.byType(TwitchVideoCard), findsNWidgets(3));
+  });
+
+  group('a long game name', () {
+    // Wider than a pill (half the card) in the test font, which draws every
+    // glyph a full em wide, and narrower than the card the badge sits in.
+    const long = 'A category name too long';
+    const games = [long, 'Just Chatting'];
+
+    Future<void> pumpCard(WidgetTester tester,
+        {required bool onThumbnails}) async {
+      tester.view.physicalSize = const Size(600, 500);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: 300,
+                child: TwitchVideoCard(
+                  vod: vod(0)..games = List.of(games),
+                  scale: 300,
+                  theme: Theme.of(context),
+                  onPlay: () {},
+                  formatNumber: (n) => n,
+                  titleFontSize: 14,
+                  isPlaying: false,
+                  pulseController: null,
+                  showGamesOnThumbnails: onThumbnails,
+                  watchedThreshold: 90,
+                  activeProgressColor: Colors.purple,
+                  watchedProgressColor: Colors.green,
+                  onDownload: () {},
+                  onDeleteDownload: () {},
+                  onCancel: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+    }
+
+    /// Hovers [target] until its tooltip is up.
+    Future<void> hover(WidgetTester tester, Finder target) async {
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(target));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+
+    final everyName = games.join('\n');
+
+    testWidgets('can be read in full from its pill on the thumbnail',
+        (tester) async {
+      // The pills share half the card's width and cut a long name short;
+      // the one-badge path had a tooltip with every name, this one had none.
+      await pumpCard(tester, onThumbnails: true);
+      final pill = find.text(long);
+      expect(tester.renderObject<RenderParagraph>(pill).didExceedMaxLines,
+          isTrue,
+          reason: 'precondition: the pill cuts the name short');
+      expect(find.byTooltip(everyName), findsOneWidget);
+
+      await hover(tester, pill);
+      expect(find.text(everyName), findsOneWidget,
+          reason: 'the tooltip shows every name in full');
+    });
+
+    testWidgets('and from the single badge, as before', (tester) async {
+      await pumpCard(tester, onThumbnails: false);
+      expect(find.byTooltip(everyName), findsOneWidget);
+      await hover(tester, find.byTooltip(everyName));
+      expect(find.text(everyName), findsOneWidget);
+    });
   });
 }
