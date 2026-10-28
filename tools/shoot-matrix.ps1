@@ -7,8 +7,10 @@
   per size - a relaunch costs several seconds and re-triggers first-run work.
 
   Config is isolated: a portable.txt marker beside the exe makes the app read
-  and write beside itself, and a copy of the real channels_config.json is
-  staged there. The user's live settings and OAuth token are never written to.
+  and write beside itself, and a copy of the real channels_config.json, its
+  tokens blanked, is staged there: the build runs signed out, so the channel
+  screen shows no VOD list. The user's live settings and OAuth token are
+  never written to, nor copied.
   Only the build under test is stopped and captured. Running portable, it is
   its own single-instance scope, so an installed copy resting in the tray no
   longer blocks the launch; another copy from the same folder still makes it
