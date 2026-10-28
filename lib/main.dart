@@ -29,6 +29,7 @@ import 'theme/type_probe.dart';
 import 'widgets/shell/app_dialogs.dart';
 import 'widgets/shell/app_frame.dart';
 import 'widgets/shell/app_snackbar.dart';
+import 'widgets/shell/channel_actions.dart';
 import 'widgets/shell/channel_dashboard.dart';
 import 'widgets/shell/home_view.dart';
 import 'widgets/shell/player_events.dart';
@@ -288,7 +289,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   bool _isAdding = false;
   
   AppSettings _settings = AppSettings();
-  Set<String> get _previouslyLiveFavoriteUsernames => _channelsCtl.liveFavorites;
   
   Timer? _favoritesLiveCheckTimer;
   Timer? _downloadCheckTimer;
@@ -332,6 +332,33 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     onLoadError: (e, st) =>
         CrashLog.current?.error('loading watch history', e, st),
     clock: _services.clock,
+  );
+
+  /// What a channel's own buttons do (ChannelActions): add, star or unstar,
+  /// watch live.
+  late final ChannelActions _channelActions = ChannelActions(
+    channels: _channelsCtl,
+    favorites: _channels,
+    automation: _automation,
+    player: _playerService,
+    api: _apiService,
+    settings: () => _settings,
+    context: () => context,
+    mounted: () => mounted,
+    showMessage: _showSnackBar,
+    save: _saveChannels,
+    select: _selectChannel,
+    setAdding: (adding) => setState(() => _isAdding = adding),
+    clearSearch: _searchController.clear,
+    removed: (cleanName) {
+      if (!mounted) return;
+      setState(() {
+        if (_selectedChannel?.username == cleanName) _selectedChannel = null;
+      });
+    },
+    changed: () {
+      if (mounted) setState(() {});
+    },
   );
 
   /// What a VOD's own buttons do (VodActions): play, download, cancel and
@@ -723,7 +750,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     onCameBack: _onWindowCameBack,
     confirmExit: _confirmExit,
     showMessage: (message) => _showSnackBar(message, isError: false),
-    onTrayWatch: _launchTrayChannel,
+    onTrayWatch: _channelActions.watchFromTray,
     onTrayOpenLibrary: _library.open,
     // Nothing new may start while the exit runs.
     onExitCommitted: () {
@@ -734,17 +761,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     onSessionContinues: _downloads.unfreeze,
   );
   // ---- end shell -------------------------------------------------------------
-
-  /// Resolves the channel by name AT CLICK TIME: menu items can outlive a
-  /// poll cycle, and capturing the channel object would launch with stale
-  /// title/game metadata (or a channel that just went offline).
-  void _launchTrayChannel(String username) {
-    final index = _channels.indexWhere((c) => c.username == username);
-    if (index == -1) return;
-    final channel = _channels[index];
-    if (!channel.isLive) return;
-    _launchChannelStream(channel);
-  }
 
   /// What an Exit asks before it goes (see AppShellController.requestExit):
   /// whether to pause the downloads that are running, and whether to go
@@ -1524,111 +1540,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// while one is still running does nothing.
   Future<void> _checkFavoritesAutomation() => _automation.runPass();
 
-  Future<void> _addChannel(String name) async {
-    final cleanName = name.toLowerCase().trim();
-    // Refused before the spinner shows: nothing Twitch could say about a name
-    // that cannot be a login is more useful than saying so at once.
-    switch (_channelsCtl.checkAdd(cleanName)) {
-      case AddCheck.empty:
-      case AddCheck.pending:
-        // A second Enter while the first lookup runs; it is on its way.
-        return;
-      case AddCheck.invalidName:
-        _showSnackBar('"$cleanName" is not a valid Twitch username.', isError: true);
-        return;
-      case AddCheck.duplicate:
-        _showSnackBar('Channel "$cleanName" is already in your list.', isError: true);
-        return;
-      case AddCheck.ok:
-        break;
-    }
-
-    setState(() => _isAdding = true);
-    final outcome = await _channelsCtl.addFavorite(cleanName);
-    if (!mounted) return;
-    setState(() => _isAdding = _channelsCtl.hasPendingAdds);
-
-    final added = outcome.channel;
-    if (added == null) {
-      _showSnackBar(
-          outcome.check == AddCheck.duplicate
-              ? 'Channel "$cleanName" is already in your list.'
-              : 'Failed to add channel: ${outcome.error}',
-          isError: true);
-      return;
-    }
-
-    _searchController.clear();
-    // Opened through the one selection path, so the grid loads this channel's
-    // VODs rather than going on showing the previous channel's under its
-    // header.
-    _selectChannel(added);
-
-    await _saveChannels();
-    if (!mounted) return;
-    _showSnackBar('Channel "$cleanName" added successfully!', isError: false);
-  }
-
-  /// Records a channel that is ALREADY live at the moment it joins the list.
-  ///
-  /// The went-live check fires for any live channel missing from this set, so
-  /// starring or adding someone mid-broadcast produced an "is now LIVE!"
-  /// notification up to a minute later for a stream the user had just been
-  /// looking at - and, with auto-play configured, could launch it unasked.
-  void _seedLiveTracking(TwitchChannel channel) {
-    if (!channel.isLive) return;
-    _previouslyLiveFavoriteUsernames.add(channel.username.toLowerCase().trim());
-  }
-
-  Future<void> _toggleFavorite(TwitchChannel channel) async {
-    final cleanName = channel.username.toLowerCase().trim();
-    final isFavorite = _channels.any((c) => c.username == cleanName);
-
-    if (isFavorite) {
-      // Removing a favorite also discards its automation configuration, which
-      // there is no way to undo. Confirm when there is something to lose - a
-      // single mis-click on the star used to silently destroy it.
-      final existing = _channels.firstWhere((c) => c.username == cleanName);
-      if (existing.autoPlayLive || existing.autoDownloadVods) {
-        final confirmed = await confirmRemoveFavorite(context,
-            name: channel.username, existing: existing);
-        if (confirmed != true) return;
-      }
-
-      setState(() {
-        _channels.removeWhere((c) => c.username == cleanName);
-        // Drop tracking state for the removed channel so it cannot resurface as
-        // a stale "went live" notification or auto-play session later.
-        _previouslyLiveFavoriteUsernames.remove(cleanName);
-        _automation.forgetChannel(cleanName);
-        if (_selectedChannel?.username == cleanName) {
-          _selectedChannel = null;
-        }
-      });
-      await _saveChannels();
-      _showSnackBar('Removed "${channel.username}" from Favorites.', isError: false);
-    } else {
-      final newFav = TwitchChannel(username: cleanName);
-      newFav.avatarUrl = channel.avatarUrl;
-      newFav.isLive = channel.isLive;
-      newFav.uptime = channel.uptime;
-      newFav.viewerCount = channel.viewerCount;
-      newFav.game = channel.game;
-      newFav.streamTitle = channel.streamTitle;
-      
-      setState(() {
-        _channels.add(newFav);
-      });
-      _seedLiveTracking(newFav);
-      await _saveChannels();
-      _showSnackBar('Added "${channel.username}" to Favorites.', isError: false);
-      
-      _apiService.fetchChannelStats(newFav, _settings).then((_) {
-        if (mounted) setState(() {});
-      });
-    }
-  }
-
   Future<void> _bulkUpdateSelectedVods(bool markAsWatched) async {
     if (_selectedVodIds.isEmpty) {
       _showSnackBar('No VODs selected.', isError: true);
@@ -1735,24 +1646,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _showSnackBar('Local watch progress history cleared!', isError: false);
   }
 
-  /// Launches [channel]'s live stream using ITS OWN metadata. The old
-  /// double-tap path received only a username and looked title/game/live up on
-  /// _selectedChannel, so double-tapping a non-selected row launched with a
-  /// different channel's metadata.
-  void _launchChannelStream(TwitchChannel channel) {
-    if (_playerService.runningChannels
-        .contains(channel.username.toLowerCase().trim())) {
-      return;
-    }
-    _playerService.launchStreamlinkForLive(
-      channel.username,
-      channel.isLive,
-      channel.streamTitle,
-      channel.game,
-      _settings,
-    );
-  }
-
   UpdateInfo? _pendingUpdateInfo;
 
   /// Saving Settings, and what a save sets off (SettingsSaveCoordinator).
@@ -1837,10 +1730,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       pulseController: _pulseController!,
       searchController: _searchController,
       onChannelSelected: _selectChannel,
-      onChannelDoubleTapped: _launchChannelStream,
-      onChannelPlayPressed: _launchChannelStream,
-      onAddChannel: _addChannel,
-      onToggleFavorite: _toggleFavorite,
+      onChannelDoubleTapped: _channelActions.watch,
+      onChannelPlayPressed: _channelActions.watch,
+      onAddChannel: _channelActions.add,
+      onToggleFavorite: _channelActions.toggleFavorite,
       onToggleCollapse: (collapsed) {
         setState(() {
           _sidebarCollapsed = collapsed;
@@ -1988,7 +1881,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       onRecentScrolled: _updateRecentFades,
       onAddChannel: () => _sidebarSearchFocus.requestFocus(),
       onSelectChannel: _selectChannel,
-      // Not _launchChannelStream, which compares the running set with the
+      // Not ChannelActions.watch, which compares the running set with the
       // clean name: this is what the live card always did.
       onLaunchLive: (channel) {
         if (_playerService.runningChannels.contains(channel.username)) return;
