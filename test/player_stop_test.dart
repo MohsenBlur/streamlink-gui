@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -178,6 +179,54 @@ void main() {
       expect(launcher.launched, hasLength(1),
           reason: 'the stream the user stopped must stay stopped');
       expect(stopped, {vod.id: true});
+    });
+
+    // After the heal's exit there is a gap before the relaunched process is
+    // registered - a port probe, then the process start - in which a Stop
+    // used to find nothing to kill and was dropped.
+    test('is honoured when it lands before the relaunch has a process',
+        () async {
+      taskkill.gracefulEndsTargets = true;
+      // Stop at the moment the relaunch announces itself: its port is chosen
+      // and its process is about to start.
+      service.onPlayerLog = (key, line) {
+        logs.putIfAbsent(key, () => []).add(line);
+        if (line.contains('Resuming after premature end-of-stream')) {
+          unawaited(service.killProcess(vod.id));
+        }
+      };
+      await playUntilTheHealBegins();
+      await waitFor(() => stopped.isNotEmpty, reason: 'the stop to be reported');
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      expect(launcher.launched, hasLength(1),
+          reason: 'no player may start for a stopped stream');
+      expect(stopped, {vod.id: true}, reason: 'a stop, not a failure');
+      expect(service.playingVodIds, isEmpty);
+      expect(service.activePlayerPorts, isEmpty);
+      expect(logs[vod.id], contains('[System] Stopped before the relaunch began.'));
+    });
+
+    test('is honoured when it lands while the relaunch is starting', () async {
+      taskkill.gracefulEndsTargets = true;
+      launcher.startDelay = const Duration(milliseconds: 400);
+      await playUntilTheHealBegins();
+      // The graceful close ended the player; the relaunch is now waiting on
+      // its process start, with nothing registered for a Stop to end.
+      await waitFor(
+          () =>
+              launcher.launched.single.hasExited &&
+              service.playingVodIds.contains(vod.id),
+          reason: 'the relaunch to be under way');
+
+      await service.killProcess(vod.id);
+      await waitFor(() => stopped.isNotEmpty, reason: 'the stop to be reported');
+
+      expect(launcher.launched, hasLength(2));
+      expect(launcher.launched.last.hasExited, isTrue,
+          reason: 'the relaunched player is ended as soon as it exists');
+      expect(stopped, {vod.id: true});
+      expect(service.playingVodIds, isEmpty);
     });
   }, skip: Platform.isWindows ? false : 'the graceful wait exists only on Windows');
 

@@ -770,11 +770,24 @@ class PlayerService {
     downloadTitles[vodId] = vod.title;
     queuedDownloadTasks[vodId] = vod;
     downloadQueue.add(vodId);
+    _queueTickets[vodId] = ++_lastQueueTicket;
     activeDownloadTasks[vodId] = 'Queued';
     onDownloadProgress?.call(vodId, 0.0, 'Queued');
 
     _processDownloadQueue(settings, channelName);
   }
+
+  /// Which queueing of a VOD each queue entry is.
+  ///
+  /// The drain below removes an entry by id once its download is over, after
+  /// an await - and a VOD cancelled and queued again in the meantime (in the
+  /// one-second gap before its ffmpeg retry, where the Downloads panel offers
+  /// both buttons) has the same id. The drain used to remove the NEW entry,
+  /// so the re-queued VOD sat at "Queued" with nothing left to start it until
+  /// the app restarted. With a ticket per queueing, the drain removes only
+  /// the entry it actually ran.
+  final Map<String, int> _queueTickets = {};
+  int _lastQueueTicket = 0;
 
   /// Set by [stopAll] so the queue drain stops instead of starting the next
   /// download. Without this, killing the active yt-dlp let the loop below spawn
@@ -796,6 +809,10 @@ class PlayerService {
         final vod = queuedDownloadTasks[vodId];
         final chName = downloadChannelNames[vodId] ?? channelName;
         final overridePostProc = downloadTaskFastDownloadOverrides[vodId];
+        final ticket = _queueTickets[vodId];
+        // Still the queueing this pass started, after the await: see
+        // _queueTickets. A re-queue since then is left for a later pass.
+        bool stillOurs() => _queueTickets[vodId] == ticket;
         try {
           if (vod != null) {
             await startVodDownload(vod, chName, settings, overrideDisablePostProcessing: overridePostProc);
@@ -803,11 +820,14 @@ class PlayerService {
         } catch (e) {
           log(logKeyForDownload(vodId),
               '[System Error] The download stopped unexpectedly: $e');
-          _cleanupDownloadState(vodId);
+          if (stillOurs()) _cleanupDownloadState(vodId);
         }
-        downloadQueue.remove(vodId);
-        queuedDownloadTasks.remove(vodId);
-        downloadTaskFastDownloadOverrides.remove(vodId);
+        if (stillOurs()) {
+          _queueTickets.remove(vodId);
+          downloadQueue.remove(vodId);
+          queuedDownloadTasks.remove(vodId);
+          downloadTaskFastDownloadOverrides.remove(vodId);
+        }
       }
     } finally {
       isQueueProcessing = false;
@@ -1106,6 +1126,18 @@ class PlayerService {
       }
       log(key, '[System] Arguments: ${argsForLog(args)}');
 
+      // A Stop that landed while the relaunch was finding a port: see
+      // _vodsRelaunching. Ends the session the way a Stop just before the
+      // heal's exit would have, instead of starting a player.
+      if (isRestart && _relaunchStops.remove(vod.id)) {
+        log(key, '[System] Stopped before the relaunch began.');
+        playingVodIds.remove(vod.id);
+        _releasePlayerPort(vod.id);
+        _vodRestartLedgers.remove(vod.id);
+        onPlayerStopped?.call(key, _vodsRelaunching.remove(vod.id) ?? -1, true);
+        return;
+      }
+
       final proc = await _startProcess(
         _getExecutablePath('streamlink'),
         args,
@@ -1113,7 +1145,12 @@ class PlayerService {
       );
 
       activePlayerProcesses[vod.id] = proc;
-      
+      // ...or while the process was starting, when there was still nothing
+      // for it to end. Acted on once the exit handler below is in place, so
+      // the stop is reported through it like any other.
+      _vodsRelaunching.remove(vod.id);
+      final stoppedWhileStarting = isRestart && _relaunchStops.remove(vod.id);
+
       // Spawn Windows Named Pipe to TCP Bridge for MPV players
       if (kind == PlayerKind.mpv && Platform.isWindows) {
         await _startWindowsIpcBridge(key, port);
@@ -1163,6 +1200,7 @@ class PlayerService {
         final restartAt = _pendingVodRestarts.remove(vod.id);
         if (restartAt != null && !_shuttingDown) {
           _stoppedByUser.remove(key); // consume the heal-kill's marker
+          _vodsRelaunching[vod.id] = exitCode;
           launchStreamlinkForVod(vod, channelName, settings,
               resumeOverride: restartAt, isRestart: true);
           return;
@@ -1170,15 +1208,35 @@ class PlayerService {
         _vodRestartLedgers.remove(vod.id); // user stop, normal exit, give-up
         onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
       });
+
+      if (stoppedWhileStarting) {
+        unawaited(_forceKill(key, markUserInitiated: true));
+      }
     } catch (e) {
       log(key, '[System Error] Failed to start Streamlink: $e');
       playingVodIds.remove(vod.id);
       activePlayerPorts.remove(vod.id);
       _pendingVodRestarts.remove(vod.id);
       _vodRestartLedgers.remove(vod.id);
-      onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key));
+      _vodsRelaunching.remove(vod.id);
+      // A Stop during a relaunch that then failed: the stop is what the user
+      // asked for, so it is reported as theirs rather than as a failure.
+      final stopped = _relaunchStops.remove(vod.id);
+      onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key) || stopped);
     }
   }
+
+  /// Streamed VODs between a self-heal's exit and its relaunched process
+  /// being registered, with the exit code of the process the heal ended.
+  ///
+  /// The relaunch finds a port and starts a process, both awaited, and in
+  /// that gap nothing is in activePlayerProcesses - so a Stop found no
+  /// process, did nothing, and the relaunch went on to play the stream the
+  /// user had just stopped. A Stop in the gap is now recorded in
+  /// [_relaunchStops], which the relaunch checks before starting its process
+  /// and again once it is registered.
+  final Map<String, int> _vodsRelaunching = {};
+  final Set<String> _relaunchStops = {};
 
   Future<void> launchStreamlinkForLive(String channelName, bool isLive, String? streamTitle, String? game, AppSettings settings) async {
     final cleanChannel = channelName.toLowerCase().trim();
@@ -1780,7 +1838,12 @@ class PlayerService {
     if (channel == SeekChannel.none) return false;
     final duration = _apiService.parseDurationToSeconds(
         activePlayerDurations[vodId] ?? '');
-    await _seekPlayer(channel, port, seconds, duration, vodId);
+    // Only claimed once the player has acknowledged it: this used to log
+    // "Jumped" - and tell the user so - right after _seekPlayer had logged
+    // that it could not reach the player at all.
+    if (!await _seekPlayer(channel, port, seconds, duration, vodId)) {
+      return false;
+    }
     log(vodId, '[System] Jumped to ${seconds}s at your request.');
     return true;
   }
@@ -1793,7 +1856,10 @@ class PlayerService {
   ///
   /// Uses the same control channel the progress tracker already polls, so this
   /// needs no new plumbing and no new port.
-  Future<void> _seekPlayer(SeekChannel channel, int port, int target,
+  ///
+  /// Answers whether the player acknowledged the seek. Every way it can fail
+  /// is logged here, so a caller only has to decide what to claim.
+  Future<bool> _seekPlayer(SeekChannel channel, int port, int target,
       int durationSeconds, String logKey) async {
     try {
       if (channel == SeekChannel.mpvIpc) {
@@ -1802,32 +1868,51 @@ class PlayerService {
           log(logKey,
               '[System] Could not correct the playback position: the mpv '
               'progress bridge is not running.');
-          return;
+          return false;
         }
         // Waits for the bridge's reply (it closes once mpv has answered), so
-        // a caller that logs "jumped" afterwards is not guessing.
-        await exchangeWithMpv(
+        // a caller that logs "jumped" afterwards is not guessing. mpv
+        // answers every command with an "error" member; only "success" is
+        // a seek that happened, and no answer at all is none.
+        final replies = await exchangeWithMpv(
           () => Socket.connect('127.0.0.1', port,
               timeout: const Duration(seconds: 2)),
           commands: [mpvSeekCommand(target)],
           bridgeToken: token,
           timeout: const Duration(seconds: 2),
         );
-        return;
+        if (!replies.contains('"error":"success"')) {
+          log(logKey,
+              '[System] Could not correct the playback position: mpv did not '
+              'confirm the seek${replies.trim().isEmpty ? '' : ' (${replies.trim()})'}.');
+          return false;
+        }
+        return true;
       }
       final path = seekRequestPath(channel,
           targetSeconds: target, durationSeconds: durationSeconds);
-      if (path == null) return;
+      if (path == null) return false;
       final uri = Uri.parse('http://127.0.0.1:$port/$path');
+      final http.Response response;
       if (channel == SeekChannel.vlcHttp) {
         final auth = base64Encode(utf8.encode(':streamlink'));
-        await http.get(uri, headers: {'Authorization': 'Basic $auth'})
+        response = await http.get(uri, headers: {'Authorization': 'Basic $auth'})
             .timeout(const Duration(seconds: 2));
       } else {
-        await http.get(uri).timeout(const Duration(seconds: 2));
+        response = await http.get(uri).timeout(const Duration(seconds: 2));
       }
+      // A refusal (VLC's 401 for a wrong password, say) is an answer, not a
+      // seek.
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        log(logKey,
+            '[System] Could not correct the playback position: the player '
+            'answered HTTP ${response.statusCode}.');
+        return false;
+      }
+      return true;
     } catch (e) {
       log(logKey, '[System] Could not correct the playback position: $e');
+      return false;
     }
   }
 
@@ -1870,6 +1955,12 @@ class PlayerService {
     // own kill, so the exit handler relaunched the stream the user had just
     // stopped.
     _pendingVodRestarts.remove(key);
+    // ...and a relaunch already on its way up, which has no process yet for
+    // the kill below to find.
+    if (_vodsRelaunching.containsKey(key) &&
+        !activePlayerProcesses.containsKey(key)) {
+      _relaunchStops.add(key);
+    }
     await _forceKill(key, markUserInitiated: true);
   }
 
@@ -1914,7 +2005,11 @@ class PlayerService {
     downloadQueue.clear();
     queuedDownloadTasks.clear();
     downloadTaskFastDownloadOverrides.clear();
+    _queueTickets.clear();
     _downloadsAwaitingRetry.clear();
+    // A heal relaunch still on its way up must not start a player after
+    // this, or survive it if it already has.
+    _relaunchStops.addAll(_vodsRelaunching.keys);
 
     // A killed yt-dlp exits non-zero exactly like a failed one, so quitting or
     // updating with downloads running reported "Download failed" for each -
