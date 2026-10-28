@@ -398,6 +398,31 @@ void main() {
       expect(announced, hasLength(1));
       expect(announced.single.$2, [vodId]);
     });
+
+    test('two broadcast ends that join one first fetch find both VODs',
+        () async {
+      // Each refresh that joined the fetch put its own start in, so the
+      // second end's later start hid the first broadcast's VOD.
+      final first = twitch.now.subtract(const Duration(hours: 6));
+      final second = twitch.now.subtract(const Duration(hours: 2));
+      final older = twitch.addVideo('summit1g', publishedAt: first);
+      final newer = twitch.addVideo('summit1g', publishedAt: second);
+      final summit = FakeHelix.channel('summit1g');
+      final browser = browserFor();
+
+      twitch.holdVideos = Completer<void>();
+      final opening = browser.open(summit);
+      await settle();
+      final firstEnd = browser.refresh(endedBroadcastStart: first);
+      final secondEnd = browser.refresh(endedBroadcastStart: second);
+      twitch.holdVideos!.complete();
+      twitch.holdVideos = null;
+      await Future.wait([opening, firstEnd, secondEnd]);
+
+      expect(twitch.to('/helix/videos'), hasLength(1));
+      expect(announced, hasLength(1));
+      expect(announced.single.$2, [newer, older]);
+    });
   });
 
   group('prefetch', () {

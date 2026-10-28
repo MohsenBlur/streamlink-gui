@@ -227,9 +227,7 @@ class VodBrowserController extends ChangeNotifier {
       // was dropped here, and when that fetch was the channel's first one -
       // a broadcast ending while the channel was just being opened - its
       // list became the baseline and the VOD was never announced.
-      if (endedBroadcastStart != null) {
-        _firstPageAsk?.endedBroadcastStart = endedBroadcastStart;
-      }
+      _firstPageAsk?.lookFor(endedBroadcastStart);
       return running;
     }
     return _startFirstPage(
@@ -583,4 +581,17 @@ class _FirstPageAsk {
   /// The start of a broadcast that ended on the channel (see
   /// [NewVodDetector.observe]).
   DateTime? endedBroadcastStart;
+
+  /// One more ended broadcast to look for; the earliest start is kept. On a
+  /// channel's first list everything dated from that start on is announced,
+  /// so the earliest covers each broadcast that ended while the fetch was
+  /// out. The latest used to win, and two ends inside one fetch announced
+  /// only the second one's VOD.
+  void lookFor(DateTime? start) {
+    if (start == null) return;
+    final current = endedBroadcastStart;
+    if (current == null || start.isBefore(current)) {
+      endedBroadcastStart = start;
+    }
+  }
 }
