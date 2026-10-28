@@ -444,7 +444,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       // This pass renders nothing, so the per-VOD game lookup is pure
       // overhead. It runs for every auto-download channel every minute.
       fetchGames: false,
+      // Positions only for the VODs it would queue (readWatchProgress).
+      fetchWatchProgress: false,
     ),
+    readWatchProgress: (vods) => _apiService.fetchWatchProgressFor(
+      vods: vods,
+      settings: _settings,
+      localVodsProgress: _localVodsProgress,
+    ),
+    clock: _services.clock,
     localProgress: () => _localVodsProgress,
     isVodHandled: (vodId) =>
         _downloadedVodsRegistry.containsKey(vodId) ||

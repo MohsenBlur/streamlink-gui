@@ -25,14 +25,18 @@ class AutomationService {
     required this.playLive,
     required this.stopLive,
     required this.fetchVods,
+    required this.readWatchProgress,
     required this.localProgress,
     required this.isVodHandled,
     required this.wasDownloaded,
     required this.queueDownload,
     required this.showNotification,
     this.onVodsFetched,
+    this.allPositionsEvery = const Duration(minutes: 30),
+    DateTime Function()? clock,
     void Function(String message)? log,
-  }) : _log = log ?? print;
+  })  : _now = clock ?? DateTime.now,
+        _log = log ?? print;
 
   /// The favourites, in the user's order.
   final List<TwitchChannel> Function() favorites;
@@ -54,8 +58,20 @@ class AutomationService {
   final void Function(String channel) stopLive;
 
   /// One page of [channel]'s VODs, newest first. The pass renders nothing,
-  /// so the app fetches these without per-VOD game names.
+  /// so the app fetches these without per-VOD game names - and without the
+  /// browser token's watch positions, which [readWatchProgress] reads for
+  /// the VODs that need them.
   final Future<VodsFetchResult> Function(TwitchChannel channel) fetchVods;
+
+  /// Reads the browser token's watch positions into [vods], merging in the
+  /// local ones as [fetchVods] does: one GQL request per VOD.
+  final Future<void> Function(List<TwitchVideo> vods) readWatchProgress;
+
+  /// How often the pass reads every VOD's position, not only those of the
+  /// VODs it would queue (see [_selectWithPositions]).
+  final Duration allPositionsEvery;
+
+  final DateTime Function() _now;
 
   /// Locally recorded watch positions by VOD id, in seconds.
   final Map<String, int> Function() localProgress;
@@ -90,6 +106,10 @@ class AutomationService {
 
   /// Lowercased channel -> the session key last auto-played for it.
   final Map<String, String> _playedSessions = {};
+
+  /// Lowercased channel -> when the pass last read every one of its VODs'
+  /// positions.
+  final Map<String, DateTime> _allPositionsReadAt = {};
 
   bool _passRunning = false;
 
@@ -222,12 +242,16 @@ class AutomationService {
 
         if (result.vods.isEmpty) continue;
 
-        final selected = selectVodsToAutoDownload(
-          channel: channel,
-          vods: result.vods,
-          localProgress: localProgress(),
-          settings: settings(),
-          isAlreadyHandled: (id) => isVodHandled(id) || wasDownloaded(id),
+        final selected = await _selectWithPositions(
+          channel,
+          result.vods,
+          () => selectVodsToAutoDownload(
+            channel: channel,
+            vods: result.vods,
+            localProgress: localProgress(),
+            settings: settings(),
+            isAlreadyHandled: (id) => isVodHandled(id) || wasDownloaded(id),
+          ),
         );
 
         for (final vod in selected) {
@@ -257,6 +281,43 @@ class AutomationService {
       } catch (e) {
         _log('[Auto-Download Error] Failed for @${channel.username}: $e');
       }
+    }
+  }
+
+  /// What [select] picks from [vods] once the VODs it picks have their
+  /// watch positions from Twitch.
+  ///
+  /// The pass read every VOD's position, one GQL request each, for every
+  /// auto-download favourite every minute - though a VOD it will not queue
+  /// (on disk, downloaded once, outside the window) needs none. Now it reads
+  /// only those it would queue, and again for any the window moves onto
+  /// when one of them turns out watched: each VOD it queues has had its own
+  /// position read this pass, as before, and a pass with nothing to queue
+  /// sends no request at all. A VOD watched on Twitch rather than in the app moves
+  /// the window too, though, so every [allPositionsEvery] - and on the first
+  /// pass - every VOD's position is read, as before.
+  Future<List<TwitchVideo>> _selectWithPositions(
+    TwitchChannel channel,
+    List<TwitchVideo> vods,
+    List<TwitchVideo> Function() select,
+  ) async {
+    final key = channel.username.toLowerCase().trim();
+    final now = _now();
+    final readAll = _allPositionsReadAt[key];
+    if (readAll == null || now.difference(readAll) >= allPositionsEvery) {
+      await readWatchProgress(vods);
+      _allPositionsReadAt[key] = now;
+      return select();
+    }
+    final read = <String>{};
+    while (true) {
+      final selected = select();
+      final unread = [
+        for (final vod in selected)
+          if (read.add(vod.id)) vod,
+      ];
+      if (unread.isEmpty) return selected;
+      await readWatchProgress(unread);
     }
   }
 }

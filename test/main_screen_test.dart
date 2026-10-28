@@ -868,6 +868,39 @@ void main() {
       await h.close(tester);
     });
 
+    testWidgets(
+        'reads watch positions from Twitch only for what it would download',
+        (tester) async {
+      // One GQL request per VOD on the page, every minute, for every
+      // auto-download favourite with a browser token.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final ids = [
+        for (var day = 3; day >= 1; day--)
+          h.helix.addVideo('alpha',
+              publishedAt: h.helix.now.subtract(Duration(days: day))),
+      ];
+      int lookups() => [
+            for (final r in h.helix.requests)
+              if (r.url.path == '/gql' && r.body.contains('viewingHistory')) r,
+          ].length;
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo()
+            ..twitchWebOauthToken = 'oauth:browser-token',
+          config: {
+            // The oldest, the one VOD in the window, was downloaded already.
+            'download_history': {ids.first: h.helix.now.millisecondsSinceEpoch},
+          });
+      expect(lookups(), 3, reason: 'the first pass reads every one');
+
+      await h.advance(tester, const Duration(minutes: 5));
+      expect(lookups(), 3, reason: 'five passes with nothing to download');
+      expect(h.launcher.launched, isEmpty);
+
+      await h.close(tester);
+    });
+
     testWidgets('Download by hand still fetches a VOD the pass leaves alone',
         (tester) async {
       final h = ScreenHarness();

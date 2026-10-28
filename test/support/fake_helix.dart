@@ -36,6 +36,11 @@ class FakeHelix {
   /// helix/videos answers 500 while set.
   bool failVideos = false;
 
+  /// How far into each VOD, by id, the browser token's account has watched,
+  /// in seconds: what the GQL viewingHistory query answers. None for a VOD
+  /// not listed.
+  final Map<String, int> watchPositions = <String, int>{};
+
   /// When set, helix/videos waits for it before answering.
   Completer<void>? holdVideos;
 
@@ -236,8 +241,22 @@ class FakeHelix {
         if (failVideos) return _json({'error': 'oops'}, status: 500);
         return _videosPage(request.url.queryParameters);
       case '/gql':
-        // Chapter (games) lookups; watch progress needs a browser token, and
-        // the tests have none.
+        if (request.body.contains('viewingHistory')) {
+          final videoId =
+              (json.decode(request.body) as Map)['variables']?['videoID'];
+          final position = watchPositions[videoId];
+          return _json({
+            'data': {
+              'video': {
+                'self': {
+                  'viewingHistory':
+                      position == null ? null : {'position': position},
+                },
+              },
+            },
+          });
+        }
+        // Chapter (games) lookups.
         return _json({
           'data': {
             'video': {

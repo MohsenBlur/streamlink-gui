@@ -11,6 +11,8 @@ import 'package:streamlink_gui/services/twitch_api_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
 
+import 'support/fake_helix.dart' show FakeHelix;
+
 /// TwitchApiService against a scripted Twitch.
 ///
 /// The service had no behavioural tests at all: it appeared in the suite only
@@ -1116,6 +1118,77 @@ void main() {
 
       gate.complete();
       await pending;
+    });
+  });
+
+  group('watch positions read after the page', () {
+    // The auto-download pass fetches its page without them and reads them
+    // for the VODs it would queue; what it reads must be exactly what the
+    // page would have carried.
+    final withBrowserToken = AppSettings(
+      twitchOauthToken: 'oauth:account-token',
+      twitchWebOauthToken: 'oauth:browser-token',
+    );
+
+    test('come out as the fetch that read them would have', () async {
+      final twitch = FakeHelix();
+      final watched = twitch.addVideo('a');
+      final localOnly = twitch.addVideo('a');
+      final both = twitch.addVideo('a');
+      final neither = twitch.addVideo('a');
+      twitch.watchPositions
+        ..[watched] = 1800
+        ..[both] = 300;
+      final local = {localOnly: 600, both: 900};
+      final api = twitch.service();
+
+      final fullLocal = Map<String, int>.of(local);
+      final full = await api.fetchVodsForChannel(
+          channel: FakeHelix.channel('a'),
+          settings: withBrowserToken,
+          localVodsProgress: fullLocal,
+          fetchGames: false);
+
+      twitch.requests.clear();
+      final lateLocal = Map<String, int>.of(local);
+      final page = await api.fetchVodsForChannel(
+          channel: FakeHelix.channel('a'),
+          settings: withBrowserToken,
+          localVodsProgress: lateLocal,
+          fetchGames: false,
+          fetchWatchProgress: false);
+      expect(twitch.to('/gql'), isEmpty);
+      final expired = await api.fetchWatchProgressFor(
+          vods: page.vods,
+          settings: withBrowserToken,
+          localVodsProgress: lateLocal);
+
+      expect(expired, isFalse);
+      expect(twitch.to('/gql'), hasLength(4), reason: 'one per VOD asked for');
+      expect([for (final v in page.vods) (v.id, v.watchPosition, v.watchProgress)],
+          [for (final v in full.vods) (v.id, v.watchPosition, v.watchProgress)]);
+      expect(lateLocal, fullLocal);
+      expect(lateLocal[watched], 1800);
+      expect(lateLocal[both], 900, reason: 'the further of the two');
+      expect(lateLocal.containsKey(neither), isFalse);
+    });
+
+    test('ask nothing without a browser token', () async {
+      final twitch = FakeHelix();
+      twitch.addVideo('a');
+      final api = twitch.service();
+      final page = await api.fetchVodsForChannel(
+          channel: FakeHelix.channel('a'),
+          settings: FakeHelix.settings,
+          localVodsProgress: {},
+          fetchGames: false,
+          fetchWatchProgress: false);
+      twitch.requests.clear();
+      await api.fetchWatchProgressFor(
+          vods: page.vods,
+          settings: FakeHelix.settings,
+          localVodsProgress: {});
+      expect(twitch.requests, isEmpty);
     });
   });
 }
