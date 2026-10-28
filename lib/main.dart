@@ -3,13 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:system_tray/system_tray.dart';
 import 'package:local_notifier/local_notifier.dart';
+
+import 'app_services.dart';
 
 import 'models/app_settings.dart';
 import 'models/twitch_channel.dart';
 import 'models/twitch_video.dart';
 import 'services/crash_log.dart';
+import 'services/desktop_shell.dart';
 import 'services/native_window.dart';
 import 'services/storage_service.dart';
 import 'state/twitch_auth_notifier.dart';
@@ -325,13 +327,21 @@ Future<void> _checkWindowAfterFirstFrame({
 }
 
 class TwitchStreamlinkApp extends StatefulWidget {
-  const TwitchStreamlinkApp({super.key, this.startup, this.startHidden = false});
+  const TwitchStreamlinkApp({
+    super.key,
+    this.startup,
+    this.startHidden = false,
+    this.services,
+  });
 
   /// The config as main() read it, for the first load.
   final StartupConfig? startup;
 
   /// The window starts hidden to the tray.
   final bool startHidden;
+
+  /// See [MainScreen.services].
+  final AppServices? services;
 
   @override
   State<TwitchStreamlinkApp> createState() => _TwitchStreamlinkAppState();
@@ -370,6 +380,7 @@ class _TwitchStreamlinkAppState extends State<TwitchStreamlinkApp> {
             startup: widget.startup,
             startHidden: widget.startHidden,
             shellPulse: _shellPulse,
+            services: widget.services,
           ),
         );
       },
@@ -383,6 +394,7 @@ class MainScreen extends StatefulWidget {
     this.startup,
     this.startHidden = false,
     this.shellPulse,
+    this.services,
   });
 
   /// The config main() read at startup. Used by the first load only.
@@ -395,6 +407,9 @@ class MainScreen extends StatefulWidget {
   /// [_TwitchStreamlinkAppState._shellPulse].
   final ProxyAnimation? shellPulse;
 
+  /// What the screen talks to outside itself; the real ones when null.
+  final AppServices? services;
+
   bool get isFirstRun => startup?.isFirstRun ?? false;
 
   @override
@@ -402,10 +417,14 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, WindowListener {
-  // Services
-  final StorageService _storageService = StorageService();
-  final TwitchApiService _apiService = TwitchApiService();
-  final PlayerService _playerService = PlayerService();
+  // Services (see AppServices). Late, so they are read from the widget once
+  // it is mounted.
+  late final AppServices _services = widget.services ?? AppServices();
+  late final StorageService _storageService = _services.storage;
+  late final TwitchApiService _apiService = _services.api;
+  late final PlayerService _playerService = _services.player;
+  late final AppWindow _window = _services.window;
+  late final AppNotifications _notifications = _services.notifications;
 
   // Logging
   final LogNotifier _logNotifier = LogNotifier();
@@ -432,7 +451,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _isAdding = false;
   
   AppSettings _settings = AppSettings();
-  final SystemTray _systemTray = SystemTray();
+  late final AppTray _systemTray = _services.tray;
   Set<String> get _previouslyLiveFavoriteUsernames => _channelsCtl.liveFavorites;
   
   Timer? _favoritesLiveCheckTimer;
@@ -607,7 +626,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       overrideDisablePostProcessing: overrideDisablePostProcessing,
     ),
     showNotification: (title, body) =>
-        LocalNotification(title: title, body: body, silent: false).show(),
+        _notifications.show(AppNotification(title: title, body: body)),
     // What this pass already paid for reaches the VOD cache and, for the
     // open channel, the grid (VodBrowserController.ingest). It used to be
     // thrown away every minute. These lists skipped the game lookup, hence
@@ -625,7 +644,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   void initState() {
     super.initState();
     _windowVisible = !widget.startHidden;
-    windowManager.addListener(this);
+    _window.addListener(this);
     // A second launch hands over to this instance (windows/runner): the
     // runner has already shown or restored the window, re-shown its content
     // and taken the foreground by the time this arrives, so nothing here may
@@ -634,7 +653,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       if (call.method == 'activate') {
         await _syncWindowVisible();
         try {
-          await windowManager.focus();
+          await _window.focus();
         } catch (_) {}
       }
       return null;
@@ -926,7 +945,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     await _saveChannels();
     if (configured != null) {
       if (_settings.launchAtStartup) {
-        StartupService().sync(true);
+        _services.startup.sync(true);
       }
       if (_settings.twitchOauthToken.trim().isNotEmpty) {
         _loadFollowedChannels();
@@ -936,7 +955,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Future<void> _checkForAppUpdates() async {
     try {
-      final updateService = UpdateService();
+      final updateService = _services.updates;
       final updateInfo = await updateService.checkForUpdates();
       if (updateInfo != null && updateInfo.isUpdateAvailable && mounted) {
         _showUpdatePromptDialog(updateInfo);
@@ -1059,7 +1078,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
 
     Future.microtask(() async {
-      final updateService = UpdateService();
+      final updateService = _services.updates;
       Directory? extractDir;
       var updaterStarting = false;
       var handedOver = false;
@@ -1233,7 +1252,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   @override
   void dispose() {
-    windowManager.removeListener(this);
+    _window.removeListener(this);
     _singleInstanceChannel.setMethodCallHandler(null);
     // Detached before the controller goes: the proxy outlives this screen.
     widget.shellPulse?.parent = kAlwaysCompleteAnimation;
@@ -1272,18 +1291,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   String? _traySignature;
 
   Future<void> _initSystemTray() async {
-    await _systemTray.initSystemTray(
+    await _systemTray.init(
       title: "Twitch Streamlink GUI",
       iconPath: 'assets/app_icon.ico',
       toolTip: "Twitch Streamlink GUI",
     );
     await _rebuildTrayMenu();
 
-    _systemTray.registerSystemTrayEventHandler((eventName) {
-      if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
+    _systemTray.onEvent((event) {
+      if (event == TrayEvent.click || event == TrayEvent.doubleClick) {
         _showWindow();
-      } else if (eventName == kSystemTrayEventRightClick) {
-        _systemTray.popUpContextMenu();
+      } else if (event == TrayEvent.rightClick) {
+        _systemTray.popUpMenu();
       }
     });
   }
@@ -1297,27 +1316,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _traySignature = signature;
 
     try {
-      final menu = Menu();
-      await menu.buildFrom([
+      await _systemTray.setMenu([
         for (final name in liveNames)
-          MenuItemLabel(
-            label: 'Watch $name',
-            onClicked: (menuItem) => _launchTrayChannel(name),
-          ),
-        if (liveNames.isNotEmpty) MenuSeparator(),
-        MenuItemLabel(label: 'Show App', onClicked: (menuItem) => _showWindow()),
-        MenuItemLabel(label: 'Hide App', onClicked: (menuItem) => _hideWindow()),
-        MenuItemLabel(
-          label: 'Open Library',
-          onClicked: (menuItem) async {
-            await _showWindow();
-            _openLibrary();
-          },
-        ),
-        MenuSeparator(),
-        MenuItemLabel(label: 'Exit', onClicked: (menuItem) => _handleAppExitRequest()),
+          TrayMenuEntry('Watch $name', () => _launchTrayChannel(name)),
+        if (liveNames.isNotEmpty) const TrayMenuEntry.separator(),
+        TrayMenuEntry('Show App', _showWindow),
+        TrayMenuEntry('Hide App', _hideWindow),
+        TrayMenuEntry('Open Library', () async {
+          await _showWindow();
+          _openLibrary();
+        }),
+        const TrayMenuEntry.separator(),
+        TrayMenuEntry('Exit', _handleAppExitRequest),
       ]);
-      await _systemTray.setContextMenu(menu);
       await _systemTray.setToolTip(
         liveNames.isEmpty
             ? 'Twitch Streamlink GUI'
@@ -1488,7 +1499,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
     steps.mark('saved');
 
-    windowManager.removeListener(this);
+    _window.removeListener(this);
     _singleInstanceChannel.setMethodCallHandler(null);
     SessionEnd.stopListening();
     try {
@@ -1497,7 +1508,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     steps.mark('tray destroyed');
 
     log?.milestone('[exit] saved and stopped; closing');
-    await windowManager.destroy();
+    await _window.destroy();
   }
 
   /// The longest quitting or updating waits for players and downloads to end.
@@ -1571,10 +1582,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Future<void> _showWindow() async {
     _windowHiddenByUser = false;
     try {
-      await NativeWindow.show();
+      await _window.showNative();
     } catch (_) {
-      await windowManager.show();
-      await windowManager.focus();
+      await _window.show();
+      await _window.focus();
     }
   }
 
@@ -1582,7 +1593,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// App. Marked first, so the check after the first frame leaves it hidden.
   Future<void> _hideWindow() async {
     _windowHiddenByUser = true;
-    await windowManager.hide();
+    await _window.hide();
   }
 
   /// Whether the window is on screen, which gates the pulse.
@@ -1600,8 +1611,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Future<void> _syncWindowVisible() async {
     bool visible;
     try {
-      visible = await windowManager.isVisible() &&
-          !await windowManager.isMinimized();
+      visible = await _window.isVisible() && !await _window.isMinimized();
     } catch (_) {
       return;
     }
@@ -1654,7 +1664,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _windowSaveTimer?.cancel();
     _windowSaveTimer = null;
     try {
-      final state = await NativeWindow.state();
+      final state = await _window.state();
       // Minimized, there is nothing new to say: the normal bounds are what
       // they were, and "maximized" is not readable until it is restored.
       if (state == null || state.minimized) return false;
@@ -1693,7 +1703,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   @override
   void onWindowClose() async {
-    final isPreventClose = await windowManager.isPreventClose();
+    final isPreventClose = await _window.isPreventClose();
     if (!isPreventClose) return;
     // Already quitting, for Exit or for an update, or handing over to the
     // updater (see _handingOverToUpdater). The updater closes the window of
@@ -1726,13 +1736,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _settings.trayNoticeShown = true;
     await _saveChannels();
     try {
-      final notification = LocalNotification(
+      await _notifications.show(AppNotification(
         title: 'Still running in the tray',
         body:
             'Twitch Streamlink GUI keeps monitoring your favorites. Right-click the tray icon and choose Exit to quit for real. You can change the close behavior in Settings.',
         silent: true,
-      );
-      await notification.show();
+      ));
     } catch (_) {}
   }
 
@@ -2266,12 +2275,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     settings: () => _settings,
     favorites: _channels,
     selected: () => _selectedChannel,
+    clock: _services.clock,
   );
 
   late final VodBrowserController _vodBrowser = VodBrowserController(
     api: _apiService,
     settings: () => _settings,
     localProgress: () => _localVodsProgress,
+    clock: _services.clock,
   );
 
   /// Debounces the window's show, restore and focus events.
@@ -2394,25 +2405,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       try {
         final gameText = channel.game ?? 'Twitch';
         final titleText = channel.streamTitle ?? 'Streaming Live!';
-        final notification = LocalNotification(
+        await _notifications.show(AppNotification(
           title: '${channel.username} is now LIVE!',
           body: 'Playing $gameText\n$titleText',
-          silent: false,
-        );
-        notification.onClick = () async {
-          await _showWindow();
-          if (!mounted) return;
-          _selectChannel(channel);
+          onClick: () async {
+            await _showWindow();
+            if (!mounted) return;
+            _selectChannel(channel);
 
-          _playerService.launchStreamlinkForLive(
-            channel.username,
-            channel.isLive,
-            channel.streamTitle,
-            channel.game,
-            _settings,
-          );
-        };
-        await notification.show();
+            _playerService.launchStreamlinkForLive(
+              channel.username,
+              channel.isLive,
+              channel.streamTitle,
+              channel.game,
+              _settings,
+            );
+          },
+        ));
       } catch (e) {
         print('[Favorites Notification] Error displaying desktop toast: $e');
       }
@@ -2443,18 +2452,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   Future<void> _announceNewVods(String name, List<TwitchVideo> vods) async {
     try {
       final more = vods.length - 1;
-      final notification = LocalNotification(
+      await _notifications.show(AppNotification(
         title: 'New VOD from $name',
         body: more > 0 ? '${vods.first.title}\n+$more more' : vods.first.title,
-        silent: false,
-      );
-      notification.onClick = () async {
-        await _showWindow();
-        if (!mounted) return;
-        final index = _channels.indexWhere((c) => c.username == name);
-        if (index != -1) _selectChannel(_channels[index]);
-      };
-      await notification.show();
+        onClick: () async {
+          await _showWindow();
+          if (!mounted) return;
+          final index = _channels.indexWhere((c) => c.username == name);
+          if (index != -1) _selectChannel(_channels[index]);
+        },
+      ));
     } catch (e) {
       print('[New VOD Notification] Error displaying desktop toast: $e');
     }
@@ -2810,8 +2817,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// is shown to nobody - and auto-play and auto-download run precisely then.
   Future<bool> _windowIsHidden() async {
     try {
-      if (!await windowManager.isVisible()) return true;
-      return await windowManager.isMinimized();
+      if (!await _window.isVisible()) return true;
+      return await _window.isMinimized();
     } catch (_) {
       // Unknown: prefer the OS notification over silence.
       return true;
@@ -2821,7 +2828,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// Raises an OS notification, ignoring a platform that refuses.
   Future<void> _notify(String title, String body, {bool silent = false}) async {
     try {
-      await LocalNotification(title: title, body: body, silent: silent).show();
+      await _notifications
+          .show(AppNotification(title: title, body: body, silent: silent));
     } catch (_) {}
   }
 
@@ -3007,6 +3015,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       openExternalLink: _openExternalLink,
       onClearWatchHistory: _clearWatchProgress,
       onOpenLogs: () => LogViewerDialog.show(context, logs: _logNotifier),
+      apiService: _apiService,
       // Stash it; the prompt is offered AFTER the dialog closes. The old
       // post-frame callback fired while Settings was still open and stacked
       // the prompt behind the modal.
@@ -3054,7 +3063,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         if (tokenChanged) _channelsCtl.clearFollowed();
 
         if (startupChanged) {
-          StartupService().sync(_settings.launchAtStartup);
+          _services.startup.sync(_settings.launchAtStartup);
         }
         // The tray menu preference may have flipped; the signature gate makes
         // this a no-op otherwise.

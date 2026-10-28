@@ -45,6 +45,30 @@ class FakeHelix {
   /// When set, helix/channels/followed waits for it before answering.
   Completer<void>? holdFollowed;
 
+  /// Tokens Twitch refuses, without the `oauth:` prefix: `/oauth2/validate`
+  /// and every Helix endpoint answer 401. Every other token is valid, with
+  /// the followed-list scope, minted by [validClientId].
+  final Set<String> revokedTokens = <String>{};
+
+  /// The account each token belongs to; 'viewer' for any not listed.
+  final Map<String, String> tokenLogins = <String, String>{};
+
+  /// When set, `/oauth2/validate` waits for it before answering.
+  Completer<void>? holdValidate;
+
+  /// When set, helix/users waits for it before answering.
+  Completer<void>? holdUsers;
+
+  /// The Client ID `/oauth2/validate` says a valid token was minted by:
+  /// Twitch's public client, which is what a blank Client ID field sends.
+  String validClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+  /// The token each `/oauth2/validate` probe carried, in order.
+  List<String> get validatedTokens => [
+        for (final r in to('/oauth2/validate'))
+          (r.headers['Authorization'] ?? '').replaceFirst('OAuth ', ''),
+      ];
+
   int _nextId = 1000;
   int _nextVideo = 1;
 
@@ -140,8 +164,29 @@ class FakeHelix {
     requests.add(request);
     final path = request.url.path;
     final query = request.url.queryParametersAll;
+    final bearer =
+        (request.headers['Authorization'] ?? '').replaceFirst('Bearer ', '');
+    if (path.startsWith('/helix/') && revokedTokens.contains(bearer)) {
+      return _json({'error': 'Unauthorized', 'status': 401}, status: 401);
+    }
     switch (path) {
+      case '/oauth2/validate':
+        if (holdValidate != null) await holdValidate!.future;
+        final token =
+            (request.headers['Authorization'] ?? '').replaceFirst('OAuth ', '');
+        if (revokedTokens.contains(token)) {
+          return _json({'status': 401, 'message': 'invalid access token'},
+              status: 401);
+        }
+        return _json({
+          'client_id': validClientId,
+          'login': tokenLogins[token] ?? 'viewer',
+          'user_id': '999',
+          'scopes': ['user:read:follows'],
+          'expires_in': 5000000,
+        });
       case '/helix/users':
+        if (holdUsers != null) await holdUsers!.future;
         final ids = query['id'] ?? const <String>[];
         final logins = query['login'] ?? const <String>[];
         if (ids.isEmpty && logins.isEmpty) {
