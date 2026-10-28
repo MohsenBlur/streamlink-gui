@@ -37,7 +37,21 @@ class Win32Window {
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
   // Show the current window. Returns true if the window was successfully shown.
+  // Uses the first-show command (see SetFirstShowCommand).
   bool Show();
+
+  // The ShowWindow command the window is first shown with: SW_SHOWNORMAL, or
+  // SW_SHOWMAXIMIZED when the restored placement was maximized. Maximizing is
+  // part of the show rather than a step after it, so a window restored
+  // maximized never appears at its normal size first - and a maximize that
+  // ran before the show could not survive it, because SW_SHOWNORMAL restores.
+  void SetFirstShowCommand(int command) { first_show_command_ = command; }
+  int first_show_command() const { return first_show_command_; }
+
+  // Whether the frame has been visible at any point. Tracked from the window's
+  // own messages, so a show by any route counts: the first-frame Show(), a
+  // plugin's ShowWindow, a second launch.
+  bool HasBeenShown() const { return has_been_shown_; }
 
   // Release OS resources associated with window.
   void Destroy();
@@ -81,6 +95,10 @@ class Win32Window {
   // subclass can repaint a surface that was presented while it was hidden.
   virtual void OnChildContentReshown();
 
+  // The hosted content, or nullptr before SetChildContent and after
+  // ForgetChildContent.
+  HWND GetChildContent() const { return child_content_; }
+
   // Forgets the hosted content without touching it. For the content's owner
   // to call before destroying it, so that no message handled during or after
   // that teardown acts on a dead HWND.
@@ -106,6 +124,9 @@ class Win32Window {
   static void UpdateTheme(HWND const window);
 
   bool quit_on_close_ = false;
+
+  int first_show_command_ = SW_SHOWNORMAL;
+  bool has_been_shown_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

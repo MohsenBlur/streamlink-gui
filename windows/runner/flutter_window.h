@@ -7,6 +7,7 @@
 #include <flutter/method_channel.h>
 
 #include <memory>
+#include <optional>
 
 #include "win32_window.h"
 
@@ -33,6 +34,36 @@ class FlutterWindow : public Win32Window {
   // Handles single_instance::ActivateMessage(): a second launch asked this
   // instance to come forward.
   void ActivateForSecondInstance();
+
+  // Shows the window the way it should come back: a first show uses the
+  // restored placement's command (maximized included), a minimized window is
+  // restored, a hidden one shown. Then re-asserts the content view and takes
+  // the foreground.
+  void BringToFront();
+
+  // Shows the frame for the first time (the first-frame callback, or a later
+  // summons when the app started hidden) and puts it back on the restored
+  // bounds if showing it moved it. See ApplyInitialPlacement.
+  void ShowFirstTime();
+
+  // Handles "setInitialPlacement" on the window channel: moves the still
+  // hidden frame to the bounds the Dart side restored, and records how the
+  // first show should present it. Returns the resulting window state.
+  flutter::EncodableValue ApplyInitialPlacement(
+      const flutter::EncodableMap& args);
+
+  // Dart-to-native window geometry ("streamlink_gui/window"): monitors in
+  // physical pixels, the restorable window state, the initial placement and
+  // a placement-aware show. Uses the engine's messenger, so it must be
+  // released before flutter_controller_.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      window_channel_;
+
+  // The bounds the Dart side restored, held until the first show. Windows can
+  // defer the DPI change of a hidden window that moved monitors until it is
+  // shown, and the WM_DPICHANGED that follows rescales the frame; the first
+  // show then puts it back.
+  std::optional<RECT> initial_bounds_;
 
   // The project to run.
   flutter::DartProject project_;

@@ -3,9 +3,12 @@
 #include <flutter/standard_method_codec.h>
 
 #include <optional>
+#include <string>
+#include <variant>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "single_instance.h"
+#include "window_placement.h"
 
 namespace {
 
@@ -13,6 +16,36 @@ namespace {
 // is read, after a second launch has brought this window forward.
 constexpr char kInstanceChannelName[] = "streamlink_gui/single_instance";
 constexpr char kActivateMethod[] = "activate";
+
+// Dart -> native window geometry; see lib/services/native_window.dart.
+constexpr char kWindowChannelName[] = "streamlink_gui/window";
+
+// An integer argument, whichever width the codec chose for it.
+std::optional<LONG> GetInt(const flutter::EncodableMap& args, const char* key) {
+  auto it = args.find(flutter::EncodableValue(key));
+  if (it == args.end()) {
+    return std::nullopt;
+  }
+  if (const auto* value = std::get_if<int32_t>(&it->second)) {
+    return static_cast<LONG>(*value);
+  }
+  if (const auto* value = std::get_if<int64_t>(&it->second)) {
+    return static_cast<LONG>(*value);
+  }
+  if (const auto* value = std::get_if<double>(&it->second)) {
+    return static_cast<LONG>(*value);
+  }
+  return std::nullopt;
+}
+
+bool GetBool(const flutter::EncodableMap& args, const char* key) {
+  auto it = args.find(flutter::EncodableValue(key));
+  if (it == args.end()) {
+    return false;
+  }
+  const auto* value = std::get_if<bool>(&it->second);
+  return value != nullptr && *value;
+}
 
 }  // namespace
 
@@ -55,17 +88,46 @@ bool FlutterWindow::OnCreate() {
           &flutter::StandardMethodCodec::GetInstance());
   single_instance::MarkMainWindow(GetHandle());
 
+  window_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), kWindowChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  window_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const std::string& method = call.method_name();
+        if (method == "getMonitors") {
+          result->Success(
+              flutter::EncodableValue(window_placement::DescribeMonitors()));
+        } else if (method == "getPlacement") {
+          result->Success(flutter::EncodableValue(
+              window_placement::DescribeWindow(GetHandle(), GetChildContent())));
+        } else if (method == "setInitialPlacement") {
+          const auto* args =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          result->Success(
+              ApplyInitialPlacement(args ? *args : flutter::EncodableMap()));
+        } else if (method == "show") {
+          BringToFront();
+          result->Success();
+        } else {
+          result->NotImplemented();
+        }
+      });
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     // Re-assert the content view's visibility before the frame appears:
     // showing only the frame is how the window came up empty. See
     // Win32Window's WM_WINDOWPOSCHANGED handler.
     ShowChildContentIfHidden();
 
-    // --start-minimized: stay hidden; the Dart side also skips its show(), so
-    // the window only appears when summoned from the tray (or by a second
-    // launch, see ActivateForSecondInstance).
+    // --start-minimized (or the Start minimized setting, which the Dart side
+    // passes with the initial placement): stay hidden, so the window only
+    // appears when summoned from the tray (or by a second launch, see
+    // ActivateForSecondInstance).
     if (!start_hidden_) {
-      this->Show();
+      ShowFirstTime();
     }
   });
 
@@ -80,8 +142,9 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   // No window geometry is saved here: the Dart side owns it (see main.cpp).
 
-  // The channel talks through the engine's messenger, so it goes first.
+  // The channels talk through the engine's messenger, so they go first.
   instance_channel_ = nullptr;
+  window_channel_ = nullptr;
 
   if (flutter_controller_) {
     // The engine is about to destroy the view HWND, so stop tracking it first.
@@ -112,15 +175,34 @@ void FlutterWindow::OnChildContentReshown() {
 }
 
 void FlutterWindow::ActivateForSecondInstance() {
+  if (GetHandle() == nullptr) {
+    return;
+  }
+
+  BringToFront();
+
+  // This show bypassed Dart, which keeps its own visibility bookkeeping (the
+  // tray state, the live pulse), so tell it.
+  if (instance_channel_) {
+    instance_channel_->InvokeMethod(kActivateMethod, nullptr);
+  }
+}
+
+void FlutterWindow::BringToFront() {
   HWND window = GetHandle();
   if (window == nullptr) {
     return;
   }
 
-  // Restore only a minimized window. SW_RESTORE on a maximized one restores
-  // it to its normal size, which the previous unconditional SW_SHOW +
-  // SW_RESTORE did to every maximized window summoned from the tray.
-  if (::IsIconic(window)) {
+  if (!HasBeenShown()) {
+    // Started hidden: the first appearance is the one the restored placement
+    // planned, maximized included. A plain SW_SHOW would bring a window that
+    // was saved maximized back at its normal size.
+    ShowFirstTime();
+  } else if (::IsIconic(window)) {
+    // Restore only a minimized window. SW_RESTORE on a maximized one restores
+    // it to its normal size, which the previous unconditional SW_SHOW +
+    // SW_RESTORE did to every maximized window summoned from the tray.
     ::ShowWindow(window, SW_RESTORE);
   } else if (!::IsWindowVisible(window)) {
     ::ShowWindow(window, SW_SHOW);
@@ -132,12 +214,69 @@ void FlutterWindow::ActivateForSecondInstance() {
   // same empty frame forward.
   ShowChildContentIfHidden();
   ::SetForegroundWindow(window);
+}
 
-  // This show bypassed Dart, which keeps its own visibility bookkeeping (the
-  // tray state, the live pulse), so tell it.
-  if (instance_channel_) {
-    instance_channel_->InvokeMethod(kActivateMethod, nullptr);
+void FlutterWindow::ShowFirstTime() {
+  HWND window = GetHandle();
+  Show();
+  // A hidden window that moved to a monitor with a different DPI can get its
+  // WM_DPICHANGED only now, and that handler rescales the frame by the DPI
+  // ratio. Put it back where it was restored; a maximized frame is already
+  // where it belongs, and its normal bounds were set while hidden.
+  if (initial_bounds_ && window != nullptr && !::IsZoomed(window)) {
+    RECT now{};
+    ::GetWindowRect(window, &now);
+    if (!::EqualRect(&now, &*initial_bounds_)) {
+      window_placement::MoveExactly(window, *initial_bounds_);
+    }
   }
+  initial_bounds_.reset();
+}
+
+flutter::EncodableValue FlutterWindow::ApplyInitialPlacement(
+    const flutter::EncodableMap& args) {
+  HWND window = GetHandle();
+  if (window == nullptr) {
+    return flutter::EncodableValue();
+  }
+  const bool maximized = GetBool(args, "maximized");
+  const bool hidden = GetBool(args, "hidden");
+  const auto left = GetInt(args, "left");
+  const auto top = GetInt(args, "top");
+  const auto width = GetInt(args, "width");
+  const auto height = GetInt(args, "height");
+
+  // The expected order is before the first frame, while the frame is still
+  // hidden: the move happens where nobody can see it, and the first frame is
+  // laid out at the final size and DPI. If the first frame won the race, the
+  // window is already up, and the placement is applied to it directly - a
+  // visible move, but to the right place.
+  const bool shown = HasBeenShown();
+
+  if (left && top && width && height && *width > 0 && *height > 0) {
+    RECT bounds{*left, *top, *left + *width, *top + *height};
+    if (shown && ::IsZoomed(window)) {
+      ::ShowWindow(window, SW_RESTORE);
+    }
+    window_placement::MoveExactly(window, bounds);
+    if (!shown) {
+      initial_bounds_ = bounds;
+    }
+  }
+
+  SetFirstShowCommand(maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
+  if (!shown) {
+    // Only ever adds hiding: --start-minimized was already read from the
+    // command line, and the setting means the same thing.
+    if (hidden) {
+      start_hidden_ = true;
+    }
+  } else if (maximized) {
+    ::ShowWindow(window, SW_MAXIMIZE);
+  }
+
+  return flutter::EncodableValue(
+      window_placement::DescribeWindow(window, GetChildContent()));
 }
 
 LRESULT

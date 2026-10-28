@@ -150,7 +150,7 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  return ShowWindow(window_handle_, first_show_command_);
 }
 
 // static
@@ -238,6 +238,7 @@ Win32Window::MessageHandler(HWND hwnd,
 
     case WM_WINDOWPOSCHANGED:
       if (IsWindowVisible(hwnd)) {
+        has_been_shown_ = true;
         ShowChildContentIfHidden();
       }
       break;

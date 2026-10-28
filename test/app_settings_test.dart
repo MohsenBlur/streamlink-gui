@@ -1,5 +1,8 @@
+import 'dart:ui';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
+import 'package:streamlink_gui/utils/window_bounds.dart';
 
 /// Builds an AppSettings where every field differs from its default, so a
 /// round-trip that silently drops a field is detectable.
@@ -35,6 +38,12 @@ AppSettings buildNonDefaultSettings() {
     windowX: 120.0,
     windowY: 240.0,
     isWindowMaximized: true,
+    windowPlacement: const SavedWindowPlacement(
+      bounds: Rect.fromLTWH(-1701, 1821, 2796, 1855),
+      dpi: 144,
+      monitorName: r'\\.\DISPLAY1',
+      monitorBounds: Rect.fromLTWH(-2160, -813, 2160, 3840),
+    ),
     canvasEngine: true,
     showGamesOnThumbnails: false,
     vodWatchExclusionThreshold: 42,
@@ -146,6 +155,7 @@ void main() {
       expect(updated.windowX, original.windowX);
       expect(updated.windowY, original.windowY);
       expect(updated.isWindowMaximized, original.isWindowMaximized);
+      expect(updated.windowPlacement, original.windowPlacement);
       expect(updated.showGamesOnThumbnails, original.showGamesOnThumbnails);
       expect(updated.sidebarCollapsed, original.sidebarCollapsed);
       expect(updated.activeSidebarTab, original.activeSidebarTab);
@@ -158,6 +168,9 @@ void main() {
 
       expect(cleared.windowX, isNull);
       expect(cleared.windowY, isNull);
+      // The physical record is a position too; leaving it would restore the
+      // very position being cleared.
+      expect(cleared.windowPlacement, isNull);
       // Size is independent of position and must survive.
       expect(cleared.windowWidth, original.windowWidth);
       expect(cleared.windowHeight, original.windowHeight);

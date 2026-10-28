@@ -93,14 +93,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   // Always created at the template defaults, hidden until the first frame.
-  // Geometry has one owner, the Dart side (settings.windowX/Y/W/H, sanitized
-  // by lib/utils/window_bounds.dart). This used to restore a second, native
-  // copy from HKCU\Software\TwitchStreamlinkGUI first, which only added one
-  // more geometry change before the first frame, the startup race behind the
-  // invisible-window bug. It was also wrong: it saved physical pixels and
-  // restored them as logical ones, so Create() scaled them by the monitor DPI
-  // again and the window grew by that factor on every launch, while the
-  // off-screen guard checked the rectangle before that scaling.
+  // Geometry has one owner, the Dart side (settings.windowPlacement, planned
+  // by lib/utils/window_bounds.dart), which moves the still-hidden window
+  // through the window channel before that frame. This used to restore a
+  // second, native copy from HKCU\Software\TwitchStreamlinkGUI first, which
+  // only added one more geometry change before the first frame, the startup
+  // race behind the invisible-window bug. It was also wrong: it saved
+  // physical pixels and restored them as logical ones, so Create() scaled
+  // them by the monitor DPI again and the window grew by that factor on every
+  // launch, while the off-screen guard checked the rectangle before that
+  // scaling.
   FlutterWindow window(project);
   window.SetStartHidden(start_hidden);
   Win32Window::Point origin(10, 10);

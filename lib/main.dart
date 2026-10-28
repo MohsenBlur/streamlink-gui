@@ -11,6 +11,7 @@ import 'models/app_settings.dart';
 import 'models/twitch_channel.dart';
 import 'models/twitch_video.dart';
 import 'services/crash_log.dart';
+import 'services/native_window.dart';
 import 'services/storage_service.dart';
 import 'state/twitch_auth_notifier.dart';
 import 'state/watch_progress_store.dart';
@@ -45,7 +46,6 @@ import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
-import 'package:screen_retriever/screen_retriever.dart';
 
 import 'services/startup_service.dart';
 import 'state/library_entries.dart';
@@ -158,79 +158,8 @@ Future<void> _startApp(List<String> args) async {
     StartupService().sync(true);
   }
 
-  await windowManager.ensureInitialized();
-
-  // Saved geometry may reference a monitor that no longer exists (undocked
-  // laptop) or carry hand-edited garbage; restore only bounds that are
-  // actually reachable. The native runner applies the same guard to its
-  // pre-Flutter registry positioning.
-  Rect? restoredBounds;
-  try {
-    final displays = await screenRetriever.getAllDisplays();
-    final displayRects = <Rect>[
-      for (final d in displays)
-        displayRect(
-          size: d.size,
-          visiblePosition: d.visiblePosition,
-          visibleSize: d.visibleSize,
-        ),
-    ];
-    if (displayRects.isNotEmpty) {
-      restoredBounds = sanitizeWindowBounds(
-        x: settings.windowX,
-        y: settings.windowY,
-        width: settings.windowWidth,
-        height: settings.windowHeight,
-        displays: displayRects,
-      );
-    }
-  } catch (_) {
-    // Fall back to the raw saved values below.
-  }
-
-  final bool shouldCenter = restoredBounds == null &&
-      (settings.windowX == null || settings.windowY == null);
-
-  WindowOptions windowOptions = WindowOptions(
-    size: restoredBounds?.size ?? Size(settings.windowWidth, settings.windowHeight),
-    center: shouldCenter,
-    backgroundColor: Colors.transparent,
-    skipTaskbar: false,
-    titleBarStyle: TitleBarStyle.hidden,
-  );
-
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
-    // MOVE ONLY - never resize here.
-    //
-    // waitUntilReadyToShow has already applied WindowOptions.size, and both
-    // that call and anything in this callback convert logical -> physical
-    // using window.devicePixelRatio, which this early in startup may not yet
-    // reflect the display's real ratio. A second sizing call (this used to be
-    // setBounds, which sets size AND position) can therefore land on a
-    // different ratio than the first and leave the native window at a
-    // physical size the engine never laid out for: content squeezed into part
-    // of the frame, unpainted regions beside it, and the sidebar dropped
-    // because the reported width fell under the narrow breakpoint. Racy by
-    // nature, so it cleared on the next launch.
-    final restoredPosition = restoredBounds?.topLeft ??
-        (settings.windowX != null && settings.windowY != null
-            ? Offset(settings.windowX!, settings.windowY!)
-            : null);
-    if (restoredPosition != null) {
-      await windowManager.setPosition(restoredPosition);
-    }
-    if (settings.isWindowMaximized && !startMinimized) {
-      await windowManager.maximize();
-    }
-    if (!startMinimized) {
-      // When starting minimized the native runner also suppressed its
-      // first-frame Show(), so not calling show() here means no flash at all.
-      await windowManager.show();
-      await windowManager.focus();
-    }
-    await windowManager.setPreventClose(true);
-    await windowManager.setMinimumSize(const Size(380, 500));
-  });
+  await _prepareWindow(settings,
+      startHidden: startMinimized, milestone: milestone, log: crashLog);
 
   // Seed the look from the settings already parsed above, BEFORE the first
   // frame.
@@ -254,18 +183,121 @@ Future<void> _startApp(List<String> args) async {
   themeNotifier.darkAccentColor =
       parseHexColor(settings.darkAccentColorHex, NeuTheme.defaultDarkAccent);
 
-  runApp(TwitchStreamlinkApp(startup: startup));
+  runApp(TwitchStreamlinkApp(startup: startup, startHidden: startMinimized));
   milestone('runApp');
 
-  unawaited(WidgetsBinding.instance.waitUntilFirstFrameRasterized
-      .then((_) => milestone('first frame rasterized')));
+  unawaited(WidgetsBinding.instance.waitUntilFirstFrameRasterized.then((_) {
+    milestone('first frame rasterized');
+    return _checkWindowAfterFirstFrame(
+        startHidden: startMinimized, milestone: milestone);
+  }));
+}
+
+/// The frame style, close interception and geometry - all before the first
+/// frame, while the window is still hidden.
+///
+/// The runner creates the window hidden and shows it from its first-frame
+/// callback. Everything that changes the frame therefore has to land before
+/// that frame, or the user watches it happen: the window used to appear at
+/// the runner's default spot on the primary monitor and then jump, across
+/// monitors and a DPI change, to where it was saved - and that move racing
+/// the first frame is when the content view was found hidden (the
+/// invisible-window bug, audit C1).
+///
+/// Geometry no longer goes through window_manager. Its setSize and
+/// setPosition convert with the window's devicePixelRatio of that instant,
+/// which during startup on mixed-DPI monitors is whichever monitor the
+/// window happens to be on; the runner's channel places it in physical
+/// pixels instead, and shows it maximized as part of the show itself.
+Future<void> _prepareWindow(
+  AppSettings settings, {
+  required bool startHidden,
+  required void Function(String) milestone,
+  required CrashLog log,
+}) async {
+  try {
+    await windowManager.ensureInitialized();
+    // No size, position or show in here (see above). The hidden title bar
+    // does belong before the first frame: it changes the client area, so it
+    // decides the size that frame is laid out at.
+    await windowManager.waitUntilReadyToShow(const WindowOptions(
+      backgroundColor: Colors.transparent,
+      skipTaskbar: false,
+      titleBarStyle: TitleBarStyle.hidden,
+    ));
+    await windowManager.setPreventClose(true);
+    await windowManager.setMinimumSize(kMinWindowSize);
+  } catch (e, st) {
+    log.error('window setup', e, st);
+  }
+
+  try {
+    final monitors = await NativeWindow.monitors();
+    milestone('monitors: ${monitors.join('; ')}');
+    final plan = planWindowRestore(
+      monitors: monitors,
+      saved: settings.windowPlacement,
+      legacyX: settings.windowX,
+      legacyY: settings.windowY,
+      legacyWidth: settings.windowWidth,
+      legacyHeight: settings.windowHeight,
+      maximized: settings.isWindowMaximized,
+    );
+    final placed = await NativeWindow.setInitialPlacement(plan.bounds,
+        maximized: plan.maximized, hidden: startHidden);
+    milestone('placement: $plan${startHidden ? ', starting hidden' : ''}; '
+        'window now $placed');
+  } catch (e, st) {
+    // The window stays where the runner created it, and the runner still
+    // shows it on the first frame.
+    log.error('window placement', e, st);
+  }
+}
+
+/// Records what the window looks like once the first frame is up, and puts
+/// right what it can.
+///
+/// This is the evidence the invisible-window reports never had: whether the
+/// frame was shown, whether the content view inside it was, where, at which
+/// DPI. The runner already re-asserts the content view whenever the frame is
+/// shown or moved; asking it to show again here covers a frame that never
+/// appeared at all.
+Future<void> _checkWindowAfterFirstFrame({
+  required bool startHidden,
+  required void Function(String) milestone,
+}) async {
+  await Future<void>.delayed(const Duration(milliseconds: 1500));
+  try {
+    final state = await NativeWindow.state();
+    // What the engine laid out at, beside what the frame is: a DPI change
+    // the engine missed shows up here as a ratio that does not match the
+    // window's DPI (content laid out at a stale size, audit M2).
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    final view = views.isEmpty ? null : views.first;
+    final layout = view == null
+        ? ''
+        : '; laid out at ${view.physicalSize.width.round()}x'
+            '${view.physicalSize.height.round()} @ ${view.devicePixelRatio}';
+    milestone('window after first frame: $state$layout');
+    if (state == null || startHidden) return;
+    if (!state.visible || !state.contentVisible) {
+      milestone('window or its content is not visible; showing it again');
+      await NativeWindow.show();
+      milestone('window after re-show: ${await NativeWindow.state()}');
+    }
+  } catch (e, st) {
+    CrashLog.current?.error('window check', e, st);
+  }
 }
 
 class TwitchStreamlinkApp extends StatelessWidget {
-  const TwitchStreamlinkApp({super.key, this.startup});
+  const TwitchStreamlinkApp({super.key, this.startup, this.startHidden = false});
 
   /// The config as main() read it, for the first load.
   final StartupConfig? startup;
+
+  /// The window starts hidden to the tray.
+  final bool startHidden;
 
   @override
   Widget build(BuildContext context) {
@@ -281,7 +313,7 @@ class TwitchStreamlinkApp extends StatelessWidget {
           // active material.
           theme: buildAppTheme(isDark: false),
           darkTheme: buildAppTheme(isDark: true),
-          home: MainScreen(startup: startup),
+          home: MainScreen(startup: startup, startHidden: startHidden),
         );
       },
     );
@@ -289,10 +321,13 @@ class TwitchStreamlinkApp extends StatelessWidget {
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key, this.startup});
+  const MainScreen({super.key, this.startup, this.startHidden = false});
 
   /// The config main() read at startup. Used by the first load only.
   final StartupConfig? startup;
+
+  /// The window starts hidden to the tray, so it is not on screen.
+  final bool startHidden;
 
   bool get isFirstRun => startup?.isFirstRun ?? false;
 
@@ -411,6 +446,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _isUpdatePromptOpen = false;
   bool _isUpdateInProgress = false;
 
+  /// The runner's second-launch notification ("activate"); see initState.
+  static const MethodChannel _singleInstanceChannel =
+      MethodChannel('streamlink_gui/single_instance');
+
   /// The log viewer's entry for the app itself, beside the per-process ones.
   static const String _appLogKey = 'app';
 
@@ -434,9 +473,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   void initState() {
     super.initState();
+    _windowVisible = !widget.startHidden;
     windowManager.addListener(this);
+    // A second launch hands over to this instance (windows/runner): the
+    // runner has already shown or restored the window, re-shown its content
+    // and taken the foreground by the time this arrives, so nothing here may
+    // hide anything - it only brings Dart's bookkeeping up to date.
+    _singleInstanceChannel.setMethodCallHandler((call) async {
+      if (call.method == 'activate') {
+        await _syncWindowVisible();
+        try {
+          await windowManager.focus();
+        } catch (_) {}
+      }
+      return null;
+    });
     _initSystemTray();
-    
+
     // Created stopped. It used to `..repeat(reverse: true)` here and was
     // only ever touched again by dispose(), so it drove a 60fps rebuild for
     // the entire life of the process - including while the app sat in the
@@ -902,6 +955,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   void dispose() {
     windowManager.removeListener(this);
+    _singleInstanceChannel.setMethodCallHandler(null);
     _recentScroll.dispose();
     _vodSearchController.dispose();
     _pulseController?.dispose();
@@ -933,8 +987,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     _systemTray.registerSystemTrayEventHandler((eventName) {
       if (eventName == kSystemTrayEventClick || eventName == kSystemTrayEventDoubleClick) {
-        windowManager.show();
-        windowManager.focus();
+        _showWindow();
       } else if (eventName == kSystemTrayEventRightClick) {
         _systemTray.popUpContextMenu();
       }
@@ -963,8 +1016,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         MenuItemLabel(
           label: 'Open Library',
           onClicked: (menuItem) async {
-            await windowManager.show();
-            await windowManager.focus();
+            await _showWindow();
             _openLibrary();
           },
         ),
@@ -998,8 +1050,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _handleAppExitRequest() async {
-    await windowManager.show();
-    await windowManager.focus();
+    await _showWindow();
 
     final hasUnfinished = _playerService.activeDownloadProcesses.isNotEmpty || _playerService.downloadQueue.isNotEmpty;
     if (hasUnfinished) {
@@ -1092,40 +1143,105 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
+  /// Brings the window forward from wherever it is: the tray, minimized, or
+  /// never shown yet because the app started hidden.
+  ///
+  /// Through the runner rather than windowManager.show(), because the
+  /// runner knows how the window was restored: started hidden from a
+  /// maximized session, its first appearance must be maximized, and a plain
+  /// show brought it back at its normal size.
   Future<void> _showWindow() async {
-    await windowManager.show();
-    _windowVisible = true;
-    _updatePulse();
+    try {
+      await NativeWindow.show();
+    } catch (_) {
+      await windowManager.show();
+      await windowManager.focus();
+    }
   }
 
   Future<void> _hideWindow() async {
     await windowManager.hide();
-    _windowVisible = false;
+  }
+
+  /// Whether the window is on screen, which gates the pulse.
+  ///
+  /// Written in one place only, [_syncWindowVisible], which reads it back
+  /// from the window itself. It used to be set by hand on the few paths that
+  /// remembered to (tray Show/Hide, minimize, restore), so closing to the
+  /// tray, starting minimized, a toast's click or a second launch each left
+  /// it wrong - a pulse running in the tray, or one frozen on screen.
+  bool _windowVisible = true;
+
+  /// Re-reads [_windowVisible] from the window. Every way of showing or
+  /// hiding it ends in a window event ([onWindowEvent]) or, for a second
+  /// launch, the runner's activate call, and both land here.
+  Future<void> _syncWindowVisible() async {
+    bool visible;
+    try {
+      visible = await windowManager.isVisible() &&
+          !await windowManager.isMinimized();
+    } catch (_) {
+      return;
+    }
+    if (!mounted || visible == _windowVisible) return;
+    _windowVisible = visible;
     _updatePulse();
   }
 
-  /// Whether the window is on screen. Starts true; the tray/minimise paths
-  /// below keep it honest.
-  bool _windowVisible = true;
+  @override
+  void onWindowEvent(String eventName) {
+    switch (eventName) {
+      case 'show':
+      case 'hide':
+      case kWindowEventMinimize:
+      case kWindowEventRestore:
+      case kWindowEventMaximize:
+      case kWindowEventUnmaximize:
+        unawaited(_syncWindowVisible());
+    }
+    // Going to the tray is often the last thing a session does before
+    // Windows shuts down around it, so the geometry is captured on the way.
+    if (eventName == 'hide') _saveWindowState();
+  }
 
   Timer? _windowSaveTimer;
 
-  Future<void> _saveWindowState() async {
+  /// Debounced: a drag emits a stream of moves.
+  void _saveWindowState() {
     _windowSaveTimer?.cancel();
     _windowSaveTimer = Timer(const Duration(milliseconds: 300), () async {
-      try {
-        final isMaximized = await windowManager.isMaximized();
-        if (!isMaximized) {
-          final bounds = await windowManager.getBounds();
-          _settings.windowWidth = bounds.width;
-          _settings.windowHeight = bounds.height;
-          _settings.windowX = bounds.left;
-          _settings.windowY = bounds.top;
-        }
-        _settings.isWindowMaximized = isMaximized;
+      _windowSaveTimer = null;
+      if (await _captureWindowState()) {
         await _saveChannels();
-      } catch (_) {}
+      }
     });
+  }
+
+  /// Copies the window's current geometry into [_settings]; returns whether
+  /// there was anything to copy.
+  ///
+  /// Physical pixels and the monitor, from the runner. The logical fields
+  /// are kept up to date in the meaning older builds gave them (divided by
+  /// the window's own scale), so a downgrade still finds the window.
+  Future<bool> _captureWindowState() async {
+    _windowSaveTimer?.cancel();
+    _windowSaveTimer = null;
+    try {
+      final state = await NativeWindow.state();
+      // Minimized, there is nothing new to say: the normal bounds are what
+      // they were, and "maximized" is not readable until it is restored.
+      if (state == null || state.minimized) return false;
+      final s = state.scale;
+      _settings.windowPlacement = SavedWindowPlacement.fromState(state);
+      _settings.windowX = state.bounds.left / s;
+      _settings.windowY = state.bounds.top / s;
+      _settings.windowWidth = state.bounds.width / s;
+      _settings.windowHeight = state.bounds.height / s;
+      _settings.isWindowMaximized = state.maximized;
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override
@@ -1156,20 +1272,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       await _handleAppExitRequest();
       return;
     }
-    await windowManager.hide();
+    await _hideWindow();
     _maybeShowTrayNotice();
   }
 
   @override
-  void onWindowRestore() {
-    _windowVisible = true;
-    _updatePulse();
-  }
-
-  @override
   void onWindowMinimize() async {
-    _windowVisible = false;
-    _updatePulse();
     // Default is the Windows convention (taskbar); 'tray' preserves the old
     // behavior for users who want it.
     if (_settings.minimizeAction == 'tray') {
@@ -2072,8 +2180,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 silent: false,
               );
               notification.onClick = () async {
-                await windowManager.show();
-                await windowManager.focus();
+                await _showWindow();
                 
                 _selectChannel(channel);
 

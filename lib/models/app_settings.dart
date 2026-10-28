@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../utils/window_bounds.dart';
+
 class AppSettings {
   String defaultQuality;
   /// Passes `--twitch-low-latency` to streamlink when enabled.
@@ -52,6 +54,13 @@ class AppSettings {
   double? windowX;
   double? windowY;
   bool isWindowMaximized;
+
+  /// The window's last normal bounds in PHYSICAL pixels, and the monitor
+  /// they were on. The restore reads this; [windowX], [windowY],
+  /// [windowWidth] and [windowHeight] are still written (in the old logical
+  /// form) so an older build finds a position, and are migrated from when
+  /// this is absent.
+  SavedWindowPlacement? windowPlacement;
 
   /// Paint surfaces with the Canvas engine instead of the lighting shader
   /// ("Simple rendering" in Settings). For GPUs or remote sessions where the
@@ -141,6 +150,7 @@ class AppSettings {
     this.windowX,
     this.windowY,
     this.isWindowMaximized = false,
+    this.windowPlacement,
     this.canvasEngine = false,
     this.showGamesOnThumbnails = true,
     this.vodWatchExclusionThreshold = 15,
@@ -181,8 +191,9 @@ class AppSettings {
   /// dialog used to wipe the theme mode, window geometry, the VOD watch
   /// exclusion threshold and the auto-play preemption toggle.
   ///
-  /// Note: [windowX] and [windowY] are nullable and passing null means "keep the
-  /// current value". Use [clearWindowPosition] to reset them.
+  /// Note: [windowX], [windowY] and [windowPlacement] are nullable and passing
+  /// null means "keep the current value". Use [clearWindowPosition] to reset
+  /// them.
   AppSettings copyWith({
     String? defaultQuality,
     bool? twitchLowLatency,
@@ -212,6 +223,7 @@ class AppSettings {
     double? windowX,
     double? windowY,
     bool? isWindowMaximized,
+    SavedWindowPlacement? windowPlacement,
     bool? canvasEngine,
     bool? showGamesOnThumbnails,
     int? vodWatchExclusionThreshold,
@@ -263,6 +275,9 @@ class AppSettings {
       windowX: clearWindowPosition ? null : (windowX ?? this.windowX),
       windowY: clearWindowPosition ? null : (windowY ?? this.windowY),
       isWindowMaximized: isWindowMaximized ?? this.isWindowMaximized,
+      windowPlacement: clearWindowPosition
+          ? null
+          : (windowPlacement ?? this.windowPlacement),
       canvasEngine: canvasEngine ?? this.canvasEngine,
       showGamesOnThumbnails: showGamesOnThumbnails ?? this.showGamesOnThumbnails,
       vodWatchExclusionThreshold: vodWatchExclusionThreshold ?? this.vodWatchExclusionThreshold,
@@ -326,6 +341,7 @@ class AppSettings {
         'window_x': windowX,
         'window_y': windowY,
         'is_window_maximized': isWindowMaximized,
+        'window_placement': windowPlacement?.toJson(),
         'canvas_engine': canvasEngine,
         'show_games_on_thumbnails': showGamesOnThumbnails,
         'vod_watch_exclusion_threshold': vodWatchExclusionThreshold,
@@ -447,6 +463,7 @@ class AppSettings {
         windowX: _maybeDouble(json['window_x']),
         windowY: _maybeDouble(json['window_y']),
         isWindowMaximized: _flag(json['is_window_maximized'], false),
+        windowPlacement: SavedWindowPlacement.fromJson(json['window_placement']),
         canvasEngine: _flag(json['canvas_engine'], false),
         showGamesOnThumbnails: _flag(json['show_games_on_thumbnails'], true),
         vodWatchExclusionThreshold:
