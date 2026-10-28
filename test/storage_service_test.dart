@@ -380,6 +380,90 @@ void main() {
     });
   });
 
+  group('loadStartupConfig', () {
+    test('no file at all is a first run, on default settings', () async {
+      final startup = await storage.loadStartupConfig();
+      expect(startup.isFirstRun, isTrue);
+      expect(startup.data, isNull);
+      expect(startup.parseSettings().defaultQuality, AppSettings().defaultQuality);
+    });
+
+    test('a corrupted file is not a first run, though there is no data', () async {
+      // The onboarding wizard must not greet an existing user whose config
+      // was damaged.
+      configFile().writeAsStringSync('{ not json');
+      final startup = await storage.loadStartupConfig();
+      expect(startup.isFirstRun, isFalse);
+      expect(startup.data, isNull);
+      expect(startup.parseSettings().defaultQuality, AppSettings().defaultQuality);
+    });
+
+    test('one read serves the settings and the rest of the config', () async {
+      await save(storage, ['alpha', 'beta'], quality: '720p');
+      final startup = await storage.loadStartupConfig();
+
+      expect(startup.isFirstRun, isFalse);
+      expect(startup.data!['channels'], hasLength(2));
+      expect(startup.parseSettings().defaultQuality, '720p');
+    });
+
+    test('each settings parse is independent of the others', () async {
+      // main() keeps its copy in a window callback while the main screen goes
+      // on to edit its own; they must never alias, lists included.
+      await storage.saveConfig(
+        const [],
+        AppSettings(unfinishedDownloads: [
+          {'channelName': 'alpha'},
+        ]),
+        <String, int>{},
+        <String, String>{},
+      );
+      final startup = await storage.loadStartupConfig();
+
+      final first = startup.parseSettings();
+      final second = startup.parseSettings();
+      expect(identical(first, second), isFalse);
+      (first.unfinishedDownloads.first as Map)['channelName'] = 'changed';
+      first.unfinishedDownloads.add({'channelName': 'extra'});
+
+      expect(second.unfinishedDownloads, [
+        {'channelName': 'alpha'},
+      ]);
+      expect(startup.parseSettings().unfinishedDownloads, hasLength(1));
+    });
+
+    test('hand-edited settings fall back field by field, a non-map wholesale', () async {
+      configFile().writeAsStringSync(json.encode({
+        'channels': [],
+        'settings': {'default_quality': 42, 'local_server_port': 'abc', 'material': 'soft'},
+      }));
+      final hostile = (await storage.loadStartupConfig()).parseSettings();
+      expect(hostile.defaultQuality, 'best');
+      expect(hostile.localServerPort, 65432);
+      expect(hostile.material, 'soft');
+
+      configFile().writeAsStringSync(json.encode({'channels': [], 'settings': 'not a map'}));
+      final startup = await storage.loadStartupConfig();
+      expect(startup.isFirstRun, isFalse);
+      expect(startup.parseSettings().material, AppSettings().material);
+    });
+
+    test('tokens arrive decrypted', () async {
+      StorageService.secretCipher = FakeCipher();
+      addTearDown(() => StorageService.secretCipher = null);
+      await storage.saveConfig(
+        const [],
+        AppSettings(twitchOauthToken: 'the-token'),
+        <String, int>{},
+        <String, String>{},
+      );
+
+      StorageService.secretCipher = FakeCipher();
+      final startup = await storage.loadStartupConfig();
+      expect(startup.parseSettings().twitchOauthToken, 'the-token');
+    });
+  });
+
   group('configExists', () {
     test('distinguishes absent from present-but-unreadable', () async {
       expect(storage.configExists(), isFalse);

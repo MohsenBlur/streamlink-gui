@@ -333,6 +333,16 @@ class StorageService {
     } catch (_) {}
   }
 
+  /// Reads the config once for the whole startup; see [StartupConfig].
+  Future<StartupConfig> loadStartupConfig() async {
+    // Existence BEFORE loading: loadConfig() quarantines an unreadable file
+    // and returns null, which is indistinguishable from a first run - so a
+    // user whose config got corrupted was shown the onboarding wizard.
+    final existed = configExists();
+    final data = await loadConfig();
+    return StartupConfig(existed: existed, data: data);
+  }
+
   /// The decoded config, with its tokens already decrypted, or null when there
   /// is none or it was unreadable (and has been quarantined).
   Future<Map<String, dynamic>?> loadConfig() async {
@@ -449,5 +459,55 @@ class StorageService {
   Future<void> saveWatchProgress(Map<String, dynamic> data) async {
     final file = getStorageFile('watch_progress.json');
     await _writerFor(file).write(json.encode(data));
+  }
+}
+
+/// The config as it was on disk at launch, read and decoded once, for
+/// `main()` and the first load of the main screen to share.
+///
+/// Both used to read and decode the file, and parse the settings, on their
+/// own: twice the startup IO (and twice the token decryption), two parse
+/// paths free to drift apart, and if the file changed between the reads - a
+/// sync client, another instance - the window and theme came from one
+/// version and the app state from another.
+///
+/// A launch snapshot only. Anything that wants the config later must call
+/// [StorageService.loadConfig], since saves move the file on from here.
+class StartupConfig {
+  const StartupConfig({required this.existed, required this.data});
+
+  /// Whether a config file was present before loading, even one too damaged
+  /// to read. Distinct from [data] being null: see [isFirstRun].
+  final bool existed;
+
+  /// The decoded config with its tokens decrypted, exactly as
+  /// [StorageService.loadConfig] returned it; null when there was none or it
+  /// was unreadable (and has been quarantined).
+  final Map<String, dynamic>? data;
+
+  /// True only when there was no config file at all. A corrupted one is not a
+  /// first run, and must not show the onboarding wizard to an existing user.
+  bool get isFirstRun => !existed;
+
+  /// The stored settings, or the defaults when there are none or they cannot
+  /// be parsed.
+  ///
+  /// The single settings parse for startup. Each call returns a new and fully
+  /// independent instance, parsed from a deep copy: `AppSettings` is mutable
+  /// and keeps list values by reference, and `main()` holds its copy in a
+  /// window callback while the main screen goes on to edit its own.
+  AppSettings parseSettings() {
+    final stored = data?['settings'];
+    if (stored is Map<String, dynamic>) {
+      // Runs before the first frame, so an unparseable config here would stop
+      // the app from starting at all rather than falling back to defaults.
+      try {
+        final copy = json.decode(json.encode(stored)) as Map<String, dynamic>;
+        return AppSettings.fromJson(copy);
+      } catch (e) {
+        print('[Config] Settings unreadable, using defaults: $e');
+      }
+    }
+    return AppSettings();
   }
 }
