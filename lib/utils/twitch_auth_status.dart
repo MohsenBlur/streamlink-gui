@@ -150,8 +150,15 @@ TwitchAuthStatus statusForToken(String rawToken, {String? mintedClientId}) {
 }
 
 /// A check has started. Holds the previous login so the row does not blank out.
+///
+/// Holds the previous fault too. Nothing shows a fault outside [invalid], but
+/// [statusFromHelix] reads it: dropping it here let an unscoped Helix 200 that
+/// landed while the probe was in flight "heal" a missing scope, which fired
+/// the recovery refresh, whose followed-list 401 forced the next probe - with
+/// that refresh's own 200s still arriving to heal it again.
 TwitchAuthStatus statusChecking(TwitchAuthStatus current) => TwitchAuthStatus(
       state: TwitchAuthState.checking,
+      fault: current.fault,
       login: current.login,
       tokenClientId: current.tokenClientId,
       scopes: current.scopes,
@@ -182,11 +189,14 @@ TwitchAuthStatus statusFromValidation({
   }
   if (statusCode != 200 || body == null) {
     // Anything else — 5xx, a proxy's HTML, an undecodable body — is a
-    // statement about the network, not about the token.
+    // statement about the network, not about the token. Not an answer
+    // either, so an earlier diagnosis is carried rather than erased.
     return TwitchAuthStatus(
       state: TwitchAuthState.unreachable,
+      fault: previous?.fault ?? TwitchAuthFault.none,
       login: previous?.login,
       tokenClientId: previous?.tokenClientId,
+      scopes: previous?.scopes ?? const <String>[],
       checkedAt: now,
     );
   }
@@ -273,9 +283,15 @@ TwitchAuthStatus statusFromHelix(
     // the request itself is the proof. The login is left alone — Helix does
     // not tell us who we are here, and a stale name beats no name.
     if (current.state == TwitchAuthState.valid) return current;
-    if (current.state == TwitchAuthState.invalid &&
-        !_successDisprovesFault(current, endpointScopes)) {
-      return current;
+    // The fault survives `checking` and `unreachable` (neither is an answer),
+    // so this holds mid-probe and after a dropped connection as well. Without
+    // that, one socket error between polls was enough to restart the flap.
+    if (!_successDisprovesFault(current, endpointScopes)) {
+      // Twitch answered, so "can't reach Twitch" is no longer the story; the
+      // diagnosis is. A probe in flight publishes its own verdict.
+      return current.state == TwitchAuthState.unreachable
+          ? current.copyWith(state: TwitchAuthState.invalid, checkedAt: now)
+          : current;
     }
     return current.copyWith(
         state: TwitchAuthState.valid,
@@ -283,6 +299,18 @@ TwitchAuthStatus statusFromHelix(
         checkedAt: now);
   }
   if (statusCode == 401 || statusCode == 403) {
+    if (credentialsChanged) {
+      // The old pair's diagnosis (its minting client, its scopes) says
+      // nothing about this one; carrying it would explain a new token's
+      // rejection with the previous token's problem. The login stays: a
+      // failure never erases one.
+      return TwitchAuthStatus(
+        state: TwitchAuthState.invalid,
+        fault: TwitchAuthFault.revoked,
+        login: current.login,
+        checkedAt: now,
+      );
+    }
     return TwitchAuthStatus(
       state: TwitchAuthState.invalid,
       fault: _faultAfterRejection(current, endpointScopes),
@@ -337,12 +365,16 @@ TwitchAuthFault _faultAfterRejection(
 ///
 /// Always [unreachable], never [invalid]. A test pins this, because getting it
 /// wrong turns every flaky connection into "your account was disconnected".
+///
+/// The fault is carried, unseen: a dropped connection is not an answer, and
+/// erasing the diagnosis let the next unscoped 200 read as a recovery.
 TwitchAuthStatus statusFromTransportError(
   TwitchAuthStatus current,
   DateTime now,
 ) =>
     TwitchAuthStatus(
       state: TwitchAuthState.unreachable,
+      fault: current.fault,
       login: current.login,
       tokenClientId: current.tokenClientId,
       scopes: current.scopes,

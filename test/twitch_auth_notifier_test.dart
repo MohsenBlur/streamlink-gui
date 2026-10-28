@@ -54,6 +54,40 @@ void main() {
         reason: 'the previous account name does not describe the new token');
   });
 
+  test('a 429 with the new token does not use up the change', () {
+    // The first request made with a freshly saved token can be refused for
+    // reasons that say nothing about it. Adopting its pair anyway made every
+    // later 200 "the same credentials", and the old diagnosis stuck.
+    auth.noteHelixProbeCredential(saved);
+    auth.recordHelixProbe(missingScope);
+
+    auth.recordHelixResponse(429, credential: pasted);
+    auth.recordHelixResponse(503, credential: pasted);
+    expect(auth.helix.value, missingScope);
+
+    auth.recordHelixResponse(200, credential: pasted);
+    expect(auth.helix.value.isUsable, isTrue);
+  });
+
+  test('a re-probe window cannot be healed by an unscoped 200', () {
+    // _refreshHelixAuth publishes `checking`, then probes. A poll 200 landing
+    // in between used to produce an unusable -> usable edge: the recovery
+    // refresh, the followed-list 401, the next forced probe.
+    auth.noteHelixProbeCredential(saved);
+    auth.recordHelixProbe(missingScope);
+    final seen = <TwitchAuthStatus>[];
+    auth.helix.addListener(() => seen.add(auth.helix.value));
+
+    auth.setHelix(statusChecking(auth.helix.value));
+    auth.recordHelixResponse(200, credential: saved);
+    auth.recordHelixTransportError();
+    auth.recordHelixResponse(200, credential: saved);
+
+    expect(seen.where((s) => s.isUsable), isEmpty);
+    expect(auth.helix.value.state, TwitchAuthState.invalid);
+    expect(auth.helix.value.fault, TwitchAuthFault.missingScope);
+  });
+
   test('the first credential ever seen is not treated as a change', () {
     auth.recordHelixProbe(missingScope);
     auth.recordHelixResponse(200, credential: saved);

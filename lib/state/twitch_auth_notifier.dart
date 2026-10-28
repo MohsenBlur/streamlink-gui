@@ -40,17 +40,25 @@ class TwitchAuth {
   /// [credential] identifies the token + Client ID the request was sent with
   /// (see [helixCredentialFingerprint]); [endpointScopes] are the scopes the
   /// endpoint itself requires, which is all a 200 from it can prove.
+  ///
+  /// Only a response that is a verdict on the token (200, 401, 403) moves the
+  /// remembered pair. A 429 or a 5xx sent with a newly saved token changes
+  /// nothing, so letting it adopt the new pair would spend the "different
+  /// credentials" signal on nothing: every later 200 would then count as the
+  /// same pair, and an old diagnosis would outlive the token it described.
   void recordHelixResponse(
     int statusCode, {
     int? credential,
     Set<String> endpointScopes = const <String>{},
   }) {
+    final isVerdict =
+        statusCode == 200 || statusCode == 401 || statusCode == 403;
     final next = statusFromHelix(
       helix.value,
       statusCode: statusCode,
       now: DateTime.now(),
       endpointScopes: endpointScopes,
-      credentialsChanged: _noteCredential(credential),
+      credentialsChanged: isVerdict && _noteCredential(credential),
     );
     if (next != helix.value) helix.value = next;
   }
