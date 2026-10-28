@@ -16,6 +16,21 @@
 
   Build with -dart-define=APP_VERSION=99.0.0 so the updater never offers an
   update; the modal sits over the middle of every screen otherwise.
+
+  -Position puts the window somewhere of your choosing - a monitor you are
+  not working on - from the launch on: the staged config opens it there, and
+  every capture moves it back there before sizing. Without it the window
+  opens where the copied config says, which is wherever the real app last
+  was. Captures never bring the window to the foreground unless -Focus is
+  passed; the two clicks into the channel and Library screens activate it,
+  as any click would.
+
+.EXAMPLE
+  # A second monitor left of the primary, 2160 physical px wide at 150%. The
+  # widest size, 1600 logical, is 2400 physical there: starting 240px past
+  # the desktop's left edge lets the overhang fall off the desktop instead
+  # of onto the primary.
+  ./tools/shoot-matrix.ps1 -Phase review -Position '-2400,-813'
 #>
 [CmdletBinding()]
 param(
@@ -23,7 +38,13 @@ param(
     [string]$Exe = 'build\windows\x64\runner\Release\streamlink_gui.exe',
     [ValidateSet('dark', 'light', 'both')][string]$Theme = 'both',
     [string]$Accent,
-    [switch]$KeepOpen
+    [switch]$KeepOpen,
+    # "x,y", physical virtual-desktop pixels: where the window opens and is
+    # shot (see .DESCRIPTION). Each size grows right and down from here, and
+    # past a monitor's edge onto whatever is next to it (see the example).
+    [string]$Position,
+    # Bring the window to the foreground for each capture (shoot.ps1 -Focus).
+    [switch]$Focus
 )
 
 # A Debug build is NOT a substitute for a Release one when reviewing the UI.
@@ -69,6 +90,11 @@ New-Item -ItemType Directory -Path (Join-Path $repo "shots\$Phase") -Force | Out
 
 $themes = if ($Theme -eq 'both') { @($true, $false) } else { @($Theme -eq 'dark') }
 
+# Handed to every shoot.ps1 call alongside its own arguments.
+$placeArgs = @{}
+if ($Position) { $placeArgs.Position = $Position }
+if ($Focus) { $placeArgs.Focus = $true }
+
 foreach ($dark in $themes) {
     $themeName = if ($dark) { 'dark' } else { 'light' }
     $suffix = if ($Accent) { "_$themeName`_accent" } else { "_$themeName" }
@@ -88,6 +114,10 @@ foreach ($dark in $themes) {
     if ($Accent) {
         if ($dark) { $settings.dark_accent_color_hex = $Accent }
         else { $settings.light_accent_color_hex = $Accent }
+    }
+    if ($Position) {
+        $placement = Get-PlacementSettings $Position
+        foreach ($key in $placement.Keys) { $settings[$key] = $placement[$key] }
     }
     Set-IsolatedConfig $exeFull $settings
 
@@ -112,7 +142,7 @@ foreach ($dark in $themes) {
             $shotArgs.SettleMs = 3500     # first frame + channel load
             $first = $false
         }
-        & (Join-Path $PSScriptRoot 'shoot.ps1') @shotArgs
+        & (Join-Path $PSScriptRoot 'shoot.ps1') @shotArgs @placeArgs
     }
 
     # Other screens, reached by clicking. Home alone is NOT enough coverage:
@@ -128,7 +158,7 @@ foreach ($dark in $themes) {
         ClickAt  = '120,400'         # first channel row in the sidebar
         ExpectExe = $exeFull
     }
-    & (Join-Path $PSScriptRoot 'shoot.ps1') @channelArgs
+    & (Join-Path $PSScriptRoot 'shoot.ps1') @channelArgs @placeArgs
 
     $libraryArgs = @{
         Out      = "shots/$Phase/library_1600x1000$suffix.png"
@@ -137,7 +167,7 @@ foreach ($dark in $themes) {
         ClickAt  = '100,960'         # Library button (the gear is at ~44)
         ExpectExe = $exeFull
     }
-    & (Join-Path $PSScriptRoot 'shoot.ps1') @libraryArgs
+    & (Join-Path $PSScriptRoot 'shoot.ps1') @libraryArgs @placeArgs
 }
 
 if (-not $KeepOpen) { Stop-AppAt $exeFull }

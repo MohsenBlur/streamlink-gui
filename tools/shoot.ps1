@@ -12,7 +12,7 @@
 
   * PrintWindow needs PW_RENDERFULLCONTENT (0x2). Flutter renders through a
     composited swapchain, so the legacy WM_PRINT path captures nothing.
-  * MoveWindow takes PHYSICAL pixels while the app's own sizes (and the
+  * SetWindowPos takes PHYSICAL pixels while the app's own sizes (and the
     380x500 minimum) are LOGICAL. On a scaled display those differ, so sizes
     here are logical and converted via the window's own DPI.
   * The script must itself be per-monitor DPI aware, and is made so on its
@@ -28,6 +28,15 @@
   capture "succeeds" with the desktop behind it. Every capture therefore
   asserts the child is visible first, and fails loudly when it is not.
 
+  The window is left where it is and is never brought to the foreground
+  unless asked (-Position, -Focus): PrintWindow renders a window that is not
+  in front, so neither is needed for a capture. The script used to move every
+  window it resized to (80,60), which is on the primary monitor, and to call
+  SetForegroundWindow before each capture, which took keyboard focus from
+  whatever the user was typing into. -ClickAt is the exception it cannot
+  avoid: the synthetic click is a real one, so it moves the cursor (put back
+  afterwards) and, like any click, activates the window it lands on.
+
 .EXAMPLE
   ./tools/shoot.ps1 -Out shots/baseline/home_1600x1000.png -Width 1600 -Height 1000
 
@@ -35,12 +44,22 @@
   # Capture whatever is on screen right now, without touching the window.
   ./tools/shoot.ps1 -Out shots/current.png -NoResize
 
+.EXAMPLE
+  # Put a staged portable build on a second monitor first. -Position is in
+  # physical virtual-desktop pixels; a monitor left of the primary has
+  # negative X.
+  ./tools/shoot.ps1 -Out shots/home.png -Width 900 -Height 600 -ExpectExe $exe -Position '-2160,-813'
+
 .NOTES
   WHICH instance gets captured is the trap. A second launch in the same
   single-instance scope hands over to the running copy and exits at once,
   and the old by-class lookup then found and shot that copy instead.
   -LaunchExe and -ExpectExe confine the lookup to one executable, and every
-  capture prints the exe it actually captured.
+  capture prints the exe it actually captured. Within it, the window is the
+  one the runner marks as the main window (the TwitchStreamlinkGUI.MainWindow
+  property, windows/runner/single_instance.cpp), as tools/click.ps1 picks it:
+  the class alone is the stock Flutter runner's. A build from before that
+  property is found by class instead, and only when its exe is named.
 
   A launch refuses only when a running copy shares the new one's scope
   (windows/runner/single_instance.cpp). A portable copy - portable.txt
@@ -66,6 +85,14 @@ param(
     # resizing and before capturing, so screens reachable only by navigation
     # (the Library, a channel dashboard) can be captured too.
     [string]$ClickAt,
+    # "x,y": move the window's top-left here before sizing it, in PHYSICAL
+    # virtual-desktop pixels. Without it the window stays where it is - where
+    # the app's own config put it. A size larger than the room left on that
+    # monitor grows the window past its right or bottom edge.
+    [string]$Position,
+    # Bring the window to the foreground before capturing. Not needed for
+    # PrintWindow, and it takes keyboard focus from the user's own window.
+    [switch]$Focus,
     [int]$SettleMs = 900,
     [int]$LaunchTimeoutMs = 30000
 )
@@ -95,20 +122,19 @@ Add-Type -AssemblyName System.Drawing
 # session that already loaded it: a shell that had run an older copy of this
 # script would keep the old class, and the first call to a member added since
 # would fail with "method not found". Bump the suffix whenever members change.
-if (-not ([System.Management.Automation.PSTypeName]'Win32ShotV3').Type) {
+if (-not ([System.Management.Automation.PSTypeName]'Win32ShotV4').Type) {
 Add-Type @'
 using System;
 using System.Text;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-public class Win32ShotV3 {
+public class Win32ShotV4 {
     public delegate bool EnumProc(IntPtr h, IntPtr l);
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, StringBuilder s, int max);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -116,7 +142,7 @@ public class Win32ShotV3 {
     [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr ctx);
 
     // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 for the calling thread, which
-    // runs the whole script: rects, MoveWindow, the cursor and the virtual
+    // runs the whole script: rects, SetWindowPos, the cursor and the virtual
     // desktop metrics are then all physical pixels. False if unavailable.
     public static bool PerMonitorAware() {
         return SetThreadDpiAwarenessContext(new IntPtr(-4)) != IntPtr.Zero;
@@ -126,6 +152,11 @@ public class Win32ShotV3 {
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetPropW(IntPtr h, string name);
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -152,16 +183,29 @@ public class Win32ShotV3 {
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
 
-    // Enumerate rather than FindWindow: the app also owns a
-    // FLUTTER_RUNNER_WIN32_WINDOW_TRAY window, and the main window is HIDDEN
-    // (not merely minimised) whenever the app is resting in the tray - which
-    // is its normal state. Enumeration finds it in that state; we restore it
-    // afterwards. ALL matches, not the first: the class is the stock Flutter
-    // runner's, shared by every Flutter desktop app and every copy of this
-    // one, so the caller picks by owning process.
-    public static IntPtr[] FindMainWindows(string cls) {
+    // Enumerate rather than FindWindow: the main window is HIDDEN (not
+    // merely minimised) whenever the app is resting in the tray - which is
+    // its normal state - and enumeration finds it in that state.
+    //
+    // The top-level windows of `pid` that carry the runner's main-window
+    // property: not the tray's FLUTTER_RUNNER_WIN32_WINDOW_TRAY window, and
+    // never a window of another process.
+    public static IntPtr[] TaggedWindowsOf(uint pid, string prop) {
         var found = new List<IntPtr>();
         EnumWindows((h, l) => {
+            if (ProcessIdOf(h) == pid && GetPropW(h, prop) != IntPtr.Zero) found.Add(h);
+            return true;
+        }, IntPtr.Zero);
+        return found.ToArray();
+    }
+
+    // The same by window class, for builds from before the property. The
+    // class is the stock Flutter runner's, so only ever ask it of one
+    // process.
+    public static IntPtr[] ClassWindowsOf(uint pid, string cls) {
+        var found = new List<IntPtr>();
+        EnumWindows((h, l) => {
+            if (ProcessIdOf(h) != pid) return true;
             var sb = new StringBuilder(256);
             GetClassNameW(h, sb, 256);
             if (sb.ToString() == cls) found.Add(h);
@@ -190,32 +234,63 @@ public class Win32ShotV3 {
 }
 
 # Before any window is measured: see the DPI note at the top.
-if (-not [Win32ShotV3]::PerMonitorAware()) {
+if (-not [Win32ShotV4]::PerMonitorAware()) {
     Write-Warning 'Could not make this script per-monitor DPI aware: a window on a scaled monitor will be measured, and captured, at its logical size.'
 }
 
 $WINDOW_CLASS = 'FLUTTER_RUNNER_WIN32_WINDOW'
+$MAIN_WINDOW_PROP = 'TwitchStreamlinkGUI.MainWindow'
 $VIEW_CLASS = 'FLUTTERVIEW'
 $APP_PROCESS = 'streamlink_gui'
-$SW_RESTORE = 9
-$SW_SHOW = 5
+# Neither activates the window: see "show, place, size" below.
+$SW_SHOWNOACTIVATE = 4   # restores a minimised or maximised window
+$SW_SHOWNA = 8           # shows a hidden window in its current state
+$SWP_NOSIZE = 0x0001
+$SWP_NOMOVE = 0x0002
+$SWP_NOZORDER = 0x0004
+$SWP_NOACTIVATE = 0x0010
+$GA_ROOT = 2
 $PW_RENDERFULLCONTENT = 2
 $GWL_STYLE = -16
 $WS_VISIBLE = 0x10000000
 
 function Get-WindowProcess([IntPtr]$h) {
-    return Get-Process -Id ([Win32ShotV3]::ProcessIdOf($h)) -ErrorAction SilentlyContinue
+    return Get-Process -Id ([Win32ShotV4]::ProcessIdOf($h)) -ErrorAction SilentlyContinue
+}
+
+# "x,y" to two numbers, or a clear error naming the parameter.
+function ConvertTo-Point([string]$text, [string]$name) {
+    $parts = $text.Split(',')
+    if ($parts.Count -ne 2) { throw "$name must be 'x,y'." }
+    return @([double]$parts[0].Trim(), [double]$parts[1].Trim())
 }
 
 # The app's main window - of $exePath only, when given. $null (never
 # IntPtr.Zero, which PowerShell treats as TRUE) when there is none.
+#
+# Picked as tools/click.ps1 picks it: a window of a streamlink_gui process
+# carrying the runner's main-window property. A build older than the
+# property has none, and is looked up by class instead - only for a named
+# exe, because by class the user's own older copy is as good a match as the
+# build under test.
 function Find-AppWindow([string]$exePath) {
     $found = @()
-    foreach ($h in [Win32ShotV3]::FindMainWindows($WINDOW_CLASS)) {
-        $proc = Get-WindowProcess $h
-        if (-not $proc -or $proc.ProcessName -ne $APP_PROCESS) { continue }
+    $untagged = @()
+    foreach ($proc in @(Get-Process $APP_PROCESS -ErrorAction SilentlyContinue)) {
         if ($exePath -and $proc.Path -ne $exePath) { continue }
-        $found += $h
+        $tagged = @([Win32ShotV4]::TaggedWindowsOf([uint32]$proc.Id, $MAIN_WINDOW_PROP))
+        if ($tagged.Count -gt 1) {
+            throw "pid $($proc.Id) has $($tagged.Count) windows tagged $MAIN_WINDOW_PROP; refusing to guess which one to capture."
+        }
+        if ($tagged.Count -eq 1) { $found += $tagged[0]; continue }
+        if ($exePath) { $untagged += @([Win32ShotV4]::ClassWindowsOf([uint32]$proc.Id, $WINDOW_CLASS)) }
+    }
+    if ($found.Count -eq 0 -and $untagged.Count -gt 0) {
+        if ($untagged.Count -gt 1) {
+            throw "$exePath has $($untagged.Count) '$WINDOW_CLASS' windows and no $MAIN_WINDOW_PROP tag; refusing to guess which one to capture."
+        }
+        Write-Warning "$exePath has no window tagged $MAIN_WINDOW_PROP (a build from before the tag); using its '$WINDOW_CLASS' window."
+        return $untagged[0]
     }
     if ($found.Count -eq 0) { return $null }
     # Now that a portable build can run beside the installed app, "the app's
@@ -267,16 +342,16 @@ function Get-ConflictingApps([string]$exePath) {
 function Assert-ContentViewVisible([IntPtr]$main) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     do {
-        $view = [Win32ShotV3]::FindChildByClass($main, $VIEW_CLASS)
-        if ($view -ne [IntPtr]::Zero -and [Win32ShotV3]::IsWindowVisible($view)) { return }
+        $view = [Win32ShotV4]::FindChildByClass($main, $VIEW_CLASS)
+        if ($view -ne [IntPtr]::Zero -and [Win32ShotV4]::IsWindowVisible($view)) { return }
         Start-Sleep -Milliseconds 250
     } while ($sw.ElapsedMilliseconds -lt 3000)
 
-    $mainVisible = [Win32ShotV3]::IsWindowVisible($main)
+    $mainVisible = [Win32ShotV4]::IsWindowVisible($main)
     if ($view -eq [IntPtr]::Zero) {
         throw "No $VIEW_CLASS child under the app window (main visible=$mainVisible): the engine never attached its view. Capture refused."
     }
-    $style = [Win32ShotV3]::GetWindowLongW($view, $GWL_STYLE)
+    $style = [Win32ShotV4]::GetWindowLongW($view, $GWL_STYLE)
     $flag = if (($style -band $WS_VISIBLE) -ne 0) { 'WS_VISIBLE set, so a parent is hidden' } else { 'WS_VISIBLE clear' }
     # Parenthesised: -f binds tighter than +, and would format only the last part.
     throw (("$VIEW_CLASS is not visible (main visible=$mainVisible, view style=0x{0:X8}, $flag). " +
@@ -328,11 +403,11 @@ if (-not $hwnd -and $LaunchExe) {
         # here: forcing it up before the first frame would be the harness
         # racing the very startup path the view check below exists to test.
         $shownSw = [Diagnostics.Stopwatch]::StartNew()
-        while (-not [Win32ShotV3]::IsWindowVisible($hwnd) -and $shownSw.ElapsedMilliseconds -lt 10000) {
+        while (-not [Win32ShotV4]::IsWindowVisible($hwnd) -and $shownSw.ElapsedMilliseconds -lt 10000) {
             Start-Sleep -Milliseconds 200
             if ($launched.HasExited) { throw "$targetExe exited during startup, after creating its window." }
         }
-        if (-not [Win32ShotV3]::IsWindowVisible($hwnd)) {
+        if (-not [Win32ShotV4]::IsWindowVisible($hwnd)) {
             Write-Warning 'The app did not show its own window within 10s (set to start minimized?) - showing it from here.'
         }
         Start-Sleep -Milliseconds 2500   # let first frame + data settle
@@ -343,9 +418,9 @@ if (-not $hwnd) {
     $running = Get-RunningApps
     $seen = if ($running.Count -gt 0) { "Running: $(Format-Apps $running)." } else { 'No copy of the app is running.' }
     if ($targetExe) {
-        throw "No '$WINDOW_CLASS' window belongs to $targetExe. $seen"
+        throw "No main window belongs to $targetExe (still starting, or no window yet). $seen"
     }
-    throw "No '$WINDOW_CLASS' window of $APP_PROCESS. Start the app, or pass -LaunchExe. $seen"
+    throw "No window of $APP_PROCESS is tagged $MAIN_WINDOW_PROP. Start the app, pass -LaunchExe, or pass -ExpectExe for a build older than the tag. $seen"
 }
 
 # Say which instance this is, every time: a capture of the wrong copy looks
@@ -355,26 +430,55 @@ $ownerPath = if ($owner -and $owner.Path) { $owner.Path } else { '<unknown path>
 Write-Host ("Capturing {0} (pid {1})" -f $ownerPath, $owner.Id) -ForegroundColor Gray
 Assert-ReleaseBuild $ownerPath
 
-# --- size ------------------------------------------------------------------
+# --- show, place, size -----------------------------------------------------
+# Nothing in this section activates the window. SW_SHOW and SW_RESTORE both
+# activate as they show, and the SetForegroundWindow that followed took the
+# foreground outright, so every capture pulled keyboard focus from whatever
+# the user was typing into. PrintWindow needs neither: it renders the window
+# whether or not it is in front.
+#
 # The window may be hidden (resting in the tray) or minimised; both must be
 # undone before it will paint anything worth capturing.
-$wasHidden = -not [Win32ShotV3]::IsWindowVisible($hwnd)
+$wasHidden = -not [Win32ShotV4]::IsWindowVisible($hwnd)
 if ($wasHidden) {
     Write-Host 'Window was hidden (tray) - showing it for the capture.' -ForegroundColor Gray
-    [Win32ShotV3]::ShowWindow($hwnd, $SW_SHOW) | Out-Null
+    [Win32ShotV4]::ShowWindow($hwnd, $SW_SHOWNA) | Out-Null
 }
-[Win32ShotV3]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
-[Win32ShotV3]::SetForegroundWindow($hwnd) | Out-Null
+# Maximised is left alone for -NoResize, which shoots the window as it is;
+# a move or a size needs the restored window.
+$restore = [Win32ShotV4]::IsIconic($hwnd) -or
+    ([Win32ShotV4]::IsZoomed($hwnd) -and ($Position -or -not $NoResize))
+if ($restore) {
+    [Win32ShotV4]::ShowWindow($hwnd, $SW_SHOWNOACTIVATE) | Out-Null
+}
+if ($Focus) {
+    [Win32ShotV4]::SetForegroundWindow($hwnd) | Out-Null
+}
+
+# Moved only when asked. Every resize used to MoveWindow it to (80,60) as
+# well, which is on the primary monitor: a capture dragged the window there
+# from wherever it was, the user's working screen included.
+if ($Position) {
+    $at = ConvertTo-Point $Position '-Position'
+    Write-Host ("Moving to ({0},{1}) physical" -f $at[0], $at[1]) -ForegroundColor Gray
+    [Win32ShotV4]::SetWindowPos($hwnd, [IntPtr]::Zero, [int]$at[0], [int]$at[1], 0, 0,
+        ($SWP_NOSIZE -bor $SWP_NOZORDER -bor $SWP_NOACTIVATE)) | Out-Null
+    # Onto a monitor of another scale, the app takes WM_DPICHANGED and resizes
+    # itself first; the DPI below must be the new monitor's.
+    Start-Sleep -Milliseconds 400
+}
 
 if (-not $NoResize) {
     if (-not $Width -or -not $Height) { throw 'Provide -Width and -Height, or pass -NoResize.' }
-    $dpi = [Win32ShotV3]::GetDpiForWindow($hwnd)
+    $dpi = [Win32ShotV4]::GetDpiForWindow($hwnd)
     if ($dpi -le 0) { $dpi = 96 }
     $scale = $dpi / 96.0
     $pw = [int][Math]::Round($Width * $scale)
     $ph = [int][Math]::Round($Height * $scale)
     Write-Host ("Resizing to {0}x{1} logical ({2}x{3} physical @ {4} dpi)" -f $Width, $Height, $pw, $ph, $dpi) -ForegroundColor Gray
-    [Win32ShotV3]::MoveWindow($hwnd, 80, 60, $pw, $ph, $true) | Out-Null
+    # Size only: the top-left stays where it is.
+    [Win32ShotV4]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, $pw, $ph,
+        ($SWP_NOMOVE -bor $SWP_NOZORDER -bor $SWP_NOACTIVATE)) | Out-Null
 }
 
 Start-Sleep -Milliseconds $SettleMs   # let Flutter relayout and repaint
@@ -383,39 +487,42 @@ Start-Sleep -Milliseconds $SettleMs   # let Flutter relayout and repaint
 Assert-ContentViewVisible $hwnd
 
 if ($ClickAt) {
-    $parts = $ClickAt.Split(',')
-    if ($parts.Count -ne 2) { throw "ClickAt must be 'x,y'." }
-    $r0 = New-Object Win32ShotV3+RECT
-    [Win32ShotV3]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
-    $rect0Right = $r0.Right
-    $dpiC = [Win32ShotV3]::GetDpiForWindow($hwnd); if ($dpiC -le 0) { $dpiC = 96 }
+    $click = ConvertTo-Point $ClickAt '-ClickAt'
+    $r0 = New-Object Win32ShotV4+RECT
+    [Win32ShotV4]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
+    $dpiC = [Win32ShotV4]::GetDpiForWindow($hwnd); if ($dpiC -le 0) { $dpiC = 96 }
     $sc = $dpiC / 96.0
-    $cx = $r0.Left + [int]([double]$parts[0].Trim() * $sc)
-    $cy = $r0.Top  + [int]([double]$parts[1].Trim() * $sc)
+    $cx = $r0.Left + [int]($click[0] * $sc)
+    $cy = $r0.Top  + [int]($click[1] * $sc)
     Write-Host "Clicking at $cx,$cy" -ForegroundColor Gray
     # PrintWindow captures an occluded window happily, so a shot can look
     # correct while the app sits BEHIND the terminal - and a synthetic click at
     # screen coordinates then lands on whatever is actually on top. Raise it
-    # for the duration of the click, and verify what is under the cursor.
+    # for the duration of the click (topmost, without activating it), and
+    # verify what is under the cursor.
     $HWND_TOPMOST = New-Object IntPtr(-1)
-    $HWND_NOTOPMOST = New-Object IntPtr(-2)
-    $SWP_NOMOVE_NOSIZE_NOACTIVATE = 0x0002 -bor 0x0001 -bor 0x0010
-    [Win32ShotV3]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
-    [Win32ShotV3]::SetForegroundWindow($hwnd) | Out-Null
+    $SWP_NOMOVE_NOSIZE_NOACTIVATE = $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_NOACTIVATE
+    [Win32ShotV4]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
     Start-Sleep -Milliseconds 350
 
-    $pt = New-Object Win32ShotV3+POINT
+    # Whatever is under the point must belong to the app's own window: its
+    # frame or the engine's FLUTTERVIEW child. Anything else - a window on top
+    # of it, another copy of the app - would receive the click instead, so
+    # it is refused (as click.ps1 refuses) rather than delivered.
+    $pt = New-Object Win32ShotV4+POINT
     $pt.X = $cx; $pt.Y = $cy
-    $under = [Win32ShotV3]::WindowFromPoint($pt)
-    $sb = New-Object System.Text.StringBuilder 256
-    [Win32ShotV3]::GetClassNameW($under, $sb, 256) | Out-Null
-    # FLUTTERVIEW is the app's own child render surface, so it counts as a hit.
-    $hitClass = $sb.ToString()
-    if ($hitClass -ne $WINDOW_CLASS -and $hitClass -ne 'FLUTTERVIEW') {
-        Write-Warning "Point ($cx,$cy) belongs to '$hitClass', not the app - the click will miss."
+    $under = [Win32ShotV4]::WindowFromPoint($pt)
+    if ([Win32ShotV4]::GetAncestor($under, $GA_ROOT) -ne $hwnd) {
+        [Win32ShotV4]::SetWindowPos($hwnd, (New-Object IntPtr(-2)), 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
+        throw ("Point ($cx,$cy) is covered by a window of pid {0}, not the app's. Nothing was clicked or captured." -f
+            [Win32ShotV4]::ProcessIdOf($under))
     }
 
-    [Win32ShotV3]::ClickAbsolute($cx, $cy)
+    # The click moves the user's cursor; it goes back where it was after.
+    $cursorBefore = New-Object Win32ShotV4+POINT
+    $hadCursor = [Win32ShotV4]::GetCursorPos([ref]$cursorBefore)
+
+    [Win32ShotV4]::ClickAbsolute($cx, $cy)
     Start-Sleep -Milliseconds 900
     # NOTE: topmost is NOT dropped here. Doing so immediately after the click
     # let the window fall behind, and PrintWindow then captured a released
@@ -423,19 +530,31 @@ if ($ClickAt) {
     # like a crash. It is restored after the capture instead.
     $script:restoreTopmost = $true
 
-    # Park the cursor off the window before capturing. Leaving it where it
-    # clicked leaves a hover highlight on whatever is under it, which shows up
-    # as a real-looking difference when comparing two phases' captures.
-    [Win32ShotV3]::SetCursorPos($rect0Right + 40, $r0.Top + 4) | Out-Null
+    # Off the window before capturing. Leaving it where it clicked leaves a
+    # hover highlight on whatever is under it, which shows up as a
+    # real-looking difference when comparing two phases' captures. Where the
+    # user had it is off the window unless it was over it; then beside it.
+    $overWindow = $hadCursor -and
+        $cursorBefore.X -ge $r0.Left -and $cursorBefore.X -lt $r0.Right -and
+        $cursorBefore.Y -ge $r0.Top -and $cursorBefore.Y -lt $r0.Bottom
+    if ($hadCursor -and -not $overWindow) {
+        [Win32ShotV4]::SetCursorPos($cursorBefore.X, $cursorBefore.Y) | Out-Null
+    } else {
+        [Win32ShotV4]::SetCursorPos($r0.Right + 40, $r0.Top + 4) | Out-Null
+    }
     Start-Sleep -Milliseconds 500
 }
 
 # --- capture ---------------------------------------------------------------
-$rect = New-Object Win32ShotV3+RECT
-[Win32ShotV3]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
+$rect = New-Object Win32ShotV4+RECT
+[Win32ShotV4]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
 $w = $rect.Right - $rect.Left
 $h = $rect.Bottom - $rect.Top
 if ($w -le 0 -or $h -le 0) { throw "Window has no area ($w x $h)." }
+
+# -Out may be absolute. Joined onto the current directory regardless, an
+# absolute path became "<cwd>\C:\..." and the save threw after the capture.
+$outPath = if ([IO.Path]::IsPathRooted($Out)) { $Out } else { Join-Path (Get-Location) $Out }
 
 $bmp = New-Object System.Drawing.Bitmap($w, $h)
 try {
@@ -445,20 +564,20 @@ try {
         try {
             # PW_RENDERFULLCONTENT is load-bearing: without it a Flutter window
             # captures as a black rectangle.
-            $ok = [Win32ShotV3]::PrintWindow($hwnd, $hdc, $PW_RENDERFULLCONTENT)
+            $ok = [Win32ShotV4]::PrintWindow($hwnd, $hdc, $PW_RENDERFULLCONTENT)
             if (-not $ok) { throw 'PrintWindow failed.' }
         } finally { $g.ReleaseHdc($hdc) }
     } finally { $g.Dispose() }
 
-    $dir = Split-Path -Parent $Out
+    $dir = Split-Path -Parent $outPath
     if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    $bmp.Save((Join-Path (Get-Location) $Out), [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
 } finally { $bmp.Dispose() }
 
 # Guard against the classic silent failure: a uniformly blank capture.
 # Sample a grid rather than two points: a large flat background made a
 # two-pixel test cry wolf on almost every light-theme capture.
-$check = [System.Drawing.Bitmap]::FromFile((Join-Path (Get-Location) $Out))
+$check = [System.Drawing.Bitmap]::FromFile($outPath)
 try {
     $seen = @{}
     foreach ($fx in 0.1, 0.3, 0.5, 0.7, 0.9) {
@@ -471,7 +590,7 @@ try {
 } finally { $check.Dispose() }
 
 if ($script:restoreTopmost) {
-    [Win32ShotV3]::SetWindowPos($hwnd, (New-Object IntPtr(-2)), 0, 0, 0, 0, 0x0002 -bor 0x0001 -bor 0x0010) | Out-Null
+    [Win32ShotV4]::SetWindowPos($hwnd, (New-Object IntPtr(-2)), 0, 0, 0, 0, 0x0002 -bor 0x0001 -bor 0x0010) | Out-Null
 }
 
 Write-Host ("Saved {0} ({1}x{2})" -f $Out, $w, $h) -ForegroundColor Green
