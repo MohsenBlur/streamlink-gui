@@ -53,6 +53,25 @@ abstract class ThemeUpdateListener extends ChangeNotifier {
   });
 }
 
+/// Whether an account-token Test probed the credentials the app is using.
+///
+/// The Test button validates whatever is TYPED, but `twitchAuth.helix`
+/// describes the SAVED token and Client ID - the pair every Helix call sends.
+/// Publishing a probe of anything else rewrote the app-wide verdict about a
+/// token nothing was using. Testing a typo and pressing Cancel raised the
+/// "rejected" banner over a working account. Testing a good token over a dead
+/// saved one cleared the banner and fired the recovery refresh, with the dead
+/// token, which failed again a minute later.
+///
+/// Trimmed on both sides because Save trims what it stores.
+bool accountTestDescribesSavedToken(
+  AppSettings saved, {
+  required String token,
+  required String clientId,
+}) =>
+    token.trim() == saved.twitchOauthToken.trim() &&
+    clientId.trim() == saved.twitchClientId.trim();
+
 class SettingsDialog {
   static Future<void> show(
     BuildContext context, {
@@ -74,7 +93,13 @@ class SettingsDialog {
     /// app can offer to install it. Without this the dialog told the user to
     /// "check the main window prompt", which only ever appears at startup.
     void Function(UpdateInfo)? onUpdateAvailable,
+
+    /// What the two token Test buttons validate through. A fresh service when
+    /// omitted, which is what the app does; tests pass a fake so a validation
+    /// can be held open while the dialog closes underneath it.
+    TwitchApiService? apiService,
   }) {
+    final api = apiService ?? TwitchApiService();
     String tempQuality = settings.defaultQuality;
     bool tempLowLatency = settings.twitchLowLatency;
     String tempPlayerType = settings.playerType;
@@ -494,6 +519,11 @@ class SettingsDialog {
                                         type: FileType.custom,
                                         allowedExtensions: ['exe', 'app', 'sh', 'bat', 'cmd'],
                                       );
+                                      // The same guard as the token tests:
+                                      // nothing here may touch the dialog,
+                                      // or its disposed controllers, once it
+                                      // has closed.
+                                      if (!context.mounted) return;
                                       if (result != null && result.files.single.path != null) {
                                         setDialogState(() {
                                           playerPathController.text = result.files.single.path!;
@@ -605,6 +635,7 @@ class SettingsDialog {
                                   ),
                                   onPressed: () async {
                                     final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+                                    if (!context.mounted) return;
                                     if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
                                       setDialogState(() {
                                         downloadFolderController.text = selectedDirectory;
@@ -1072,22 +1103,38 @@ class SettingsDialog {
                                     onPressed: isTestingAccount
                                         ? null
                                         : () async {
+                                            // Taken before the await: the
+                                            // fields stay editable during the
+                                            // round trip, and what matters
+                                            // below is what was TESTED.
+                                            final testedToken = tokenController.text;
+                                            final testedClientId = clientIdController.text;
                                             setDialogState(() {
                                               isTestingAccount = true;
                                               accountTestResult = null;
                                             });
-                                            final status = await TwitchApiService()
-                                                .validateHelixToken(
-                                                    tokenController.text,
-                                                    clientIdController.text);
+                                            final status = await api.validateHelixToken(
+                                                testedToken, testedClientId);
+                                            // Cancel, Save and Connect all stay
+                                            // live while this runs, and the
+                                            // builder is gone once they pop.
+                                            // Returning also skips publishing:
+                                            // after a Save, `settings` is no
+                                            // longer what the app is using.
+                                            if (!context.mounted) return;
+                                            final testedIsSaved = accountTestDescribesSavedToken(
+                                                settings,
+                                                token: testedToken,
+                                                clientId: testedClientId);
                                             setDialogState(() {
                                               isTestingAccount = false;
                                               isAccountValid = status.isUsable;
                                               accountTestResult = status.isUsable
                                                   ? 'Account token OK \u2014 signed in as ${status.login}, follows permission granted'
+                                                      '${testedIsSaved ? '' : '. Save to start using it.'}'
                                                   : (connectionDetail(status) ?? connectionLabel(status));
                                             });
-                                            twitchAuth.recordHelixProbe(status);
+                                            if (testedIsSaved) twitchAuth.recordHelixProbe(status);
                                           },
                                     child: isTestingAccount
                                         ? SizedBox(
@@ -1181,8 +1228,9 @@ class SettingsDialog {
                                               isTestingToken = true;
                                               tokenTestResult = null;
                                             });
-                                            final result = await TwitchApiService()
+                                            final result = await api
                                                 .validateOAuthToken(webTokenController.text);
+                                            if (!context.mounted) return;
                                             setDialogState(() {
                                               isTestingToken = false;
                                               isTokenValid = result.isValid;
