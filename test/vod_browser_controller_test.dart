@@ -547,6 +547,36 @@ void main() {
           reason: 'and again once it ends');
     });
 
+    test('a broadcast that starts while its list is being read is read again',
+        () async {
+      // The list was counted as this broadcast's because the broadcast had
+      // started by the time the answer landed, though the request went out
+      // before it: the VOD it began stayed out of the cache for the TTL.
+      twitch.addVideo('a');
+      final a = FakeHelix.channel('a')..lastUpdated = twitch.now;
+      final browser = browserFor();
+
+      twitch.holdVideos = Completer<void>();
+      final reading = browser.prefetch([a], open: null);
+      await settle();
+      a
+        ..isLive = true
+        ..streamId = 'broadcast-1';
+      twitch.holdVideos!.complete();
+      twitch.holdVideos = null;
+      await reading;
+      twitch.requests.clear();
+
+      later(const Duration(minutes: 1));
+      await browser.prefetch([a], open: null);
+      expect(twitch.to('/helix/videos'), hasLength(1));
+
+      twitch.requests.clear();
+      await browser.prefetch([a], open: null);
+      expect(twitch.to('/helix/videos'), isEmpty,
+          reason: 'read during the broadcast, it is current');
+    });
+
     test("leaves a channel to the stream-end check that is reading it",
         () async {
       twitch.addVideo('a');
