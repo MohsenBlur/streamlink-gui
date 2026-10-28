@@ -1297,6 +1297,7 @@ class SettingsDialog {
                                             // below is what was TESTED.
                                             final testedToken = tokenController.text;
                                             final testedClientId = clientIdController.text;
+                                            final route = ModalRoute.of(context);
                                             setDialogState(() {
                                               isTestingAccount = true;
                                               accountTestResult = null;
@@ -1304,12 +1305,16 @@ class SettingsDialog {
                                             final status = await api.validateHelixToken(
                                                 testedToken, testedClientId);
                                             // Cancel, Save and Connect all stay
-                                            // live while this runs, and the
-                                            // builder is gone once they pop.
-                                            // Returning also skips publishing:
-                                            // after a Save, `settings` is no
-                                            // longer what the app is using.
-                                            if (!context.mounted) return;
+                                            // live while this runs. Returning
+                                            // once any of them has popped also
+                                            // skips publishing: after a Save,
+                                            // `settings` is no longer what the
+                                            // app is using. `mounted` alone is
+                                            // not that test - the builder
+                                            // outlives the pop by the whole
+                                            // exit animation - but the route
+                                            // stops being active at the pop.
+                                            if (!context.mounted || route?.isActive == false) return;
                                             final testedIsSaved = accountTestDescribesSavedToken(
                                                 settings,
                                                 token: testedToken,

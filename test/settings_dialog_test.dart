@@ -262,6 +262,37 @@ void main() {
               'snapshot of the settings is no longer what the app uses');
     });
 
+    testWidgets('an account Test landing mid-exit publishes nothing',
+        (tester) async {
+      // The window the test above cannot see. The pop does not unmount the
+      // builder: the route animates out first, and context.mounted stays true
+      // throughout. A Save that replaced the token, then a probe of the OLD
+      // saved token landing in that window, matched the dialog's snapshot and
+      // was published as the status of a token the app no longer sends.
+      twitchAuth.setHelix(_validSaved);
+      await openSettings(tester, _savedSettings());
+      await showTab(tester, 'Twitch');
+      await tapVisible(tester, accountTest());
+      expect(api.helixCalls.single.$1, 'oauth:saved_token',
+          reason: 'precondition: the probe is of the saved pair');
+
+      await tester.enterText(_field(_accountTokenHint), 'oauth:replacement');
+      await tester.tap(find.text('Save changes'));
+      await tester.pump();
+      expect(saves.single.twitchOauthToken, 'oauth:replacement');
+
+      api.helix.complete(_revoked);
+      await _settle(tester);
+      expect(find.text('Account token — followed channels, VOD lists, ad-free'),
+          findsOneWidget,
+          reason: 'precondition: still inside the exit animation');
+      expect(twitchAuth.helix.value, _validSaved,
+          reason: 'the verdict is about a token the app stopped using');
+
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('the browser Test lands quietly', (tester) async {
       await openSettings(tester, _savedSettings());
       await showTab(tester, 'Twitch');
