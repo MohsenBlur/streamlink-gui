@@ -116,13 +116,16 @@ class NeuProgressBar extends StatelessWidget {
         ),
       );
     } else {
-      bar = ClipRRect(
-        borderRadius: BorderRadius.circular(size.radius),
-        child: LinearProgressIndicator(
-          value: value,
-          minHeight: size.thickness,
-          backgroundColor: track,
-          valueColor: AlwaysStoppedAnimation<Color>(accent),
+      // Its own layer: see the note on NeuProgressRing's indeterminate case.
+      bar = RepaintBoundary(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(size.radius),
+          child: LinearProgressIndicator(
+            value: value,
+            minHeight: size.thickness,
+            backgroundColor: track,
+            valueColor: AlwaysStoppedAnimation<Color>(accent),
+          ),
         ),
       );
     }
@@ -186,6 +189,14 @@ class NeuProgressRing extends StatelessWidget {
         color: color ?? Theme.of(context).primaryColor,
       ),
     );
+
+    // An indeterminate spinner repaints every frame for as long as it shows,
+    // and without a boundary of its own each of those repaints climbs to the
+    // nearest one above it - on the dashboard that is the page's scroll
+    // viewport, so the whole header, lit surfaces included, was re-recorded
+    // every vsync to animate twelve pixels. Determinate rings repaint only
+    // when their value moves, so they do not pay for a layer.
+    if (value == null) ring = RepaintBoundary(child: ring);
 
     if (semanticLabel != null) {
       ring = Semantics(

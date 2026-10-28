@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../theme/neu_theme.dart';
 import '../../theme/theme_notifier.dart';
@@ -77,14 +78,21 @@ class NeuContextMenu extends StatelessWidget {
                           : NeuTheme.text(isDark),
                 ),
                 const SizedBox(width: NeuSpace.s8),
-                Text(
-                  items[i].label,
-                  style: NeuType.bodySm(isDark).copyWith(
-                    color: !items[i].enabled
-                        ? NeuTheme.disabledText(isDark)
-                        : items[i].isDestructive
-                            ? NeuTheme.dangerText(isDark)
-                            : NeuTheme.text(isDark),
+                // Flexible: a popup menu caps its width (256px of content),
+                // and a bare Text in this Row overflowed it rather than
+                // ellipsizing once a label ran long.
+                Flexible(
+                  child: Text(
+                    items[i].label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: NeuType.bodySm(isDark).copyWith(
+                      color: !items[i].enabled
+                          ? NeuTheme.disabledText(isDark)
+                          : items[i].isDestructive
+                              ? NeuTheme.dangerText(isDark)
+                              : NeuTheme.text(isDark),
+                    ),
                   ),
                 ),
               ],
@@ -96,14 +104,49 @@ class NeuContextMenu extends StatelessWidget {
     if (selected != null) items[selected].onSelected();
   }
 
+  /// The Menu key, or Shift+F10 - the Windows keyboard routes to a context
+  /// menu.
+  static bool isMenuKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+    if (event.logicalKey == LogicalKeyboardKey.contextMenu) return true;
+    return event.logicalKey == LogicalKeyboardKey.f10 &&
+        HardwareKeyboard.instance.isShiftPressed;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onSecondaryTapUp: (details) => _show(context, details.globalPosition),
-      // Long-press as well, so a touch or pen user can reach the same actions.
-      onLongPressStart: (details) => _show(context, details.globalPosition),
-      child: child,
+    // Keyboard as well as pointer. A right-click menu that only a pointer can
+    // open is one more set of actions a keyboard user never reaches, which
+    // is the gap this widget was added to close. This Focus takes no focus
+    // and no Tab stop of its own; it hears the menu key from whichever
+    // control inside it has focus, and opens the menu over this widget.
+    return Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
+      onKeyEvent: (node, event) {
+        if (!isMenuKey(event) || items.isEmpty) return KeyEventResult.ignored;
+        final box = context.findRenderObject() as RenderBox?;
+        if (box == null || !box.hasSize) return KeyEventResult.ignored;
+        _show(context, box.localToGlobal(box.size.center(Offset.zero)));
+        return KeyEventResult.handled;
+      },
+      // With no items the recognizers stand down rather than open nothing:
+      // a long-press recognizer in the arena wins any press held past the
+      // long-press timeout, so a VOD card in multi-select (a checkbox whose
+      // menu is empty) lost every slow click or touch-and-hold to a menu that
+      // never opened. The GestureDetector itself stays, so toggling between
+      // empty and non-empty never changes the shape of the tree under it.
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onSecondaryTapUp: items.isEmpty
+            ? null
+            : (details) => _show(context, details.globalPosition),
+        // Long-press as well, so a touch or pen user can reach the same actions.
+        onLongPressStart: items.isEmpty
+            ? null
+            : (details) => _show(context, details.globalPosition),
+        child: child,
+      ),
     );
   }
 }

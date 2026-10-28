@@ -23,6 +23,19 @@ Widget host(Widget child,
   );
 }
 
+/// The size of the layer an animating progress indicator repaints into: the
+/// nearest repaint boundary at or above the framework indicator's render
+/// object.
+Size nearestRepaintBoundarySize(WidgetTester tester) {
+  final indicator = find.byWidgetPredicate((w) =>
+      w is CircularProgressIndicator || w is LinearProgressIndicator);
+  RenderObject? node = tester.renderObject(indicator);
+  while (node != null && !node.isRepaintBoundary) {
+    node = node.parent;
+  }
+  return (node! as RenderBox).size;
+}
+
 void main() {
   group('NeuProgressBar', () {
     testWidgets('each size maps to its documented fill thickness',
@@ -149,6 +162,33 @@ void main() {
         expect(ring.strokeWidth, strokeFor(size));
       }
     });
+
+    testWidgets('an indeterminate ring repaints only its own pixels',
+        (tester) async {
+      // Every frame of a spinner is a repaint, and it is contained by the
+      // nearest repaint boundary above it. Without one of its own that was
+      // the dashboard's scroll viewport, re-recorded every vsync for as long
+      // as the spinner showed.
+      await tester.pumpWidget(host(
+          const NeuProgressRing(size: NeuProgressRingSize.sm), width: null));
+      expect(nearestRepaintBoundarySize(tester), const Size(16, 16));
+    });
+
+    testWidgets('a determinate ring does not pay for a layer', (tester) async {
+      await tester.pumpWidget(host(const NeuProgressRing(value: 0.4)));
+      expect(
+          find.descendant(
+              of: find.byType(NeuProgressRing),
+              matching: find.byType(RepaintBoundary)),
+          findsNothing);
+    });
+  });
+
+  testWidgets('an indeterminate bar repaints only its own pixels',
+      (tester) async {
+    await tester.pumpWidget(host(const NeuProgressBar(size: NeuProgressSize.md),
+        width: 300));
+    expect(nearestRepaintBoundarySize(tester), const Size(300, 4));
   });
 
   group('meter styles', () {

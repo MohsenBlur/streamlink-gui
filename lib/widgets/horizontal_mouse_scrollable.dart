@@ -3,6 +3,62 @@ import 'package:flutter/material.dart';
 
 import '../theme/neu_theme.dart';
 
+/// Where a mouse wheel over a horizontal strip takes it, or null when the
+/// wheel would not move it at all.
+///
+/// The null is the point. The pointer-signal resolver is first-come: whoever
+/// registers for a wheel event first is the only one that sees it, and the
+/// strip sits deeper in the hit test than the page scroller around it, so it
+/// always registers first. It used to register unconditionally and work out
+/// whether it could scroll afterwards - so a chip row that fitted, or one
+/// already at its end, swallowed the wheel and did nothing with it. With the
+/// pointer resting on the VOD grid's game chips the grid underneath simply
+/// would not scroll. A null here means "not mine": the strip stays out of the
+/// resolver and the page gets the event.
+///
+/// Vertical wheel travel is read as horizontal (that is the whole job of the
+/// strip); a horizontal delta is used only when there is no vertical one.
+/// Same clamp as the framework's own `Scrollable` pointer handling.
+double? horizontalWheelTarget({
+  required double offset,
+  required double minExtent,
+  required double maxExtent,
+  required Offset scrollDelta,
+}) {
+  final delta = scrollDelta.dy != 0.0 ? scrollDelta.dy : scrollDelta.dx;
+  if (delta == 0.0) return null;
+  final target = (offset + delta).clamp(minExtent, maxExtent).toDouble();
+  return target == offset ? null : target;
+}
+
+/// Turns the mouse wheel into horizontal travel for the strip [controller]
+/// drives - claiming the event only when it will actually move the strip.
+///
+/// Shared by [HorizontalMouseScrollable] and the sidebar's avatar rail, which
+/// had its own copy of the same claim-everything handler.
+void routeWheelToHorizontalStrip(
+    PointerSignalEvent signal, ScrollController controller) {
+  if (signal is! PointerScrollEvent || !controller.hasClients) return;
+  double? targetFor(PointerScrollEvent event) {
+    final position = controller.position;
+    return horizontalWheelTarget(
+      offset: position.pixels,
+      minExtent: position.minScrollExtent,
+      maxExtent: position.maxScrollExtent,
+      scrollDelta: event.scrollDelta,
+    );
+  }
+
+  if (targetFor(signal) == null) return;
+  GestureBinding.instance.pointerSignalResolver.register(signal, (event) {
+    // Recomputed at dispatch rather than captured: the resolver runs the
+    // winner after the whole hit-test path has been offered the event.
+    if (event is! PointerScrollEvent || !controller.hasClients) return;
+    final target = targetFor(event);
+    if (target != null) controller.jumpTo(target);
+  });
+}
+
 /// Reusable wrapper widget that enables vertical mouse wheel scrolling
 /// on horizontal lists across the application seamlessly.
 ///
@@ -79,24 +135,8 @@ class _HorizontalMouseScrollableState extends State<HorizontalMouseScrollable> {
   @override
   Widget build(BuildContext context) {
     return Listener(
-      onPointerSignal: (pointerSignal) {
-        if (pointerSignal is PointerScrollEvent) {
-          GestureBinding.instance.pointerSignalResolver.register(pointerSignal, (event) {
-            if (event is PointerScrollEvent && _internalController.hasClients) {
-              final delta = event.scrollDelta.dy != 0.0
-                  ? event.scrollDelta.dy
-                  : event.scrollDelta.dx;
-              if (delta != 0.0) {
-                final newOffset = (_internalController.offset + delta).clamp(
-                  0.0,
-                  _internalController.position.maxScrollExtent,
-                );
-                _internalController.jumpTo(newOffset);
-              }
-            }
-          });
-        }
-      },
+      onPointerSignal: (signal) =>
+          routeWheelToHorizontalStrip(signal, _internalController),
       child: SingleChildScrollView(
         controller: _internalController,
         scrollDirection: Axis.horizontal,
