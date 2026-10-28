@@ -196,6 +196,48 @@ void main() {
       await save(storage, ['a']);
       expect(storageWriteFailure.value, isNull);
     });
+
+    test('a failed temp write leaves the last good config byte-identical', () async {
+      // Regression: a failed temp write fell back to writing the real file
+      // directly, which truncates it first. On a full disk that fallback
+      // failed too, leaving an empty config that loaded as defaults - and the
+      // next autosave made the loss permanent. The real file must only ever
+      // change by the atomic rename.
+      await save(storage, ['keep-me'], quality: 'good');
+      final before = configFile().readAsBytesSync();
+
+      // A temp path whose directory does not exist fails the temp write, the
+      // way a full disk does, while the real file stays perfectly writable.
+      StorageService.tempPathOverride = (target) =>
+          '${tempDir.path}${Platform.pathSeparator}missing${Platform.pathSeparator}x.tmp';
+      addTearDown(() => StorageService.tempPathOverride = null);
+
+      await save(storage, ['replacement'], quality: 'bad');
+
+      expect(storageWriteFailure.value, isNotNull,
+          reason: 'the lost save must still be reported');
+      expect(configFile().readAsBytesSync(), before,
+          reason: 'the real config must not be written in place');
+
+      StorageService.tempPathOverride = null;
+      final loaded = await storage.loadConfig();
+      expect(loaded!['settings']['default_quality'], 'good');
+    });
+
+    test('a failed rename leaves no temp file behind', () async {
+      // The target is a directory, so the temp write succeeds and the rename
+      // onto it fails - the temp must still be cleaned up on both attempts.
+      Directory(configFile().path).createSync(recursive: true);
+
+      await save(storage, ['a']);
+
+      expect(storageWriteFailure.value, isNotNull);
+      final leftovers = tempDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.tmp'));
+      expect(leftovers, isEmpty);
+    });
   });
 
   group('debris does not accumulate', () {

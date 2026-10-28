@@ -94,28 +94,33 @@ class _SerialFileWriter {
   /// all settings, the OAuth tokens and the watch history. `File.rename`
   /// replaces the destination atomically (MoveFileEx with
   /// MOVEFILE_REPLACE_EXISTING on Windows), so the delete was never needed.
+  ///
+  /// The real file is only ever replaced by that rename, never written in
+  /// place. A failure here used to fall back to writing it directly, which
+  /// opens it with truncation first: on a full disk the temp write failed,
+  /// the fallback emptied the config and then failed too, `loadConfig` read
+  /// the empty file as "no config", and the next autosave made the loss
+  /// permanent. The rename failure the fallback was aimed at (a destination
+  /// held open by a scanner or a sync client) refuses a direct write on the
+  /// same lock anyway. A failed write now leaves the last good file exactly
+  /// as it was; `_drain` retries it once and reports it if it persists.
   Future<void> _writeAtomic(String content) async {
     final dir = file.parent;
     if (!dir.existsSync()) {
       dir.createSync(recursive: true);
     }
 
-    final temp = File('${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+    final override = StorageService.tempPathOverride;
+    final temp = File(override != null
+        ? override(file.path)
+        : '${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
     try {
       await temp.writeAsString(content, flush: true);
       await temp.rename(file.path);
     } catch (_) {
-      // Best-effort fallback: a direct write is not atomic, but losing the
-      // update is worse than a narrow torn-write window.
       try {
-        await file.writeAsString(content, flush: true);
-      } finally {
-        if (await temp.exists()) {
-          try {
-            await temp.delete();
-          } catch (_) {}
-        }
-      }
+        if (await temp.exists()) await temp.delete();
+      } catch (_) {}
       rethrow;
     }
   }
@@ -153,6 +158,11 @@ class StorageService {
   /// Forces all storage into a specific directory. Used by tests; leave null in
   /// the app so the normal AppData / portable resolution applies.
   static String? storageDirectoryOverride;
+
+  /// Chooses the temp file a save writes before its rename, given the real
+  /// file's path. Used by tests to make that write fail the way a full disk
+  /// does; leave null in the app.
+  static String Function(String targetPath)? tempPathOverride;
 
   File getStorageFile(String filename) {
     try {
