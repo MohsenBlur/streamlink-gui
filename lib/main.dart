@@ -863,6 +863,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     SessionEnd.listen(
       onEnding: _saveForSessionEnd,
       onCancelled: _downloads.unfreeze,
+      // Answered, yet not ended: the Restart Manager asking for an installer
+      // (ENDSESSION_CLOSEAPP). Without this the queue stayed frozen for the
+      // rest of the run.
+      onSurvived: () {
+        CrashLog.current?.milestone(
+            '[session] still running after the session end; saving normally');
+        _downloads.unfreeze();
+      },
     );
 
     _favoritesLiveCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {

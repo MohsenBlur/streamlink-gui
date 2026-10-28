@@ -77,4 +77,14 @@ void main() {
     expect(bodyOf('void _onNewVods('),
         contains('_automation.newVodsToAnnounce('));
   });
+
+  test('a session end the process outlives lets go of the download queue',
+      () {
+    final at = src.indexOf('SessionEnd.listen(');
+    expect(at, isNonNegative);
+    final call = bracketed(src.indexOf('(', at), '(', ')');
+    expect(call, contains('onSurvived:'));
+    expect(call.substring(call.indexOf('onSurvived:')),
+        contains('_downloads.unfreeze()'));
+  });
 }
