@@ -501,12 +501,18 @@ class VodDisplayMenu extends StatelessWidget {
                 return Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                        const SizedBox(width: NeuSpace.s6),
-                        Text('Show All Games on Thumbnails', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
-                      ],
+                    // Gives way to the switch: wider than the menu, the
+                    // label ran past its edge (by 95px in the test font).
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                          const SizedBox(width: NeuSpace.s6),
+                          Flexible(
+                            child: Text('Show All Games on Thumbnails', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
+                          ),
+                        ],
+                      ),
                     ),
                     NeuSwitch(
                       value: settings.showGamesOnThumbnails,

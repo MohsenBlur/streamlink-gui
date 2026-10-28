@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
+import 'package:streamlink_gui/widgets/neumorphic/neu_button.dart';
 import 'package:streamlink_gui/widgets/twitch_video_card.dart';
 
 import 'support/held_file_picker.dart';
@@ -213,6 +216,123 @@ void main() {
       await h.settleRoute(tester);
       expect(find.text('No fully downloaded VODs found among selection.'),
           findsOneWidget);
+
+      await h.close(tester);
+    });
+  });
+
+  group('narrowing and selecting', () {
+    /// alpha's four VODs, by title, with the games their chapters name.
+    Future<ScreenHarness> openAlpha(WidgetTester tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.user('beta');
+      h.helix.addVideo('beta', title: 'Elsewhere');
+      for (final (title, games) in [
+        ('Opening prep', ['Chess']),
+        ('Endgame study', ['Chess']),
+        ('Any% run', ['Mario']),
+        ('Mixed night', ['Chess', 'Mario']),
+      ]) {
+        h.helix.videoGames[h.helix.addVideo('alpha', title: title)] = games;
+      }
+      await h.launch(tester, favorites: ['alpha', 'beta'], settings: withFolder());
+      await h.openChannel(tester, 'alpha');
+      return h;
+    }
+
+    Set<String> shown(WidgetTester tester) => {
+          for (final card
+              in tester.widgetList<TwitchVideoCard>(find.byType(TwitchVideoCard)))
+            card.vod.title,
+        };
+
+    Future<void> tapText(
+        WidgetTester tester, ScreenHarness h, String text) async {
+      await tester.tap(find.text(text).first);
+      await h.settle(tester);
+    }
+
+    Future<void> chip(WidgetTester tester, ScreenHarness h, String game) async {
+      await tester.tap(find.widgetWithText(NeuButton, game).first);
+      await h.settle(tester);
+    }
+
+    Future<void> search(
+        WidgetTester tester, ScreenHarness h, String text) async {
+      await tapText(tester, h, 'Display');
+      await h.settleRoute(tester);
+      await tester.enterText(
+          find.byWidgetPredicate((w) =>
+              w is TextField && w.decoration?.hintText == 'Filter VODs...'),
+          text);
+      await h.settle(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await h.settleRoute(tester);
+    }
+
+    testWidgets(
+        'a game, the search and All: All selects what both leave on show, '
+        'and All Games lets the search alone narrow it', (tester) async {
+      final h = await openAlpha(tester);
+      expect(shown(tester), hasLength(4));
+
+      await chip(tester, h, 'Mario');
+      expect(shown(tester), {'Any% run', 'Mixed night'});
+      await search(tester, h, 'night');
+      expect(shown(tester), {'Mixed night'}, reason: 'both narrow it');
+
+      await tapText(tester, h, 'Select');
+      await tapText(tester, h, 'All');
+      expect(find.text('1 selected'), findsOneWidget,
+          reason: 'All is what is on show, not the whole list');
+
+      await chip(tester, h, 'All Games');
+      expect(shown(tester), {'Mixed night'}, reason: 'the search still holds');
+      await tapText(tester, h, 'All');
+      expect(find.text('1 selected'), findsOneWidget);
+
+      // The search lives in Display, which selection mode replaces; leaving
+      // it drops the selection.
+      await tester.tap(find.byTooltip('Leave selection mode (Esc)'));
+      await h.settle(tester);
+      await search(tester, h, '');
+      expect(shown(tester), hasLength(4));
+
+      // Two games are either.
+      await chip(tester, h, 'Chess');
+      await chip(tester, h, 'Mario');
+      expect(shown(tester), hasLength(4));
+      await chip(tester, h, 'Mario');
+      expect(shown(tester), {'Opening prep', 'Endgame study', 'Mixed night'});
+      await tapText(tester, h, 'Select');
+      expect(find.text('Select videos'), findsOneWidget,
+          reason: 'nothing kept from before');
+      await tapText(tester, h, 'All');
+      expect(find.text('3 selected'), findsOneWidget);
+      await tapText(tester, h, 'Opening prep');
+      expect(find.text('2 selected'), findsOneWidget);
+      await tapText(tester, h, 'None');
+      expect(find.text('Select videos'), findsOneWidget);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'another channel starts with no game filter and nothing selected',
+        (tester) async {
+      final h = await openAlpha(tester);
+      await chip(tester, h, 'Mario');
+      await tapText(tester, h, 'Select');
+      await tapText(tester, h, 'Any% run');
+      expect(find.text('1 selected'), findsOneWidget);
+
+      await h.openChannel(tester, 'beta');
+      expect(shown(tester), {'Elsewhere'});
+      await h.openChannel(tester, 'alpha');
+      expect(shown(tester), hasLength(4), reason: 'the filter went');
+      expect(find.text('Select videos'), findsOneWidget,
+          reason: 'the selection went; selection mode stays');
 
       await h.close(tester);
     });
