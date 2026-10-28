@@ -51,11 +51,11 @@ class DownloadHistory {
   /// stamped a millisecond before the oldest held (or before [now]), so past
   /// [maxEntries] these go first, in the order they came.
   ///
-  /// For the seed from yt-dlp's archive. It is read after the registry's
-  /// seed ([restore]), and maybe after the scan has found files on disk, and
-  /// stamped later than either it outranked them: past the cap, VODs the
-  /// app still had a file or a registry entry for were dropped before
-  /// archive lines from builds long gone.
+  /// For the seed from yt-dlp's archive. Read after the registry's seed
+  /// ([restore]), and maybe after the scan has found files on disk, it was
+  /// stamped later than both and outranked them: past the cap, VODs the app
+  /// still had a file or a registry entry for were dropped before archive
+  /// lines from builds long gone.
   bool addBeneath(Iterable<String> vodIds, DateTime now) {
     var oldest = now.millisecondsSinceEpoch;
     for (final at in _firstDownloadedMs.values) {
