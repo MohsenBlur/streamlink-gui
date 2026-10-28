@@ -51,8 +51,9 @@ void main() {
     // The one dialog where dismissal is actively dangerous: the binaries are
     // being replaced underneath the running process. It also carries no
     // actions, so there is no way out of it by any route until it resolves.
-    final source = File('lib/main.dart').readAsStringSync();
-    final start = source.indexOf('void _performAppUpdate(');
+    final source =
+        File('lib/widgets/shell/update_flow.dart').readAsStringSync();
+    final start = source.indexOf('void runUpdateWithProgress(');
     expect(start, greaterThan(0));
     final body = source.substring(start, source.indexOf('Future.microtask', start));
     expect(body, contains('dismissible: false'));

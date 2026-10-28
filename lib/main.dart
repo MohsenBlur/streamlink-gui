@@ -30,17 +30,15 @@ import 'widgets/shell/app_frame.dart';
 import 'widgets/shell/channel_dashboard.dart';
 import 'widgets/shell/home_view.dart';
 import 'widgets/shell/status_banners.dart';
+import 'widgets/shell/update_flow.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
-import 'widgets/shell/neu_dialog.dart';
-import 'widgets/neumorphic/neu_progress.dart';
 import 'state/channels_controller.dart';
 import 'state/vod_browser_controller.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
 import 'widgets/download_folder_prompt.dart';
 import 'widgets/settings_dialog.dart';
-import 'widgets/shell/route_handle.dart';
 
 import 'services/startup_service.dart';
 import 'state/app_shell_controller.dart';
@@ -913,89 +911,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   void _performAppUpdate(UpdateInfo info) {
-    double progress = 0.0;
-    String statusText = 'Downloading update archive...';
-
-    // The dialog lives in the Navigator's overlay, so rebuilding MainScreen
-    // cannot rebuild it. Progress updates must go through the dialog's own
-    // StatefulBuilder setter, which was previously captured and never called -
-    // leaving the bar frozen at "0.0%" for the entire download and extraction.
-    void Function(VoidCallback)? setDialogState;
-    void updateDialog(VoidCallback change) {
-      change();
-      final setter = setDialogState;
-      if (setter != null) setter(() {});
-    }
-
-    // Closed by handle on failure: see the catch below.
-    final progressDialog = RouteHandle();
-
-    // No actions and not dismissible: the binaries are being replaced
-    // underneath the running process, so there is genuinely no way out until
-    // it finishes or fails. dialog_conformance_test pins this.
-    NeuDialog.show<void>(
-      context,
-      dismissible: false,
-      builder: (context) {
-        progressDialog.attach(context);
-        return StatefulBuilder(
-          builder: (context, setProgressState) {
-            setDialogState = setProgressState;
-            final isDark = themeNotifier.isDarkTheme;
-            return NeuDialog(
-              title: 'Updating',
-              icon: Icons.downloading,
-              width: 420,
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(statusText,
-                      style: NeuType.body(isDark)),
-                  const SizedBox(height: NeuSpace.s12),
-                  NeuProgressBar(
-                    value: progress > 0 ? progress : null,
-                    semanticLabel: 'Update download',
-                  ),
-                  const SizedBox(height: NeuSpace.s8),
-                  Text('${(progress * 100).toStringAsFixed(1)}%',
-                      style: NeuType.caption(isDark)),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    // The steps themselves, and the guard on Exit while they run, are the
-    // shell's (AppShellController.applyUpdate); this is what the user sees.
-    Future.microtask(() async {
-      try {
-        await _shell.applyUpdate(info, report: ({status, fraction}) {
-          updateDialog(() {
-            if (status != null) statusText = status;
-            if (fraction != null) progress = fraction;
-          });
-        });
-      } catch (e) {
-        // stopAll() may already have killed everything before the failure. The
-        // app survives this path, so any session still marked running would
-        // stay that way for the rest of the session - and eviction only
-        // reclaims finished ones.
-        _logNotifier.endAllRunning(-1);
-        // THIS dialog, not the top route. Navigator.pop(context) popped
-        // whatever was on top - a dialog the tray had opened over the
-        // progress dialog, say - and left "Updating", which has no buttons
-        // and cannot be dismissed, on screen for good.
-        progressDialog.close();
-        if (mounted) {
-          // Matches the VOD fetch path: the user reads this, and
-          // "Update failed: Exception: ..." is noise.
-          _showSnackBar(
-              'Update failed: ${e.toString().replaceFirst('Exception: ', '')}',
-              isError: true);
-        }
+    runUpdateWithProgress(context, _shell, info, onFailed: (e) {
+      // stopAll() may already have killed everything before the failure. The
+      // app survives this path, so any session still marked running would
+      // stay that way for the rest of the session - and eviction only
+      // reclaims finished ones.
+      _logNotifier.endAllRunning(-1);
+      if (mounted) {
+        // Matches the VOD fetch path: the user reads this, and
+        // "Update failed: Exception: ..." is noise.
+        _showSnackBar(
+            'Update failed: ${e.toString().replaceFirst('Exception: ', '')}',
+            isError: true);
       }
     });
   }
