@@ -58,8 +58,8 @@ import 'widgets/horizontal_mouse_scrollable.dart';
 import 'widgets/neumorphic/neu_checkbox.dart';
 import 'widgets/neumorphic/neu_switch.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
-import 'state/automation_decisions.dart';
 import 'services/oauth_loopback_server.dart';
+import 'services/automation_service.dart';
 import 'theme/neu_material_themes.dart';
 import 'theme/material/lit_surface.dart';
 import 'theme/app_theme.dart';
@@ -503,7 +503,53 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // rather than as running forever.
     _logNotifier.endSession(_appLogKey, 0);
   }
-  final Map<String, String> _lastAutoPlayedStreamSession = {};
+  // ---- Favorites automation (AutomationService) ----------------------
+  // The pass, its once-at-a-time guard and the auto-played session memory
+  // live in AutomationService; these closures are its view of the screen,
+  // read at call time exactly as the inline code read these fields.
+  late final AutomationService _automation = AutomationService(
+    favorites: () => _channels,
+    settings: () => _settings,
+    runningChannels: () => _playerService.runningChannels,
+    isWatchingVod: () => _isWatchingVod,
+    isUpdateActive: () => _isUpdatePromptOpen || _isUpdateInProgress,
+    playLive: (channel) => _playerService.launchStreamlinkForLive(
+      channel.username,
+      channel.isLive,
+      channel.streamTitle,
+      channel.game,
+      _settings,
+    ),
+    stopLive: (channel) => _playerService.killLiveStream(channel),
+    fetchVods: (channel) => _apiService.fetchVodsForChannel(
+      channel: channel,
+      settings: _settings,
+      localVodsProgress: _localVodsProgress,
+      // This pass renders nothing, so the per-VOD game lookup is pure
+      // overhead. It runs for every auto-download channel every minute.
+      fetchGames: false,
+    ),
+    localProgress: () => _localVodsProgress,
+    isVodHandled: (vodId) =>
+        _downloadedVodsRegistry.containsKey(vodId) ||
+        _playerService.activeDownloadTasks.containsKey(vodId) ||
+        _playerService.activeDownloadProcesses.containsKey(vodId) ||
+        _playerService.downloadQueue.contains(vodId),
+    queueDownload: (vod, channel, {overrideDisablePostProcessing}) =>
+        _playerService.queueVodDownload(
+      vod,
+      channel.username,
+      _settings,
+      overrideDisablePostProcessing: overrideDisablePostProcessing,
+    ),
+    showNotification: (title, body) =>
+        LocalNotification(title: title, body: body, silent: false).show(),
+    // HOOK (refresh-channels): the VOD lists the auto-download pass fetched
+    // are handed back here - wire them into the VOD cache with
+    // `onVodsFetched: (channel, result) { ... }`. Unset, they are dropped
+    // after the pass, as before.
+  );
+  // ---- end favorites automation ---------------------------------------
 
   @override
   void initState() {
@@ -2110,151 +2156,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool get _isWatchingVod =>
       _playerService.playingVodIds.isNotEmpty || _activePlayingVideos.isNotEmpty;
 
-  bool _automationPassRunning = false;
-
-  Future<void> _checkFavoritesAutomation() async {
-    // Re-entrancy guard: the 60s timer can fire again while a pass is still
-    // awaiting VOD lists, which produced overlapping passes that each queued
-    // the same downloads.
-    if (_automationPassRunning) return;
-    _automationPassRunning = true;
-    try {
-      await _runAutoPlayPass();
-      await _runAutoDownloadPass();
-    } finally {
-      _automationPassRunning = false;
-    }
-  }
-
-  Future<void> _runAutoPlayPass() async {
-    // Forget sessions for channels that are no longer live, so the next
-    // broadcast is treated as new.
-    final liveNames =
-        _channels.where((c) => c.isLive).map((c) => c.username.toLowerCase().trim()).toSet();
-    _lastAutoPlayedStreamSession.removeWhere((name, _) => !liveNames.contains(name));
-
-    final decision = decideAutoPlay(
-      channels: _channels,
-      runningChannels: _playerService.runningChannels
-          .map((c) => c.toLowerCase().trim())
-          .toSet(),
-      playedSessions: _lastAutoPlayedStreamSession,
-      isWatchingVod: _isWatchingVod,
-      isUpdateActive: _isUpdatePromptOpen || _isUpdateInProgress,
-      preemptLowerPriority: _settings.autoPlayPreemptLowerPriority,
-    );
-
-    if (decision.sessionChannel != null && decision.sessionKeyToRecord != null) {
-      _lastAutoPlayedStreamSession[decision.sessionChannel!] = decision.sessionKeyToRecord!;
-    }
-
-    // Applied before the early return: the highest-priority stream may already
-    // be running, and lower-priority ones still need stopping in that case.
-    for (final lower in decision.channelsToPreempt) {
-      print('[Auto-Play] Preempting lower priority stream @$lower');
-      _playerService.killLiveStream(lower);
-    }
-
-    if (!decision.shouldLaunch) {
-      if (decision.reason != AutoPlaySkipReason.none) {
-        print('[Auto-Play] No action: ${decision.reason.name}');
-      }
-      return;
-    }
-
-    final target = decision.channelToPlay!;
-    final cleanName = target.username.toLowerCase().trim();
-
-    _lastAutoPlayedStreamSession[cleanName] = decision.sessionKey!;
-    print('[Auto-Play] Launching @${target.username} (session ${decision.sessionKey})');
-
-    _playerService.launchStreamlinkForLive(
-      target.username,
-      target.isLive,
-      target.streamTitle,
-      target.game,
-      _settings,
-    );
-
-    if (_settings.notifyAutoPlay) {
-      try {
-        await LocalNotification(
-          title: 'Auto-Playing Live Stream',
-          body: '${target.username} is now live\nPlaying ${target.game ?? "Twitch"}',
-          silent: false,
-        ).show();
-      } catch (e) {
-        print('[Auto-Play Notification Error]: $e');
-      }
-    }
-  }
-
-  Future<void> _runAutoDownloadPass() async {
-    final channels = _channels.where((c) => c.autoDownloadVods).toList();
-    if (channels.isEmpty) return;
-
-    // Auto-download writes to disk, so a configured folder is required. This
-    // used to be skipped entirely, and startVodDownload then threw on every
-    // single queued item.
-    if (_settings.vodDownloadFolder.trim().isEmpty) {
-      print('[Auto-Download] Skipped: no VOD download folder configured.');
-      return;
-    }
-
-    for (final channel in channels) {
-      try {
-        final result = await _apiService.fetchVodsForChannel(
-          channel: channel,
-          settings: _settings,
-          localVodsProgress: _localVodsProgress,
-          // This pass renders nothing, so the per-VOD game lookup is pure
-          // overhead. It runs for every auto-download channel every minute.
-          fetchGames: false,
-        );
-        if (result.vods.isEmpty) continue;
-
-        final selected = selectVodsToAutoDownload(
-          channel: channel,
-          vods: result.vods,
-          localProgress: _localVodsProgress,
-          settings: _settings,
-          isAlreadyHandled: (vodId) =>
-              _downloadedVodsRegistry.containsKey(vodId) ||
-              _playerService.activeDownloadTasks.containsKey(vodId) ||
-              _playerService.activeDownloadProcesses.containsKey(vodId) ||
-              _playerService.downloadQueue.contains(vodId),
-        );
-
-        for (final vod in selected) {
-          print('[Auto-Download] Queueing ${vod.id} for @${channel.username}');
-          _playerService.queueVodDownload(
-            vod,
-            channel.username,
-            _settings,
-            // Tri-state: only override when the channel opts in. Passing false
-            // unconditionally made the per-channel default beat the global
-            // "Fast VOD Downloads" setting, so every automatic download ran the
-            // slow post-processing path the Downloads tab promised to skip.
-            overrideDisablePostProcessing: channel.autoDownloadFastDownload ? true : null,
-          );
-
-          if (_settings.notifyAutoDownloadStart) {
-            try {
-              await LocalNotification(
-                title: 'Auto-Downloading VOD',
-                body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
-                silent: false,
-              ).show();
-            } catch (e) {
-              print('[Auto-Download Notification Error]: $e');
-            }
-          }
-        }
-      } catch (e) {
-        print('[Auto-Download Error] Failed for @${channel.username}: $e');
-      }
-    }
-  }
+  /// One favorites automation pass (AutomationService.runPass); a call
+  /// while one is still running does nothing.
+  Future<void> _checkFavoritesAutomation() => _automation.runPass();
 
   void _prefetchVodsInBackground(List<TwitchChannel> channels) async {
     if (_settings.twitchOauthToken.trim().isEmpty) return;
@@ -2448,7 +2352,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         // Drop tracking state for the removed channel so it cannot resurface as
         // a stale "went live" notification or auto-play session later.
         _previouslyLiveFavoriteUsernames.remove(cleanName);
-        _lastAutoPlayedStreamSession.remove(cleanName);
+        _automation.forgetChannel(cleanName);
         if (_selectedChannel?.username == cleanName) {
           _selectedChannel = null;
         }
