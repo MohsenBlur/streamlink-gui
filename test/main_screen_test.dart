@@ -17,6 +17,7 @@ import 'package:streamlink_gui/state/download_history.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/state/vod_cache.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
+import 'package:streamlink_gui/widgets/shell/channel_dashboard.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 
 import 'support/fake_process.dart';
@@ -613,6 +614,76 @@ void main() {
     expect(h.player.runningChannels, ['alpha']);
 
     await h.close(tester);
+  });
+
+  group("a toast's click", () {
+    /// The toast titled [title], clicked.
+    Future<void> click(
+        WidgetTester tester, ScreenHarness h, String title) async {
+      final toast = h.notifications.shown.lastWhere((n) => n.title == title);
+      await toast.onClick!();
+      await h.settle(tester);
+    }
+
+    String? openChannelName(WidgetTester tester) {
+      final dashboard = find.byType(ChannelDashboard);
+      if (dashboard.evaluate().isEmpty) return null;
+      return tester.widget<ChannelDashboard>(dashboard).channel.username;
+    }
+
+    testWidgets(
+        'on a went-live toast brings the window back, opens the channel and '
+        'starts its stream', (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.user('beta');
+      await h.launch(tester, favorites: ['alpha', 'beta']);
+      await openChannel(tester, h, 'beta');
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+      expect(h.window.visible, isFalse);
+
+      h.helix.goLive('alpha', title: 'Speedrun night');
+      await h.advance(tester, const Duration(seconds: 61));
+      expect(h.notifications.titles, contains('alpha is now LIVE!'));
+      expect(h.player.runningChannels, isEmpty,
+          reason: 'precondition: a toast only says so');
+
+      await click(tester, h, 'alpha is now LIVE!');
+      expect(h.window.visible, isTrue);
+      expect(openChannelName(tester), 'alpha');
+      expect(h.player.runningChannels, ['alpha']);
+      expect(h.launcher.launched.single.arguments.join(' '), contains('alpha'));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'on a New VOD toast brings the window back and opens the channel, '
+        'with the VOD in its grid', (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.goLive('alpha');
+      await h.launch(tester, favorites: ['alpha']);
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+
+      // The broadcast ends off screen, and leaves its VOD.
+      h.helix.goOffline('alpha');
+      h.helix.addVideo('alpha', title: 'Last night, recorded');
+      await h.advance(tester, const Duration(seconds: 61));
+      expect(h.notifications.titles, contains('New VOD from alpha'));
+      expect(openChannelName(tester), isNull);
+
+      await click(tester, h, 'New VOD from alpha');
+      expect(h.window.visible, isTrue);
+      expect(openChannelName(tester), 'alpha');
+      expect(find.text('Last night, recorded'), findsOneWidget);
+      expect(h.player.runningChannels, isEmpty,
+          reason: 'a VOD is not played for the asking');
+
+      await h.close(tester);
+    });
   });
 
   testWidgets('Esc leaves the Library for where you were; Ctrl+F finds the '
