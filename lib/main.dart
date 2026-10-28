@@ -39,6 +39,7 @@ import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
 import 'state/channels_controller.dart';
 import 'state/vod_browser_controller.dart';
+import 'state/vod_selection.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
 import 'widgets/settings_dialog.dart';
@@ -300,13 +301,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   List<TwitchVideo> get _channelVods => _vodBrowser.vods;
   set _vodsError(String? value) => _vodBrowser.error = value;
 
-  final TextEditingController _vodSearchController = TextEditingController();
+  /// The open channel's game filter, search and selection (VodSelection).
+  final VodSelection _selection = VodSelection();
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
-  final Set<String> _selectedGamesFilter = {};
   bool _isWebTokenExpired = false;
-  bool _isMultiSelectMode = false;
-  final Set<String> _selectedVodIds = {};
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
 
@@ -697,7 +696,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // Detached before the controller goes: the proxy outlives this screen.
     widget.shellPulse?.parent = kAlwaysCompleteAnimation;
     _recentScroll.dispose();
-    _vodSearchController.dispose();
+    _selection.dispose();
     _pulseController?.dispose();
     _playerService.stopAll();
     _searchController.dispose();
@@ -1261,11 +1260,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // The object the poll keeps current, whichever row was clicked.
     final target = _channelsCtl.canonical(channel);
     _library.close();
-    setState(() {
-      _selectedChannel = target;
-      _selectedGamesFilter.clear();
-      _selectedVodIds.clear();
-    });
+    setState(() => _selectedChannel = target);
+    _selection.channelChanged();
     // The open channel is part of the pulse's gate (its header breathes
     // while it is live), so selecting one can start or stop it.
     _updatePulse();
@@ -1356,21 +1352,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Future<void> _checkFavoritesAutomation() => _automation.runPass();
 
   Future<void> _bulkUpdateSelectedVods(bool markAsWatched) async {
-    if (_selectedVodIds.isEmpty) {
+    if (_selection.picked.isEmpty) {
       _showSnackBar('No VODs selected.', isError: true);
       return;
     }
 
-    // The selection's order, and only what the grid still shows.
-    final successCount = _history.mark([
-      for (final id in _selectedVodIds)
-        ..._channelVods.where((v) => v.id == id).take(1),
-    ], watched: markAsWatched);
-
-    setState(() {
-      _isMultiSelectMode = false;
-      _selectedVodIds.clear();
-    });
+    final successCount =
+        _history.mark(_selection.pickedOf(_channelVods), watched: markAsWatched);
+    _selection.end();
 
     if (successCount > 0) {
       await _saveChannels();
@@ -1739,7 +1728,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   /// What the open channel's dashboard shows changes with (see build).
   late final Listenable _dashboardSources =
-      Listenable.merge([_vodBrowser, _history]);
+      Listenable.merge([_vodBrowser, _history, _selection]);
 
   Widget _buildDashboard(TwitchChannel channel) {
     final channelName = _selectedChannel?.username ?? 'VOD';
@@ -1749,17 +1738,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       vodBrowser: _vodBrowser,
       pulseController: _pulseController!,
       isPlaying: _playerService.runningChannels.contains(channel.username),
-      isMultiSelectMode: _isMultiSelectMode,
-      selectedVodIds: _selectedVodIds,
+      isMultiSelectMode: _selection.isSelecting,
+      selectedVodIds: _selection.picked,
       isWebTokenExpired: _isWebTokenExpired,
-      selectedGamesFilter: _selectedGamesFilter,
-      vodSearchController: _vodSearchController,
+      selectedGamesFilter: _selection.games,
+      vodSearchController: _selection.search,
       displayMenu: VodDisplayMenu(
         settings: _settings,
         vods: _channelVods,
-        selectedGamesFilter: _selectedGamesFilter,
-        vodSearchController: _vodSearchController,
-        update: setState,
+        selectedGamesFilter: _selection.games,
+        vodSearchController: _selection.search,
+        update: _selection.update,
         onSave: _saveChannels,
       ),
       isVodPlaying: (id) => _playerService.playingVodIds.contains(id),
@@ -1782,55 +1771,32 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         unawaited(_refreshSelectedVods(silent: false));
       },
       openExternalLink: _openExternalLink,
-      onEnterSelection: () => setState(() {
-        _isMultiSelectMode = true;
-        _selectedVodIds.clear();
-      }),
-      onExitSelection: _endSelection,
-      onClearSelection: () => setState(() => _selectedVodIds.clear()),
-      onSelectAllVisible: () => setState(() {
-        _selectedVodIds.addAll(_filteredChannelVods().map((v) => v.id));
-      }),
+      onEnterSelection: _selection.enter,
+      onExitSelection: _selection.end,
+      onClearSelection: _selection.clearPicked,
+      onSelectAllVisible: () => _selection.pickAllShown(_channelVods),
       onBulkMark: _bulkUpdateSelectedVods,
       // In the grid's order, as the order dialog lists them.
       onBulkDownload: () => _vods.downloadSelection(
-          _channelVods.where((v) => _selectedVodIds.contains(v.id)).toList(),
+          _selection.pickedInOrderOf(_channelVods),
           channelName: () => _selectedChannel?.username ?? 'VOD',
-          endSelection: _endSelection),
-      // In the selection's order, and only what the grid still shows: a
-      // selection can outlive a refresh.
-      onBulkDelete: () => _vods.deleteSelection([
-        for (final id in _selectedVodIds)
-          ..._channelVods.where((v) => v.id == id).take(1),
-      ], channelName: _selectedChannel?.username ?? '', endSelection: _endSelection),
+          endSelection: _selection.end),
+      onBulkDelete: () => _vods.deleteSelection(
+          _selection.pickedOf(_channelVods),
+          channelName: _selectedChannel?.username ?? '',
+          endSelection: _selection.end),
       onRefreshVods: () => _refreshSelectedVods(silent: false),
       onUpdateToken: _showSettingsDialog,
       onDismissWebTokenWarning: () => setState(() {
         _isWebTokenExpired = false;
       }),
-      onGameFilterSelected: (game) {
-        setState(() {
-          if (_selectedGamesFilter.contains(game)) {
-            _selectedGamesFilter.remove(game);
-          } else {
-            _selectedGamesFilter.add(game);
-          }
-        });
-      },
-      onClearGameFilter: () => setState(() => _selectedGamesFilter.clear()),
+      onGameFilterSelected: _selection.toggleGame,
+      onClearGameFilter: _selection.clearGames,
       onPlayVod: (vod) => _vods.play(vod, channelName),
       onDownloadVod: (vod) => _vods.download(vod, channelName),
       onDeleteDownload: (id) => _vods.deleteDownload(id, channelName),
       onCancelDownload: (id) => _vods.cancelDownload(id, channelName),
-      onVodSelectedChange: (id, isSelected) {
-        setState(() {
-          if (isSelected) {
-            _selectedVodIds.add(id);
-          } else {
-            _selectedVodIds.remove(id);
-          }
-        });
-      },
+      onVodSelectedChange: _selection.pick,
       onOpenFolder: (vod) {
         final path = _downloadedVodsRegistry[vod.id];
         if (path != null) _revealInExplorer(path);
@@ -1838,31 +1804,4 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       onLoadMore: () => _fetchVodsForChannel(channel, loadMore: true),
     );
   }
-
-  /// Leaves selection mode, with nothing selected.
-  void _endSelection() {
-    if (!mounted) return;
-    setState(() {
-      _isMultiSelectMode = false;
-      _selectedVodIds.clear();
-    });
-  }
-
-  /// The VODs the grid is currently showing, i.e. what "All" selects.
-  ///
-  /// Was inline inside the Select All button; the SelectionBar needs it too,
-  /// and two copies of a filter is how the old toolbar's two code paths
-  /// drifted apart in the first place.
-  List<TwitchVideo> _filteredChannelVods() {
-    final searchQuery = _vodSearchController.text.trim().toLowerCase();
-    return _channelVods.where((vod) {
-      final matchesSearch = searchQuery.isEmpty ||
-          vod.title.toLowerCase().contains(searchQuery) ||
-          vod.games.any((game) => game.toLowerCase().contains(searchQuery));
-      final matchesGameFilter = _selectedGamesFilter.isEmpty ||
-          vod.games.any((game) => _selectedGamesFilter.contains(game));
-      return matchesSearch && matchesGameFilter;
-    }).toList();
-  }
-
 }
