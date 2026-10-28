@@ -1,0 +1,258 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/state/activity_state.dart';
+import 'package:streamlink_gui/widgets/activity_pill.dart';
+import 'package:streamlink_gui/widgets/interactive_popover.dart';
+
+ActivitySnapshot running(String label) => ActivitySnapshot(
+      downloading: [
+        ActivityItem(
+          kind: ActivityKind.downloading,
+          id: 'v1',
+          label: label,
+          progress: 0.5,
+          status: '50.0% at 3.1MiB/s',
+        ),
+      ],
+      queued: const [
+        ActivityItem(kind: ActivityKind.queued, id: 'v2', label: 'Queued VOD'),
+      ],
+      playing: const [
+        ActivityItem(
+            kind: ActivityKind.liveStream, id: 'shroud', label: 'shroud'),
+      ],
+    );
+
+void sized(WidgetTester tester, Size size) {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+}
+
+/// The pill where the title bar puts it: right-aligned, with the theme
+/// toggle and the three window buttons (~150px) between it and the edge.
+/// Compact below 600px, as main.dart has it.
+Widget titleBar(ValueNotifier<ActivitySnapshot> activity,
+        {void Function(ActivityItem)? onStop, bool compact = false}) =>
+    MaterialApp(
+      theme: ThemeData(brightness: Brightness.dark),
+      home: Scaffold(
+        body: Column(
+          children: [
+            SizedBox(
+              height: 40,
+              child: Row(
+                children: [
+                  const Spacer(),
+                  ActivityPill(
+                    activity: activity,
+                    onStop: onStop ?? (_) {},
+                    compact: compact,
+                  ),
+                  const SizedBox(width: 150),
+                ],
+              ),
+            ),
+            const Expanded(child: SizedBox.expand()),
+          ],
+        ),
+      ),
+    );
+
+Rect popoverRect(WidgetTester tester) =>
+    tester.getRect(find.byType(ActivityPopover));
+
+void main() {
+  group('PopoverPlacement', () {
+    const window = Size(1000, 800);
+    const child = Size(340, 200);
+
+    Offset place(Rect trigger,
+            {Alignment target = Alignment.bottomRight,
+            Alignment follower = Alignment.topRight,
+            Offset offset = const Offset(0, 6),
+            Size size = child,
+            Size overlay = window}) =>
+        PopoverPlacement(
+          trigger: trigger,
+          targetAnchor: target,
+          followerAnchor: follower,
+          offset: offset,
+        ).getPositionForChild(overlay, size);
+
+    test('a popover with room lands exactly where the follower put it', () {
+      // trigger bottom-right (600, 40) + (0, 6) - child top-right (340, 0)
+      expect(place(const Rect.fromLTWH(500, 10, 100, 30)),
+          const Offset(260, 46));
+    });
+
+    test('a right-aligned popover slides back onto a narrow window', () {
+      // The activity popover at the 380px minimum: the pill's right edge
+      // sits ~150px in, so the follower put the left edge at -110.
+      final p = place(const Rect.fromLTWH(180, 6, 50, 28),
+          overlay: const Size(380, 500));
+      expect(p.dx, 8, reason: 'held a margin inside the left edge');
+      expect(p.dy, 40);
+    });
+
+    test('a popover slides back from the right edge too', () {
+      final p = place(const Rect.fromLTWH(900, 100, 40, 30),
+          target: Alignment.bottomLeft, follower: Alignment.topLeft);
+      expect(p.dx, 1000 - 8 - 340);
+    });
+
+    test('a trigger near the bottom opens upward', () {
+      final p = place(const Rect.fromLTWH(500, 740, 100, 40));
+      // Above: trigger top 740, minus the mirrored 6px, minus 200 tall.
+      expect(p.dy, 740 - 6 - 200);
+    });
+
+    test('it does not flip when the other side has no room either', () {
+      // 700 tall in an 800 window, trigger mid-screen: neither side fits, so
+      // it keeps its side and slides up only as far as it must.
+      final p = place(const Rect.fromLTWH(500, 300, 100, 40),
+          size: const Size(340, 700));
+      expect(p.dy, 800 - 8 - 700);
+    });
+
+    test('it is never larger than the window less its margins', () {
+      final c = const PopoverPlacement(
+        trigger: Rect.zero,
+        targetAnchor: Alignment.bottomRight,
+        followerAnchor: Alignment.topRight,
+        offset: Offset.zero,
+      ).getConstraintsForChild(
+          BoxConstraints.tight(const Size(380, 500)));
+      expect(c.maxWidth, 364);
+      expect(c.maxHeight, 484);
+      expect(c.minWidth, 0);
+    });
+  });
+
+  group('the activity popover', () {
+    testWidgets('stays on screen at the 380px minimum', (tester) async {
+      // Regression: right-aligned to the pill, the 340px popover opened
+      // ~110px off the left of a 380px window, cutting off every heading and
+      // the start of every label.
+      sized(tester, const Size(380, 500));
+      final activity = ValueNotifier(running('A VOD'));
+      addTearDown(activity.dispose);
+      await tester.pumpWidget(titleBar(activity, compact: true));
+
+      await tester.tap(find.byType(ActivityPill));
+      await tester.pump();
+
+      final rect = popoverRect(tester);
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(380));
+      expect(rect.bottom, lessThanOrEqualTo(500));
+      // Still under the pill rather than over it.
+      final pill = tester.getRect(find.byType(ActivityPill));
+      expect(rect.top, greaterThanOrEqualTo(pill.bottom));
+    });
+
+    testWidgets('lands right-aligned under the pill on a wide window',
+        (tester) async {
+      // Nothing moves where there was room all along.
+      sized(tester, const Size(1600, 1000));
+      final activity = ValueNotifier(running('A VOD'));
+      addTearDown(activity.dispose);
+      await tester.pumpWidget(titleBar(activity));
+
+      await tester.tap(find.byType(ActivityPill));
+      await tester.pump();
+
+      final pill = tester.getRect(find.byType(InteractivePopover));
+      final rect = popoverRect(tester);
+      expect(rect.right, moreOrLessEquals(pill.right));
+      expect(rect.top, moreOrLessEquals(pill.bottom + 6));
+      expect(rect.width, 340);
+    });
+
+    testWidgets('its content stays live while it is open', (tester) async {
+      sized(tester, const Size(1600, 1000));
+      final activity = ValueNotifier(running('First title'));
+      addTearDown(activity.dispose);
+      await tester.pumpWidget(titleBar(activity));
+      await tester.tap(find.byType(ActivityPill));
+      await tester.pump();
+      expect(
+          find.descendant(
+              of: find.byType(ActivityPopover),
+              matching: find.text('First title')),
+          findsOneWidget);
+
+      activity.value = running('Second title');
+      await tester.pump();
+      expect(
+          find.descendant(
+              of: find.byType(ActivityPopover),
+              matching: find.text('Second title')),
+          findsOneWidget);
+    });
+
+    testWidgets('a stop closes it and reports the item; outside taps close it',
+        (tester) async {
+      sized(tester, const Size(380, 500));
+      final activity = ValueNotifier(running('A VOD'));
+      addTearDown(activity.dispose);
+      ActivityItem? stopped;
+      await tester.pumpWidget(titleBar(activity,
+          onStop: (item) => stopped = item, compact: true));
+
+      await tester.tap(find.byType(ActivityPill));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Stop playback'));
+      await tester.pump();
+      expect(stopped?.id, 'shroud');
+      expect(find.byType(ActivityPopover), findsNothing);
+
+      await tester.tap(find.byType(ActivityPill));
+      await tester.pump();
+      expect(find.byType(ActivityPopover), findsOneWidget);
+      await tester.tapAt(const Offset(190, 450));
+      await tester.pump();
+      expect(find.byType(ActivityPopover), findsNothing);
+    });
+  });
+
+  testWidgets('a popover follows a trigger that scrolls', (tester) async {
+    // The dashboard header's popovers sit inside the page's CustomScrollView.
+    // The follower tracked the trigger at compositing time; the portal has to
+    // track it at layout time, every frame.
+    sized(tester, const Size(800, 600));
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ListView(
+          controller: scroll,
+          children: [
+            const SizedBox(height: 200),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: InteractivePopover(
+                targetAnchor: Alignment.bottomLeft,
+                followerAnchor: Alignment.topLeft,
+                popover: const SizedBox(
+                    key: ValueKey('menu'), width: 120, height: 80),
+                child: const SizedBox(width: 60, height: 30),
+              ),
+            ),
+            const SizedBox(height: 2000),
+          ],
+        ),
+      ),
+    ));
+    await tester.tap(find.byType(InteractivePopover));
+    await tester.pump();
+    final before = tester.getRect(find.byKey(const ValueKey('menu')));
+    expect(before.top,
+        moreOrLessEquals(tester.getRect(find.byType(InteractivePopover)).bottom + 6));
+
+    scroll.jumpTo(50);
+    await tester.pump();
+    final after = tester.getRect(find.byKey(const ValueKey('menu')));
+    expect(after.top, moreOrLessEquals(before.top - 50));
+  });
+}
