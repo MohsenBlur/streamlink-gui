@@ -1098,15 +1098,20 @@ class TwitchApiService {
 
   /// A helix/streams entry, applied to [channel]. Shared by the single and the
   /// batched refresh so the two cannot drift apart.
+  ///
+  /// Reads fields without hard casts: this runs outside the batched
+  /// refresh's try, and a TypeError from one odd entry would escape
+  /// [refreshLiveStatus], which promises never to throw.
   void _applyLiveStream(TwitchChannel channel, Map<String, dynamic> stream) {
+    String? text(Object? value) => value is String ? value : null;
     channel.isLive = true;
     // Stable for the whole broadcast; used to identify a live session.
     channel.streamId = stream['id']?.toString();
-    channel.streamTitle = stream['title'] as String?;
-    channel.game = stream['game_name'] as String?;
+    channel.streamTitle = text(stream['title']);
+    channel.game = text(stream['game_name']);
     channel.viewerCount = stream['viewer_count']?.toString() ?? '0';
 
-    final startedAt = stream['started_at'] as String?;
+    final startedAt = text(stream['started_at']);
     if (startedAt != null) {
       channel.uptime = _calculateUptime(startedAt);
       // Derived from the broadcast itself, so it is correct even for a

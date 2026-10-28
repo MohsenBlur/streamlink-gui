@@ -967,6 +967,36 @@ void main() {
       },
     );
 
+    test('an oddly typed stream entry does not escape as an exception', () async {
+      // refreshLiveStatus promises an outcome per channel and never a throw;
+      // the entries are applied outside its try, so a hard cast there broke
+      // that promise for every channel in the pass.
+      final channel = known('streamer', '7');
+      final other = known('other', '8');
+      final twitch = FakeTwitch((_) => jsonResponse({
+            'data': [
+              {
+                'id': 99,
+                'user_id': '7',
+                'title': 123,
+                'game_name': null,
+                'viewer_count': 5,
+                'started_at': 1700000000,
+              },
+            ],
+          }));
+
+      final result =
+          await serviceFor(twitch).refreshLiveStatus([channel, other], settings);
+
+      expect(result.outcomes[channel], ChannelRefreshOutcome.updated);
+      expect(result.outcomes[other], ChannelRefreshOutcome.updated);
+      expect(channel.isLive, isTrue);
+      expect(channel.streamTitle, isNull);
+      expect(channel.uptime, 'Live');
+      expect(other.isLive, isFalse);
+    });
+
     test('an empty list costs nothing', () async {
       final twitch = helix();
       final result = await serviceFor(twitch).refreshLiveStatus([], settings);
