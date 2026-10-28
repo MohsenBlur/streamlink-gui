@@ -51,6 +51,8 @@ AppSettings buildNonDefaultSettings() {
     isDarkTheme: false,
     disableVodPostProcessing: false,
     customVodArgs: '--concurrent-fragments 5',
+    notifyNewVod: false,
+    notifyFollowedWentLive: true,
   );
 }
 
@@ -190,6 +192,8 @@ void main() {
         notifyAutoPlay: false,
         notifyAutoDownloadStart: false,
         notifyDownloadComplete: false,
+        notifyNewVod: false,
+        notifyFollowedWentLive: true,
         onboardingCompleted: true,
       );
       final restored = AppSettings.fromJson(original.toJson());
@@ -206,6 +210,8 @@ void main() {
       expect(restored.notifyAutoPlay, isFalse);
       expect(restored.notifyAutoDownloadStart, isFalse);
       expect(restored.notifyDownloadComplete, isFalse);
+      expect(restored.notifyNewVod, isFalse);
+      expect(restored.notifyFollowedWentLive, isTrue);
       expect(restored.onboardingCompleted, isTrue);
     });
 
@@ -247,6 +253,10 @@ void main() {
       expect(restored.launchAtStartup, isFalse);
       expect(restored.trayLiveMenuEnabled, isTrue);
       expect(restored.notifyWentLive, isTrue);
+      // New-VOD toasts are the favourites' counterpart of went-live, so on;
+      // every followed channel going live would be a flood, so off.
+      expect(restored.notifyNewVod, isTrue);
+      expect(restored.notifyFollowedWentLive, isFalse);
       expect(restored.onboardingCompleted, isFalse);
     });
 

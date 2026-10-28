@@ -402,7 +402,12 @@ class SidebarPanelState extends State<SidebarPanel> {
                           : (widget.sidebarTab == 1 ? widget.isLoadingFollowed : (widget.isGlobalLoading || widget.isLoadingFollowed));
                       final query = widget.searchController.text.toLowerCase().trim();
                       final hasExactMatch = listToDisplay.any((c) => c.username.toLowerCase().trim() == query);
-                      final showAddPrompt = query.isNotEmpty && !hasExactMatch && widget.sidebarTab == 0;
+                      // Only for something that could be a login: offering
+                      // to add "foo bar" led to a lookup that could only fail.
+                      final showAddPrompt = query.isNotEmpty &&
+                          !hasExactMatch &&
+                          widget.sidebarTab == 0 &&
+                          isValidTwitchLogin(query);
 
                       if (isLoading && listToDisplay.isEmpty) {
                         return const Center(

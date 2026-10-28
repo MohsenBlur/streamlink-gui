@@ -203,6 +203,8 @@ class SettingsDialog {
     bool tempNotifyAutoPlay = settings.notifyAutoPlay;
     bool tempNotifyAutoDownloadStart = settings.notifyAutoDownloadStart;
     bool tempNotifyDownloadComplete = settings.notifyDownloadComplete;
+    bool tempNotifyNewVod = settings.notifyNewVod;
+    bool tempNotifyFollowedWentLive = settings.notifyFollowedWentLive;
 
     // One probe per dialog open. This used to run 8x on EVERY rebuild (each
     // probe shells out / stats the filesystem for four players).
@@ -312,6 +314,8 @@ class SettingsDialog {
         notifyAutoPlay: tempNotifyAutoPlay,
         notifyAutoDownloadStart: tempNotifyAutoDownloadStart,
         notifyDownloadComplete: tempNotifyDownloadComplete,
+        notifyNewVod: tempNotifyNewVod,
+        notifyFollowedWentLive: tempNotifyFollowedWentLive,
         disableVodPostProcessing: tempDisableVodPostProcessing,
         customVodArgs: customVodArgsController.text.trim(),
         // The Styling tab edits these on the notifier directly;
@@ -1625,6 +1629,32 @@ class SettingsDialog {
                                   value: tempNotifyWentLive,
                                   activeColor: themeNotifier.primaryColor,
                                   onChanged: (val) => setDialogState(() => tempNotifyWentLive = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: NeuSpace.s6),
+                            Row(
+                              children: [
+                                Expanded(child: Text('Favorite channel has a new VOD', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
+                                NeuSwitch(
+                                  value: tempNotifyNewVod,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyNewVod = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: NeuSpace.s6),
+                            Row(
+                              children: [
+                                // Off by default: with a large followed list
+                                // this is a toast every few minutes.
+                                Expanded(child: Text('Followed channel goes live', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
+                                NeuSwitch(
+                                  value: tempNotifyFollowedWentLive,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyFollowedWentLive = val),
                                 ),
                               ],
                             ),

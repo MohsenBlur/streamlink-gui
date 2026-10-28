@@ -10,6 +10,7 @@ import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
+import 'package:streamlink_gui/widgets/neumorphic/neu_switch.dart';
 import 'package:streamlink_gui/widgets/settings_dialog.dart';
 
 /// The real settings dialog, pumped and driven.
@@ -418,6 +419,31 @@ void main() {
 
       expect(saves.single.material, other.id.key);
       expect(themeNotifier.material, other.id);
+    });
+  });
+
+  group('notification toggles', () {
+    // The new-VOD and followed-went-live notifications are opt-out and
+    // opt-in respectively; each has its own switch, saved like the others.
+    Finder switchFor(String label) => find.descendant(
+        of: find.ancestor(of: find.text(label), matching: find.byType(Row)).first,
+        matching: find.byType(NeuSwitch));
+
+    testWidgets('new VOD and followed went-live are saved', (tester) async {
+      await openSettings(tester, _savedSettings());
+      await showTab(tester, 'System');
+      expect(tester.widget<NeuSwitch>(switchFor('Favorite channel has a new VOD')).value,
+          isTrue);
+      expect(tester.widget<NeuSwitch>(switchFor('Followed channel goes live')).value,
+          isFalse);
+
+      await tapVisible(tester, switchFor('Favorite channel has a new VOD'));
+      await tapVisible(tester, switchFor('Followed channel goes live'));
+      await tapVisible(tester, find.text('Save changes'));
+      await _settle(tester);
+
+      expect(saves.single.notifyNewVod, isFalse);
+      expect(saves.single.notifyFollowedWentLive, isTrue);
     });
   });
 
