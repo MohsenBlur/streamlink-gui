@@ -203,11 +203,23 @@ class SettingsDialog {
     // Not dismissible: the dialog stages every edit and applies theme changes
     // live, so a click on the scrim would discard typed tokens and paths while
     // leaving the accent it had already previewed.
+    void disposeControllers() {
+      tokenController.dispose();
+      webTokenController.dispose();
+      playerPathController.dispose();
+      playerArgsController.dispose();
+      clientIdController.dispose();
+      portController.dispose();
+      downloadFolderController.dispose();
+      maxDownloadsController.dispose();
+      customVodArgsController.dispose();
+    }
+
     return NeuDialog.show<void>(
       context,
       dismissible: false,
       builder: (context) {
-        return StatefulBuilder(
+        final dialog = StatefulBuilder(
           builder: (context, setDialogState) {
             return DefaultTabController(
               length: 5,
@@ -1711,19 +1723,15 @@ class SettingsDialog {
             );
           },
         );
+        // The controllers go when the dialog's widgets do, not when its
+        // future completes. The future completes at the pop, but the route
+        // stays on screen through its exit animation, and the focus change
+        // at the pop rebuilds whichever field held the caret - which then
+        // re-subscribed to a controller already disposed, and asserted on
+        // every Save or Cancel made straight after typing.
+        return _DisposeWhenUnmounted(onDispose: disposeControllers, child: dialog);
       },
-    ).whenComplete(() {
-      // The dialog is gone; nothing can be typing into these anymore.
-      tokenController.dispose();
-      webTokenController.dispose();
-      playerPathController.dispose();
-      playerArgsController.dispose();
-      clientIdController.dispose();
-      portController.dispose();
-      downloadFolderController.dispose();
-      maxDownloadsController.dispose();
-      customVodArgsController.dispose();
-    });
+    );
   }
 
   static void _showBrowserTokenHelp(BuildContext context, ThemeUpdateListener themeNotifier) {
@@ -1801,6 +1809,31 @@ class SettingsDialog {
       ],
     );
   }
+}
+
+/// Runs [onDispose] once, when it leaves the tree for good.
+///
+/// Children are unmounted before their parent, so by the time this runs every
+/// field below it has already let go of its controller.
+class _DisposeWhenUnmounted extends StatefulWidget {
+  const _DisposeWhenUnmounted({required this.onDispose, required this.child});
+
+  final VoidCallback onDispose;
+  final Widget child;
+
+  @override
+  State<_DisposeWhenUnmounted> createState() => _DisposeWhenUnmountedState();
+}
+
+class _DisposeWhenUnmountedState extends State<_DisposeWhenUnmounted> {
+  @override
+  void dispose() {
+    widget.onDispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// The material picker: one tile per implemented material, each rendered by

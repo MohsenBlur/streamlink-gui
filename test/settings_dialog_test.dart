@@ -44,6 +44,7 @@ class _HeldApi extends TwitchApiService {
 }
 
 const _accountTokenHint = 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+const _portHint = 'e.g. 65432';
 
 const _validSaved = TwitchAuthStatus(
   state: TwitchAuthState.valid,
@@ -266,5 +267,31 @@ void main() {
 
       expect(tester.takeException(), isNull);
     });
+  });
+
+  group('closing the dialog straight after typing', () {
+    // The pop moves focus, which rebuilds the field that held the caret while
+    // the route is still animating out. Disposing the controllers when the
+    // dialog's future completed - at the pop - had that rebuild re-subscribe
+    // to a disposed controller.
+    for (final exit in ['Save changes', 'Cancel']) {
+      testWidgets('via $exit', (tester) async {
+        await openSettings(tester, _savedSettings());
+        await showTab(tester, 'Twitch');
+        await tester.enterText(_field(_portHint), '8080');
+        await tester.pump();
+
+        await tester.tap(find.text(exit));
+        // Through the whole exit transition and the route's removal.
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+
+        expect(_field(_portHint), findsNothing,
+            reason: 'precondition: the dialog has gone');
+        expect(tester.takeException(), isNull,
+            reason: 'a field rebuilt against a disposed controller');
+      });
+    }
   });
 }
