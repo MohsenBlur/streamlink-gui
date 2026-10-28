@@ -150,10 +150,15 @@ void main() {
       twitch.rateLimitStreams = true;
       await controller.tick(); // the 429; Retry-After: 30
       twitch.requests.clear();
+      passes.clear();
 
       await controller.tick();
       await controller.refreshIfOlderThan(Duration.zero);
       expect(twitch.requests, isEmpty, reason: 'a pass now would only be refused');
+      // The service refuses locally, so the request count alone cannot tell a
+      // skipped pass from a refused one; the side effects can.
+      expect(passes, isEmpty,
+          reason: 'no pass, so no automation or prefetch run on a refused answer');
 
       twitch.rateLimitStreams = false;
       twitch.now = twitch.now.add(const Duration(seconds: 31));
