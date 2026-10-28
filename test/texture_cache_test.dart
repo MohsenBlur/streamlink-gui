@@ -60,6 +60,174 @@ void main() {
     });
   });
 
+  group('a tile that fails to generate', () {
+    // Generation used to have no error path at all: a failed upload left its
+    // key "in flight" forever, nothing retried, the grain never appeared, and
+    // every later paint that missed appended another closure to a queue no
+    // one would drain. These stage the failure through the generation seam,
+    // under fake time, so the backoff is walked rather than slept through.
+    ui.Image standIn() {
+      final rec = ui.PictureRecorder();
+      Canvas(rec).drawRect(const Rect.fromLTWH(0, 0, 1, 1),
+          Paint()..color = const Color(0xFF000000));
+      return rec.endRecording().toImageSync(1, 1);
+    }
+
+    testWidgets('retries on the backoff and serves its waiter when it lands',
+        (tester) async {
+      addTearDown(() => TextureCache.debugGenerateOverride = null);
+      const key = TileKey(
+          kind: TextureKind.speckle,
+          width: 8,
+          height: 8,
+          amplitude: 2,
+          seed: 0xFA11);
+      final image = standIn();
+      var attempts = 0;
+      TextureCache.debugGenerateOverride = (_) async {
+        attempts++;
+        if (attempts <= 2) throw StateError('device lost mid-upload');
+        return image;
+      };
+
+      var served = 0;
+      void onReady() => served++;
+      TextureCache.request(key, onReady);
+      await tester.pump();
+      expect(attempts, 1);
+      expect(served, 0);
+
+      // The surface keeps repainting through the wait. It must join the queue
+      // it is already in - not start a parallel attempt, not queue again.
+      TextureCache.request(key, onReady);
+      expect(TextureCache.waitingCount(key), 1);
+
+      await tester.pump(TextureCache.retryDelays[0]);
+      expect(attempts, 2, reason: 'the first retry never ran');
+      await tester.pump(TextureCache.retryDelays[1]);
+      expect(attempts, 3, reason: 'the second retry never ran');
+
+      expect(served, 1,
+          reason: 'the tile landed on the third attempt, and the surface '
+              'waiting on it is owed exactly one repaint');
+      expect(TextureCache.lookup(key), same(image));
+      expect(TextureCache.waitingCount(key), 0);
+
+      TextureCache.evictAll();
+      await tester.pump();
+    });
+
+    testWidgets('gives up after its retries, releases the queue, and waits '
+        'for the next material', (tester) async {
+      addTearDown(() => TextureCache.debugGenerateOverride = null);
+      const key = TileKey(
+          kind: TextureKind.speckle,
+          width: 8,
+          height: 8,
+          amplitude: 2,
+          seed: 0xDEAD);
+      var attempts = 0;
+      TextureCache.debugGenerateOverride = (_) async {
+        attempts++;
+        throw StateError('no GPU');
+      };
+
+      TextureCache.request(key, () {});
+      await tester.pump();
+      for (final delay in TextureCache.retryDelays) {
+        await tester.pump(delay);
+      }
+      final budget = TextureCache.retryDelays.length + 1;
+      expect(attempts, budget);
+      expect(TextureCache.waitingCount(key), 0,
+          reason: 'an abandoned tile must release everyone queued on it, or '
+              'their painters stay reachable from a static for the session');
+
+      // Every later paint of every surface wanting it: no queue, no restart.
+      for (var i = 0; i < 50; i++) {
+        TextureCache.request(key, () {});
+      }
+      await tester.pump(const Duration(seconds: 30));
+      expect(attempts, budget,
+          reason: 'paints restarted a generation that already ran out of '
+              'retries - one attempt per frame on a broken device');
+      expect(TextureCache.waitingCount(key), 0,
+          reason: 'requests for an abandoned tile are queuing again');
+
+      // A material switch is a new chance, with a fresh budget.
+      TextureCache.evictAll();
+      TextureCache.request(key, () {});
+      await tester.pump();
+      expect(attempts, budget + 1);
+      for (final delay in TextureCache.retryDelays) {
+        await tester.pump(delay);
+      }
+      expect(attempts, budget * 2);
+    });
+
+    testWidgets('a surface repainting while its tile is in flight queues once, '
+        'and leaves the queue when it is torn down', (tester) async {
+      addTearDown(() => TextureCache.debugGenerateOverride = null);
+      // Through the REAL painter: the queue is only bounded if the painter
+      // hands the cache the same callback on every paint and withdraws it on
+      // dispose. Both used to pass a fresh closure per paint.
+      final inFlight = Completer<ui.Image>();
+      TextureCache.debugGenerateOverride = (_) => inFlight.future;
+      TextureCache.evictAll(); // in case an earlier test left it resident
+      await tester.pump();
+
+      final rack = MaterialSpec.of(AppMaterial.rack).palette(true);
+      final spec = rack.texture!;
+      final key = TileKey(
+        kind: spec.kind,
+        width: spec.tileDevicePx.width.round(),
+        height: spec.tileDevicePx.height.round(),
+        amplitude: spec.amplitudeFor(SurfaceRole.panel),
+        seed: spec.seed,
+      );
+      final d = SkeuoDecoration.role(
+        palette: rack,
+        role: SurfaceRole.panel,
+        depth: NeuElevation.d2,
+        radius: NeuRadius.r12,
+      );
+      expect(d.rendersLit, isFalse,
+          reason: 'precondition: the Canvas painter, whose layer 3 asks for '
+              'this tile');
+
+      void paintInto(BoxPainter painter) {
+        final rec = ui.PictureRecorder();
+        painter.paint(Canvas(rec), Offset.zero,
+            const ImageConfiguration(size: Size(120, 120), devicePixelRatio: 1));
+        rec.endRecording().dispose();
+      }
+
+      final hovered = d.createBoxPainter(() {});
+      for (var i = 0; i < 50; i++) {
+        paintInto(hovered);
+      }
+      expect(TextureCache.waitingCount(key), 1,
+          reason: 'fifty paints of one surface queued '
+              '${TextureCache.waitingCount(key)} callbacks');
+
+      final sibling = d.createBoxPainter(() {});
+      paintInto(sibling);
+      expect(TextureCache.waitingCount(key), 2);
+
+      hovered.dispose();
+      sibling.dispose();
+      expect(TextureCache.waitingCount(key), 0,
+          reason: 'a torn-down surface left its callback in the static queue');
+
+      // Land it so nothing is left in flight for the tests after this one.
+      inFlight.complete(standIn());
+      await tester.pump();
+      expect(TextureCache.lookup(key), isNotNull);
+      TextureCache.evictAll();
+      await tester.pump();
+    });
+  });
+
   testWidgets('a paint-time miss never runs the pixel loops on the UI isolate',
       (tester) async {
     // `request` is called from paint(). Generation used to run its w*h*4

@@ -53,13 +53,52 @@ class TextureCache {
   TextureCache._();
 
   static final Map<TileKey, ui.Image> _tiles = <TileKey, ui.Image>{};
-  static final Map<TileKey, List<VoidCallback>> _waiting =
-      <TileKey, List<VoidCallback>>{};
+
+  /// Who is owed a repaint when each in-flight key lands.
+  ///
+  /// A SET, and the painters pass one stable callback each. It used to be a
+  /// list fed a fresh closure on every paint that missed, so a surface that
+  /// repainted while its tile was in flight - a hover, a resize drag, a
+  /// spinner beside it - queued one closure per frame, each holding its
+  /// painter alive, and a tile that never landed grew its list for the life
+  /// of the process.
+  static final Map<TileKey, Set<VoidCallback>> _waiting =
+      <TileKey, Set<VoidCallback>>{};
 
   /// Bumped on eviction. A generation that finishes after its bump is dropped
   /// rather than inserted, so a material switch mid-generation cannot resurrect
   /// the previous material's grain.
   static int _generation = 0;
+
+  /// Failed attempts per key, in the current generation.
+  static final Map<TileKey, int> _failures = <TileKey, int>{};
+
+  /// Keys whose retries ran out in the current generation.
+  ///
+  /// Requests for these are ignored until the next [evictAll], so a tile that
+  /// cannot be made does not restart its generation from every paint of every
+  /// surface that wants it.
+  static final Set<TileKey> _abandoned = <TileKey>{};
+
+  /// The wait before each retry of a failed tile, one entry per retry.
+  ///
+  /// Widening, because the failures worth retrying (a device-lost event, a
+  /// transient allocation failure while the GPU resets) take a moment to
+  /// clear, and capped at three because a fourth failure is not transient.
+  @visibleForTesting
+  static const List<Duration> retryDelays = <Duration>[
+    Duration(milliseconds: 500),
+    Duration(seconds: 2),
+    Duration(seconds: 8),
+  ];
+
+  /// Stands in for generation, so a test can stage a failure. Null in the app.
+  @visibleForTesting
+  static Future<ui.Image> Function(TileKey key)? debugGenerateOverride;
+
+  /// How many distinct callbacks are waiting on [key].
+  @visibleForTesting
+  static int waitingCount(TileKey key) => _waiting[key]?.length ?? 0;
 
   /// Resident tile, or null. Never blocks and never generates.
   static ui.Image? lookup(TileKey key) => _tiles[key];
@@ -67,26 +106,43 @@ class TextureCache {
   /// Requests [key], calling [onReady] once when it lands.
   ///
   /// Repeated requests for a key already in flight simply add a listener; the
-  /// work happens once however many surfaces ask for it.
+  /// work happens once however many surfaces ask for it. Pass the SAME
+  /// callback on every paint and it is registered once - and [cancel] it when
+  /// the surface goes away.
+  ///
+  /// A key whose retries ran out is not attempted again until the next
+  /// [evictAll]. The surface paints untextured, which is the frame every miss
+  /// already paints.
   static void request(TileKey key, VoidCallback onReady) {
     if (_tiles.containsKey(key)) {
       onReady();
       return;
     }
+    if (_abandoned.contains(key)) return;
     final waiting = _waiting[key];
     if (waiting != null) {
       waiting.add(onReady);
       return;
     }
-    _waiting[key] = <VoidCallback>[onReady];
+    _waiting[key] = <VoidCallback>{onReady};
     _start(key);
+  }
+
+  /// Withdraws [onReady] from [key]'s queue: a surface torn down while its
+  /// tile was in flight is owed nothing.
+  ///
+  /// An emptied queue is left in place on purpose. It marks the key as in
+  /// flight, and removing it would let the next request start a second
+  /// generation of the same tile alongside the first.
+  static void cancel(TileKey key, VoidCallback onReady) {
+    _waiting[key]?.remove(onReady);
   }
 
   /// Generates [key] for the CURRENT generation and serves whoever is waiting.
   ///
   /// Split out of [request] because of a race that leaves a surface permanently
-  /// untextured. `request` appends to whatever list is already in flight, and
-  /// that list survives a generation bump — so this sequence used to strand a
+  /// untextured. `request` appends to whatever queue is already in flight, and
+  /// that queue survives a generation bump — so this sequence used to strand a
   /// live requester:
   ///
   ///   1. surface A requests a tile; generation 0 starts.
@@ -104,20 +160,65 @@ class TextureCache {
   /// tile. The keys are content-addressed, so re-running is always safe.
   static void _start(TileKey key) {
     final generation = _generation;
-    _generate(key).then((image) {
+    (debugGenerateOverride ?? _generate)(key).then((image) {
       if (generation != _generation) {
         image.dispose();
-        // Only restart if somebody is still waiting. `evictAll` does not clear
-        // the queue precisely so that this can serve them.
-        if (_waiting.containsKey(key)) _start(key);
+        _restartIfAwaited(key);
         return;
       }
+      _failures.remove(key);
       _tiles[key] = image;
-      final callbacks = _waiting.remove(key) ?? const <VoidCallback>[];
+      final callbacks = _waiting.remove(key) ?? const <VoidCallback>{};
       for (final cb in callbacks) {
         cb();
       }
+    }, onError: (Object error, StackTrace stack) {
+      // A stale generation's failure says nothing about the current one, and
+      // whoever is still queued asked after the bump: same restart as a stale
+      // success.
+      if (generation != _generation) {
+        _restartIfAwaited(key);
+        return;
+      }
+      _retryOrAbandon(key, error);
     });
+  }
+
+  /// Restarts [key] for the current generation if anybody is still waiting.
+  ///
+  /// `evictAll` does not clear the queue precisely so that this can serve
+  /// them. A queue every requester has cancelled out of is simply forgotten.
+  static void _restartIfAwaited(TileKey key) {
+    if (_waiting[key]?.isNotEmpty ?? false) {
+      _start(key);
+    } else {
+      _waiting.remove(key);
+    }
+  }
+
+  /// A failed generation used to strand its key for the rest of the session.
+  ///
+  /// The chain had no error path, so the queue was never removed: nothing
+  /// retried, the material's grain never appeared, and every later paint that
+  /// missed appended to a queue nobody would ever drain. Now a failure retries
+  /// on [retryDelays], waiters stay queued through the wait (a request during
+  /// it joins the queue rather than starting a parallel attempt), and when
+  /// the retries run out the queue is released and the key left alone until
+  /// the next material switch.
+  static void _retryOrAbandon(TileKey key, Object error) {
+    final attempt = (_failures[key] ?? 0) + 1;
+    _failures[key] = attempt;
+    if (attempt > retryDelays.length) {
+      _abandoned.add(key);
+      _waiting.remove(key);
+      debugPrint('texture tile $key failed $attempt times; '
+          'painting without it: $error');
+      return;
+    }
+    final delay = retryDelays[attempt - 1];
+    debugPrint('texture tile $key failed; retry $attempt of '
+        '${retryDelays.length} in ${delay.inMilliseconds}ms: $error');
+    Timer(delay, () => _restartIfAwaited(key));
   }
 
   /// Drops every tile.
@@ -127,6 +228,10 @@ class TextureCache {
   /// over one of these. Evicting under it would throw in debug.
   static void evictAll() {
     _generation++;
+    // A new material is a new chance: a tile that failed under the previous
+    // one may well succeed now, and its retry budget starts over.
+    _failures.clear();
+    _abandoned.clear();
     final doomed = _tiles.values.toList();
     _tiles.clear();
     // The queue is deliberately NOT cleared. Every entry in it is a live
@@ -170,10 +275,35 @@ class TextureCache {
     // the engine does that asynchronously.
     final pixels =
         await compute(_pixelsFor, key, debugLabel: 'texture tile $key');
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(pixels, key.width, key.height,
-        ui.PixelFormat.rgba8888, completer.complete);
-    return completer.future;
+    return _upload(pixels, key.width, key.height);
+  }
+
+  /// `ui.decodeImageFromPixels`, unrolled step for step so a failure reaches
+  /// the caller.
+  ///
+  /// The callback form only ever calls back on success. A failure anywhere in
+  /// its chain - the buffer allocation, the codec, the frame - surfaced as an
+  /// unhandled async error while the Completer waiting on the callback never
+  /// completed, which is how one bad upload used to strand its tile forever.
+  static Future<ui.Image> _upload(Uint8List pixels, int width, int height) async {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(pixels);
+    ui.ImageDescriptor? descriptor;
+    ui.Codec? codec;
+    try {
+      descriptor = ui.ImageDescriptor.raw(
+        buffer,
+        width: width,
+        height: height,
+        pixelFormat: ui.PixelFormat.rgba8888,
+      );
+      codec = await descriptor.instantiateCodec();
+      final frame = await codec.getNextFrame();
+      return frame.image;
+    } finally {
+      codec?.dispose();
+      descriptor?.dispose();
+      buffer.dispose();
+    }
   }
 
   /// How many tiles' pixel loops have run on THIS isolate.

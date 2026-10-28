@@ -595,31 +595,66 @@ class SurfaceParams {
   }
 }
 
-class _SkeuoPainter extends BoxPainter {
-  _SkeuoPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
-
-  final SkeuoDecoration decoration;
-
+/// The texture-cache half of both painters' lifecycles.
+///
+/// `TextureCache` queues a callback per in-flight tile, and both painters used
+/// to hand it a fresh closure on every paint that missed. A surface repainting
+/// while its tile generated (a hover, a resize drag, a spinner next to it)
+/// therefore queued one closure per frame, each holding the painter alive, and
+/// a painter torn down mid-generation left its closures behind in a static
+/// queue. One stable callback per painter makes the queue a set of surfaces
+/// rather than a log of paints, and [dispose] withdraws it.
+mixin _TileRequester on BoxPainter {
   /// Set once this painter is torn down.
   ///
-  /// `TextureCache` holds `onChanged` - which `RenderDecoratedBox` wires to its
-  /// own `markNeedsPaint` - in a static queue with no unregister path. A
-  /// textured surface that leaves the tree while its tile is generating (the
-  /// frame or two after launch, or after a material switch) therefore leaves a
-  /// dead callback behind, and the cache invokes it when the tile lands.
-  ///
-  /// In release that is harmless: `RenderDecoratedBox.detach` already set
-  /// `_needsPaint`, so `markNeedsPaint` early-returns. In debug it trips
+  /// [dispose] cancels the callback, so the cache should never invoke it
+  /// afterwards. The guard stays because being wrong is not cheap: in release a
+  /// late call is harmless (`RenderDecoratedBox.detach` already set
+  /// `_needsPaint`, so `markNeedsPaint` early-returns), but in debug it trips
   /// `assert(!_debugDisposed)`, and the throw aborts the loop that notifies
-  /// everyone else in the queue - so a *live* surface behind the dead one is
-  /// left untextured until something unrelated repaints it.
+  /// everyone else in the queue - leaving a *live* surface behind the dead one
+  /// untextured until something unrelated repaints it.
   bool _disposed = false;
+
+  TileKey? _pendingTile;
+
+  /// `onChanged` is what `RenderDecoratedBox` wires to its own
+  /// `markNeedsPaint`, so a landed tile repaints exactly this box.
+  ///
+  /// A method, handed over as a tear-off: two tear-offs of one method on one
+  /// painter compare equal, which is all the cache's set needs to register a
+  /// painter once however often it paints.
+  void _tileLanded() {
+    if (!_disposed) onChanged?.call();
+  }
+
+  /// Asks the cache for [key] after a miss.
+  ///
+  /// A painter with no `onChanged` (a test or a tool painting straight into a
+  /// recorder) has nobody to tell when it lands, so it asks for nothing.
+  void _requestTile(TileKey key) {
+    if (onChanged == null) return;
+    final previous = _pendingTile;
+    if (previous != null && previous != key) {
+      TextureCache.cancel(previous, _tileLanded);
+    }
+    _pendingTile = key;
+    TextureCache.request(key, _tileLanded);
+  }
 
   @override
   void dispose() {
     _disposed = true;
+    final pending = _pendingTile;
+    if (pending != null) TextureCache.cancel(pending, _tileLanded);
     super.dispose();
   }
+}
+
+class _SkeuoPainter extends BoxPainter with _TileRequester {
+  _SkeuoPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
+
+  final SkeuoDecoration decoration;
 
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
@@ -715,13 +750,7 @@ class _SkeuoPainter extends BoxPainter {
       // Miss: paint no grain this frame and ask for it. The surface reads as
       // an untextured material until the tile lands, which is a frame later
       // and indistinguishable in practice.
-      final notify = onChanged;
-      if (notify != null) {
-        // Guarded, not raw: see `_disposed`.
-        TextureCache.request(key, () {
-          if (!_disposed) notify();
-        });
-      }
+      _requestTile(key);
       return;
     }
 
@@ -965,21 +994,10 @@ ui.Image _fallbackGrain() {
   return _fallbackGrainImage!;
 }
 
-class _LitPainter extends BoxPainter {
+class _LitPainter extends BoxPainter with _TileRequester {
   _LitPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
 
   final SkeuoDecoration decoration;
-
-  /// Same contract as `_SkeuoPainter._disposed`: `TextureCache` holds
-  /// `onChanged` in a static queue with no unregister path, so a painter
-  /// that dies while its tile is generating must absorb the callback.
-  bool _disposed = false;
-
-  @override
-  void dispose() {
-    _disposed = true;
-    super.dispose();
-  }
 
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
@@ -1121,12 +1139,7 @@ class _LitPainter extends BoxPainter {
         tileW = tex.tileDevicePx.width;
         tileH = tex.tileDevicePx.height;
       } else {
-        final notify = onChanged;
-        if (notify != null) {
-          TextureCache.request(key, () {
-            if (!_disposed) notify();
-          });
-        }
+        _requestTile(key);
       }
     }
     f(texStrength);
