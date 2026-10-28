@@ -52,16 +52,16 @@ dependencies:
   # win32 moves 5.x -> 6.x with it; nothing else here depends on win32.
   file_picker: ^8.0.0
   path: ^1.9.0
-  # Held at 3.x on purpose (audit I7). 4.5.2 resolves under the pinned SDK,
-  # but this is the updater's zip extraction: a regression ships a broken
-  # self-update, so the bump needs a real download, extract and apply run.
-  # The migration: ArchiveFile.content is typed Uint8List in 4.x, so
-  # update_service.dart's `entry.content as List<int>` becomes an unnecessary
-  # cast that fails analyze - drop the cast. 4.0.0 also renamed decodeBuffer to
+  # 4.x since audit I7. This is the updater's zip extraction, so the bump came
+  # with test/update_service_zip_test.dart, which extracts a real ZipEncoder
+  # archive through UpdateService and checks every byte, and checks that Zip
+  # Slip entries are refused. 4.x decompresses an entry when it is read
+  # (readBytes(), null for an empty one) and renamed decodeBuffer to
   # decodeStream and InputStream/OutputStream to InputMemoryStream/
-  # OutputMemoryStream (none used here), and since 4.5.0 a malformed header
-  # throws ArchiveException rather than RangeError.
-  archive: ^3.6.1
+  # OutputMemoryStream (none used here); since 4.5.0 a malformed header throws
+  # ArchiveException rather than RangeError. Still owed: one real update apply
+  # from a 4.x build.
+  archive: ^4.5.2
 
 dev_dependencies:
   flutter_test:

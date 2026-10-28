@@ -26,7 +26,7 @@ List<int> _zipOf(Map<String, List<int>> files) {
   files.forEach((name, bytes) {
     archive.addFile(ArchiveFile(name, bytes.length, bytes));
   });
-  return ZipEncoder().encode(archive)!;
+  return ZipEncoder().encode(archive);
 }
 
 /// Every file the extractor insists a complete build carries.

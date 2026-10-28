@@ -451,7 +451,12 @@ class UpdateService {
         if (entry.isFile) {
           final outFile = File(destination);
           outFile.parent.createSync(recursive: true);
-          outFile.writeAsBytesSync(entry.content as List<int>);
+          // archive 4.x decompresses an entry when it is read, and gives no
+          // bytes at all for an empty one.
+          outFile.writeAsBytesSync(entry.readBytes() ?? const <int>[]);
+          // The decompressed bytes stay cached on the entry; dropped, so the
+          // whole uncompressed build does not pile up in this isolate.
+          entry.clear();
         } else {
           Directory(destination).createSync(recursive: true);
         }
