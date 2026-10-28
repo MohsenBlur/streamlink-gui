@@ -43,7 +43,7 @@ import 'widgets/settings_dialog.dart';
 
 import 'services/startup_service.dart';
 import 'state/app_shell_controller.dart';
-import 'state/library_entries.dart';
+import 'state/library_controller.dart';
 import 'state/stored_config.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
@@ -418,12 +418,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Library screen state. Entries are CACHED - built (with file stats) only
-  /// on open/refresh/mutation, never inside build(), because download-progress
-  /// setState storms would otherwise stat every file per frame.
-  bool _showLibraryView = false;
-  List<LibraryEntry> _libraryEntries = [];
-
+  /// The Library screen: whether it shows, its cached rows, and what their
+  /// buttons do (LibraryController).
+  late final LibraryController _library = LibraryController(
+    registry: () => _downloadedVodsRegistry,
+    recents: () => _history.recents,
+    localProgress: () => _history.flat,
+    channelNames: () => _playerService.downloadChannelNames,
+    downloadRoot: () => _settings.vodDownloadFolder,
+    rescan: _checkDownloadedVods,
+    play: _vods.play,
+    deleteDownload: _vods.deleteDownload,
+    confirmDelete: (title) => confirmDeleteDownload(context, title),
+    forget: _history.forget,
+  );
 
   /// The log viewer's entry for the app itself, beside the per-process ones.
   static const String _appLogKey = 'app';
@@ -626,7 +634,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       if (mounted) {
         _publishActivity();
         setState(() {});
-        if (_showLibraryView) _refreshLibraryEntries();
+        _library.refreshIfOpen();
         // Not an error - the user asked for it.
         _showSnackBar('Download cancelled.', isError: false);
       }
@@ -650,7 +658,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         // With the queue change forget() asked for: downloads finish in
         // bursts (a backlog resumed at launch), one write for the burst.
         _settingsRepo.requestSave();
-        if (_showLibraryView) _refreshLibraryEntries();
+        _library.refreshIfOpen();
         _showSnackBar('Download completed: $title', isError: false);
         if (_settings.notifyDownloadComplete) {
           _notify('VOD Download Completed', title);
@@ -685,6 +693,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _vodBrowser.addListener(_onRefreshStateChanged);
     _vodBrowser.onNewVods = _onNewVods;
     _history.addListener(_onRefreshStateChanged);
+    _library.addListener(_onRefreshStateChanged);
 
     storageWriteFailure.addListener(_onSaveFailureChanged);
     twitchAuth.helix.addListener(_onAuthStatusChanged);
@@ -820,6 +829,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _history
       ..removeListener(_onRefreshStateChanged)
       ..dispose();
+    _library
+      ..removeListener(_onRefreshStateChanged)
+      ..dispose();
     // Persistence and downloads: anything still held is written out.
     _downloads.dispose();
     _settingsRepo.dispose();
@@ -850,7 +862,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     confirmExit: _confirmExit,
     showMessage: (message) => _showSnackBar(message, isError: false),
     onTrayWatch: _launchTrayChannel,
-    onTrayOpenLibrary: _openLibrary,
+    onTrayOpenLibrary: _library.open,
     // Nothing new may start while the exit runs.
     onExitCommitted: () {
       _favoritesLiveCheckTimer?.cancel();
@@ -969,7 +981,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _downloadHistory.addAll(outcome.additions.keys, _services.clock());
       _settingsRepo.requestSave();
       // The Library was built from the registry before this scan came back.
-      if (_showLibraryView) _refreshLibraryEntries();
+      _library.refreshIfOpen();
     }
 
     // Only when the badges actually change. This rebuilt the whole screen
@@ -1517,7 +1529,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     final index = _channels.indexWhere((c) => c.username == name);
     if (index == -1) return;
     if (_shell.windowVisible &&
-        !_showLibraryView &&
+        !_library.isOpen &&
         _selectedChannel?.username == name) {
       return;
     }
@@ -1555,8 +1567,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   void _selectChannel(TwitchChannel channel) {
     // The object the poll keeps current, whichever row was clicked.
     final target = _channelsCtl.canonical(channel);
+    _library.close();
     setState(() {
-      _showLibraryView = false;
       _selectedChannel = target;
       _selectedGamesFilter.clear();
       _selectedVodIds.clear();
@@ -2023,10 +2035,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _saveChannels();
       },
       onGoToDashboard: () {
-        setState(() {
-          _showLibraryView = false;
-          _selectedChannel = null;
-        });
+        _library.close();
+        setState(() => _selectedChannel = null);
       },
       onSaveAutomationSettings: () {
         _saveChannels();
@@ -2057,7 +2067,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         }
       },
       onShowSettings: _showSettingsDialog,
-      onShowLibrary: _openLibrary,
+      onShowLibrary: _library.open,
     );
 
     return AppFrame(
@@ -2111,12 +2121,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         ),
       ],
       sidebar: sidebar,
-      content: _showLibraryView
+      content: _library.isOpen
           ? _buildLibraryView()
           : _selectedChannel == null
               ? _buildHome()
               : _buildDashboard(_selectedChannel!),
-      onEscape: _closeLibrary,
+      onEscape: _library.close,
       // Focus the sidebar search from anywhere. In layouts without the
       // inline field the search popover is the affordance instead.
       onFind: () {
@@ -2164,62 +2174,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         );
       },
       onPlayRecent: _vods.playRecent,
-      onOpenLibrary: _openLibrary,
+      onOpenLibrary: _library.open,
       onOpenSettings: _showSettingsDialog,
       onConnectAccount: _startOAuthServer,
     );
   }
 
-  /// Opens the Library screen with a fresh scan of the download registry.
-  void _openLibrary() {
-    _checkDownloadedVods();
-    _refreshLibraryEntries();
-    setState(() {
-      _showLibraryView = true;
-    });
-  }
-
-  /// Leaves the Library for whatever was showing before it.
-  ///
-  /// _selectedChannel is deliberately left alone by _openLibrary, so simply
-  /// lowering the flag lands back on that channel's dashboard - or the welcome
-  /// screen if no channel was selected. The state to return to was always
-  /// there; what was missing was any way to ask for it.
-  void _closeLibrary() {
-    if (!_showLibraryView) return;
-    setState(() {
-      _showLibraryView = false;
-    });
-  }
-
-  /// Where [_closeLibrary] would land, for the back control's label.
+  /// Where closing the Library would land, for the back control's label.
   String get _libraryBackLabel => _selectedChannel?.username ?? 'Home';
-
-  /// Rebuilds the cached Library rows (the only place file stats happen).
-  void _refreshLibraryEntries() {
-    final entries = buildLibraryEntries(
-      registry: _downloadedVodsRegistry,
-      recents: _history.recents,
-      localProgress: _history.flat,
-      channelNames: _playerService.downloadChannelNames,
-      downloadRoot: _settings.vodDownloadFolder,
-      statFile: (path) {
-        try {
-          final file = File(path);
-          if (!file.existsSync()) return null;
-          final stat = file.statSync();
-          return (size: stat.size, modified: stat.modified);
-        } catch (_) {
-          return null;
-        }
-      },
-    );
-    if (mounted) {
-      setState(() {
-        _libraryEntries = entries;
-      });
-    }
-  }
 
   /// Opens Explorer with [filePath] selected (AppLauncher.reveal).
   Future<void> _revealInExplorer(String filePath) async {
@@ -2230,55 +2192,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _playLibraryEntry(LibraryEntry entry) {
-    // Registry-only entries carry no Twitch metadata; a minimal synthesized
-    // video is enough for a play's local-file path.
-    final video = entry.video ??
-        TwitchVideo(
-          id: entry.vodId,
-          title: entry.title,
-          duration: '',
-          thumbnailUrl: '',
-          viewCount: '0',
-          publishedAt: entry.modified ?? DateTime.now(),
-        );
-    // '' resolves to the download root itself, which is exactly where a file
-    // with no channel folder lives - that is the only way channel is null for
-    // a downloaded entry.
-    _vods.play(video, entry.channel ?? '');
-  }
-
-  Future<void> _deleteLibraryEntry(LibraryEntry entry) async {
-    final bool? confirmed = await confirmDeleteDownload(context, entry.title);
-    // != true, not == false: a dismissed dialog returns null, and null must
-    // never mean "yes, delete it".
-    if (confirmed != true) return;
-    await _vods.deleteDownload(entry.vodId, entry.channel ?? '');
-    _refreshLibraryEntries();
-  }
-
-  Future<void> _removeLibraryEntryFromHistory(LibraryEntry entry) async {
-    // Written through the repository, all three files.
-    await _history.forget(entry.vodId);
-    if (!mounted) return;
-    _refreshLibraryEntries();
-  }
-
   Widget _buildLibraryView() {
     return LibraryView(
-            onBack: _closeLibrary,
-            backLabel: _libraryBackLabel,
-            entries: _libraryEntries,
-            onRefresh: () {
-              _checkDownloadedVods();
-              _refreshLibraryEntries();
-            },
-            onPlay: _playLibraryEntry,
-            onOpenFolder: (entry) {
-              if (entry.filePath != null) _revealInExplorer(entry.filePath!);
-            },
-            onDelete: _deleteLibraryEntry,
-            onRemoveFromHistory: _removeLibraryEntryFromHistory,
+      onBack: _library.close,
+      backLabel: _libraryBackLabel,
+      entries: _library.entries,
+      onRefresh: _library.rescanAndRefresh,
+      onPlay: _library.play,
+      onOpenFolder: (entry) {
+        if (entry.filePath != null) _revealInExplorer(entry.filePath!);
+      },
+      onDelete: _library.delete,
+      onRemoveFromHistory: _library.removeFromHistory,
       activity: _activity,
       onStopActivity: _stopActivity,
     );
