@@ -110,7 +110,10 @@ class VodBrowserController extends ChangeNotifier {
   /// A VOD became available on [channel]: a broadcast that ended, or one
   /// published while the app was watching. Never fired for the first list
   /// seen for a channel, which is a baseline (see [NewVodDetector]).
-  void Function(TwitchChannel channel, List<TwitchVideo> vods)? onNewVods;
+  /// [firstPage] is the page they were found in, newest first, which is what
+  /// the auto-download pass chooses from.
+  void Function(TwitchChannel channel, List<TwitchVideo> vods,
+      List<TwitchVideo> firstPage)? onNewVods;
 
   /// The channel whose list this is, or null before one is opened.
   TwitchChannel? get channel => _channel;
@@ -509,7 +512,7 @@ class VodBrowserController extends ChangeNotifier {
     );
     if (appeared.isNotEmpty) {
       try {
-        onNewVods?.call(channel, appeared);
+        onNewVods?.call(channel, appeared, result.vods);
       } catch (e, stack) {
         FlutterError.reportError(FlutterErrorDetails(
           exception: e,

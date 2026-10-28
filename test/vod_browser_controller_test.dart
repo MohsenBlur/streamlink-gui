@@ -35,7 +35,7 @@ void main() {
       cache: cache,
       clock: () => twitch.now,
     );
-    browser.onNewVods = (channel, vods) =>
+    browser.onNewVods = (channel, vods, _) =>
         announced.add((channel.username, [for (final v in vods) v.id]));
     addTearDown(browser.dispose);
     return browser;

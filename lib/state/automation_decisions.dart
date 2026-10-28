@@ -232,6 +232,45 @@ List<TwitchVideo> selectVodsToAutoDownload({
   return window.where((vod) => !isAlreadyHandled(vod.id)).toList();
 }
 
+/// Which of [appeared] - VODs just found on [channel]'s first page
+/// [firstPage], newest first - a "New VOD" toast should still mention.
+///
+/// An auto-download favourite used to get two toasts for one VOD, "New VOD"
+/// and then "Auto-Downloading VOD". A VOD inside the window auto-download
+/// keeps ([selectVodsToAutoDownload]) is queued by its pass, or already was,
+/// and that pass announces it; it is left out here. Nothing is left out when
+/// the pass would not announce it: the channel does not auto-download, there
+/// is no download folder (the pass is skipped), or its toasts are off.
+List<TwitchVideo> newVodsLeftToAnnounce({
+  required TwitchChannel channel,
+  required List<TwitchVideo> appeared,
+  required List<TwitchVideo> firstPage,
+  required Map<String, int> localProgress,
+  required AppSettings settings,
+}) {
+  if (!channel.autoDownloadVods ||
+      !settings.notifyAutoDownloadStart ||
+      settings.vodDownloadFolder.trim().isEmpty) {
+    return appeared;
+  }
+  // The window as the pass sees it, handled or not: a VOD it queued earlier
+  // was announced then.
+  final kept = {
+    for (final vod in selectVodsToAutoDownload(
+      channel: channel,
+      vods: firstPage,
+      localProgress: localProgress,
+      settings: settings,
+      isAlreadyHandled: (_) => false,
+    ))
+      vod.id,
+  };
+  return [
+    for (final vod in appeared)
+      if (!kept.contains(vod.id)) vod,
+  ];
+}
+
 /// Parses Twitch's duration format ("1h2m3s") into seconds.
 int parseDurationSeconds(String duration) {
   int part(String suffix) {

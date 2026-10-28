@@ -2372,17 +2372,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   /// A channel's archive gained a VOD (see VodBrowserController.onNewVods).
   /// Announced for favourites only, and not for the open channel while the
-  /// window is on screen: the grid shows it arriving.
-  void _onNewVods(TwitchChannel channel, List<TwitchVideo> vods) {
+  /// window is on screen: the grid shows it arriving. Nor for a VOD the
+  /// auto-download pass takes, which has a toast of its own.
+  void _onNewVods(TwitchChannel channel, List<TwitchVideo> vods,
+      List<TwitchVideo> firstPage) {
     if (!mounted || !_settings.notifyNewVod || vods.isEmpty) return;
     final name = channel.username.toLowerCase().trim();
-    if (!_channels.any((c) => c.username == name)) return;
+    final index = _channels.indexWhere((c) => c.username == name);
+    if (index == -1) return;
     if (_windowVisible &&
         !_showLibraryView &&
         _selectedChannel?.username == name) {
       return;
     }
-    unawaited(_announceNewVods(name, vods));
+    final news =
+        _automation.newVodsToAnnounce(_channels[index], vods, firstPage);
+    if (news.isEmpty) return;
+    unawaited(_announceNewVods(name, news));
   }
 
   Future<void> _announceNewVods(String name, List<TwitchVideo> vods) async {
