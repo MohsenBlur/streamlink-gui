@@ -732,6 +732,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _channelsCtl.addListener(_onRefreshStateChanged);
     _channelsCtl.onPass = _onChannelsPass;
     _vodBrowser.addListener(_onRefreshStateChanged);
+    _vodBrowser.onNewVods = _onNewVods;
 
     _watchSaveFailures();
     twitchAuth.helix.addListener(_onAuthStatusChanged);
@@ -2226,18 +2227,27 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       unawaited(_refreshSelectedVods(
           endedBroadcastStart: selected.isLive ? null : selected.wentLiveTime));
     }
+    // A favourite's broadcast ended off screen: look for its VOD.
+    if (_settings.notifyNewVod && _hasAccountToken) {
+      for (final ended in pass.favoritesWentOffline) {
+        if (stillOpen && ended.username == selected.username) continue;
+        unawaited(_vodBrowser.checkForNewVods(ended,
+            endedBroadcastStart: ended.wentLiveTime));
+      }
+    }
 
     unawaited(_vodBrowser.prefetch(_channels));
     _rebuildTrayMenu();
   }
 
   /// The went-live toasts for one pass, one after another, over the pass's
-  /// own list. This used to await each toast inside a loop over _channels,
+  /// own lists. This used to await each toast inside a loop over _channels,
   /// and starring a channel during that await threw
   /// ConcurrentModificationError and skipped the rest of the pass.
   Future<void> _announceWentLive(ChannelsPass pass) async {
     final channels = <TwitchChannel>[
       if (_settings.notifyWentLive) ...pass.favoritesWentLive,
+      if (_settings.notifyFollowedWentLive) ...pass.followedWentLive,
     ];
     for (final channel in channels) {
       try {
@@ -2265,6 +2275,41 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       } catch (e) {
         print('[Favorites Notification] Error displaying desktop toast: $e');
       }
+    }
+  }
+
+  /// A channel's archive gained a VOD (see VodBrowserController.onNewVods).
+  /// Announced for favourites only, and not for the open channel while the
+  /// window is on screen: the grid shows it arriving.
+  void _onNewVods(TwitchChannel channel, List<TwitchVideo> vods) {
+    if (!mounted || !_settings.notifyNewVod || vods.isEmpty) return;
+    final name = channel.username.toLowerCase().trim();
+    if (!_channels.any((c) => c.username == name)) return;
+    if (_windowVisible &&
+        !_showLibraryView &&
+        _selectedChannel?.username == name) {
+      return;
+    }
+    unawaited(_announceNewVods(name, vods));
+  }
+
+  Future<void> _announceNewVods(String name, List<TwitchVideo> vods) async {
+    try {
+      final more = vods.length - 1;
+      final notification = LocalNotification(
+        title: 'New VOD from $name',
+        body: more > 0 ? '${vods.first.title}\n+$more more' : vods.first.title,
+        silent: false,
+      );
+      notification.onClick = () async {
+        await _showWindow();
+        if (!mounted) return;
+        final index = _channels.indexWhere((c) => c.username == name);
+        if (index != -1) _selectChannel(_channels[index]);
+      };
+      await notification.show();
+    } catch (e) {
+      print('[New VOD Notification] Error displaying desktop toast: $e');
     }
   }
 

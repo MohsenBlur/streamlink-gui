@@ -103,6 +103,15 @@ class AppSettings {
   bool notifyAutoDownloadStart;
   bool notifyDownloadComplete;
 
+  /// A favourite's broadcast has become a VOD (or a VOD appeared while the
+  /// app was watching). On by default: it is the favourites' counterpart of
+  /// the went-live toast, and the app had no way to say so at all.
+  bool notifyNewVod;
+
+  /// A followed channel that is not a favourite goes live. Off by default:
+  /// a large followed list would turn it into a stream of toasts.
+  bool notifyFollowedWentLive;
+
   /// First-run wizard has been completed or skipped.
   bool onboardingCompleted;
 
@@ -170,6 +179,8 @@ class AppSettings {
     this.notifyAutoPlay = true,
     this.notifyAutoDownloadStart = true,
     this.notifyDownloadComplete = true,
+    this.notifyNewVod = true,
+    this.notifyFollowedWentLive = false,
     this.onboardingCompleted = false,
   }) {
     if (vodDownloadFolder.isEmpty) {
@@ -243,6 +254,8 @@ class AppSettings {
     bool? notifyAutoPlay,
     bool? notifyAutoDownloadStart,
     bool? notifyDownloadComplete,
+    bool? notifyNewVod,
+    bool? notifyFollowedWentLive,
     bool? onboardingCompleted,
     bool clearWindowPosition = false,
   }) {
@@ -297,6 +310,8 @@ class AppSettings {
       notifyAutoPlay: notifyAutoPlay ?? this.notifyAutoPlay,
       notifyAutoDownloadStart: notifyAutoDownloadStart ?? this.notifyAutoDownloadStart,
       notifyDownloadComplete: notifyDownloadComplete ?? this.notifyDownloadComplete,
+      notifyNewVod: notifyNewVod ?? this.notifyNewVod,
+      notifyFollowedWentLive: notifyFollowedWentLive ?? this.notifyFollowedWentLive,
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
     );
   }
@@ -362,6 +377,8 @@ class AppSettings {
         'notify_auto_play': notifyAutoPlay,
         'notify_auto_download_start': notifyAutoDownloadStart,
         'notify_download_complete': notifyDownloadComplete,
+        'notify_new_vod': notifyNewVod,
+        'notify_followed_went_live': notifyFollowedWentLive,
         'onboarding_completed': onboardingCompleted,
       };
 
@@ -486,6 +503,8 @@ class AppSettings {
         notifyAutoPlay: _flag(json['notify_auto_play'], true),
         notifyAutoDownloadStart: _flag(json['notify_auto_download_start'], true),
         notifyDownloadComplete: _flag(json['notify_download_complete'], true),
+        notifyNewVod: _flag(json['notify_new_vod'], true),
+        notifyFollowedWentLive: _flag(json['notify_followed_went_live'], false),
         onboardingCompleted: _flag(json['onboarding_completed'], false),
       );
 }
