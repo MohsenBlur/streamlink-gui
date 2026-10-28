@@ -48,6 +48,33 @@ class Win32Window {
   void SetFirstShowCommand(int command) { first_show_command_ = command; }
   int first_show_command() const { return first_show_command_; }
 
+  // For a launch that must not take the foreground: one started hidden, or
+  // one whose launcher asked for a show without activation. Call before
+  // Create.
+  //
+  // The window stays hidden until its first frame, and anything that
+  // activates it in that time takes the foreground from the user's own app
+  // whenever Windows lets this process take it - a launch at login, or one
+  // asked to stay in the background, included. SetWindowPos without
+  // SWP_NOACTIVATE activates a top-level window, visible or not, and
+  // window_manager's title bar setup calls it there. A plugin's call cannot
+  // be given the flag; adding it in WM_WINDOWPOSCHANGING or giving the
+  // window WS_EX_NOACTIVATE does not stop the activation, and refusing it
+  // in a CBT hook leaves no foreground window at all, since Windows has
+  // moved the foreground to this thread by then. Such a launch therefore
+  // holds the foreground lock (LockSetForegroundWindow) from creation until
+  // the window is first shown, or its first frame passes with it hidden: a
+  // hidden activation then stays inside this thread, and the user's app
+  // keeps the foreground and the keyboard. The lock also gives up this
+  // process's own right to take the foreground, which a normal launch needs
+  // for its first show - so only these launches take it. While it is held,
+  // other background processes cannot take the foreground either; the user
+  // pressing Alt or clicking another window lifts it, as Windows does for
+  // every holder.
+  void SetStartInBackground(bool in_background) {
+    start_in_background_ = in_background;
+  }
+
   // Whether the frame has been visible at any point. Tracked from the window's
   // own messages, so a show by any route counts: the first-frame Show(), a
   // plugin's ShowWindow, a second launch.
@@ -55,6 +82,11 @@ class Win32Window {
 
   // Release OS resources associated with window.
   void Destroy();
+
+  // Ends a start in the background (SetStartInBackground): the window has
+  // been shown, or its first frame has passed with it staying hidden.
+  // Show() calls it; a no-op otherwise.
+  void EndBackgroundStart();
 
   // Inserts |content| into the window tree.
   void SetChildContent(HWND content);
@@ -127,6 +159,9 @@ class Win32Window {
 
   int first_show_command_ = SW_SHOWNORMAL;
   bool has_been_shown_ = false;
+
+  bool start_in_background_ = false;
+  bool holds_foreground_lock_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

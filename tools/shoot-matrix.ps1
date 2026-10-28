@@ -30,9 +30,9 @@
   a second monitor is refused before anything launches.
 
   Nor does the launch's show: the build is started with SW_SHOWNOACTIVATE
-  (shoot.ps1 -NoActivate, and what it cannot cover), so its first show
-  leaves the user's window active. -NormalLaunch starts it as a user would
-  instead.
+  (shoot.ps1 -NoActivate), so neither its start nor its first show takes
+  the foreground from the user's window. -NormalLaunch starts it as a user
+  would instead.
 
 .EXAMPLE
   # A second monitor left of the primary, 2160 physical px wide at 150%. The

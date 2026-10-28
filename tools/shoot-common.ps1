@@ -240,15 +240,13 @@ public class ShootCommonV1 {
 # materials script once per shot. The working directory is the exe's own, as
 # a shortcut or the updater's relaunch would give it.
 #
-# It covers the show, not everything before it. Sampling the foreground
-# every 20ms through a launch with this showed the window shown without
-# activation, and the foreground the user's own afterwards - but the still
-# hidden main window held the foreground for about 0.45s at process start,
-# ~15ms before Dart's first startup line: the runner's
-# Win32Window::SetChildContent calls SetFocus on its view as the window is
-# created (a stock Flutter template line), which activates the frame
-# whenever Windows lets this process take the foreground. Only a runner
-# change can stop that.
+# The show command only reaches the first show; the runner keeps everything
+# before it from taking the foreground for such a launch too
+# (Win32Window::SetStartInBackground). A 20ms foreground sampler showed the
+# still hidden window taking it at process start in builds from before
+# that: once by the runner's own SetFocus, and again by window_manager's
+# title bar setup. Such a build still takes it whenever Windows lets it,
+# however it is launched.
 function Start-AppNoActivate([string]$exePath) {
     $procId = [ShootCommonV1]::StartNoActivate($exePath, (Split-Path -Parent $exePath))
     return [Diagnostics.Process]::GetProcessById($procId)

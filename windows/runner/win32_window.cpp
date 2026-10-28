@@ -128,6 +128,11 @@ bool Win32Window::Create(const std::wstring& title,
   const wchar_t* window_class =
       WindowClassRegistrar::GetInstance()->GetWindowClass();
 
+  // Before the window exists: see SetStartInBackground.
+  if (start_in_background_ && !holds_foreground_lock_) {
+    holds_foreground_lock_ = LockSetForegroundWindow(LSFW_LOCK) != FALSE;
+  }
+
   const POINT target_point = {static_cast<LONG>(origin.x),
                               static_cast<LONG>(origin.y)};
   HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
@@ -150,7 +155,15 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
+  EndBackgroundStart();
   return ShowWindow(window_handle_, first_show_command_);
+}
+
+void Win32Window::EndBackgroundStart() {
+  if (holds_foreground_lock_) {
+    LockSetForegroundWindow(LSFW_UNLOCK);
+    holds_foreground_lock_ = false;
+  }
 }
 
 // static
@@ -207,6 +220,9 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
     }
 
+    // Every activation hands the keyboard focus to the engine's view, the
+    // one place it belongs. This is what focuses the view at startup too:
+    // SetChildContent no longer does, so as not to activate the frame.
     case WM_ACTIVATE:
       if (child_content_ != nullptr) {
         SetFocus(child_content_);
@@ -249,6 +265,7 @@ Win32Window::MessageHandler(HWND hwnd,
 
 void Win32Window::Destroy() {
   OnDestroy();
+  EndBackgroundStart();
 
   if (window_handle_) {
     DestroyWindow(window_handle_);
@@ -277,7 +294,19 @@ void Win32Window::SetChildContent(HWND content) {
   // too. The frame is still hidden at this point, so this cannot flash.
   ShowChildContentIfHidden();
 
-  SetFocus(child_content_);
+  // Only into a frame that is already the active window. SetFocus activates
+  // the top-level window of whatever it focuses, and this runs as the window
+  // is created, still hidden: the stock template's unconditional call made
+  // the hidden frame the active window - and, whenever Windows let this
+  // process take the foreground, the foreground window, taken from the
+  // user's own app at every launch, however it was asked to show (see
+  // SetStartInBackground for the rest of that). The view gets the focus when
+  // the frame is activated instead, by the WM_ACTIVATE handler: on the first
+  // show of a normal launch, or on the user's first click into a window
+  // shown without activation.
+  if (GetActiveWindow() == window_handle_) {
+    SetFocus(child_content_);
+  }
 }
 
 bool Win32Window::ShowChildContentIfHidden() {
