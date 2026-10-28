@@ -2,7 +2,9 @@
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
+#include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
 
@@ -28,11 +30,20 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  // Handles single_instance::ActivateMessage(): a second launch asked this
+  // instance to come forward.
+  void ActivateForSecondInstance();
+
   // The project to run.
   flutter::DartProject project_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // Tells Dart about second-launch activations. Uses the engine's messenger,
+  // so it must be released before flutter_controller_.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      instance_channel_;
 
   bool start_hidden_ = false;
 };

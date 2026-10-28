@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include "flutter_window.h"
+#include "single_instance.h"
 #include "utils.h"
 
 namespace {
@@ -49,12 +50,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Enforce single instance via named Win32 Mutex
   HANDLE hMutex = ::CreateMutexW(nullptr, TRUE, L"Local\\TwitchStreamlinkGUIUniqueMutexName");
   if (hMutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
-    HWND hwnd = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
-    if (hwnd != nullptr) {
-      ::ShowWindow(hwnd, SW_SHOW);
-      ::ShowWindow(hwnd, SW_RESTORE);
-      ::SetForegroundWindow(hwnd);
-    }
+    // Hand over to the running instance and leave. It brings itself forward,
+    // content view included, and tells Dart; see single_instance.h for why it
+    // is found by a property rather than by window class.
+    single_instance::ActivateRunningInstance();
     ::CloseHandle(hMutex);
     return EXIT_SUCCESS;
   }
