@@ -431,9 +431,16 @@ void main() {
           client: MockClient.streaming((request, _) async =>
               http.StreamedResponse(body.stream, 200, contentLength: 2)),
         );
-        final pending = service.downloadUpdate(_zipUrl, null);
+        // Waits for the download to have taken its first chunk, by which
+        // point its directory exists and is registered. This pumped the event
+        // queue instead, which the real file IO of creating the directory
+        // could outlast under a loaded full-suite run.
+        final firstChunk = Completer<void>();
+        final pending = service.downloadUpdate(_zipUrl, (_) {
+          if (!firstChunk.isCompleted) firstChunk.complete();
+        });
         body.add([1]);
-        await pumpEventQueue();
+        await firstChunk.future;
         expect(updateDirs(), hasLength(1));
 
         await service.sweepStaleUpdateDirs(olderThan: Duration.zero);
