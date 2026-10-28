@@ -60,7 +60,8 @@ import 'widgets/horizontal_mouse_scrollable.dart';
 import 'widgets/neumorphic/neu_checkbox.dart';
 import 'widgets/neumorphic/neu_switch.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
-import 'state/automation_decisions.dart';
+import 'services/oauth_loopback_server.dart';
+import 'services/automation_service.dart';
 import 'theme/neu_material_themes.dart';
 import 'theme/material/lit_surface.dart';
 import 'theme/app_theme.dart';
@@ -407,7 +408,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   
   Timer? _favoritesLiveCheckTimer;
   Timer? _downloadCheckTimer;
-  HttpServer? _oauthServer;
+  OAuthLoopbackServer? _oauthServer;
   
   List<TwitchChannel> _followedChannels = [];
   bool _isLoadingFollowed = false;
@@ -531,7 +532,53 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // rather than as running forever.
     _logNotifier.endSession(_appLogKey, 0);
   }
-  final Map<String, String> _lastAutoPlayedStreamSession = {};
+  // ---- Favorites automation (AutomationService) ----------------------
+  // The pass, its once-at-a-time guard and the auto-played session memory
+  // live in AutomationService; these closures are its view of the screen,
+  // read at call time exactly as the inline code read these fields.
+  late final AutomationService _automation = AutomationService(
+    favorites: () => _channels,
+    settings: () => _settings,
+    runningChannels: () => _playerService.runningChannels,
+    isWatchingVod: () => _isWatchingVod,
+    isUpdateActive: () => _isUpdatePromptOpen || _isUpdateInProgress,
+    playLive: (channel) => _playerService.launchStreamlinkForLive(
+      channel.username,
+      channel.isLive,
+      channel.streamTitle,
+      channel.game,
+      _settings,
+    ),
+    stopLive: (channel) => _playerService.killLiveStream(channel),
+    fetchVods: (channel) => _apiService.fetchVodsForChannel(
+      channel: channel,
+      settings: _settings,
+      localVodsProgress: _localVodsProgress,
+      // This pass renders nothing, so the per-VOD game lookup is pure
+      // overhead. It runs for every auto-download channel every minute.
+      fetchGames: false,
+    ),
+    localProgress: () => _localVodsProgress,
+    isVodHandled: (vodId) =>
+        _downloadedVodsRegistry.containsKey(vodId) ||
+        _playerService.activeDownloadTasks.containsKey(vodId) ||
+        _playerService.activeDownloadProcesses.containsKey(vodId) ||
+        _playerService.downloadQueue.contains(vodId),
+    queueDownload: (vod, channel, {overrideDisablePostProcessing}) =>
+        _playerService.queueVodDownload(
+      vod,
+      channel.username,
+      _settings,
+      overrideDisablePostProcessing: overrideDisablePostProcessing,
+    ),
+    showNotification: (title, body) =>
+        LocalNotification(title: title, body: body, silent: false).show(),
+    // HOOK (refresh-channels): the VOD lists the auto-download pass fetched
+    // are handed back here - wire them into the VOD cache with
+    // `onVodsFetched: (channel, result) { ... }`. Unset, they are dropped
+    // after the pass, as before.
+  );
+  // ---- end favorites automation ---------------------------------------
 
   @override
   void initState() {
@@ -956,6 +1003,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       final updateService = UpdateService();
       Directory? extractDir;
       var updaterStarting = false;
+      var handedOver = false;
       try {
         final zipFile = await updateService.downloadUpdate(info.downloadUrl, (pct) {
           updateDialog(() => progress = pct);
@@ -972,8 +1020,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
         updateDialog(() => statusText = 'Closing running downloads and streams...');
 
-        // The restart ends this process from inside applyUpdateAndRestart,
-        // so the window's last geometry is saved now or not at all.
+        // Now, so the save of the resume list below writes it too: if the
+        // updater has to end this process before its own shutdown finishes,
+        // the geometry is already on disk.
         await _captureWindowState();
 
         // Shut down cleanly before the installation is replaced. This path
@@ -1002,7 +1051,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
         updateDialog(() => statusText = 'Applying update and restarting...');
         updaterStarting = true;
-        await updateService.applyUpdateAndRestart(extractDir);
+        await updateService.startUpdater(extractDir);
+        handedOver = true;
       } catch (e) {
         _isUpdateInProgress = false;
         // stopAll() may already have killed everything before the failure. The
@@ -1012,7 +1062,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _logNotifier.endAllRunning(-1);
         // The extracted build is ~300 MB that only a sweep a day later would
         // reclaim. Safe to delete while no updater can be copying out of it,
-        // which is every failure before applyUpdateAndRestart began; that
+        // which is every failure before startUpdater began; that
         // method cleans up its own failures before it starts the updater,
         // and after it, a late updater may still need the files.
         final extracted = extractDir;
@@ -1032,7 +1082,27 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               isError: true);
         }
       }
+      if (handedOver) await _exitForUpdate();
     });
+  }
+
+  /// Leaves for the updater, which is now running outside this app's job and
+  /// waits for the process to end before it swaps the files and relaunches.
+  ///
+  /// The same way out as Exit: the saves flushed, the tray icon removed, the
+  /// runner's ordered teardown. This used to be a Dart exit(0) inside the
+  /// update service, which skipped all of it and left a ghost tray icon
+  /// beside the relaunched app until the mouse passed over it.
+  Future<void> _exitForUpdate() async {
+    CrashLog.current?.milestone('[update] updater started; exiting for it');
+    try {
+      await _shutDownAndExit();
+    } catch (e, st) {
+      // Never stay up half shut down: the updater is waiting on this
+      // process, and would end it a few seconds from now regardless.
+      CrashLog.current?.error('update: shutting down', e, st);
+      exit(0);
+    }
   }
 
   /// Makes sure the saved download queue is on disk before the downloads are
@@ -1112,7 +1182,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _playerService.stopAll();
     _searchController.dispose();
     _sidebarSearchFocus.dispose();
-    _oauthServer?.close(force: true);
+    _oauthServer?.close();
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
     _windowSaveTimer?.cancel();
@@ -1529,6 +1599,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   void onWindowClose() async {
     final isPreventClose = await windowManager.isPreventClose();
     if (!isPreventClose) return;
+    // Already quitting, for Exit or for an update. The updater closes a
+    // portable copy's window as soon as it is running (the only mutex it
+    // waits on is the installed copy's), and that now lands while this
+    // shutdown is still saving: hiding to the tray, with its one-time
+    // "still running" toast, would be the wrong answer to it.
+    if (_isExiting) return;
     if (_settings.closeAction == 'exit') {
       await _handleAppExitRequest();
       return;
@@ -1630,7 +1706,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         actions: [
           NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
           NeuDialogAction.primary('Choose folder', () async {
-            final String? path = await FilePicker.platform.getDirectoryPath();
+            final String? path = await FilePicker.getDirectoryPath();
             if (path != null && path.isNotEmpty) {
               setState(() {
                 _settings.vodDownloadFolder = path;
@@ -1948,138 +2024,71 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// longer take the history with it.
   Future<void> _saveChannels() => _settingsRepo.saveNow();
 
+  /// Connect Account: signs in through Twitch in the browser.
+  ///
+  /// The listener itself (state check, timeout, single-shot result) is
+  /// OAuthLoopbackServer; this only starts it and applies what comes back.
   Future<void> _startOAuthServer() async {
-    if (_oauthServer != null) {
-      try {
-        await _oauthServer!.close(force: true);
-      } catch (_) {}
-    }
+    // A second Connect replaces the first sign-in rather than racing it: the
+    // older one's result arrives as cancelled and is ignored below.
+    final previous = _oauthServer;
+    _oauthServer = null;
+    await previous?.close();
 
-    final port = _settings.localServerPort;
+    final server = OAuthLoopbackServer(
+      port: _settings.localServerPort,
+      clientId: _settings.twitchClientId,
+    );
     try {
-      _oauthServer = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
-      _showSnackBar('OAuth server started on port $port. Opening browser...', isError: false);
-
-      final clientId = _settings.twitchClientId.trim().isNotEmpty
-          ? _settings.twitchClientId.trim()
-          : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-
-      final authUrl = 'https://id.twitch.tv/oauth2/authorize'
-          '?client_id=$clientId'
-          '&redirect_uri=http://localhost:$port'
-          '&response_type=token'
-          '&scope=user:read:follows';
-
-      await _openExternalLink(authUrl);
-
-      _oauthServer!.listen((HttpRequest request) async {
-        final response = request.response;
-        response.headers.contentType = ContentType.html;
-
-        if (request.uri.path == '/') {
-          response.write('''
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Twitch Streamlink GUI Login</title>
-  <style>
-    body {
-      background-color: #0c0f17;
-      color: #ffffff;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-    }
-    .card {
-      background-color: #161b26;
-      border: 1px solid #1e2433;
-      border-radius: 12px;
-      padding: 30px;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
-      text-align: center;
-      max-width: 400px;
-    }
-    h2 { color: #9146ff; margin-top: 0; }
-    .spinner {
-      border: 4px solid rgba(255,255,255,0.1);
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      border-left-color: #9146ff;
-      animation: spin 1s linear infinite;
-      margin: 20px auto;
-    }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h2>Twitch Authorization</h2>
-    <div id="status">Connecting with Streamlink Twitch GUI...</div>
-    <div id="loader" class="spinner"></div>
-  </div>
-  <script>
-    const hash = window.location.hash.substring(1);
-    const params = new URLSearchParams(hash);
-    const token = params.get('access_token');
-    if (token) {
-      fetch('/token?access_token=' + token)
-        .then(() => {
-          document.getElementById('status').innerText = 'Authentication successful! You can close this tab now.';
-          document.getElementById('loader').style.display = 'none';
-        })
-        .catch(err => {
-          document.getElementById('status').innerText = 'Error saving token to application.';
-          document.getElementById('loader').style.display = 'none';
-        });
-    } else {
-      document.getElementById('status').innerText = 'No access token found in URL fragment.';
-      document.getElementById('loader').style.display = 'none';
-    }
-  </script>
-</body>
-</html>
-          ''');
-          await response.close();
-        } else if (request.uri.path == '/token') {
-          final token = request.uri.queryParameters['access_token'];
-          if (token != null && token.isNotEmpty) {
-            setState(() {
-              _settings.twitchOauthToken = 'oauth:$token';
-              // Record WHICH client minted it. Without this, editing the
-              // Client ID field later produces a 401 the app would have to
-              // guess at, and it would guess "expired" - sending the user
-              // through a reconnect that cannot fix a mismatch.
-              _settings.twitchTokenClientId = _settings.twitchClientId.trim();
-            });
-            await _saveChannels();
-            twitchAuth.setHelix(statusForToken(_settings.twitchOauthToken,
-                mintedClientId: _settings.twitchTokenClientId));
-            _showSnackBar('Twitch account connected successfully!', isError: false);
-            // No explicit reload here: the probe publishes the new status,
-            // and _onAuthStatusChanged refreshes both lists off that
-            // transition. Calling it here too fetched the followed list twice
-            // on every reconnect.
-            await _refreshHelixAuth(force: true);
-          }
-          response.write('OK');
-          await response.close();
-
-          await _oauthServer!.close(force: true);
-          _oauthServer = null;
-        } else {
-          response.statusCode = HttpStatus.notFound;
-          response.write('Not found');
-          await response.close();
-        }
-      });
+      await server.start();
     } catch (e) {
       _showSnackBar('Failed to start local login server: ${describeTwitchError(e)}', isError: true);
+      return;
     }
+    _oauthServer = server;
+    _showSnackBar('OAuth server started on port ${server.boundPort}. Opening browser...', isError: false);
+    await _openExternalLink(server.authorizeUrl);
+
+    final result = await server.result;
+    // Replaced by a newer sign-in, or the screen is gone.
+    if (!identical(_oauthServer, server) || !mounted) return;
+    _oauthServer = null;
+
+    switch (result.outcome) {
+      case OAuthLoopbackOutcome.token:
+        await _acceptOAuthToken(result.accessToken!, mintedBy: server.clientId);
+      case OAuthLoopbackOutcome.denied:
+        _showSnackBar('Twitch did not connect the account: ${result.error}', isError: true);
+      case OAuthLoopbackOutcome.timedOut:
+        _showSnackBar(
+            'The Twitch sign-in timed out. Click Connect Account to try again.',
+            isError: false);
+      case OAuthLoopbackOutcome.cancelled:
+        break;
+    }
+  }
+
+  Future<void> _acceptOAuthToken(String token, {required String mintedBy}) async {
+    setState(() {
+      _settings.twitchOauthToken = 'oauth:$token';
+      // Record WHICH client minted it. Without this, editing the
+      // Client ID field later produces a 401 the app would have to
+      // guess at, and it would guess "expired" - sending the user
+      // through a reconnect that cannot fix a mismatch. The Client ID the
+      // sign-in actually used, never blank: the raw field was recorded
+      // before, which is empty when the public fallback signed in, and an
+      // empty mint switches the mismatch pre-check off.
+      _settings.twitchTokenClientId = mintedBy;
+    });
+    await _saveChannels();
+    twitchAuth.setHelix(statusForToken(_settings.twitchOauthToken,
+        mintedClientId: _settings.twitchTokenClientId));
+    _showSnackBar('Twitch account connected successfully!', isError: false);
+    // No explicit reload here: the probe publishes the new status,
+    // and _onAuthStatusChanged refreshes both lists off that
+    // transition. Calling it here too fetched the followed list twice
+    // on every reconnect.
+    await _refreshHelixAuth(force: true);
   }
 
   Future<void> _loadFollowedChannels() async {
@@ -2134,8 +2143,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // A mismatch between the token's mint and the configured Client ID is
     // detectable with no request at all, which matters on an offline launch.
     final minted = _settings.twitchTokenClientId.trim();
-    final configured = _settings.twitchClientId.trim();
-    if (minted.isNotEmpty && configured.isNotEmpty && minted != configured) {
+    // The effective one, as a sign-in records it: a blank field signs in,
+    // and sends every request, with the public client.
+    final configured =
+        OAuthLoopbackServer.effectiveClientId(_settings.twitchClientId);
+    if (minted.isNotEmpty && minted != configured) {
       twitchAuth.setHelix(TwitchAuthStatus(
         state: TwitchAuthState.invalid,
         fault: TwitchAuthFault.clientIdMismatch,
@@ -2245,151 +2257,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool get _isWatchingVod =>
       _playerService.playingVodIds.isNotEmpty || _activePlayingVideos.isNotEmpty;
 
-  bool _automationPassRunning = false;
-
-  Future<void> _checkFavoritesAutomation() async {
-    // Re-entrancy guard: the 60s timer can fire again while a pass is still
-    // awaiting VOD lists, which produced overlapping passes that each queued
-    // the same downloads.
-    if (_automationPassRunning) return;
-    _automationPassRunning = true;
-    try {
-      await _runAutoPlayPass();
-      await _runAutoDownloadPass();
-    } finally {
-      _automationPassRunning = false;
-    }
-  }
-
-  Future<void> _runAutoPlayPass() async {
-    // Forget sessions for channels that are no longer live, so the next
-    // broadcast is treated as new.
-    final liveNames =
-        _channels.where((c) => c.isLive).map((c) => c.username.toLowerCase().trim()).toSet();
-    _lastAutoPlayedStreamSession.removeWhere((name, _) => !liveNames.contains(name));
-
-    final decision = decideAutoPlay(
-      channels: _channels,
-      runningChannels: _playerService.runningChannels
-          .map((c) => c.toLowerCase().trim())
-          .toSet(),
-      playedSessions: _lastAutoPlayedStreamSession,
-      isWatchingVod: _isWatchingVod,
-      isUpdateActive: _isUpdatePromptOpen || _isUpdateInProgress,
-      preemptLowerPriority: _settings.autoPlayPreemptLowerPriority,
-    );
-
-    if (decision.sessionChannel != null && decision.sessionKeyToRecord != null) {
-      _lastAutoPlayedStreamSession[decision.sessionChannel!] = decision.sessionKeyToRecord!;
-    }
-
-    // Applied before the early return: the highest-priority stream may already
-    // be running, and lower-priority ones still need stopping in that case.
-    for (final lower in decision.channelsToPreempt) {
-      print('[Auto-Play] Preempting lower priority stream @$lower');
-      _playerService.killLiveStream(lower);
-    }
-
-    if (!decision.shouldLaunch) {
-      if (decision.reason != AutoPlaySkipReason.none) {
-        print('[Auto-Play] No action: ${decision.reason.name}');
-      }
-      return;
-    }
-
-    final target = decision.channelToPlay!;
-    final cleanName = target.username.toLowerCase().trim();
-
-    _lastAutoPlayedStreamSession[cleanName] = decision.sessionKey!;
-    print('[Auto-Play] Launching @${target.username} (session ${decision.sessionKey})');
-
-    _playerService.launchStreamlinkForLive(
-      target.username,
-      target.isLive,
-      target.streamTitle,
-      target.game,
-      _settings,
-    );
-
-    if (_settings.notifyAutoPlay) {
-      try {
-        await LocalNotification(
-          title: 'Auto-Playing Live Stream',
-          body: '${target.username} is now live\nPlaying ${target.game ?? "Twitch"}',
-          silent: false,
-        ).show();
-      } catch (e) {
-        print('[Auto-Play Notification Error]: $e');
-      }
-    }
-  }
-
-  Future<void> _runAutoDownloadPass() async {
-    final channels = _channels.where((c) => c.autoDownloadVods).toList();
-    if (channels.isEmpty) return;
-
-    // Auto-download writes to disk, so a configured folder is required. This
-    // used to be skipped entirely, and startVodDownload then threw on every
-    // single queued item.
-    if (_settings.vodDownloadFolder.trim().isEmpty) {
-      print('[Auto-Download] Skipped: no VOD download folder configured.');
-      return;
-    }
-
-    for (final channel in channels) {
-      try {
-        final result = await _apiService.fetchVodsForChannel(
-          channel: channel,
-          settings: _settings,
-          localVodsProgress: _localVodsProgress,
-          // This pass renders nothing, so the per-VOD game lookup is pure
-          // overhead. It runs for every auto-download channel every minute.
-          fetchGames: false,
-        );
-        if (result.vods.isEmpty) continue;
-
-        final selected = selectVodsToAutoDownload(
-          channel: channel,
-          vods: result.vods,
-          localProgress: _localVodsProgress,
-          settings: _settings,
-          isAlreadyHandled: (vodId) =>
-              _downloadedVodsRegistry.containsKey(vodId) ||
-              _playerService.activeDownloadTasks.containsKey(vodId) ||
-              _playerService.activeDownloadProcesses.containsKey(vodId) ||
-              _playerService.downloadQueue.contains(vodId),
-        );
-
-        for (final vod in selected) {
-          print('[Auto-Download] Queueing ${vod.id} for @${channel.username}');
-          _playerService.queueVodDownload(
-            vod,
-            channel.username,
-            _settings,
-            // Tri-state: only override when the channel opts in. Passing false
-            // unconditionally made the per-channel default beat the global
-            // "Fast VOD Downloads" setting, so every automatic download ran the
-            // slow post-processing path the Downloads tab promised to skip.
-            overrideDisablePostProcessing: channel.autoDownloadFastDownload ? true : null,
-          );
-
-          if (_settings.notifyAutoDownloadStart) {
-            try {
-              await LocalNotification(
-                title: 'Auto-Downloading VOD',
-                body: 'Started auto-downloading VOD for @${channel.username}:\n${vod.title}',
-                silent: false,
-              ).show();
-            } catch (e) {
-              print('[Auto-Download Notification Error]: $e');
-            }
-          }
-        }
-      } catch (e) {
-        print('[Auto-Download Error] Failed for @${channel.username}: $e');
-      }
-    }
-  }
+  /// One favorites automation pass (AutomationService.runPass); a call
+  /// while one is still running does nothing.
+  Future<void> _checkFavoritesAutomation() => _automation.runPass();
 
   void _prefetchVodsInBackground(List<TwitchChannel> channels) async {
     if (_settings.twitchOauthToken.trim().isEmpty) return;
@@ -2583,7 +2453,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         // Drop tracking state for the removed channel so it cannot resurface as
         // a stale "went live" notification or auto-play session later.
         _previouslyLiveFavoriteUsernames.remove(cleanName);
-        _lastAutoPlayedStreamSession.remove(cleanName);
+        _automation.forgetChannel(cleanName);
         if (_selectedChannel?.username == cleanName) {
           _selectedChannel = null;
         }

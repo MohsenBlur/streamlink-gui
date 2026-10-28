@@ -3,6 +3,7 @@
 #include <tlhelp32.h>
 #include <shellapi.h>
 #include <shlwapi.h>
+#include <cwctype>
 #include <string>
 #include <filesystem>
 #include <vector>
@@ -395,6 +396,53 @@ void RelaunchApp(const fs::path& targetDir, const std::wstring& exeName) {
     }
 }
 
+// Deletes the app's working directory for this update once it is installed.
+//
+// The app downloads and extracts every update into its own
+// %TEMP%\streamlink_gui_update_* directory and hands us a folder inside it
+// (extracted\<bundle>) as the staging directory. Nothing deleted it after a
+// successful swap, so each update left its ~300 MB extracted copy behind
+// until the app's startup sweep found it a day later. Only the nearest
+// ancestor carrying that prefix is removed, never the staging directory's
+// own tree on its own, and never one that holds the installation.
+void RemoveUpdateWorkDir(const fs::path& stagingDir, const fs::path& targetDir) {
+    const std::wstring prefix = L"streamlink_gui_update_";
+    fs::path workDir;
+    fs::path dir = stagingDir;
+    for (int depth = 0; depth < 4 && workDir.empty(); ++depth) {
+        const fs::path parent = dir.parent_path();
+        if (parent.empty() || parent == dir) break;
+        if (parent.filename().wstring().rfind(prefix, 0) == 0) workDir = parent;
+        dir = parent;
+    }
+    if (workDir.empty()) {
+        LogLine(L"Staging directory is not inside an update working directory; left in place.");
+        return;
+    }
+
+    std::wstring work = workDir.wstring();
+    std::wstring target = targetDir.wstring();
+    for (auto& c : work) c = static_cast<wchar_t>(std::towlower(c));
+    for (auto& c : target) c = static_cast<wchar_t>(std::towlower(c));
+    if (!work.empty() && work.back() != L'\\') work += L'\\';
+    if (!target.empty() && target.back() != L'\\') target += L'\\';
+    if (target.rfind(work, 0) == 0) {
+        LogLine(L"Update working directory contains the installation; left in place.");
+        return;
+    }
+
+    std::error_code ec;
+    fs::remove_all(workDir, ec);
+    if (ec) {
+        // A scanner still reading the archive, say. The app's startup sweep
+        // reclaims it later.
+        LogLine(L"Could not remove " + workDir.wstring() + L" (error " +
+                std::to_wstring(ec.value()) + L"); the app's sweep will.");
+    } else {
+        LogLine(L"Removed " + workDir.wstring());
+    }
+}
+
 enum SwapOutcome { kSwapOk, kSwapFailed, kSwapCancelled };
 
 // 3. Run the swap in an elevated copy of ourselves and wait for it to finish.
@@ -560,6 +608,13 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     // error - left the user with no running application at all, because the app
     // had already exited before the updater started.
     RelaunchApp(targetDir, exeName);
+
+    // After the relaunch, so the app is not kept waiting on 300 MB of deletes.
+    // Only once installed: a failed swap's copy is the one thing left to
+    // retry from, and the app's sweep reclaims it.
+    if (outcome == kSwapOk) {
+        RemoveUpdateWorkDir(stagingDir, targetDir);
+    }
 
     if (outcome == kSwapCancelled) {
         ShowError(L"The update was cancelled because administrator permission was not granted.\n\n"

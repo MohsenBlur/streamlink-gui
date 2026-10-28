@@ -291,7 +291,11 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
           onPressed: () async {
-            final path = await FilePicker.platform.getDirectoryPath();
+            final path = await FilePicker.getDirectoryPath();
+            // The folder dialog runs off the UI isolate (file_picker 13), so
+            // the wizard stays live behind it and can be skipped, or
+            // finished, before the answer comes back.
+            if (!mounted) return;
             if (path != null && path.isNotEmpty) {
               setState(() => _downloadFolder = path);
             }

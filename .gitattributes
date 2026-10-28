@@ -1,0 +1,7 @@
+# Flutter regenerates these on every `flutter pub get` (and so on every
+# `flutter test` run), and it writes them with LF endings. With
+# core.autocrlf=true git checks them out as CRLF, so each regeneration left
+# all three showing as modified with no change in content - churn that was
+# easy to commit by accident. Pinning them to LF makes the checkout match what
+# Flutter writes.
+windows/flutter/generated_* text eol=lf

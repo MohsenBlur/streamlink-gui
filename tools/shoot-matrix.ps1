@@ -9,8 +9,10 @@
   Config is isolated: a portable.txt marker beside the exe makes the app read
   and write beside itself, and a copy of the real channels_config.json is
   staged there. The user's live settings and OAuth token are never written to.
-  Only the build under test is stopped and captured; an installed copy that
-  is running makes the launch refuse rather than shoot (see shoot.ps1).
+  Only the build under test is stopped and captured. Running portable, it is
+  its own single-instance scope, so an installed copy resting in the tray no
+  longer blocks the launch; another copy from the same folder still makes it
+  refuse rather than shoot (see shoot.ps1).
 
   Build with -dart-define=APP_VERSION=99.0.0 so the updater never offers an
   update; the modal sits over the middle of every screen otherwise.

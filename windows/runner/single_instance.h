@@ -12,7 +12,8 @@
 // than by its class. FLUTTER_RUNNER_WIN32_WINDOW is the template class that
 // every Flutter Win32 app shares, so looking up the class alone could raise
 // another app's window and leave this one in the tray. The class name itself
-// is kept: tools/shoot.ps1 and tools/click.ps1 find the window by it.
+// is kept: tools/shoot.ps1 still finds the window by it (tools/click.ps1 now
+// goes by the process and this property).
 //
 // "The instance already running" means the one sharing this launch's config:
 // every installed copy shares one, a portable copy (portable.txt beside the

@@ -124,20 +124,41 @@ class _InteractivePopoverState extends State<InteractivePopover> {
     return OverlayPortal.overlayChildLayoutBuilder(
       controller: _portal,
       overlayChildBuilder: _buildOverlay,
-      child: NeuFocusable(
-        onActivate: _togglePopover,
-        semanticLabel: 'Open menu',
-        focusRadius: 10,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: _togglePopover,
-            behavior: HitTestBehavior.opaque,
-            child: widget.child,
+      // Esc with focus on the TRIGGER, which keeps it after Enter or Space
+      // opens the popover. The overlay's binding only hears keys from focus
+      // inside the popover, so this Esc went on up to the page's shortcuts:
+      // the Library behind closed and the popover stayed open. Claimed only
+      // while open; a closed popover's trigger leaves Esc to the page. No
+      // focus or Tab stop of its own: it hears the trigger's keys.
+      child: Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: _onTriggerKey,
+        child: NeuFocusable(
+          onActivate: _togglePopover,
+          semanticLabel: 'Open menu',
+          focusRadius: 10,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: _togglePopover,
+              behavior: HitTestBehavior.opaque,
+              child: widget.child,
+            ),
           ),
         ),
       ),
     );
+  }
+
+  KeyEventResult _onTriggerKey(FocusNode node, KeyEvent event) {
+    if (!_isOpen ||
+        event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.escape) {
+      return KeyEventResult.ignored;
+    }
+    _closePopover();
+    return KeyEventResult.handled;
   }
 }
 

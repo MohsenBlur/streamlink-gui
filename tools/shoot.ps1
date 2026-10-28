@@ -15,6 +15,12 @@
   * MoveWindow takes PHYSICAL pixels while the app's own sizes (and the
     380x500 minimum) are LOGICAL. On a scaled display those differ, so sizes
     here are logical and converted via the window's own DPI.
+  * The script must itself be per-monitor DPI aware, and is made so on its
+    own thread. Windows PowerShell is a DPI-unaware host, and Windows hands
+    such a host a virtualized, scaled-down view of any window on a scaled
+    monitor: GetWindowRect reported a window on the 150% monitor at its
+    logical size, so the bitmap was two thirds as wide and tall as the
+    window and the capture came out cropped to its top-left corner.
 
   And one that produces a plausible image of the wrong thing: the top-level
   window can be visible while the engine's FLUTTERVIEW child is hidden (the
@@ -30,13 +36,20 @@
   ./tools/shoot.ps1 -Out shots/current.png -NoResize
 
 .NOTES
-  WHICH instance gets captured is the trap. The runner's single-instance
-  mutex has a fixed name, so while any copy runs - typically the installed
-  app resting in the tray - a dev build launched beside it exits at once, and
-  the old by-class lookup then found and shot the installed app. -LaunchExe
-  and -ExpectExe confine the lookup to one executable, a launch refuses to
-  start while another copy holds the mutex, and every capture prints the exe
-  it actually captured.
+  WHICH instance gets captured is the trap. A second launch in the same
+  single-instance scope hands over to the running copy and exits at once,
+  and the old by-class lookup then found and shot that copy instead.
+  -LaunchExe and -ExpectExe confine the lookup to one executable, and every
+  capture prints the exe it actually captured.
+
+  A launch refuses only when a running copy shares the new one's scope
+  (windows/runner/single_instance.cpp). A portable copy - portable.txt
+  beside its exe, which shoot-common.ps1's Set-IsolatedConfig writes - is a
+  scope of its own, keyed by its folder, so the installed app resting in the
+  tray no longer blocks a portable build; another copy from the same folder
+  still does. A non-portable build shares %APPDATA%, and the one scope, with
+  every other non-portable copy, the installed app included. A copy whose
+  path cannot be read (elevated) is assumed to conflict.
 #>
 [CmdletBinding()]
 param(
@@ -82,13 +95,13 @@ Add-Type -AssemblyName System.Drawing
 # session that already loaded it: a shell that had run an older copy of this
 # script would keep the old class, and the first call to a member added since
 # would fail with "method not found". Bump the suffix whenever members change.
-if (-not ([System.Management.Automation.PSTypeName]'Win32ShotV2').Type) {
+if (-not ([System.Management.Automation.PSTypeName]'Win32ShotV3').Type) {
 Add-Type @'
 using System;
 using System.Text;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-public class Win32ShotV2 {
+public class Win32ShotV3 {
     public delegate bool EnumProc(IntPtr h, IntPtr l);
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
@@ -100,6 +113,14 @@ public class Win32ShotV2 {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr ctx);
+
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 for the calling thread, which
+    // runs the whole script: rects, MoveWindow, the cursor and the virtual
+    // desktop metrics are then all physical pixels. False if unavailable.
+    public static bool PerMonitorAware() {
+        return SetThreadDpiAwarenessContext(new IntPtr(-4)) != IntPtr.Zero;
+    }
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll", SetLastError = true)] public static extern uint SendInput(uint n, INPUT[] pInputs, int cbSize);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
@@ -168,6 +189,11 @@ public class Win32ShotV2 {
 '@
 }
 
+# Before any window is measured: see the DPI note at the top.
+if (-not [Win32ShotV3]::PerMonitorAware()) {
+    Write-Warning 'Could not make this script per-monitor DPI aware: a window on a scaled monitor will be measured, and captured, at its logical size.'
+}
+
 $WINDOW_CLASS = 'FLUTTER_RUNNER_WIN32_WINDOW'
 $VIEW_CLASS = 'FLUTTERVIEW'
 $APP_PROCESS = 'streamlink_gui'
@@ -178,19 +204,27 @@ $GWL_STYLE = -16
 $WS_VISIBLE = 0x10000000
 
 function Get-WindowProcess([IntPtr]$h) {
-    return Get-Process -Id ([Win32ShotV2]::ProcessIdOf($h)) -ErrorAction SilentlyContinue
+    return Get-Process -Id ([Win32ShotV3]::ProcessIdOf($h)) -ErrorAction SilentlyContinue
 }
 
 # The app's main window - of $exePath only, when given. $null (never
 # IntPtr.Zero, which PowerShell treats as TRUE) when there is none.
 function Find-AppWindow([string]$exePath) {
-    foreach ($h in [Win32ShotV2]::FindMainWindows($WINDOW_CLASS)) {
+    $found = @()
+    foreach ($h in [Win32ShotV3]::FindMainWindows($WINDOW_CLASS)) {
         $proc = Get-WindowProcess $h
         if (-not $proc -or $proc.ProcessName -ne $APP_PROCESS) { continue }
         if ($exePath -and $proc.Path -ne $exePath) { continue }
-        return $h
+        $found += $h
     }
-    return $null
+    if ($found.Count -eq 0) { return $null }
+    # Now that a portable build can run beside the installed app, "the app's
+    # window" can mean two different copies. Only a named exe may pick.
+    if (-not $exePath -and $found.Count -gt 1) {
+        $owners = ($found | ForEach-Object { $p = Get-WindowProcess $_; if ($p.Path) { $p.Path } else { "pid $($p.Id)" } }) -join ', '
+        throw "Several copies of the app have a window ($owners). Pass -ExpectExe to say which one to capture."
+    }
+    return $found[0]
 }
 
 # Every copy of the app in THIS logon session: the mutex is session-local, so
@@ -205,6 +239,22 @@ function Format-Apps($procs) {
     return ($procs | ForEach-Object { if ($_.Path) { $_.Path } else { "pid $($_.Id)" } }) -join ', '
 }
 
+# The runner's single-instance scope for an exe: its own folder when it runs
+# portable, else the one scope every non-portable copy shares.
+function Get-InstanceScope([string]$exePath) {
+    $dir = Split-Path -Parent $exePath
+    if (Test-Path -LiteralPath (Join-Path $dir 'portable.txt') -PathType Leaf) {
+        return "portable:$($dir.ToLowerInvariant())"
+    }
+    return 'shared'
+}
+
+# The running copies a launch of $exePath would hand over to, and exit.
+function Get-ConflictingApps([string]$exePath) {
+    $scope = Get-InstanceScope $exePath
+    return @(Get-RunningApps | Where-Object { -not $_.Path -or (Get-InstanceScope $_.Path) -eq $scope })
+}
+
 # Fails unless the engine's view inside $main is actually on screen.
 #
 # The invisible-window bug (audit C1): the runner window was shown and moved
@@ -217,16 +267,16 @@ function Format-Apps($procs) {
 function Assert-ContentViewVisible([IntPtr]$main) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     do {
-        $view = [Win32ShotV2]::FindChildByClass($main, $VIEW_CLASS)
-        if ($view -ne [IntPtr]::Zero -and [Win32ShotV2]::IsWindowVisible($view)) { return }
+        $view = [Win32ShotV3]::FindChildByClass($main, $VIEW_CLASS)
+        if ($view -ne [IntPtr]::Zero -and [Win32ShotV3]::IsWindowVisible($view)) { return }
         Start-Sleep -Milliseconds 250
     } while ($sw.ElapsedMilliseconds -lt 3000)
 
-    $mainVisible = [Win32ShotV2]::IsWindowVisible($main)
+    $mainVisible = [Win32ShotV3]::IsWindowVisible($main)
     if ($view -eq [IntPtr]::Zero) {
         throw "No $VIEW_CLASS child under the app window (main visible=$mainVisible): the engine never attached its view. Capture refused."
     }
-    $style = [Win32ShotV2]::GetWindowLongW($view, $GWL_STYLE)
+    $style = [Win32ShotV3]::GetWindowLongW($view, $GWL_STYLE)
     $flag = if (($style -band $WS_VISIBLE) -ne 0) { 'WS_VISIBLE set, so a parent is hidden' } else { 'WS_VISIBLE clear' }
     # Parenthesised: -f binds tighter than +, and would format only the last part.
     throw (("$VIEW_CLASS is not visible (main visible=$mainVisible, view style=0x{0:X8}, $flag). " +
@@ -246,14 +296,21 @@ foreach ($given in @($LaunchExe, $ExpectExe)) {
 $hwnd = Find-AppWindow $targetExe
 
 if (-not $hwnd -and $LaunchExe) {
-    # A second launch would only raise the running copy's window and exit, and
-    # the capture below would then be of THAT copy. Refuse; the user's own
-    # instance is theirs to quit, not ours to kill.
-    $holders = Get-RunningApps
+    # A launch in the scope of a running copy would only raise that copy's
+    # window and exit, and the capture below would then be of THAT copy.
+    # Refuse; the user's own instance is theirs to quit, not ours to kill.
+    # A copy in another scope is no obstacle (see .NOTES).
+    $holders = Get-ConflictingApps $targetExe
     if ($holders.Count -gt 0) {
-        throw ("Another copy of the app is running: $(Format-Apps $holders). Its " +
-            "single-instance mutex would make this launch exit at once and the " +
-            "capture would show that copy, not $targetExe. Quit it (tray > Exit) and retry.")
+        $why = if ((Get-InstanceScope $targetExe) -eq 'shared') {
+            'Neither runs portable, so they share one single-instance scope'
+        } else {
+            'It runs from the same portable folder, so they share one single-instance scope'
+        }
+        throw ("Another copy of the app is running: $(Format-Apps $holders). $why, " +
+            "this launch would exit at once and the capture would show that copy, " +
+            "not $targetExe. Quit it (tray > Exit), or stage the build portable " +
+            "(shoot-common.ps1 Set-IsolatedConfig), and retry.")
     }
     Write-Host "Launching $targetExe ..." -ForegroundColor Gray
     $launched = Start-Process -FilePath $targetExe -PassThru
@@ -271,11 +328,11 @@ if (-not $hwnd -and $LaunchExe) {
         # here: forcing it up before the first frame would be the harness
         # racing the very startup path the view check below exists to test.
         $shownSw = [Diagnostics.Stopwatch]::StartNew()
-        while (-not [Win32ShotV2]::IsWindowVisible($hwnd) -and $shownSw.ElapsedMilliseconds -lt 10000) {
+        while (-not [Win32ShotV3]::IsWindowVisible($hwnd) -and $shownSw.ElapsedMilliseconds -lt 10000) {
             Start-Sleep -Milliseconds 200
             if ($launched.HasExited) { throw "$targetExe exited during startup, after creating its window." }
         }
-        if (-not [Win32ShotV2]::IsWindowVisible($hwnd)) {
+        if (-not [Win32ShotV3]::IsWindowVisible($hwnd)) {
             Write-Warning 'The app did not show its own window within 10s (set to start minimized?) - showing it from here.'
         }
         Start-Sleep -Milliseconds 2500   # let first frame + data settle
@@ -301,23 +358,23 @@ Assert-ReleaseBuild $ownerPath
 # --- size ------------------------------------------------------------------
 # The window may be hidden (resting in the tray) or minimised; both must be
 # undone before it will paint anything worth capturing.
-$wasHidden = -not [Win32ShotV2]::IsWindowVisible($hwnd)
+$wasHidden = -not [Win32ShotV3]::IsWindowVisible($hwnd)
 if ($wasHidden) {
     Write-Host 'Window was hidden (tray) - showing it for the capture.' -ForegroundColor Gray
-    [Win32ShotV2]::ShowWindow($hwnd, $SW_SHOW) | Out-Null
+    [Win32ShotV3]::ShowWindow($hwnd, $SW_SHOW) | Out-Null
 }
-[Win32ShotV2]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
-[Win32ShotV2]::SetForegroundWindow($hwnd) | Out-Null
+[Win32ShotV3]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
+[Win32ShotV3]::SetForegroundWindow($hwnd) | Out-Null
 
 if (-not $NoResize) {
     if (-not $Width -or -not $Height) { throw 'Provide -Width and -Height, or pass -NoResize.' }
-    $dpi = [Win32ShotV2]::GetDpiForWindow($hwnd)
+    $dpi = [Win32ShotV3]::GetDpiForWindow($hwnd)
     if ($dpi -le 0) { $dpi = 96 }
     $scale = $dpi / 96.0
     $pw = [int][Math]::Round($Width * $scale)
     $ph = [int][Math]::Round($Height * $scale)
     Write-Host ("Resizing to {0}x{1} logical ({2}x{3} physical @ {4} dpi)" -f $Width, $Height, $pw, $ph, $dpi) -ForegroundColor Gray
-    [Win32ShotV2]::MoveWindow($hwnd, 80, 60, $pw, $ph, $true) | Out-Null
+    [Win32ShotV3]::MoveWindow($hwnd, 80, 60, $pw, $ph, $true) | Out-Null
 }
 
 Start-Sleep -Milliseconds $SettleMs   # let Flutter relayout and repaint
@@ -328,10 +385,10 @@ Assert-ContentViewVisible $hwnd
 if ($ClickAt) {
     $parts = $ClickAt.Split(',')
     if ($parts.Count -ne 2) { throw "ClickAt must be 'x,y'." }
-    $r0 = New-Object Win32ShotV2+RECT
-    [Win32ShotV2]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
+    $r0 = New-Object Win32ShotV3+RECT
+    [Win32ShotV3]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
     $rect0Right = $r0.Right
-    $dpiC = [Win32ShotV2]::GetDpiForWindow($hwnd); if ($dpiC -le 0) { $dpiC = 96 }
+    $dpiC = [Win32ShotV3]::GetDpiForWindow($hwnd); if ($dpiC -le 0) { $dpiC = 96 }
     $sc = $dpiC / 96.0
     $cx = $r0.Left + [int]([double]$parts[0].Trim() * $sc)
     $cy = $r0.Top  + [int]([double]$parts[1].Trim() * $sc)
@@ -343,22 +400,22 @@ if ($ClickAt) {
     $HWND_TOPMOST = New-Object IntPtr(-1)
     $HWND_NOTOPMOST = New-Object IntPtr(-2)
     $SWP_NOMOVE_NOSIZE_NOACTIVATE = 0x0002 -bor 0x0001 -bor 0x0010
-    [Win32ShotV2]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
-    [Win32ShotV2]::SetForegroundWindow($hwnd) | Out-Null
+    [Win32ShotV3]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
+    [Win32ShotV3]::SetForegroundWindow($hwnd) | Out-Null
     Start-Sleep -Milliseconds 350
 
-    $pt = New-Object Win32ShotV2+POINT
+    $pt = New-Object Win32ShotV3+POINT
     $pt.X = $cx; $pt.Y = $cy
-    $under = [Win32ShotV2]::WindowFromPoint($pt)
+    $under = [Win32ShotV3]::WindowFromPoint($pt)
     $sb = New-Object System.Text.StringBuilder 256
-    [Win32ShotV2]::GetClassNameW($under, $sb, 256) | Out-Null
+    [Win32ShotV3]::GetClassNameW($under, $sb, 256) | Out-Null
     # FLUTTERVIEW is the app's own child render surface, so it counts as a hit.
     $hitClass = $sb.ToString()
     if ($hitClass -ne $WINDOW_CLASS -and $hitClass -ne 'FLUTTERVIEW') {
         Write-Warning "Point ($cx,$cy) belongs to '$hitClass', not the app - the click will miss."
     }
 
-    [Win32ShotV2]::ClickAbsolute($cx, $cy)
+    [Win32ShotV3]::ClickAbsolute($cx, $cy)
     Start-Sleep -Milliseconds 900
     # NOTE: topmost is NOT dropped here. Doing so immediately after the click
     # let the window fall behind, and PrintWindow then captured a released
@@ -369,13 +426,13 @@ if ($ClickAt) {
     # Park the cursor off the window before capturing. Leaving it where it
     # clicked leaves a hover highlight on whatever is under it, which shows up
     # as a real-looking difference when comparing two phases' captures.
-    [Win32ShotV2]::SetCursorPos($rect0Right + 40, $r0.Top + 4) | Out-Null
+    [Win32ShotV3]::SetCursorPos($rect0Right + 40, $r0.Top + 4) | Out-Null
     Start-Sleep -Milliseconds 500
 }
 
 # --- capture ---------------------------------------------------------------
-$rect = New-Object Win32ShotV2+RECT
-[Win32ShotV2]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
+$rect = New-Object Win32ShotV3+RECT
+[Win32ShotV3]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
 $w = $rect.Right - $rect.Left
 $h = $rect.Bottom - $rect.Top
 if ($w -le 0 -or $h -le 0) { throw "Window has no area ($w x $h)." }
@@ -388,7 +445,7 @@ try {
         try {
             # PW_RENDERFULLCONTENT is load-bearing: without it a Flutter window
             # captures as a black rectangle.
-            $ok = [Win32ShotV2]::PrintWindow($hwnd, $hdc, $PW_RENDERFULLCONTENT)
+            $ok = [Win32ShotV3]::PrintWindow($hwnd, $hdc, $PW_RENDERFULLCONTENT)
             if (-not $ok) { throw 'PrintWindow failed.' }
         } finally { $g.ReleaseHdc($hdc) }
     } finally { $g.Dispose() }
@@ -414,7 +471,7 @@ try {
 } finally { $check.Dispose() }
 
 if ($script:restoreTopmost) {
-    [Win32ShotV2]::SetWindowPos($hwnd, (New-Object IntPtr(-2)), 0, 0, 0, 0, 0x0002 -bor 0x0001 -bor 0x0010) | Out-Null
+    [Win32ShotV3]::SetWindowPos($hwnd, (New-Object IntPtr(-2)), 0, 0, 0, 0, 0x0002 -bor 0x0001 -bor 0x0010) | Out-Null
 }
 
 Write-Host ("Saved {0} ({1}x{2})" -f $Out, $w, $h) -ForegroundColor Green

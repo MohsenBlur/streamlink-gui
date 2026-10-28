@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -104,6 +105,16 @@ class NeuContextMenu extends StatelessWidget {
     if (selected != null) items[selected].onSelected();
   }
 
+  /// Who a long press opens the menu for: touch and pen, which have no
+  /// right button. A mouse has one, and while the long press accepted it
+  /// too, a slow click - held past the 500ms timeout - on a VOD card or a
+  /// sidebar row opened the menu instead of playing or selecting.
+  static const Set<PointerDeviceKind> longPressDevices = {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.stylus,
+    PointerDeviceKind.invertedStylus,
+  };
+
   /// The Menu key, or Shift+F10 - the Windows keyboard routes to a context
   /// menu.
   static bool isMenuKey(KeyEvent event) {
@@ -134,17 +145,32 @@ class NeuContextMenu extends StatelessWidget {
       // a long-press recognizer in the arena wins any press held past the
       // long-press timeout, so a VOD card in multi-select (a checkbox whose
       // menu is empty) lost every slow click or touch-and-hold to a menu that
-      // never opened. The GestureDetector itself stays, so toggling between
-      // empty and non-empty never changes the shape of the tree under it.
-      child: GestureDetector(
+      // never opened. The detector itself stays, so toggling between empty
+      // and non-empty never changes the shape of the tree under it.
+      //
+      // A RawGestureDetector, because GestureDetector's supportedDevices
+      // applies to every recognizer it builds, the right-click included.
+      child: RawGestureDetector(
         behavior: HitTestBehavior.translucent,
-        onSecondaryTapUp: items.isEmpty
-            ? null
-            : (details) => _show(context, details.globalPosition),
-        // Long-press as well, so a touch or pen user can reach the same actions.
-        onLongPressStart: items.isEmpty
-            ? null
-            : (details) => _show(context, details.globalPosition),
+        gestures: items.isEmpty
+            ? const <Type, GestureRecognizerFactory>{}
+            : <Type, GestureRecognizerFactory>{
+                TapGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                  () => TapGestureRecognizer(debugOwner: this),
+                  (recognizer) => recognizer.onSecondaryTapUp =
+                      (details) => _show(context, details.globalPosition),
+                ),
+                // Long-press as well, so a touch or pen user can reach the
+                // same actions - and only they (see longPressDevices).
+                LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<
+                    LongPressGestureRecognizer>(
+                  () => LongPressGestureRecognizer(
+                      debugOwner: this, supportedDevices: longPressDevices),
+                  (recognizer) => recognizer.onLongPressStart =
+                      (details) => _show(context, details.globalPosition),
+                ),
+              },
         child: child,
       ),
     );

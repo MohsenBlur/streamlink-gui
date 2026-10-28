@@ -242,6 +242,16 @@ void main() {
       expect(find.byType(PopupMenuItem<int>), findsNothing);
     });
 
+    testWidgets('a pen\'s long press opens the menu too', (tester) async {
+      await pumpGrid(tester);
+      final gesture = await tester.startGesture(tester.getCenter(card('vod0')),
+          kind: PointerDeviceKind.stylus);
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(find.text('Download'), findsOneWidget);
+    });
+
     testWidgets('a right-click opens the same menu', (tester) async {
       final calls = await pumpGrid(tester);
       await tester.tap(card('vod0'), buttons: kSecondaryButton);
@@ -249,6 +259,21 @@ void main() {
       expect(calls.played, isEmpty, reason: 'a right-click is not a play');
       expect(find.text('Download'), findsOneWidget);
     });
+  });
+
+  testWidgets('a mouse press held past the long-press timeout is still a '
+      'click', (tester) async {
+    // A mouse has a right button for the menu. While the long press
+    // accepted mouse too, a slow primary click opened the menu and the
+    // VOD never played.
+    final calls = await pumpGrid(tester);
+    final gesture = await tester.startGesture(tester.getCenter(card('vod0')),
+        kind: PointerDeviceKind.mouse);
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 300));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuItem<int>), findsNothing);
+    expect(calls.played, ['vod0']);
   });
 
   testWidgets('each card tells a screen reader what it is', (tester) async {

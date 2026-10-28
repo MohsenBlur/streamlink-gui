@@ -684,7 +684,11 @@ class SettingsDialog {
                                       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s16),
                                     ),
                                     onPressed: () async {
-                                      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+                                      // pickFile, not pickFiles: since
+                                      // file_picker 12, pickFiles allows a
+                                      // multi-pick by default, and one
+                                      // player is wanted here.
+                                      final PlatformFile? picked = await FilePicker.pickFile(
                                         type: FileType.custom,
                                         allowedExtensions: ['exe', 'app', 'sh', 'bat', 'cmd'],
                                       );
@@ -693,9 +697,10 @@ class SettingsDialog {
                                       // or its disposed controllers, once it
                                       // has closed.
                                       if (!context.mounted) return;
-                                      if (result != null && result.files.single.path != null) {
+                                      final pickedPath = picked?.path;
+                                      if (pickedPath != null) {
                                         setDialogState(() {
-                                          playerPathController.text = result.files.single.path!;
+                                          playerPathController.text = pickedPath;
                                           // Assigning .text fires no onChanged.
                                           recheckPlayerPath();
                                         });
@@ -805,7 +810,7 @@ class SettingsDialog {
                                     padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s16),
                                   ),
                                   onPressed: () async {
-                                    final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+                                    final String? selectedDirectory = await FilePicker.getDirectoryPath();
                                     if (!context.mounted) return;
                                     if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
                                       setDialogState(() {
