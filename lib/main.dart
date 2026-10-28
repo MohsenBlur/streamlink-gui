@@ -30,6 +30,7 @@ import 'widgets/shell/app_frame.dart';
 import 'widgets/shell/app_snackbar.dart';
 import 'widgets/shell/channel_dashboard.dart';
 import 'widgets/shell/home_view.dart';
+import 'widgets/shell/player_events.dart';
 import 'widgets/shell/status_banners.dart';
 import 'widgets/shell/update_flow.dart';
 import 'widgets/shell/vod_actions.dart';
@@ -276,18 +277,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   // Logging
   final LogNotifier _logNotifier = LogNotifier();
 
-  /// Everything currently downloading or playing. Kept as a ValueNotifier so
-  /// the activity pill and the Library's live rows repaint on a progress tick
-  /// without rebuilding the whole screen.
-  final ValueNotifier<ActivitySnapshot> _activity =
-      ValueNotifier(ActivitySnapshot.empty);
-
-  /// Last whole-percent bucket and status per download, used to collapse the
-  /// several-per-second progress callbacks into at most one rebuild per
-  /// percent (see progressTickIsVisible).
-  final Map<String, int> _progressBuckets = {};
-  final Map<String, String?> _progressStatuses = {};
-
   // UI state variables
   final List<TwitchChannel> _channels = [];
   TwitchChannel? _selectedChannel;
@@ -360,6 +349,29 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     changed: () {
       if (mounted) setState(() {});
     },
+  );
+
+  /// What the player service reports, and where each report goes
+  /// (PlayerEvents); bound in initState.
+  late final PlayerEvents _players = PlayerEvents(
+    player: _playerService,
+    logs: _logNotifier,
+    history: _history,
+    downloads: _downloads,
+    downloadHistory: _downloadHistory,
+    registry: () => _downloadedVodsRegistry,
+    repository: _settingsRepo,
+    settings: () => _settings,
+    clock: _services.clock,
+    mounted: () => mounted,
+    repaint: () => setState(() {}),
+    updatePulse: _updatePulse,
+    rescan: _checkDownloadedVods,
+    libraryChanged: _library.refreshIfOpen,
+    showMessage: _showSnackBar,
+    viewLog: _viewLogAction,
+    windowHidden: _shell.isHidden,
+    notify: (title, body) => _notify(title, body),
   );
 
   // ---- Persistence and downloads -------------------------------------------
@@ -536,154 +548,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
     _logAppDiagnostics();
 
-    // Initialize player service archive path and listener hooks
-    _playerService.downloadArchiveFilePath = _storageService.getStorageFile('yt_dlp_archive.txt').path;
-    _playerService.onPlayerLog = (key, line) {
-      // Not once the screen is gone: dispose stops the players, which is
-      // asynchronous, and their last lines arrived after the log was
-      // disposed - an error for each, like the callbacks below already
-      // guard against.
-      if (!mounted) return;
-      _logNotifier.appendLog(key, line);
-    };
-
-    // The service mutates playingVodIds/runningChannels internally with no
-    // notification of its own, so this callback is the only signal that
-    // playback began - it must stay even though the console tab it used to
-    // select is gone.
-    _playerService.onPlayerStarted = (key, title) {
-      if (!mounted) return;
-      _logNotifier.beginSession(key, title);
-      {
-        _publishActivity();
-        _updatePulse();
-        setState(() {});
-      }
-    };
-
-    _playerService.onPlayerStopped = (key, exitCode, userInitiated) {
-      // Releases the "user is watching a VOD" marker, and writes the position
-      // playback stopped at.
-      _history.playbackStopped(key);
-      if (!mounted) return;
-      _logNotifier.endSession(key, exitCode);
-
-      {
-        _publishActivity();
-        _updatePulse();
-        setState(() {});
-        // A player that never opened is otherwise silent: the console drawer
-        // used to be the only hint. Surface it, with the log one tap away.
-        //
-        // userInitiated excludes deliberate stops: taskkill makes the process
-        // exit non-zero, so without it every "Stop" reported a failure.
-        if (shouldReportPlaybackFailure(
-            exitCode: exitCode, userInitiated: userInitiated)) {
-          final label = _logNotifier.session(key)?.label ?? 'playback';
-          _showSnackBar('Playback failed for $label', isError: true,
-              action: _viewLogAction(key));
-          // Only when the window is hidden, which is the auto-play case: a
-          // failure the user is watching happen does not need a tray popup
-          // on top of the message they can already see.
-          _shell.isHidden().then((hidden) {
-            if (hidden) _notify('Playback failed', label);
-          });
-        }
-      }
-    };
-
-    // One chokepoint for every position a player reports, and it can say no
-    // (WatchHistoryController.record); the tracker pushes to Twitch only what
-    // it keeps.
-    _playerService.recordWatchProgress = _history.record;
-
-    _playerService.onDownloadProgress = (vodId, progress, status) {
-      if (!mounted) return;
-      // Always cheap, and drives the pill plus the Library's live rows.
-      _publishActivity();
-      // The full rebuild is still needed because VodsGrid reads the service
-      // maps directly during build - but at most once per whole percent
-      // instead of the ~10/second it used to fire.
-      if (progressTickIsVisible(
-        previousBucket: _progressBuckets[vodId],
-        progress: progress,
-        previousStatus: _progressStatuses[vodId],
-        status: status,
-      )) {
-        _progressBuckets[vodId] = (progress * 100).floor();
-        _progressStatuses[vodId] = status;
-        setState(() {});
-      }
-    };
-
-    _playerService.onDownloadEnded = (vodId, exitCode) {
-      if (!mounted) return;
-      _logNotifier.endSession(logKeyForDownload(vodId), exitCode);
-    };
-
-    // A download that completed, failed or was cancelled leaves the saved
-    // queue (DownloadsController); one queued from anywhere joins it. Ending
-    // downloads to exit or update reports none of these, so the queue stays
-    // saved for the next launch.
-    _playerService.onDownloadQueued = _downloads.remember;
-
-    _playerService.onDownloadCancelled = (vodId) {
-      _downloads.forget(vodId);
-      _progressBuckets.remove(vodId);
-      _progressStatuses.remove(vodId);
-      if (mounted) {
-        _publishActivity();
-        setState(() {});
-        _library.refreshIfOpen();
-        // Not an error - the user asked for it.
-        _showSnackBar('Download cancelled.', isError: false);
-      }
-    };
-
-    _playerService.onDownloadCompleted = (vodId, title, filePath) {
-      _downloads.forget(vodId);
-      if (mounted) {
-        // With no file too: yt-dlp exits 0 without one for a VOD its archive
-        // says it already downloaded.
-        _downloadHistory.record(vodId, _services.clock());
-        setState(() {
-          if (filePath.isNotEmpty) {
-            _downloadedVodsRegistry[vodId] = filePath;
-          }
-        });
-        _progressBuckets.remove(vodId);
-        _progressStatuses.remove(vodId);
-        _publishActivity();
-        _checkDownloadedVods();
-        // With the queue change forget() asked for: downloads finish in
-        // bursts (a backlog resumed at launch), one write for the burst.
-        _settingsRepo.requestSave();
-        _library.refreshIfOpen();
-        _showSnackBar('Download completed: $title', isError: false);
-        if (_settings.notifyDownloadComplete) {
-          _notify('VOD Download Completed', title);
-        }
-      }
-    };
-
-    _playerService.onDownloadFailed = (vodId, title, exitCode) {
-      _downloads.forget(vodId);
-      _progressBuckets.remove(vodId);
-      _progressStatuses.remove(vodId);
-      if (mounted) {
-        _publishActivity();
-        setState(() {});
-        _showSnackBar('Download failed for: $title (Exit code $exitCode)',
-            isError: true, action: _viewLogAction(logKeyForDownload(vodId)));
-      }
-      // A failure is at least as worth knowing about as a success, and
-      // downloads are exactly what runs while the app sits in the tray. No new
-      // setting: it rides the toggle that already governs the outcome of a
-      // download, now honestly labelled as covering both.
-      if (_settings.notifyDownloadComplete) {
-        _notify('VOD Download Failed', title);
-      }
-    };
+    // Every report the player service makes, routed (PlayerEvents).
+    _players.bind(
+        archivePath:
+            _storageService.getStorageFile('yt_dlp_archive.txt').path);
 
     // Channel and VOD refresh wiring: lib/state/channels_controller.dart and
     // vod_browser_controller.dart, driven from the block by _selectChannel.
@@ -837,7 +705,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _settingsRepo.dispose();
     storageWriteFailure.removeListener(_onSaveFailureChanged);
     twitchAuth.helix.removeListener(_onAuthStatusChanged);
-    _activity.dispose();
+    _players.dispose();
     _logNotifier.dispose();
     super.dispose();
   }
@@ -1837,24 +1705,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// Recomputes the activity snapshot from the service's live maps.
-  void _publishActivity() {
-    _activity.value = buildActivitySnapshot(
-      downloadTaskIds: _playerService.activeDownloadTasks.keys,
-      downloadQueue: _playerService.downloadQueue,
-      startedIds: _playerService.activeDownloadProcesses.keys.toSet(),
-      downloadTitles: _playerService.downloadTitles,
-      downloadProgress: _playerService.activeDownloadsProgress,
-      downloadStatuses: _playerService.activeDownloadTasks,
-      playingVodIds: _playerService.playingVodIds,
-      runningChannels: _playerService.runningChannels,
-      vodTitles: {
-        for (final entry in _history.playing.entries)
-          entry.key: entry.value.title,
-      },
-    );
-  }
-
   /// Stops or cancels one activity item, confirming first where something
   /// would be lost. Routing is by kind, never by parsing the key - sending a
   /// download key to killProcess trips an assert in PlayerService.
@@ -1876,7 +1726,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _playerService.killProcess(item.id);
     }
     if (mounted) {
-      _publishActivity();
+      _players.publishActivity();
       setState(() {});
     }
   }
@@ -2073,7 +1923,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     return AppFrame(
       layout: layout,
       liveCount: _channels.where((c) => c.isLive).length,
-      activity: _activity,
+      activity: _players.activity,
       onStopActivity: _stopActivity,
       onThemeToggle: (isDark) {
         setState(() {
@@ -2152,7 +2002,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     return HomeView(
       channels: _channels,
       recentVods: _history.recents,
-      runningDownloads: _activity.value.downloading,
+      runningDownloads: _players.activity.value.downloading,
       downloadedCount: _downloadedVodsRegistry.length,
       accountLogin: _authenticatedUserLogin,
       recentScroll: _recentScroll,
@@ -2204,7 +2054,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       },
       onDelete: _library.delete,
       onRemoveFromHistory: _library.removeFromHistory,
-      activity: _activity,
+      activity: _players.activity,
       onStopActivity: _stopActivity,
     );
   }
