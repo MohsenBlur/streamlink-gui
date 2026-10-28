@@ -505,9 +505,18 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                   children: [
                                                     const Icon(Icons.sports_esports, size: 10, color: Colors.white70),
                                                     const SizedBox(width: NeuSpace.s4),
-                                                    Text(
-                                                      game,
-                                                      style: NeuType.plate(themeNotifier.isDarkTheme, color: Colors.white),
+                                                    // Flexible, one line: the pills share half the
+                                                    // card's width, and a long category name ran
+                                                    // past its pill and across the artwork - by
+                                                    // 115px in rack's Bahnschrift and 204 in
+                                                    // analogue's Georgia, for the sweep's longest.
+                                                    Flexible(
+                                                      child: Text(
+                                                        game,
+                                                        style: NeuType.plate(themeNotifier.isDarkTheme, color: Colors.white),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
                                                     ),
                                                   ],
                                                 ),

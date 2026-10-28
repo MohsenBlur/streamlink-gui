@@ -3,18 +3,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_channel.dart';
+import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/state/activity_state.dart';
 import 'package:streamlink_gui/state/library_entries.dart';
+import 'package:streamlink_gui/state/vod_browser_controller.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/dashboard_header.dart';
 import 'package:streamlink_gui/widgets/library_view.dart';
 import 'package:streamlink_gui/widgets/shell/app_chassis.dart';
+import 'package:streamlink_gui/widgets/shell/app_frame.dart';
 import 'package:streamlink_gui/widgets/shell/app_layout.dart';
+import 'package:streamlink_gui/widgets/shell/channel_dashboard.dart';
+import 'package:streamlink_gui/widgets/shell/home_view.dart';
 import 'package:streamlink_gui/widgets/shell/neu_dialog.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 
+import '../support/fake_helix.dart';
 import 'overflow_sweep_test.dart' show channel, sweepSizes;
 
 /// The overflow sweep, run against the **real** surfaces rather than a
@@ -43,12 +49,16 @@ void main() {
   /// Not shared with `overflow_sweep_test.expectNoOverflow`: this one has to
   /// set the active material and the global theme notifier, which that harness
   /// knows nothing about.
+  ///
+  /// [framed]: [build] is a whole [AppFrame], which brings its own layout,
+  /// Scaffold and chassis.
   Future<void> sweep(
     WidgetTester tester,
     Size size,
     AppMaterial material,
-    Widget Function() build,
-  ) async {
+    Widget Function() build, {
+    bool framed = false,
+  }) async {
     final overflows = <String>[];
     final previous = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -76,18 +86,21 @@ void main() {
           brightness: Brightness.dark,
           primaryColor: NeuTheme.defaultDarkAccent,
         ),
-        home: AppLayout(
-          data: AppLayoutData.fromSize(size),
-          // Wrapped in AppChassis, exactly as main.dart wraps the Scaffold
-          // body. Omitting it is how a 2px discrepancy shipped: the chassis was
-          // a `Container` whose decoration reported `EdgeInsets.all(1)` of
-          // padding, so the app body was 378 wide in a 380 window while this
-          // sweep measured a full 380 and passed.
-          //
-          // Anything that wraps every surface in the app belongs in the
-          // harness that claims to sweep every surface.
-          child: Scaffold(body: AppChassis(child: build())),
-        ),
+        home: framed
+            ? build()
+            : AppLayout(
+                data: AppLayoutData.fromSize(size),
+                // Wrapped in AppChassis, exactly as AppFrame wraps the
+                // Scaffold body. Omitting it is how a 2px discrepancy
+                // shipped: the chassis was a `Container` whose decoration
+                // reported `EdgeInsets.all(1)` of padding, so the app body
+                // was 378 wide in a 380 window while this sweep measured a
+                // full 380 and passed.
+                //
+                // Anything that wraps every surface in the app belongs in the
+                // harness that claims to sweep every surface.
+                child: Scaffold(body: AppChassis(child: build())),
+              ),
       ));
       // Long enough for every entrance animation in these surfaces to settle;
       // a mid-animation frame can be transiently over-wide and would make this
@@ -105,6 +118,12 @@ void main() {
   late AnimationController pulse;
   late TextEditingController search;
   late ValueNotifier<ActivitySnapshot> bulkQueue;
+  late ScrollController recentScroll;
+  late TextEditingController vodSearch;
+  late VodBrowserController browser;
+
+  /// The VOD section of a channel only exists with an account.
+  final signedIn = AppSettings(twitchOauthToken: 'oauth:sweep-token');
 
   setUp(() {
     pulse = AnimationController(
@@ -132,12 +151,22 @@ void main() {
       ],
       playing: const [],
     ));
+    recentScroll = ScrollController();
+    vodSearch = TextEditingController();
+    browser = VodBrowserController(
+      api: FakeHelix().service(),
+      settings: () => signedIn,
+      localProgress: () => <String, int>{},
+    );
   });
 
   tearDown(() {
     pulse.dispose();
     search.dispose();
     bulkQueue.dispose();
+    recentScroll.dispose();
+    vodSearch.dispose();
+    browser.dispose();
   });
 
   /// Hostile content: real Twitch strings run long, and the point of a sweep
@@ -176,14 +205,126 @@ void main() {
         onShowLibrary: () {},
       );
 
-  Widget header() => DashboardHeader(
-        channel: channel(),
+  /// All three faces of the launch button: PLAY (live), OPEN (playing) and
+  /// OFFLINE, the longest label in a fixed-width button.
+  Widget header({bool live = true, bool playing = false}) => DashboardHeader(
+        channel: channel(isLive: live),
         pulseController: pulse,
         onPlay: () {},
         onRefresh: () {},
         openExternalLink: (_) {},
-        isPlaying: false,
+        isPlaying: playing,
       );
+
+  List<TwitchVideo> vods() => [
+        for (var i = 0; i < 8; i++)
+          TwitchVideo(
+            id: 'v$i',
+            title: 'An extremely long recorded stream title that will not fit '
+                'in a narrow card at all, part $i',
+            duration: '11h59m59s',
+            thumbnailUrl: '',
+            viewCount: '1234567',
+            publishedAt: DateTime(2026, 8, 20),
+            games: const [
+              'Tom Clancy’s Rainbow Six Siege Extraction Deluxe Edition',
+              'Just Chatting',
+            ],
+            watchPosition: 3600,
+            watchProgress: 0.42,
+          ),
+      ];
+
+  /// [content] where the app puts it: in the real [AppFrame], under the
+  /// title bar and beside (or, in portrait, below) the real sidebar, at the
+  /// width that leaves it - not the whole window.
+  Widget framed(Size size, Widget content) {
+    final layout = AppLayoutData.fromSize(size);
+    return AppFrame(
+      layout: layout,
+      liveCount: 1,
+      activity: bulkQueue,
+      onStopActivity: (_) {},
+      onThemeToggle: (_) {},
+      banners: const [],
+      // As MainScreen builds it: horizontal in portrait, collapsed wherever
+      // the layout is a rail.
+      sidebar: sidebar(horizontal: layout.isPortrait, collapsed: layout.isRail),
+      content: content,
+      onEscape: () {},
+      onFind: () {},
+    );
+  }
+
+  Widget home() => HomeView(
+        channels: channels(),
+        recentVods: vods(),
+        runningDownloads: bulkQueue.value.downloading,
+        downloadedCount: 1234,
+        accountLogin: 'a_user_with_a_long_login_name',
+        recentScroll: recentScroll,
+        fadeLeft: true,
+        fadeRight: true,
+        onRecentScrolled: () {},
+        onAddChannel: () {},
+        onSelectChannel: (_) {},
+        onLaunchLive: (_) {},
+        onPlayRecent: (_) {},
+        onOpenLibrary: () {},
+        onOpenSettings: () {},
+        onConnectAccount: () {},
+      );
+
+  /// An open channel with a full first page, one VOD downloading with
+  /// yt-dlp's status line, one downloaded and one playing; the browser-token
+  /// warning up, or the selection bar in place of the toolbar - [busy] with
+  /// a bulk pass, whose label is the widest thing that bar shows.
+  Widget dashboard({required bool live, bool selecting = false, bool busy = false}) {
+    final open = channel(isLive: live);
+    browser.open(open, fetch: false);
+    browser.vods.addAll(vods());
+    return ChannelDashboard(
+      channel: open,
+      settings: signedIn,
+      vodBrowser: browser,
+      pulseController: pulse,
+      isPlaying: false,
+      isMultiSelectMode: selecting,
+      selectedVodIds: selecting ? {'v0', 'v1'} : <String>{},
+      isBulkUpdating: busy,
+      isWebTokenExpired: !selecting,
+      selectedGamesFilter: {'Just Chatting'},
+      vodSearchController: vodSearch,
+      displayMenu: const SizedBox.shrink(),
+      isVodPlaying: (id) => id == 'v3',
+      isVodDownloaded: (id) => id == 'v2',
+      downloadStatus: (id) =>
+          id == 'v1' ? '45.2% of 9.71GiB at 3.10MiB/s ETA 31:07' : null,
+      downloadProgress: (id) => id == 'v1' ? 0.45 : null,
+      onPlayLive: () {},
+      onRefreshChannel: () {},
+      openExternalLink: (_) {},
+      onEnterSelection: () {},
+      onExitSelection: () {},
+      onClearSelection: () {},
+      onSelectAllVisible: () {},
+      onBulkMark: (_) {},
+      onBulkDownload: () {},
+      onBulkDelete: () {},
+      onRefreshVods: () {},
+      onUpdateToken: () {},
+      onDismissWebTokenWarning: () {},
+      onGameFilterSelected: (_) {},
+      onClearGameFilter: () {},
+      onPlayVod: (_) {},
+      onDownloadVod: (_) {},
+      onDeleteDownload: (_) {},
+      onCancelDownload: (_) {},
+      onVodSelectedChange: (_, _) {},
+      onOpenFolder: (_) {},
+      onLoadMore: () {},
+    );
+  }
 
   Widget library({ValueListenable<ActivitySnapshot>? activity}) => LibraryView(
         activity: activity,
@@ -289,6 +430,47 @@ void main() {
 
         testWidgets('the dashboard header — $label', (tester) async {
           await sweep(tester, size, m, header);
+        });
+
+        // The launch button is a fixed width in the wide header, and only
+        // the live face of it was swept: OFFLINE, its longest label, never.
+        testWidgets('the dashboard header, offline — $label', (tester) async {
+          await sweep(tester, size, m, () => header(live: false));
+        });
+
+        testWidgets('the dashboard header, playing — $label', (tester) async {
+          await sweep(tester, size, m, () => header(playing: true));
+        });
+
+        // Home and the open channel are widgets of their own now, so they are
+        // swept where the app shows them: inside the frame, beside the
+        // sidebar, at the width that leaves.
+        testWidgets('home — $label', (tester) async {
+          await sweep(tester, size, m, () => framed(size, home()),
+              framed: true);
+        });
+
+        testWidgets('an open live channel — $label', (tester) async {
+          await sweep(tester, size, m,
+              () => framed(size, dashboard(live: true)), framed: true);
+        });
+
+        testWidgets('an offline channel, selecting VODs — $label',
+            (tester) async {
+          await sweep(tester, size, m,
+              () => framed(size, dashboard(live: false, selecting: true)),
+              framed: true);
+        });
+
+        testWidgets('an offline channel, marking a selection — $label',
+            (tester) async {
+          await sweep(
+              tester,
+              size,
+              m,
+              () => framed(
+                  size, dashboard(live: false, selecting: true, busy: true)),
+              framed: true);
         });
 
         testWidgets('the library — $label', (tester) async {
