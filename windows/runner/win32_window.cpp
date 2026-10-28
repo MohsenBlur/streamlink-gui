@@ -216,6 +216,31 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
+
+    // The runner, not the engine, has the last word on whether the content is
+    // visible. Installed launches were caught with this frame shown and the
+    // FLUTTERVIEW child's WS_VISIBLE clear, for good: the engine kept
+    // rendering into a view nobody could see, and only a manual ShowWindow on
+    // the child brought the app back. It happened when window_manager showed
+    // and moved the frame across monitors before the first frame, and what
+    // clears the flag was never pinned down, so rather than guess, re-assert
+    // it whenever the frame is shown, moved or resized.
+    //
+    // Both messages are needed: WM_SHOWWINDOW is not sent for SW_SHOWNORMAL
+    // (which Show() uses), while WM_WINDOWPOSCHANGED also covers the moves
+    // and DPI resizes that follow a show. Neither is consumed here:
+    // DefWindowProc turns WM_WINDOWPOSCHANGED into WM_SIZE and WM_MOVE.
+    case WM_SHOWWINDOW:
+      if (wparam) {
+        ShowChildContentIfHidden();
+      }
+      break;
+
+    case WM_WINDOWPOSCHANGED:
+      if (IsWindowVisible(hwnd)) {
+        ShowChildContentIfHidden();
+      }
+      break;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
@@ -246,7 +271,33 @@ void Win32Window::SetChildContent(HWND content) {
   MoveWindow(content, frame.left, frame.top, frame.right - frame.left,
              frame.bottom - frame.top, true);
 
+  // The engine creates its view WS_VISIBLE, but nothing guarantees the flag
+  // survives startup (see the WM_WINDOWPOSCHANGED handler), so set it here
+  // too. The frame is still hidden at this point, so this cannot flash.
+  ShowChildContentIfHidden();
+
   SetFocus(child_content_);
+}
+
+bool Win32Window::ShowChildContentIfHidden() {
+  if (child_content_ == nullptr) {
+    return false;
+  }
+  // The content's OWN flag, not IsWindowVisible: that also reports false
+  // whenever the frame is hidden, which is exactly the case during
+  // WM_SHOWWINDOW, so it cannot tell a hidden child from a hidden parent.
+  if ((GetWindowLongPtr(child_content_, GWL_STYLE) & WS_VISIBLE) != 0) {
+    return false;
+  }
+  // SW_SHOWNA: this can run during a background move or resize, and showing
+  // the content must never activate the frame or steal focus.
+  ShowWindow(child_content_, SW_SHOWNA);
+  OnChildContentReshown();
+  return true;
+}
+
+void Win32Window::ForgetChildContent() {
+  child_content_ = nullptr;
 }
 
 RECT Win32Window::GetClientArea() {
@@ -269,6 +320,10 @@ bool Win32Window::OnCreate() {
 }
 
 void Win32Window::OnDestroy() {
+  // No-op; provided for subclasses.
+}
+
+void Win32Window::OnChildContentReshown() {
   // No-op; provided for subclasses.
 }
 
