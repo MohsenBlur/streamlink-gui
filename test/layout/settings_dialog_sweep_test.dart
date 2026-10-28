@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
+import 'package:streamlink_gui/theme/app_theme.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
-import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/settings_dialog.dart';
 
@@ -22,28 +22,12 @@ import 'overflow_sweep_test.dart' show sweepSizes;
 /// shipping font at the same size. That is the useful direction: a row that
 /// survives it also survives Windows' larger text sizes.
 void main() {
-  /// main.dart's dark theme, reduced to the parts that occupy space.
-  ///
-  /// A copy, because the theme is built inline in `StreamlinkGuiApp.build`.
-  /// The input decoration is the part that matters: filled outline fields add
-  /// a suffix margin to every dropdown, and a sweep under the stock theme
-  /// would measure narrower controls than ship.
-  ThemeData appTheme() => ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: NeuTheme.defaultDarkAccent,
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: NeuTheme.wellSurface(true),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(NeuRadius.r8),
-            borderSide: BorderSide(color: NeuTheme.border(true)),
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(NeuRadius.r8),
-            borderSide: BorderSide(color: NeuTheme.border(true)),
-          ),
-        ),
-      );
+  /// The dark theme the app ships, not a copy of it: the input decoration
+  /// is the part that matters, since filled outline fields add a suffix
+  /// margin to every dropdown, and a sweep under the stock theme (or a copy
+  /// that drifted) would measure narrower controls than users get. Built
+  /// after the material is set, because it reads the active material.
+  ThemeData appTheme() => buildAppTheme(isDark: true);
 
   /// Hostile settings: every optional row that can appear, appears.
   ///

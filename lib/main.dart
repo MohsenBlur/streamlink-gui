@@ -59,6 +59,7 @@ import 'widgets/neumorphic/neu_title_bar.dart';
 import 'state/automation_decisions.dart';
 import 'theme/neu_material_themes.dart';
 import 'theme/material/lit_surface.dart';
+import 'theme/app_theme.dart';
 import 'theme/neu_theme.dart';
 import 'widgets/neumorphic/neu_avatar.dart';
 import 'theme/theme_notifier.dart';
@@ -223,94 +224,10 @@ class TwitchStreamlinkApp extends StatelessWidget {
           title: 'Twitch Streamlink GUI',
           debugShowCheckedModeBanner: false,
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-          theme: ThemeData(
-            brightness: Brightness.light,
-            fontFamily: 'Segoe UI',
-            scaffoldBackgroundColor: themeNotifier.backgroundColor,
-            primaryColor: themeNotifier.primaryColor,
-            cardColor: themeNotifier.surfaceColor,
-            colorScheme: ColorScheme.light(
-              primary: themeNotifier.primaryColor,
-              secondary: NeuTheme.live,
-              surface: themeNotifier.surfaceColor,
-              error: NeuTheme.danger,
-            ),
-            // Not const: a const expression cannot invoke a function, and
-            // these must resolve through the active material rather than
-            // pinning Soft's ink into every Material widget in the app. The
-            // enclosing ThemeData is already rebuilt per notification.
-            textTheme: TextTheme(
-              titleLarge: TextStyle(
-                  fontWeight: FontWeight.bold, color: NeuTheme.text(false)),
-              bodyLarge: TextStyle(color: NeuTheme.text(false)),
-              bodyMedium: TextStyle(color: NeuTheme.subtext(false)),
-            ),
-            // Raw Material TextFields (Settings, the wizard) inherited the
-            // stock M3 look - web-default input fields floating in a
-            // machined chassis, inches from sunken NeuTextFields. This theme
-            // gives every un-migrated field the system's recessed-well read.
-            inputDecorationTheme: InputDecorationTheme(
-              filled: true,
-              fillColor: NeuTheme.wellSurface(false),
-              hintStyle: TextStyle(color: NeuTheme.disabledText(false)),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(NeuRadius.r8),
-                borderSide: BorderSide(color: NeuTheme.border(false)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(NeuRadius.r8),
-                borderSide:
-                    BorderSide(color: themeNotifier.accentInk, width: 1.5),
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(NeuRadius.r8),
-                borderSide: BorderSide(color: NeuTheme.border(false)),
-              ),
-            ),
-
-          ),
-          darkTheme: ThemeData(
-            brightness: Brightness.dark,
-            fontFamily: 'Segoe UI',
-            scaffoldBackgroundColor: themeNotifier.backgroundColor,
-            primaryColor: themeNotifier.primaryColor,
-            cardColor: themeNotifier.surfaceColor,
-            colorScheme: ColorScheme.dark(
-              primary: themeNotifier.primaryColor,
-              secondary: NeuTheme.live,
-              surface: themeNotifier.surfaceColor,
-              error: NeuTheme.danger,
-            ),
-            textTheme: TextTheme(
-              titleLarge: TextStyle(
-                  fontWeight: FontWeight.bold, color: NeuTheme.text(true)),
-              bodyLarge: TextStyle(color: NeuTheme.text(true)),
-              bodyMedium: TextStyle(color: NeuTheme.subtext(true)),
-            ),
-            // Raw Material TextFields (Settings, the wizard) inherited the
-            // stock M3 look - web-default input fields floating in a
-            // machined chassis, inches from sunken NeuTextFields. This theme
-            // gives every un-migrated field the system's recessed-well read.
-            inputDecorationTheme: InputDecorationTheme(
-              filled: true,
-              fillColor: NeuTheme.wellSurface(true),
-              hintStyle: TextStyle(color: NeuTheme.disabledText(true)),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(NeuRadius.r8),
-                borderSide: BorderSide(color: NeuTheme.border(true)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(NeuRadius.r8),
-                borderSide:
-                    BorderSide(color: themeNotifier.accentInk, width: 1.5),
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(NeuRadius.r8),
-                borderSide: BorderSide(color: NeuTheme.border(true)),
-              ),
-            ),
-
-          ),
+          // Rebuilt per notification: both read the live accent and the
+          // active material.
+          theme: buildAppTheme(isDark: false),
+          darkTheme: buildAppTheme(isDark: true),
           home: MainScreen(isFirstRun: isFirstRun),
         );
       },
