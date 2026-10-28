@@ -293,6 +293,9 @@ void main() {
       await h.settle(tester);
       await tester.tap(find.text('Unwatched'));
       await h.settleRoute(tester);
+      expect(find.textContaining('Marked 1 VODs unwatched here'),
+          findsOneWidget,
+          reason: 'it said "watched" for an Unwatched without a browser token');
       expect(h.storage.watchProgress.containsKey(vod), isFalse,
           reason: '"unwatched" has to mean unwatched');
       expect((h.storage.config!['local_vods_progress'] as Map)[vod], 0);

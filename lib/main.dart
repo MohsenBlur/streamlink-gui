@@ -1980,8 +1980,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         revertible
             ? 'Marked $successCount VODs unwatched here. Twitch still has a '
                 'position for them, so this may come back on the next refresh.'
-            : 'Marked $successCount VODs watched here. Twitch does not accept '
-                'watch history from third-party apps, so this stays local.',
+            // Either way round: an Unwatched with no browser token said it
+            // had marked them watched.
+            : 'Marked $successCount VODs ${markAsWatched ? 'watched' : 'unwatched'} '
+                'here. Twitch does not accept watch history from third-party '
+                'apps, so this stays local.',
         isError: false,
       );
     }
