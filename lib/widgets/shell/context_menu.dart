@@ -130,11 +130,21 @@ class NeuContextMenu extends StatelessWidget {
         _show(context, box.localToGlobal(box.size.center(Offset.zero)));
         return KeyEventResult.handled;
       },
+      // With no items the recognizers stand down rather than open nothing:
+      // a long-press recognizer in the arena wins any press held past the
+      // long-press timeout, so a VOD card in multi-select (a checkbox whose
+      // menu is empty) lost every slow click or touch-and-hold to a menu that
+      // never opened. The GestureDetector itself stays, so toggling between
+      // empty and non-empty never changes the shape of the tree under it.
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onSecondaryTapUp: (details) => _show(context, details.globalPosition),
+        onSecondaryTapUp: items.isEmpty
+            ? null
+            : (details) => _show(context, details.globalPosition),
         // Long-press as well, so a touch or pen user can reach the same actions.
-        onLongPressStart: (details) => _show(context, details.globalPosition),
+        onLongPressStart: items.isEmpty
+            ? null
+            : (details) => _show(context, details.globalPosition),
         child: child,
       ),
     );

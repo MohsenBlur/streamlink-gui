@@ -229,6 +229,19 @@ void main() {
       expect(calls.cancelled, ['vod2']);
     });
 
+    testWidgets('in multi-select a long press still toggles it',
+        (tester) async {
+      // Regression: the context menu's long-press recognizer stayed in the
+      // arena with an empty menu, won any press held past the timeout and
+      // opened nothing - so a slow click or a touch-and-hold on a card in
+      // multi-select was swallowed instead of selecting it.
+      final calls = await pumpGrid(tester, multiSelect: true);
+      await tester.longPress(card('vod0'));
+      await tester.pumpAndSettle();
+      expect(calls.selected, {'vod0': true});
+      expect(find.byType(PopupMenuItem<int>), findsNothing);
+    });
+
     testWidgets('a right-click opens the same menu', (tester) async {
       final calls = await pumpGrid(tester);
       await tester.tap(card('vod0'), buttons: kSecondaryButton);
