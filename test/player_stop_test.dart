@@ -156,6 +156,29 @@ void main() {
           reason: 'the stream the user stopped must stay stopped');
       expect(stopped, {vod.id: true});
     });
+
+    test('is honoured when the verdict lands while its taskkill is running',
+        () async {
+      // The other order. Stop is now an asynchronous taskkill, so the tracker
+      // keeps ticking while it runs - and a stream that dies in that window
+      // (the very moment a user, seeing it stall, reaches for Stop) used to
+      // get a heal staged behind the Stop, which the exit handler then obeyed.
+      await service.launchStreamlinkForVod(vod, 'chan', vlcSettings());
+      vlc = await FakeVlc.serve(service.activePlayerPorts[vod.id]!);
+      await waitFor(() => vlc.polls >= 3, reason: 'playback to be confirmed');
+
+      taskkill.delay = const Duration(milliseconds: 600);
+      final stop = service.killProcess(vod.id);
+      vlc.state = 'stopped';
+      await stop;
+      await pumpEventQueue();
+      // Past a heal's graceful wait, when a relaunch would have come.
+      await Future<void>.delayed(const Duration(milliseconds: 2600));
+
+      expect(launcher.launched, hasLength(1),
+          reason: 'the stream the user stopped must stay stopped');
+      expect(stopped, {vod.id: true});
+    });
   }, skip: Platform.isWindows ? false : 'the graceful wait exists only on Windows');
 
   test('a Stop that taskkill cannot carry out is logged', () async {

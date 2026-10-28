@@ -1739,6 +1739,11 @@ class PlayerService {
   void _handlePrematureEof(
       TwitchVideo vod, String channelName, AppSettings settings, int confirmed) {
     if (_pendingVodRestarts.containsKey(vod.id)) return; // bounce in flight
+    // Already being stopped. A Stop marks this before its taskkill starts,
+    // and the taskkill is asynchronous, so the tracker keeps ticking while it
+    // runs; a verdict landing then would stage a relaunch behind the Stop,
+    // which the exit handler would obey.
+    if (_stoppedByUser.contains(vod.id)) return;
     final ledger =
         _vodRestartLedgers.putIfAbsent(vod.id, () => RestartLedger());
     if (shouldAttemptRestart(ledger: ledger, confirmedPosition: confirmed)) {

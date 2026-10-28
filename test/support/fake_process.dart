@@ -75,8 +75,13 @@ class FakeTaskkill {
   int exitCode = 0;
   String stderr = '';
 
+  /// How long each call takes before it ends anything. The real one starts a
+  /// process and walks the process table, routinely a few hundred ms.
+  Duration delay = Duration.zero;
+
   Future<ProcessResult> run(String executable, List<String> arguments) async {
     calls.add(arguments);
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
     if (arguments.contains('/F') || gracefulEndsTargets) {
       for (var i = 0; i < arguments.length - 1; i++) {
         if (arguments[i] != '/PID') continue;
