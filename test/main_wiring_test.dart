@@ -73,6 +73,17 @@ void main() {
         contains('_settingsRepo.saveNow(recents: true)'));
   });
 
+  test('the exit says how long the saves and the tray took', () {
+    final body = bodyOf('Future<void> _shutDownAndExit()');
+    final saved = body.indexOf("steps.mark('saved')");
+    final tray = body.indexOf('_systemTray.destroy()');
+    final destroyed = body.indexOf("steps.mark('tray destroyed')");
+    expect(saved, isNonNegative);
+    expect(destroyed, isNonNegative);
+    expect(saved < tray && tray < destroyed, isTrue,
+        reason: 'saved before the tray teardown, then after it');
+  });
+
   test('a VOD auto-download announces is left out of the New VOD toast', () {
     expect(bodyOf('void _onNewVods('),
         contains('_automation.newVodsToAnnounce('));

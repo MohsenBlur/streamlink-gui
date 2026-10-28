@@ -107,3 +107,26 @@ class CrashLog {
     };
   }
 }
+
+/// Milestones of one operation in several steps, each with the time since
+/// it began: `[exit] saved (+412ms)`.
+///
+/// For the exit, which logged only its first and last line. One exit was
+/// seen to take 6.9s where the rest took under one, and nothing in between
+/// said which step - the players, the saves or the tray - held it up.
+class TimedMilestones {
+  TimedMilestones(this.tag, this.log, {Stopwatch? stopwatch})
+      : _watch = (stopwatch ?? Stopwatch())..start();
+
+  /// Goes in brackets at the start of every line, as `[tag]`.
+  final String tag;
+
+  /// Where the lines go; null writes nothing.
+  final CrashLog? log;
+
+  final Stopwatch _watch;
+
+  /// Records [step], with the milliseconds since this was created.
+  void mark(String step) =>
+      log?.milestone('[$tag] $step (+${_watch.elapsedMilliseconds}ms)');
+}

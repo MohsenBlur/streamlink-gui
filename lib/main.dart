@@ -1419,6 +1419,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _isExiting = true;
     final log = CrashLog.current;
     log?.milestone('[exit] requested');
+    // A line per step, timed from the request: an exit seen taking 6.9s
+    // (against well under one second usually) left nothing to say which
+    // step it was.
+    final steps = TimedMilestones('exit', log);
 
     // Nothing new may start while this runs.
     _favoritesLiveCheckTimer?.cancel();
@@ -1431,6 +1435,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // final watch position, a download's resume state) is already in memory
     // when the saves below snapshot it.
     await _stopAllBounded('exit');
+    steps.mark('players stopped');
 
     // Each save resolves only once its file's writer has drained, earlier
     // fire-and-forget writes to the same file included - and the config,
@@ -1441,6 +1446,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     } catch (e, st) {
       log?.error('exit: saving', e, st);
     }
+    steps.mark('saved');
 
     windowManager.removeListener(this);
     _singleInstanceChannel.setMethodCallHandler(null);
@@ -1448,6 +1454,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     try {
       await _systemTray.destroy();
     } catch (_) {}
+    steps.mark('tray destroyed');
 
     log?.milestone('[exit] saved and stopped; closing');
     await windowManager.destroy();

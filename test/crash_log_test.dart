@@ -82,6 +82,25 @@ void main() {
     });
   });
 
+  test('timed milestones say how long each step of an operation took', () async {
+    // The exit logged its first and last line only, so a 6.9s exit could not
+    // say whether the players, the saves or the tray held it up.
+    final steps = TimedMilestones('exit', log());
+    steps.mark('players stopped');
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    steps.mark('saved');
+
+    final lines = file.readAsLinesSync();
+    final pattern = RegExp(r'\[exit\] (.+) \(\+(\d+)ms\)$');
+    final matches = [for (final l in lines) pattern.firstMatch(l)!];
+    expect([for (final m in matches) m.group(1)], ['players stopped', 'saved']);
+    final first = int.parse(matches[0].group(2)!);
+    final second = int.parse(matches[1].group(2)!);
+    expect(second - first, greaterThanOrEqualTo(20));
+
+    expect(() => TimedMilestones('exit', null).mark('nowhere'), returnsNormally);
+  });
+
   test('an unwritable location is swallowed, never thrown', () {
     // A file where the folder should be: creating it fails.
     final blocker = File(p.join(dir.path, 'blocked'))..writeAsStringSync('');
