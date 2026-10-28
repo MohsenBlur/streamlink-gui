@@ -15,7 +15,14 @@ namespace single_instance {
 
 // The registered message a second launch posts to the running instance's main
 // window ("TwitchStreamlinkGUI.Activate"). wParam and lParam are unused (0).
+// 0 if registration failed (the user atom table is full), and 0 is WM_NULL, so
+// a window procedure must test with IsActivateMessage, never compare to this.
 UINT ActivateMessage();
+
+// Whether |message| is the activate message. Never true for WM_NULL, which
+// system_tray posts to the main window after every tray menu and which hang
+// detectors send, so a failed registration cannot turn those into activations.
+bool IsActivateMessage(UINT message);
 
 // Tags |window| as this app's main window ("TwitchStreamlinkGUI.MainWindow"),
 // and lets the activate message through UIPI, so a second launch running at a

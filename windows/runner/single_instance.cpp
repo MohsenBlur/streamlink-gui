@@ -25,10 +25,16 @@ UINT ActivateMessage() {
   return message;
 }
 
+bool IsActivateMessage(UINT message) {
+  return message != 0 && message == ActivateMessage();
+}
+
 void MarkMainWindow(HWND window) {
   ::SetPropW(window, kMainWindowProperty, reinterpret_cast<HANDLE>(1));
-  ::ChangeWindowMessageFilterEx(window, ActivateMessage(), MSGFLT_ALLOW,
-                                nullptr);
+  if (ActivateMessage() != 0) {
+    ::ChangeWindowMessageFilterEx(window, ActivateMessage(), MSGFLT_ALLOW,
+                                  nullptr);
+  }
 }
 
 void UnmarkMainWindow(HWND window) {
@@ -36,6 +42,10 @@ void UnmarkMainWindow(HWND window) {
 }
 
 bool ActivateRunningInstance() {
+  if (ActivateMessage() == 0) {
+    return false;
+  }
+
   HWND window = nullptr;
   ::EnumWindows(FindTaggedWindow, reinterpret_cast<LPARAM>(&window));
   if (window == nullptr) {

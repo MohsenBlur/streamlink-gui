@@ -147,7 +147,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   // The runner's own messages come first. No plugin knows them, and the tag
   // must be removed while the window still exists, whatever the plugins do
   // with WM_DESTROY.
-  if (message == single_instance::ActivateMessage()) {
+  if (single_instance::IsActivateMessage(message)) {
     ActivateForSecondInstance();
     return 0;
   }
