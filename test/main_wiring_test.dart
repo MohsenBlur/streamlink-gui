@@ -48,6 +48,17 @@ void main() {
     }
   });
 
+  test('the recently-watched list is written only through the repository',
+      () {
+    // Removing a VOD from the history wrote it straight to the storage
+    // service, round the gate that holds writes until the list is read.
+    expect('_storageService.saveRecentWatchedVods('.allMatches(src),
+        hasLength(1),
+        reason: "only the repository's own writer");
+    expect(bodyOf('Future<void> _removeLibraryEntryFromHistory('),
+        contains('_settingsRepo.saveNow(recents: true)'));
+  });
+
   test('a VOD auto-download announces is left out of the New VOD toast', () {
     expect(bodyOf('void _onNewVods('),
         contains('_automation.newVodsToAnnounce('));

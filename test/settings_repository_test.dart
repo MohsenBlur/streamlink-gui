@@ -33,7 +33,7 @@ void main() {
     tearDown(() => repo.dispose());
 
     test('nothing is written before its file has been read', () async {
-      await repo.saveNow();
+      await repo.saveNow(recents: true);
       repo.noteProgress(recents: true);
       await repo.flushNow();
       await Future<void>.delayed(const Duration(milliseconds: 80));
@@ -87,6 +87,13 @@ void main() {
         () async {
       await repo.saveNow();
       expect(writes, ['config', 'progress']);
+    });
+
+    test('saveNow with recents writes the history list as well', () async {
+      // Removing a VOD from the history wrote the list straight through the
+      // storage service, round the history gate.
+      await repo.saveNow(recents: true);
+      expect(writes, ['config', 'progress', 'recents']);
     });
 
     test('a burst of requested saves is one write', () async {

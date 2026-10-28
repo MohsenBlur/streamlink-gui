@@ -4067,10 +4067,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _localVodsProgress.remove(entry.vodId);
       _progressStore.clear(entry.vodId);
     });
-    await _storageService.saveRecentWatchedVods(
-      _recentWatchedVods.map((v) => v.toJson()).toList(),
-    );
-    await _saveChannels();
+    // All three files, through the repository: the list was written here
+    // straight through the storage service, round the gate that keeps it
+    // from being written before it has been read.
+    await _settingsRepo.saveNow(recents: true);
+    if (!mounted) return;
     _refreshLibraryEntries();
   }
 
