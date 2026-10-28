@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:local_notifier/local_notifier.dart';
 
@@ -26,8 +25,8 @@ import 'state/settings_repository.dart';
 import 'services/downloads_controller.dart';
 import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
-import 'widgets/shell/app_chassis.dart';
 import 'widgets/shell/app_dialogs.dart';
+import 'widgets/shell/app_frame.dart';
 import 'widgets/shell/channel_dashboard.dart';
 import 'widgets/shell/home_view.dart';
 import 'widgets/shell/status_banners.dart';
@@ -37,7 +36,6 @@ import 'widgets/shell/neu_dialog.dart';
 import 'widgets/neumorphic/neu_progress.dart';
 import 'state/channels_controller.dart';
 import 'state/vod_browser_controller.dart';
-import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
 import 'widgets/download_folder_prompt.dart';
@@ -50,7 +48,6 @@ import 'state/library_entries.dart';
 import 'utils/window_bounds.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
-import 'widgets/neumorphic/neu_title_bar.dart';
 import 'services/oauth_loopback_server.dart';
 import 'services/automation_service.dart';
 import 'theme/material/lit_surface.dart';
@@ -2528,147 +2525,81 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       onShowLibrary: _openLibrary,
     );
 
-    final contentArea = Expanded(
-      // No fill of its own. AppChassis already paints the whole window body
-      // as a lit panel - grain, ramp and light - and a flat token fill here
-      // was covering it across the largest region of the app, so the
-      // machined ground existed only behind the sidebar and title bar while
-      // every card floated on flat paper.
-      child: Container(
-        child: _showLibraryView
-            ? _buildLibraryView()
-            : _selectedChannel == null
-                ? _buildHome()
-                : _buildDashboard(_selectedChannel!),
-      ),
-    );
-
-    return AppLayout(
-      data: layout,
-      child: Scaffold(
-      // The window chassis, which had no host until now. `titleBarStyle` is
-      // hidden and this Scaffold's own background was a flat colour, so every
-      // pixel of the frame is ours to paint and nothing was painting it.
-      body: AppChassis(
-      child: CallbackShortcuts(
-        bindings: {
-          // Esc leaves the Library. Dialogs sit on their own Navigator route
-          // and consume Esc before it reaches here, so this cannot steal a
-          // dialog's dismiss.
-          const SingleActivator(LogicalKeyboardKey.escape): _closeLibrary,
-          // Focus the sidebar search from anywhere. In layouts without the
-          // inline field the search popover is the affordance instead.
-          const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
-            if (_sidebarCollapsed || isNarrow || isVertical) {
-              // Expand first on wide layouts where the user collapsed it.
-              if (!isNarrow && !isVertical && _sidebarCollapsed) {
-                setState(() {
-                  _sidebarCollapsed = false;
-                  _settings.sidebarCollapsed = false;
-                });
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _sidebarKey.currentState?.focusSearch();
-                });
-                return;
-              }
+    return AppFrame(
+      layout: layout,
+      liveCount: _channels.where((c) => c.isLive).length,
+      activity: _activity,
+      onStopActivity: _stopActivity,
+      onThemeToggle: (isDark) {
+        setState(() {
+          themeNotifier.setDarkTheme(isDark);
+          _settings.isDarkTheme = isDark;
+        });
+        _saveChannels();
+      },
+      banners: [
+        ValueListenableBuilder<StorageWriteFailure?>(
+          valueListenable: storageWriteFailure,
+          builder: (context, failure, _) {
+            if (failure == null || _saveWarningDismissed) {
+              return const SizedBox.shrink();
             }
-            _sidebarKey.currentState?.focusSearch();
+            return SaveFailureBanner(
+              failure: failure,
+              onDismiss: () => setState(() => _saveWarningDismissed = true),
+            );
           },
-        },
-        child: Focus(
-          autofocus: true,
-          child: Column(
-        children: [
-          NeuTitleBar(
-            // The chassis ornament lands here. Asking the chassis rather than
-            // recomputing the predicate keeps the clearance and the ornament
-            // from ever disagreeing about what is drawn at the edges.
-            edgeInset: AppChassis.edgeClearance(context),
-            liveCount: _channels.where((c) => c.isLive).length,
-            actions: [
-              ActivityPill(
-                activity: _activity,
-                onStop: _stopActivity,
-                compact: isNarrow,
-              ),
-              const SizedBox(width: NeuSpace.s12),
-            ],
-            isDarkTheme: themeNotifier.isDarkTheme,
-            onThemeToggle: (isDark) {
-              setState(() {
-                themeNotifier.setDarkTheme(isDark);
-                _settings.isDarkTheme = isDark;
-              });
-              _saveChannels();
-            },
-          ),
-          ValueListenableBuilder<StorageWriteFailure?>(
-            valueListenable: storageWriteFailure,
-            builder: (context, failure, _) {
-              if (failure == null || _saveWarningDismissed) {
-                return const SizedBox.shrink();
-              }
-              return SaveFailureBanner(
-                failure: failure,
-                onDismiss: () => setState(() => _saveWarningDismissed = true),
-              );
-            },
-          ),
-          ValueListenableBuilder<TwitchAuthStatus>(
-            valueListenable: twitchAuth.helix,
-            builder: (context, status, _) {
-              if (status.needsReconnect &&
-                  _authWarningDismissed &&
-                  status.fault != _dismissedFault) {
-                // A different problem is a different message; a dismissal
-                // covers the reason it was shown for, not the topic.
-                _authWarningDismissed = false;
-              }
-              if (!status.needsReconnect || _authWarningDismissed) {
-                return const SizedBox.shrink();
-              }
-              return TwitchAuthBanner(
-                status: status,
-                // Reconnecting happens on the banner: see TwitchAuthBanner.
-                onReconnect: _startOAuthServer,
-                onDismiss: () => setState(() {
-                  _authWarningDismissed = true;
-                  _dismissedFault = status.fault;
-                }),
-              );
-            },
-          ),
-          Expanded(
-            child: isVertical
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      sidebar,
-                      contentArea,
-                    ],
-                  )
-                : Row(
-                    // Stretch, not the default centre. The content area is an
-                    // Expanded Container whose child does not fill the height,
-                    // so under a centred Row it sized to its child and floated
-                    // in the middle of the window. That was invisible for as
-                    // long as everything behind it was the same flat colour;
-                    // the moment the chassis carried a fill ramp, the content
-                    // area became a lighter rectangle with two hard edges
-                    // across the middle of the app.
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      sidebar,
-                      contentArea,
-                    ],
-                  ),
-          ),
-        ],
-          ),
         ),
-      ),
-      ),
-      ),
+        ValueListenableBuilder<TwitchAuthStatus>(
+          valueListenable: twitchAuth.helix,
+          builder: (context, status, _) {
+            if (status.needsReconnect &&
+                _authWarningDismissed &&
+                status.fault != _dismissedFault) {
+              // A different problem is a different message; a dismissal
+              // covers the reason it was shown for, not the topic.
+              _authWarningDismissed = false;
+            }
+            if (!status.needsReconnect || _authWarningDismissed) {
+              return const SizedBox.shrink();
+            }
+            return TwitchAuthBanner(
+              status: status,
+              // Reconnecting happens on the banner: see TwitchAuthBanner.
+              onReconnect: _startOAuthServer,
+              onDismiss: () => setState(() {
+                _authWarningDismissed = true;
+                _dismissedFault = status.fault;
+              }),
+            );
+          },
+        ),
+      ],
+      sidebar: sidebar,
+      content: _showLibraryView
+          ? _buildLibraryView()
+          : _selectedChannel == null
+              ? _buildHome()
+              : _buildDashboard(_selectedChannel!),
+      onEscape: _closeLibrary,
+      // Focus the sidebar search from anywhere. In layouts without the
+      // inline field the search popover is the affordance instead.
+      onFind: () {
+        if (_sidebarCollapsed || isNarrow || isVertical) {
+          // Expand first on wide layouts where the user collapsed it.
+          if (!isNarrow && !isVertical && _sidebarCollapsed) {
+            setState(() {
+              _sidebarCollapsed = false;
+              _settings.sidebarCollapsed = false;
+            });
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _sidebarKey.currentState?.focusSearch();
+            });
+            return;
+          }
+        }
+        _sidebarKey.currentState?.focusSearch();
+      },
     );
   }
 

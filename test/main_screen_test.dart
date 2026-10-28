@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
@@ -566,6 +567,38 @@ void main() {
     staleBeta.onClicked!();
     await h.settle(tester);
     expect(h.player.runningChannels, ['alpha']);
+
+    await h.close(tester);
+  });
+
+  testWidgets('Esc leaves the Library for where you were; Ctrl+F finds the '
+      'sidebar search', (tester) async {
+    final h = ScreenHarness();
+    h.helix.user('alpha');
+    await h.launch(tester, favorites: ['alpha']);
+    await openChannel(tester, h, 'alpha');
+    Finder back() => find.byTooltip('Back to alpha (Esc)');
+
+    h.tray.choose('Open Library');
+    await h.settle(tester);
+    expect(back(), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await h.settle(tester);
+    expect(back(), findsNothing);
+    expect(find.text('Select'), findsOneWidget, reason: "alpha's dashboard");
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await h.settle(tester);
+    final focused = FocusManager.instance.primaryFocus?.context?.widget;
+    expect(
+        find.descendant(
+            of: find.byType(SidebarPanel),
+            matching: find.byWidgetPredicate(
+                (w) => w is EditableText && w.focusNode.hasFocus)),
+        findsOneWidget,
+        reason: 'focused: $focused');
 
     await h.close(tester);
   });
