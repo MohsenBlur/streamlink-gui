@@ -69,10 +69,14 @@ class AutomationService {
 
   /// HOOK for whoever caches VOD lists: called with every list the
   /// auto-download pass fetched, empty ones included, before anything is
-  /// queued from it. Lists come from [fetchVods], so they carry no game
-  /// names. A throw here is logged and does not stop the pass. Unset, the
-  /// lists are used for the pass and dropped, as before.
-  void Function(TwitchChannel channel, VodsFetchResult result)? onVodsFetched;
+  /// queued from it, and with the moment its request began, so a cache can
+  /// tell it from a fetch that started later but finished first. Lists come
+  /// from [fetchVods], so they carry no game names. A throw here is logged
+  /// and does not stop the pass. Unset, the lists are used for the pass and
+  /// dropped, as before.
+  void Function(
+          TwitchChannel channel, VodsFetchResult result, DateTime fetchedAt)?
+      onVodsFetched;
 
   final void Function(String message) _log;
 
@@ -182,12 +186,13 @@ class AutomationService {
 
     for (final channel in channels) {
       try {
+        final fetchedAt = DateTime.now();
         final result = await fetchVods(channel);
 
         final handOff = onVodsFetched;
         if (handOff != null) {
           try {
-            handOff(channel, result);
+            handOff(channel, result, fetchedAt);
           } catch (e) {
             _log('[Auto-Download] VOD list hand-off failed for @${channel.username}: $e');
           }

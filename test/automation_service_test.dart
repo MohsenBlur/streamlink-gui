@@ -280,13 +280,36 @@ void main() {
         ..add(channel('empty', autoPlay: false, autoDownload: true))
         ..add(channel('full', autoPlay: false, autoDownload: true));
       rig.vodsByChannel['full'] = [vod('v1', daysAgo: 1)];
-      rig.service.onVodsFetched = (c, result) {
+      rig.service.onVodsFetched = (c, result, fetchedAt) {
         rig.handedBack.add('${c.username}:${result.vods.length}');
         throw StateError('cache broke');
       };
       await rig.service.runPass();
       expect(rig.handedBack, ['empty:0', 'full:1']);
       expect(rig.queued.map((q) => q.vod), ['v1']);
+    });
+
+    test('a list handed back is stamped with when its request began, not '
+        'when it arrived', () async {
+      // The VOD browser orders what it is given by that stamp: a list
+      // stamped on arrival would beat a user's refresh that began after this
+      // request and finished before it, and put the older list on screen.
+      final rig = Rig()..fetchGate = Completer<void>();
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true));
+      rig.vodsByChannel['a'] = [vod('v1', daysAgo: 1)];
+      final stamps = <DateTime>[];
+      rig.service.onVodsFetched = (c, result, fetchedAt) => stamps.add(fetchedAt);
+
+      final pass = rig.service.runPass();
+      await pumpEventQueue();
+      expect(rig.fetched, ['a'], reason: 'the request is under way');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final answeredAt = DateTime.now();
+      rig.fetchGate!.complete();
+      await pass;
+
+      expect(stamps, hasLength(1));
+      expect(stamps.single.isBefore(answeredAt), isTrue);
     });
   });
 

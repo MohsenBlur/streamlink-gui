@@ -577,10 +577,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     ),
     showNotification: (title, body) =>
         LocalNotification(title: title, body: body, silent: false).show(),
-    // HOOK (refresh-channels): the VOD lists the auto-download pass fetched
-    // are handed back here - wire them into the VOD cache with
-    // `onVodsFetched: (channel, result) { ... }`. Unset, they are dropped
-    // after the pass, as before.
+    // What this pass already paid for reaches the VOD cache and, for the
+    // open channel, the grid (VodBrowserController.ingest). It used to be
+    // thrown away every minute. These lists skipped the game lookup, hence
+    // detailed: false.
+    onVodsFetched: (channel, result, fetchedAt) {
+      if (_vodBrowser.ingest(channel, result,
+          fetchedAt: fetchedAt, detailed: false)) {
+        _checkDownloadedVods();
+      }
+    },
   );
   // ---- end favorites automation ---------------------------------------
 
