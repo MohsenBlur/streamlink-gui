@@ -13,6 +13,8 @@ import 'package:streamlink_gui/utils/twitch_auth_status.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_switch.dart';
 import 'package:streamlink_gui/widgets/settings_dialog.dart';
 
+import 'support/held_file_picker.dart';
+
 /// The real settings dialog, pumped and driven.
 ///
 /// `settings_tabs_test` and `material_picker_test` call this dialog "not
@@ -622,6 +624,59 @@ void main() {
       await typeAndWait('"${player.path}"');
       expect(find.text('Executable found'), findsOneWidget,
           reason: 'a quoted path is one the launcher runs');
+    });
+  });
+
+  group('Browse', () {
+    // Since file_picker 13 the file dialogs no longer hold the app, so the
+    // Settings dialog stays live behind one: Browse can be pressed again,
+    // and the dialog can be closed, while it is open.
+    // One per tab, and only the open tab's page is built.
+    Finder browse() => find.text('Browse');
+
+    testWidgets('each Browse opens one file dialog at a time', (tester) async {
+      final picker = HeldFilePicker.install();
+      await openSettings(tester, AppSettings()..playerType = 'custom');
+
+      await tapVisible(tester, browse());
+      await tapVisible(tester, browse());
+      expect(picker.files, hasLength(1),
+          reason: 'a second player dialog, the last answer winning');
+      picker.files.single.complete(null);
+      await _settle(tester);
+      await tapVisible(tester, browse());
+      expect(picker.files, hasLength(2), reason: 'closed, it works again');
+      picker.files.last.complete(null);
+      await _settle(tester);
+
+      await showTab(tester, 'Downloads');
+      await tapVisible(tester, browse());
+      await tapVisible(tester, browse());
+      expect(picker.folders, hasLength(1));
+      picker.folders.single.complete(null);
+      await _settle(tester);
+    });
+
+    testWidgets('a folder picked after Cancel is not written into the '
+        'closing dialog', (tester) async {
+      // The builder outlives the pop by the whole exit animation, so
+      // context.mounted alone let the late answer land in the field of a
+      // dialog the user had already cancelled.
+      final picker = HeldFilePicker.install();
+      await openSettings(tester, AppSettings());
+      await showTab(tester, 'Downloads');
+      await tapVisible(tester, browse());
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      picker.folders.single.complete(r'D:\VODs');
+      await _settle(tester);
+      expect(find.text('Downloads'), findsOneWidget,
+          reason: 'precondition: still inside the exit animation');
+      expect(find.text(r'D:\VODs'), findsNothing);
+
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull);
     });
   });
 }
