@@ -247,7 +247,8 @@ class SkeuoDecoration extends Decoration {
   /// screen bezel over a video thumbnail, where an opaque shader face would
   /// obliterate the picture), and every paint before the program loads or
   /// after it fails, which is the same surface the app shipped through
-  /// v1.6.0.
+  /// v1.6.0. "Fails" includes failing to render after a successful load, and
+  /// being switched off - see `LitSurfaceProgram`.
   bool get rendersLit =>
       params.lit != null &&
       params.gradientOverride == null &&
@@ -995,12 +996,38 @@ ui.Image _fallbackGrain() {
 }
 
 class _LitPainter extends BoxPainter with _TileRequester {
-  _LitPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
+  _LitPainter(this.decoration, VoidCallback? onChanged) : super(onChanged) {
+    // See `LitSurfaceProgram.disable`: this box is lit-painted and must be
+    // told to repaint if the engine is switched off under it.
+    if (onChanged != null) LitSurfaceProgram.addEngineListener(onChanged);
+  }
 
   final SkeuoDecoration decoration;
 
+  /// The Canvas painter this one hands over to once the lit engine is gone.
+  ///
+  /// The program can be switched off after this painter was built - a late
+  /// self-test failure, or the kill switch at runtime - and the decoration
+  /// still compares equal, so nothing rebuilds the painter. Reading
+  /// `LitSurfaceProgram.shared` then would be a null dereference on every
+  /// lit surface in the app; delegating keeps them painting.
+  _SkeuoPainter? _canvasFallback;
+
+  @override
+  void dispose() {
+    final listener = onChanged;
+    if (listener != null) LitSurfaceProgram.removeEngineListener(listener);
+    _canvasFallback?.dispose();
+    super.dispose();
+  }
+
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
+    if (!LitSurfaceProgram.ready) {
+      (_canvasFallback ??= _SkeuoPainter(decoration, onChanged))
+          .paint(canvas, offset, configuration);
+      return;
+    }
     final size = configuration.size;
     if (size == null || size.isEmpty) return;
     final p = decoration.params;

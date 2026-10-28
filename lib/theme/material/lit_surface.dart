@@ -1,6 +1,12 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
+
+import 'material_palette.dart';
+import 'skeuo_decoration.dart';
 
 /// The lit-surface fragment program, loaded once for the whole app.
 ///
@@ -9,14 +15,70 @@ import 'package:flutter/widgets.dart';
 /// instance records five times faster than allocating one per surface —
 /// 1.10 µs versus 5.46 µs, which at a 200-card VOD grid is the difference
 /// between 220 µs and over a millisecond per frame.
+///
+/// ## Three ways to end up on the Canvas engine
+///
+/// Every one of them degrades to the seven-layer Canvas path, never to a blank
+/// surface:
+///
+///  * the program fails to LOAD (an SkSL rejection the build downgraded to a
+///    warning);
+///  * the program loads but does not RENDER - Skia accepts the SkSL front end
+///    at load and compiles the GPU backend lazily at the first draw, and a
+///    backend failure there just drops the draw, so every lit surface (the
+///    chassis, the cards, the title bar) would paint nothing. [load] draws one
+///    lit surface off screen and reads it back to catch that;
+///  * somebody asks: [canvasEnvironmentVariable], or `forceCanvas` from the
+///    caller. The software rasteriser (RDP, GPU-less VMs, a driver ANGLE will
+///    not initialise) renders the shader CORRECTLY but on the CPU, hundreds of
+///    milliseconds a frame at window size - no readback can call that broken,
+///    so it needs a switch a person can flip.
 abstract final class LitSurfaceProgram {
   static ui.FragmentProgram? _program;
   static ui.FragmentShader? _shared;
+  static String _status = 'Canvas engine (shader not loaded)';
 
   static bool get ready => _shared != null;
 
   /// The one shader instance. Only valid while [ready].
   static ui.FragmentShader get shared => _shared!;
+
+  /// Which engine is painting and why, in one line for the app's own log.
+  ///
+  /// Support's first question about a flat-looking or sluggish window is
+  /// which engine it is on; this answers it without a debugger.
+  static String get status => _status;
+
+  /// Set to `1` (or `true`, `yes`, `on`) to force the Canvas engine.
+  ///
+  /// An environment variable because it is the one switch that works before
+  /// the app can show anything - including on a machine where the lit engine
+  /// is exactly what stops it from showing anything useful.
+  static const String canvasEnvironmentVariable =
+      'STREAMLINK_GUI_CANVAS_ENGINE';
+
+  /// Painters that must repaint when the engine changes under them.
+  ///
+  /// A painter is built once per decoration and kept for as long as the
+  /// decoration compares equal, so a surface built lit stays lit-painted until
+  /// something unrelated repaints it. After a runtime [disable] that is a
+  /// window of blank surfaces; each lit painter registers its box's
+  /// `markNeedsPaint` here so the switch repaints exactly the boxes it
+  /// affects. A set, so removal on dispose is constant time in a scrolling
+  /// grid.
+  static final Set<VoidCallback> _engineListeners = <VoidCallback>{};
+
+  static void addEngineListener(VoidCallback listener) =>
+      _engineListeners.add(listener);
+
+  static void removeEngineListener(VoidCallback listener) =>
+      _engineListeners.remove(listener);
+
+  /// Stands in for the self-test's rasterisation, so a test can stage a GPU
+  /// that drops the lit draw. Null in the app.
+  @visibleForTesting
+  static Future<ui.Image> Function(ui.Picture picture, int width, int height)?
+      debugRasterizeOverride;
 
   /// Called once from `main()`, awaited before `runApp`.
   ///
@@ -26,16 +88,207 @@ abstract final class LitSurfaceProgram {
   /// Degrade to the Canvas engine rather than to a blank window — every
   /// surface keeps painting through the seven-layer path exactly as it did
   /// before the shader existed.
-  static Future<void> load() async {
+  ///
+  /// [forceCanvas] is the caller's half of the kill switch (a command-line
+  /// flag or a persisted setting); [environment] defaults to the process
+  /// environment and is a parameter so the switch can be tested.
+  ///
+  /// The self-test waits at most [probeBudget]. Slow is not broken - a cold
+  /// shader compile on a busy machine at login can take a while, and that
+  /// compile would land on the first frame anyway - so a probe that overruns
+  /// keeps the lit engine and is allowed to finish in the background,
+  /// switching to Canvas then if it fails.
+  static Future<void> load({
+    bool forceCanvas = false,
+    Map<String, String>? environment,
+    Duration probeBudget = const Duration(seconds: 2),
+  }) async {
+    final env = environment ?? Platform.environment;
+    final forcedBy = forceCanvas
+        ? 'requested at launch'
+        : (_isOn(env[canvasEnvironmentVariable])
+            ? '$canvasEnvironmentVariable is set'
+            : null);
+    if (forcedBy != null) {
+      _program = null;
+      _shared = null;
+      _status = 'Canvas engine (forced: $forcedBy)';
+      debugPrint('surface engine: $_status');
+      return;
+    }
+
     try {
       _program = await ui.FragmentProgram.fromAsset('shaders/surface.frag');
       _shared = _program!.fragmentShader();
     } catch (e, st) {
       _program = null;
       _shared = null;
+      _status = 'Canvas engine (shader failed to load: $e)';
       debugPrint('lit surface unavailable, falling back to Canvas: $e\n$st');
+      return;
+    }
+    _status = 'lit engine';
+
+    final shader = _shared;
+    final verdict = _selfTest();
+    final String? failure;
+    try {
+      failure = await verdict.timeout(probeBudget);
+    } on TimeoutException {
+      debugPrint('surface engine: lit self-test still running after '
+          '${probeBudget.inMilliseconds}ms; continuing lit');
+      unawaited(verdict.then((late) {
+        // Only if nothing reloaded the program in the meantime: a verdict
+        // about a previous instance says nothing about this one.
+        if (late != null && identical(_shared, shader)) disable(late);
+      }));
+      return;
+    }
+    if (failure != null) {
+      disable(failure);
+    } else {
+      debugPrint('surface engine: $_status');
     }
   }
+
+  /// Switches every surface to the Canvas engine for the rest of the session.
+  ///
+  /// The shader is released but not disposed: a picture recorded this frame
+  /// may still reference it on the raster thread, and one tiny program is not
+  /// worth a use-after-dispose.
+  static void disable(String reason) {
+    if (_shared == null) return;
+    _shared = null;
+    _program = null;
+    _status = 'Canvas engine ($reason)';
+    debugPrint('surface engine: $_status');
+    for (final listener in _engineListeners.toList()) {
+      listener();
+    }
+  }
+
+  static bool _isOn(String? value) {
+    final v = value?.trim().toLowerCase();
+    return v == '1' || v == 'true' || v == 'yes' || v == 'on';
+  }
+
+  /// Paints one lit surface beside a plain control patch and reads both back.
+  ///
+  /// Returns a reason when the lit surface did not render and the control did
+  /// - the shader's own failure. Returns null when the surface rendered, and
+  /// also when the control failed too, because then the readback itself is
+  /// broken and says nothing about the shader: falling back on that evidence
+  /// would trade a working engine for nothing.
+  static Future<String?> _selfTest() async {
+    final ui.Picture picture;
+    try {
+      final rec = ui.PictureRecorder();
+      final canvas = Canvas(rec);
+      canvas.drawRect(_probeControlRect, Paint()..color = _probeControlColour);
+      final painter = _probeSurface.createBoxPainter();
+      painter.paint(
+          canvas,
+          _probeSurfaceOffset,
+          const ImageConfiguration(
+              size: _probeSurfaceSize, devicePixelRatio: 1));
+      painter.dispose();
+      picture = rec.endRecording();
+    } catch (e) {
+      // The Dart half of the lit painter threw - it would throw on every lit
+      // paint in the app too.
+      return 'lit painter threw during the self-test: $e';
+    }
+
+    ui.Image? image;
+    try {
+      image = await (debugRasterizeOverride ?? _rasterize)(
+          picture, _probeWidth, _probeHeight);
+      final bytes = await image.toByteData();
+      if (bytes == null) {
+        debugPrint('surface engine: self-test readback was empty; '
+            'inconclusive, staying lit');
+        return null;
+      }
+      List<int> at(Offset p) {
+        final o = (p.dy.toInt() * _probeWidth + p.dx.toInt()) * 4;
+        return [for (var c = 0; c < 4; c++) bytes.getUint8(o + c)];
+      }
+
+      final control = at(_probeControlRect.center);
+      final expected = [
+        (_probeControlColour.r * 255).round(),
+        (_probeControlColour.g * 255).round(),
+        (_probeControlColour.b * 255).round(),
+        255,
+      ];
+      for (var c = 0; c < 4; c++) {
+        if ((control[c] - expected[c]).abs() > 2) {
+          debugPrint('surface engine: self-test control patch read back '
+              '$control, not $expected; inconclusive, staying lit');
+          return null;
+        }
+      }
+
+      // Opaque, and lit: a dropped draw reads back as transparent black, and
+      // a mid-grey face under any sane lighting is nowhere near black.
+      final face =
+          at(_probeSurfaceOffset + _probeSurfaceSize.center(Offset.zero));
+      final brightest = math.max(face[0], math.max(face[1], face[2]));
+      if (face[3] < 250 || brightest < 16) {
+        return 'lit self-test drew nothing (face read back $face '
+            'while the control patch rendered)';
+      }
+      return null;
+    } catch (e) {
+      debugPrint('surface engine: self-test readback failed ($e); '
+          'inconclusive, staying lit');
+      return null;
+    } finally {
+      image?.dispose();
+      picture.dispose();
+    }
+  }
+
+  static Future<ui.Image> _rasterize(
+          ui.Picture picture, int width, int height) =>
+      picture.toImage(width, height);
+
+  // The self-test's layout: a control patch on the left, the lit surface on
+  // the right with room for its 2px draw pad.
+  static const int _probeWidth = 64, _probeHeight = 32;
+  static const Rect _probeControlRect = Rect.fromLTWH(0, 0, 32, 32);
+  static const Color _probeControlColour = Color(0xFF3366AA);
+  static const Offset _probeSurfaceOffset = Offset(36, 4);
+  static const Size _probeSurfaceSize = Size(24, 24);
+
+  /// A plain mid-grey raised face: no shadow, no grain, no pattern - nothing
+  /// that could legitimately leave the centre pixel dark or translucent.
+  static const SkeuoDecoration _probeSurface = SkeuoDecoration(SurfaceParams(
+    base: Color(0xFF808080),
+    fill: <FillStop>[],
+    lightAzimuthDeg: 90,
+    diagonalCompensation: false,
+    depth: 1,
+    radius: 4,
+    contact: <ShadowLayer>[],
+    inset: <ShadowLayer>[],
+    insetStrength: 0,
+    recessStyle: RecessStyle.trueInset,
+    bevelColour: Color(0x00000000),
+    bevelWidth: 0,
+    bevelSweepExponent: 1,
+    bevelAmbientFloor: 1,
+    gloss: 0,
+    glossBreak: 0.5,
+    glossHardTerminator: false,
+    glossColour: Color(0x00000000),
+    textureScale: 0,
+    lit: LitSpec(
+      f0: Color(0xFF0A0A0A),
+      sky: Color(0xFF9FA8B8),
+      ground: Color(0xFF202226),
+    ),
+  ));
 
   /// Simulates a load failure, so tests can assert the fallback routing.
   @visibleForTesting
@@ -43,6 +296,7 @@ abstract final class LitSurfaceProgram {
     _shared?.dispose();
     _shared = null;
     _program = null;
+    _status = 'Canvas engine (reset)';
   }
 }
 
