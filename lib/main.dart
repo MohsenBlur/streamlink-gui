@@ -45,12 +45,12 @@ import 'widgets/sidebar_panel.dart';
 import 'widgets/settings_dialog.dart';
 
 import 'services/startup_service.dart';
+import 'state/account_controller.dart';
 import 'state/app_shell_controller.dart';
 import 'state/library_controller.dart';
 import 'state/stored_config.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
-import 'services/oauth_loopback_server.dart';
 import 'services/automation_service.dart';
 import 'theme/material/lit_surface.dart';
 import 'theme/app_theme.dart';
@@ -292,12 +292,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   
   Timer? _favoritesLiveCheckTimer;
   Timer? _downloadCheckTimer;
-  OAuthLoopbackServer? _oauthServer;
   
   List<TwitchChannel> get _followedChannels => _channelsCtl.followed;
   bool get _isLoadingFollowed => _channelsCtl.isLoadingFollowed;
-  String? _authenticatedUserLogin;
-  String? _authenticatedUserAvatar;
   int _sidebarTab = 0; 
   
   // The open channel's VOD list lives in _vodBrowser (see the refresh block
@@ -431,15 +428,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// succeeds, so a NEW failure is reported again.
   bool _saveWarningDismissed = false;
 
-  /// Dismissal of the reconnect banner, reset whenever the reason changes so
-  /// a dismissed "expired" does not also hide a later "wrong Client ID".
-  bool _authWarningDismissed = false;
-  TwitchAuthFault _dismissedFault = TwitchAuthFault.none;
-
-  /// Whether the account token was usable at the last notification, and
-  /// whether the startup sequence has finished. Together they identify a
-  /// RECOVERY - the moment a rejected token starts working again.
-  bool _lastAuthUsable = false;
+  /// Whether the startup sequence has finished: the poll, a window coming
+  /// back and a token that starts working again (AccountController) all wait
+  /// for it.
   bool _startupComplete = false;
 
   /// Re-arms the save-failure banner once a save succeeds, so a dismissal
@@ -591,7 +582,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _vodBrowser.onNewVods = _onNewVods;
 
     storageWriteFailure.addListener(_onSaveFailureChanged);
-    twitchAuth.helix.addListener(_onAuthStatusChanged);
+    _account
+      ..attach()
+      ..addListener(_onRefreshStateChanged);
     _loadChannels();
     
     _downloadCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -626,7 +619,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _services.startup.sync(true);
       }
       if (_settings.twitchOauthToken.trim().isNotEmpty) {
-        _loadFollowedChannels();
+        _account.loadFollowed();
       }
     }
   }
@@ -711,7 +704,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _playerService.stopAll();
     _searchController.dispose();
     _sidebarSearchFocus.dispose();
-    _oauthServer?.close();
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
     // Channel and VOD refresh wiring (see initState).
@@ -725,7 +717,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _downloads.dispose();
     _settingsRepo.dispose();
     storageWriteFailure.removeListener(_onSaveFailureChanged);
-    twitchAuth.helix.removeListener(_onAuthStatusChanged);
+    _account
+      ..removeListener(_onRefreshStateChanged)
+      ..dispose();
     _players.dispose();
     _logNotifier.dispose();
     super.dispose();
@@ -1021,9 +1015,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       // `isNotEmpty`, which is a test of the string and not of the account, so
       // a revoked token spent every launch failing a real request and pasting
       // the raw 401 body into a snackbar.
-      await _refreshHelixAuth();
+      await _account.probe();
       if (twitchAuth.helix.value.isUsable) {
-        _loadFollowedChannels();
+        _account.loadFollowed();
       }
     } catch (e) {
       _showSnackBar('Error loading saved channels: ${describeTwitchError(e)}', isError: true);
@@ -1043,39 +1037,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Re-fetches what a rejected token left stale.
-  ///
-  /// Reconnecting reloaded the FOLLOWED list and nothing else, so every
-  /// favourite kept the error text stamped on it while the token was dead -
-  /// "Helix Stream API error: status 401" sat on the selected channel until
-  /// the one-minute favourites poll happened to clear it, minutes after the
-  /// account was working again. The data was stale, not wrong, which is the
-  /// worst kind of wrong to show someone who has just fixed the problem.
-  void _onAuthStatusChanged() {
-    final usable = twitchAuth.helix.value.isUsable;
-    final recovered = usable && !_lastAuthUsable;
-    _lastAuthUsable = usable;
-
-    if (usable && _authWarningDismissed) {
-      // A dismissal covers the rejection it was shown for. Without this, one
-      // dismissal would silence every future rejection carrying the same
-      // reason, for the life of the process.
-      _authWarningDismissed = false;
-      _dismissedFault = TwitchAuthFault.none;
-    }
-
-    if (!recovered || !_startupComplete) return;
-    unawaited(_refreshAllChannels());
-    unawaited(_loadFollowedChannels());
-    // ...and the open channel's VOD list, which is fetched per selection and
-    // would otherwise keep its 401 until the user clicked away and back.
-    final open = _selectedChannel;
-    if (open != null) {
-      setState(() => _vodsError = null);
-      unawaited(_fetchVodsForChannel(open));
-    }
-  }
-
   /// Writes the config and the watch progress now.
   ///
   /// A thin wrapper kept for its many callers: the writing itself, and the
@@ -1084,157 +1045,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// config keeps the flat copy for compatibility, so a config rewrite can no
   /// longer take the history with it.
   Future<void> _saveChannels() => _settingsRepo.saveNow();
-
-  /// Connect Account: signs in through Twitch in the browser.
-  ///
-  /// The listener itself (state check, timeout, single-shot result) is
-  /// OAuthLoopbackServer; this only starts it and applies what comes back.
-  Future<void> _startOAuthServer() async {
-    // A second Connect replaces the first sign-in rather than racing it: the
-    // older one's result arrives as cancelled and is ignored below.
-    final previous = _oauthServer;
-    _oauthServer = null;
-    await previous?.close();
-
-    final server = _services.signInServer(
-      port: _settings.localServerPort,
-      clientId: _settings.twitchClientId,
-    );
-    try {
-      await server.start();
-    } catch (e) {
-      _showSnackBar('Failed to start local login server: ${describeTwitchError(e)}', isError: true);
-      return;
-    }
-    _oauthServer = server;
-    _showSnackBar('OAuth server started on port ${server.boundPort}. Opening browser...', isError: false);
-    await _openExternalLink(server.authorizeUrl);
-
-    final result = await server.result;
-    // Replaced by a newer sign-in, or the screen is gone.
-    if (!identical(_oauthServer, server) || !mounted) return;
-    _oauthServer = null;
-
-    switch (result.outcome) {
-      case OAuthLoopbackOutcome.token:
-        await _acceptOAuthToken(result.accessToken!, mintedBy: server.clientId);
-      case OAuthLoopbackOutcome.denied:
-        _showSnackBar('Twitch did not connect the account: ${result.error}', isError: true);
-      case OAuthLoopbackOutcome.timedOut:
-        _showSnackBar(
-            'The Twitch sign-in timed out. Click Connect Account to try again.',
-            isError: false);
-      case OAuthLoopbackOutcome.cancelled:
-        break;
-    }
-  }
-
-  Future<void> _acceptOAuthToken(String token, {required String mintedBy}) async {
-    setState(() {
-      _settings.twitchOauthToken = 'oauth:$token';
-      // Record WHICH client minted it. Without this, editing the
-      // Client ID field later produces a 401 the app would have to
-      // guess at, and it would guess "expired" - sending the user
-      // through a reconnect that cannot fix a mismatch. The Client ID the
-      // sign-in actually used, never blank: the raw field was recorded
-      // before, which is empty when the public fallback signed in, and an
-      // empty mint switches the mismatch pre-check off.
-      _settings.twitchTokenClientId = mintedBy;
-    });
-    await _saveChannels();
-    twitchAuth.setHelix(statusForToken(_settings.twitchOauthToken,
-        mintedClientId: _settings.twitchTokenClientId));
-    _showSnackBar('Twitch account connected successfully!', isError: false);
-    // No explicit reload here: the probe publishes the new status,
-    // and _onAuthStatusChanged refreshes both lists off that
-    // transition. Calling it here too fetched the followed list twice
-    // on every reconnect.
-    await _refreshHelixAuth(force: true);
-  }
-
-  /// Loads the followed list (see ChannelsController.loadFollowed: coalesced,
-  /// reconciled into the existing objects, live state in one batched pass).
-  ///
-  /// [background] is the periodic reload, so a new follow on twitch.tv turns
-  /// up without a restart. It reports nothing but a refused token: an
-  /// unattended reload that hit a network blip is not worth interrupting
-  /// anyone for, and the previous list stays in place.
-  Future<void> _loadFollowedChannels({bool background = false}) async {
-    try {
-      final result = await _channelsCtl.loadFollowed();
-      if (!mounted || result == null) return;
-      setState(() {
-        _authenticatedUserLogin = result.userLogin;
-        _authenticatedUserAvatar = result.userAvatar;
-        // The open channel follows its streamer to the object the poll now
-        // keeps current. A reload used to replace every object and leave it
-        // pointing at one nothing refreshed any more.
-        final open = _selectedChannel;
-        if (open != null) _selectedChannel = _channelsCtl.canonical(open);
-      });
-      if (!result.isComplete && !background) {
-        // Not silent: a failed later page used to shorten the list without a
-        // word. reconcileWith kept what it did not reach, so nothing went.
-        final why = result.pageError == null
-            ? ''
-            : ': ${describeTwitchError(result.pageError!)}';
-        _showSnackBar(
-            'Showing ${_followedChannels.length} followed channels; Twitch '
-            'did not return the rest$why',
-            isError: true);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      if (e is TwitchApiException && e.isAuthFailure) {
-        // The banner does the talking, and it offers the one button that
-        // actually fixes this. A snackbar cannot: it scrolls away, it has no
-        // remedy on it, and it used to carry a raw JSON body.
-        unawaited(_refreshHelixAuth(force: true));
-      } else if (!background) {
-        _showSnackBar(
-            'Could not load followed channels: ${describeTwitchError(e)}',
-            isError: true);
-      }
-    }
-  }
-
-  /// Probes the account token and publishes the verdict.
-  ///
-  /// [force] re-probes even when the status is already known, which is what a
-  /// Helix 401 and a fresh OAuth capture both need.
-  Future<void> _refreshHelixAuth({bool force = false}) async {
-    final token = _settings.twitchOauthToken.trim();
-    if (token.isEmpty) {
-      twitchAuth.setHelix(TwitchAuthStatus.absent);
-      return;
-    }
-    final current = twitchAuth.helix.value;
-    if (!force && current.state == TwitchAuthState.valid) return;
-
-    // A mismatch between the token's mint and the configured Client ID is
-    // detectable with no request at all, which matters on an offline launch.
-    final minted = _settings.twitchTokenClientId.trim();
-    // The effective one, as a sign-in records it: a blank field signs in,
-    // and sends every request, with the public client.
-    final configured =
-        OAuthLoopbackServer.effectiveClientId(_settings.twitchClientId);
-    if (minted.isNotEmpty && minted != configured) {
-      twitchAuth.setHelix(TwitchAuthStatus(
-        state: TwitchAuthState.invalid,
-        fault: TwitchAuthFault.clientIdMismatch,
-        login: current.login,
-        tokenClientId: minted,
-        checkedAt: DateTime.now(),
-      ));
-      return;
-    }
-
-    twitchAuth.setHelix(statusChecking(current));
-    final status =
-        await _apiService.validateHelixToken(token, _settings.twitchClientId);
-    twitchAuth.recordHelixProbe(status);
-    if (mounted) setState(() {});
-  }
 
   // ---------------------------------------------------------------------------
   // Channel and VOD refresh.
@@ -1251,6 +1061,38 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     favorites: _channels,
     selected: () => _selectedChannel,
     clock: _services.clock,
+  );
+
+  /// The account token: sign-in, probe, the account and its followed list,
+  /// and what a token that starts working again refreshes (AccountController).
+  late final AccountController _account = AccountController(
+    api: _apiService,
+    channels: _channelsCtl,
+    auth: twitchAuth,
+    settings: () => _settings,
+    signInServer: _services.signInServer,
+    openLink: _openExternalLink,
+    save: _saveChannels,
+    mounted: () => mounted,
+    startupComplete: () => _startupComplete,
+    refreshChannels: _refreshAllChannels,
+    refreshOpenVods: () {
+      final open = _selectedChannel;
+      if (open != null) {
+        setState(() => _vodsError = null);
+        unawaited(_fetchVodsForChannel(open));
+      }
+    },
+    followedLoaded: () {
+      // The open channel follows its streamer to the object the poll now
+      // keeps current. A reload used to replace every object and leave it
+      // pointing at one nothing refreshed any more.
+      final open = _selectedChannel;
+      if (open != null) {
+        setState(() => _selectedChannel = _channelsCtl.canonical(open));
+      }
+    },
+    showMessage: _showSnackBar,
   );
 
   late final VodBrowserController _vodBrowser = VodBrowserController(
@@ -1287,10 +1129,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
     // The rest is on a slower clock, and only with a token that works: a
     // rejected one would just collect a 401 a minute until it is fixed, and
-    // fixing it refreshes everything anyway (_onAuthStatusChanged).
+    // fixing it refreshes everything anyway (AccountController).
     if (!twitchAuth.helix.value.isUsable) return;
     if (_channelsCtl.isFollowedReloadDue) {
-      unawaited(_loadFollowedChannels(background: true));
+      unawaited(_account.loadFollowed(background: true));
     }
     final open = _selectedChannel;
     if (open != null && _channelsCtl.detailsDue(open)) {
@@ -1658,17 +1500,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     save: _saveChannels,
     mounted: () => mounted,
     auth: twitchAuth,
-    probeAccount: () => _refreshHelixAuth(force: true),
+    probeAccount: () => _account.probe(force: true),
     forgetFollowed: _channelsCtl.clearFollowed,
     startup: _services.startup,
     rebuildTrayMenu: () => _shell.rebuildTrayMenu(force: true),
-    loadFollowed: () => unawaited(_loadFollowedChannels()),
-    signedOut: () => setState(() {
-      _followedChannels.clear();
-      _authenticatedUserLogin = null;
-      _authenticatedUserAvatar = null;
-      _sidebarTab = 0;
-    }),
+    loadFollowed: () => unawaited(_account.loadFollowed()),
+    signedOut: () {
+      _account.signedOut();
+      setState(() {
+        _followedChannels.clear();
+        _sidebarTab = 0;
+      });
+    },
     canvasTurnedOn: () {
       LitSurfaceProgram.disable('Simple rendering turned on in Settings');
       _logNotifier.appendLog(
@@ -1682,9 +1525,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       context,
       settings: _settings,
       themeNotifier: themeNotifier,
-      authenticatedUserLogin: _authenticatedUserLogin,
-      onRevalidateHelix: () => _refreshHelixAuth(force: true),
-      onConnectAccount: _startOAuthServer,
+      authenticatedUserLogin: _account.login,
+      onRevalidateHelix: () => _account.probe(force: true),
+      onConnectAccount: _account.signIn,
       openExternalLink: _openExternalLink,
       onClearWatchHistory: _clearWatchProgress,
       onOpenLogs: () => LogViewerDialog.show(context, logs: _logNotifier),
@@ -1725,8 +1568,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       isAdding: _isAdding,
       isGlobalLoading: _isGlobalLoading,
       isLoadingFollowed: _isLoadingFollowed,
-      authenticatedUserLogin: _authenticatedUserLogin,
-      authenticatedUserAvatar: _authenticatedUserAvatar,
+      authenticatedUserLogin: _account.login,
+      authenticatedUserAvatar: _account.avatar,
       pulseController: _pulseController!,
       searchController: _searchController,
       onChannelSelected: _selectChannel,
@@ -1758,18 +1601,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         // them is one debounced write.
         _settingsRepo.requestSave();
         if (tabIdx == 1 && _followedChannels.isEmpty && !_isLoadingFollowed) {
-          _loadFollowedChannels();
+          _account.loadFollowed();
         }
       },
       onRefresh: () async {
         if (_sidebarTab == 0) {
           await _refreshAllChannels();
         } else if (_sidebarTab == 1) {
-          await _loadFollowedChannels();
+          await _account.loadFollowed();
         } else {
           await Future.wait([
             _refreshAllChannels(),
-            _loadFollowedChannels(),
+            _account.loadFollowed(),
           ]);
         }
       },
@@ -1805,24 +1648,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         ValueListenableBuilder<TwitchAuthStatus>(
           valueListenable: twitchAuth.helix,
           builder: (context, status, _) {
-            if (status.needsReconnect &&
-                _authWarningDismissed &&
-                status.fault != _dismissedFault) {
-              // A different problem is a different message; a dismissal
-              // covers the reason it was shown for, not the topic.
-              _authWarningDismissed = false;
-            }
-            if (!status.needsReconnect || _authWarningDismissed) {
+            if (!_account.showsBanner(status)) {
               return const SizedBox.shrink();
             }
             return TwitchAuthBanner(
               status: status,
               // Reconnecting happens on the banner: see TwitchAuthBanner.
-              onReconnect: _startOAuthServer,
-              onDismiss: () => setState(() {
-                _authWarningDismissed = true;
-                _dismissedFault = status.fault;
-              }),
+              onReconnect: _account.signIn,
+              onDismiss: () => _account.dismissBanner(status.fault),
             );
           },
         ),
@@ -1874,7 +1707,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       recentVods: _history.recents,
       runningDownloads: _players.activity.value.downloading,
       downloadedCount: _downloadedVodsRegistry.length,
-      accountLogin: _authenticatedUserLogin,
+      accountLogin: _account.login,
       recentScroll: _recentScroll,
       fadeLeft: _recentFadeLeft,
       fadeRight: _recentFadeRight,
@@ -1896,7 +1729,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       onPlayRecent: _vods.playRecent,
       onOpenLibrary: _library.open,
       onOpenSettings: _showSettingsDialog,
-      onConnectAccount: _startOAuthServer,
+      onConnectAccount: _account.signIn,
     );
   }
 

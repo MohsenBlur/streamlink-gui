@@ -98,6 +98,20 @@ void main() {
     await h.close(tester);
   });
 
+  testWidgets("the reconnect banner's button starts a sign-in",
+      (tester) async {
+    final h = ScreenHarness();
+    h.helix.revokedTokens.add('account-token');
+    await h.launch(tester);
+    expect(h.signIns, isEmpty);
+    await tester.tap(find.text('Reconnect'));
+    await h.settleRoute(tester);
+    expect(h.signIns.single.started, isTrue);
+    expect(h.shell.urls.single, h.signIns.single.authorizeUrl);
+
+    await h.close(tester);
+  });
+
   testWidgets(
       'a token minted for another Client ID is marked as such without asking '
       'Twitch', (tester) async {
