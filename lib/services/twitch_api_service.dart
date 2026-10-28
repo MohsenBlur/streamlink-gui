@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
+import 'dart:io' show HttpDate;
 import 'package:http/http.dart' as http;
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
@@ -64,7 +67,187 @@ class TwitchApiException implements Exception {
   String toString() => 'Twitch API returned $statusCode for $endpoint';
 }
 
+/// Twitch answered 429, or a request was held back because the host is still
+/// inside the back-off a previous response asked for.
+///
+/// Its own type because it is the one failure that says nothing about the
+/// channel being asked about: the Helix bucket is per token, so once it is
+/// empty every request is refused until it refills. A 429 used to surface as
+/// "Helix Stream API error: status 429" and count toward the channel's
+/// consecutive failures, which is how a large followed list flapped offline.
+class TwitchRateLimitedException extends TwitchApiException {
+  TwitchRateLimitedException(String endpoint, this.retryAt, {String body = ''})
+      : super(429, endpoint, body);
+
+  /// When requests to this host may resume.
+  final DateTime retryAt;
+
+  @override
+  String toString() =>
+      'Twitch is rate limiting requests to $endpoint; try again shortly';
+}
+
+/// How one channel's refresh ended.
+///
+/// Returned rather than inferred from `errorMessage`, because a rate-limited
+/// refresh must not be treated like either of the other two: nothing was
+/// learned about the channel, and nothing went wrong with it.
+enum ChannelRefreshOutcome {
+  /// Fresh data was applied and the failure count reset.
+  updated,
+
+  /// The request failed for this channel; it counts toward going offline.
+  failed,
+
+  /// Twitch's rate limit refused the request. The channel keeps the state it
+  /// had, and its consecutive-failure count is left alone.
+  rateLimited,
+}
+
+/// The longest any single rate-limit response can keep a host quiet.
+///
+/// A defence against a malformed or far-future reset header: Helix's bucket
+/// refills within a minute, and an app that silently stops polling for an
+/// hour on one odd response is worse than one extra 429.
+const Duration kMaxRateLimitBackoff = Duration(minutes: 2);
+
+/// Used when a 429 arrives with neither `Ratelimit-Reset` nor `Retry-After`.
+const Duration kDefaultRateLimitBackoff = Duration(seconds: 30);
+
+/// How long to stay off a host after a response, or null when no back-off is
+/// called for.
+///
+/// [headers] are lower-cased, as package:http delivers them. Backs off on a
+/// 429, and also on a success that reports `Ratelimit-Remaining: 0`: the very
+/// next request would be the 429, so waiting now avoids spending it.
+///
+/// Helix's `Ratelimit-Reset` is an absolute epoch on Twitch's clock. It is
+/// measured against the response's own `Date` header, not the local clock, so
+/// a PC whose clock is a few minutes off neither hammers a drained bucket nor
+/// goes quiet for minutes.
+Duration? rateLimitBackoff({
+  required int statusCode,
+  required Map<String, String> headers,
+  required DateTime now,
+}) {
+  final exhausted = headers['ratelimit-remaining']?.trim() == '0';
+  if (statusCode != 429 && !exhausted) return null;
+
+  Duration? wait;
+  final reset = int.tryParse(headers['ratelimit-reset']?.trim() ?? '');
+  if (reset != null) {
+    final resetAt =
+        DateTime.fromMillisecondsSinceEpoch(reset * 1000, isUtc: true);
+    wait = resetAt.difference(_serverNow(headers['date']) ?? now.toUtc());
+  } else {
+    final retryAfter = int.tryParse(headers['retry-after']?.trim() ?? '');
+    if (retryAfter != null) wait = Duration(seconds: retryAfter);
+  }
+  if (wait == null) {
+    // An exhausted bucket with no reset time gives nothing to wait for.
+    if (statusCode != 429) return null;
+    wait = kDefaultRateLimitBackoff;
+  }
+  const minimum = Duration(seconds: 1);
+  if (wait < minimum) return minimum;
+  if (wait > kMaxRateLimitBackoff) return kMaxRateLimitBackoff;
+  return wait;
+}
+
+DateTime? _serverNow(String? dateHeader) {
+  if (dateHeader == null) return null;
+  try {
+    return HttpDate.parse(dateHeader);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Caps how many requests are in flight at once, across every caller.
+///
+/// The minute poll used to open one connection per request for every
+/// favourite and every followed channel at the same instant: hundreds of TLS
+/// handshakes in one burst for a large followed list.
+class _RequestGate {
+  _RequestGate(this.limit) : assert(limit > 0);
+
+  final int limit;
+  int _active = 0;
+  final Queue<Completer<void>> _waiting = Queue<Completer<void>>();
+
+  Future<T> run<T>(Future<T> Function() task) async {
+    if (_active < limit) {
+      _active++;
+    } else {
+      final turn = Completer<void>();
+      _waiting.add(turn);
+      // The request that finishes hands its slot straight to the next in
+      // line, so the count never dips and lets a newcomer jump the queue.
+      await turn.future;
+    }
+    try {
+      return await task();
+    } finally {
+      if (_waiting.isNotEmpty) {
+        _waiting.removeFirst().complete();
+      } else {
+        _active--;
+      }
+    }
+  }
+}
+
+/// The client, concurrency cap and back-off ledger that requests share.
+///
+/// One per process for the app: main.dart, the player service, Settings and
+/// onboarding each construct their own [TwitchApiService], and the rate limit
+/// and the connection pool belong to the process, not to an instance.
+class _Transport {
+  _Transport(this.client, int maxConcurrentRequests)
+      : gate = _RequestGate(maxConcurrentRequests);
+
+  final http.Client client;
+  final _RequestGate gate;
+
+  /// Per host, because Helix, DecAPI and GQL each limit independently.
+  final Map<String, DateTime> backoffUntil = <String, DateTime>{};
+}
+
 class TwitchApiService {
+  /// [client] replaces the process-wide shared client (and with it the shared
+  /// concurrency cap and back-off), which is what tests use to fake Twitch.
+  /// [maxConcurrentRequests] only applies alongside an injected [client].
+  TwitchApiService({
+    http.Client? client,
+    TwitchAuth? auth,
+    DateTime Function()? clock,
+    int maxConcurrentRequests = defaultMaxConcurrentRequests,
+  })  : _transport = client == null
+            ? _sharedTransport
+            : _Transport(client, maxConcurrentRequests),
+        _auth = auth ?? twitchAuth,
+        _now = clock ?? DateTime.now;
+
+  /// Requests allowed in flight at once. Enough to overlap latency, few enough
+  /// that a refresh is a trickle rather than a burst.
+  static const int defaultMaxConcurrentRequests = 8;
+
+  static final _Transport _sharedTransport =
+      _Transport(http.Client(), defaultMaxConcurrentRequests);
+
+  final _Transport _transport;
+  final TwitchAuth _auth;
+  final DateTime Function() _now;
+
+  /// When Helix requests may resume, or null when they are not being held
+  /// back. A poll that starts before this would only be refused.
+  DateTime? get helixRateLimitedUntil {
+    final until = _transport.backoffUntil[_helixHost];
+    return until != null && until.isAfter(_now()) ? until : null;
+  }
+
+  static const String _helixHost = 'api.twitch.tv';
+
   /// Validates an OAuth token against id.twitch.tv, accepting the `oauth:`
   /// prefix users paste from various tools. Shared by the Settings token
   /// tester and the onboarding wizard.
@@ -78,10 +261,7 @@ class TwitchApiService {
       token = token.substring(6);
     }
     try {
-      final response = await http.get(
-        Uri.parse('https://id.twitch.tv/oauth2/validate'),
-        headers: {'Authorization': 'OAuth $token'},
-      ).timeout(const Duration(seconds: 5));
+      final response = await _validate(token);
       if (response.statusCode == 200) {
         final decoded = json.decode(response.body) as Map<String, dynamic>;
         final login = decoded['login'] as String?;
@@ -125,10 +305,7 @@ class TwitchApiService {
     if (token.isEmpty) return TwitchAuthStatus.absent;
     if (token.startsWith('oauth:')) token = token.substring(6);
     try {
-      final response = await http.get(
-        Uri.parse('https://id.twitch.tv/oauth2/validate'),
-        headers: {'Authorization': 'OAuth $token'},
-      ).timeout(const Duration(seconds: 5));
+      final response = await _validate(token);
       Map<String, dynamic>? body;
       try {
         final decoded = json.decode(response.body);
@@ -139,21 +316,30 @@ class TwitchApiService {
       // The verdict about to be published describes this exact pair, so a
       // later Helix 200 sent with a different one is new evidence, not a
       // repeat of something the probe already accounted for.
-      twitchAuth.noteHelixProbeCredential(helixCredentialFingerprint(
+      _auth.noteHelixProbeCredential(helixCredentialFingerprint(
           token, _effectiveClientId(configuredClientId)));
       return statusFromValidation(
         statusCode: response.statusCode,
         body: body,
         configuredClientId: configuredClientId,
-        now: DateTime.now(),
-        previous: twitchAuth.helix.value,
+        now: _now(),
+        previous: _auth.helix.value,
       );
     } catch (_) {
       // A timeout or a dead network says nothing about the token, and must
       // never produce a "reconnect your account" prompt.
-      return statusFromTransportError(twitchAuth.helix.value, DateTime.now());
+      return statusFromTransportError(_auth.helix.value, _now());
     }
   }
+
+  /// `/oauth2/validate`, on the shared client but outside the request gate:
+  /// it is a single, user-initiated probe (the Settings Test button, the
+  /// banner's re-check), and queueing it behind a refresh in progress would
+  /// make the button look broken.
+  Future<http.Response> _validate(String token) => _transport.client.get(
+        Uri.https('id.twitch.tv', '/oauth2/validate'),
+        headers: {'Authorization': 'OAuth $token'},
+      ).timeout(const Duration(seconds: 5));
 
   /// Every Twitch/DecAPI request goes through these wrappers.
   ///
@@ -173,31 +359,82 @@ class TwitchApiService {
   ///
   /// [requiredScopes] names the scopes the endpoint itself needs: a 200 from
   /// it is the only Helix evidence that the token holds them.
+  ///
+  /// A 429, or a request made while its host is still backing off, throws
+  /// [TwitchRateLimitedException] instead of returning, so no caller can
+  /// mistake it for an ordinary failure by checking `statusCode != 200`.
   Future<http.Response> _get(
     Uri url, {
     Map<String, String>? headers,
     Set<String> requiredScopes = const <String>{},
+  }) =>
+      _send(url, () => _transport.client.get(url, headers: headers),
+          headers: headers, requiredScopes: requiredScopes);
+
+  Future<http.Response> _post(Uri url, {Map<String, String>? headers, Object? body}) =>
+      _send(url,
+          () => _transport.client.post(url, headers: headers, body: body),
+          headers: headers);
+
+  Future<http.Response> _send(
+    Uri url,
+    Future<http.Response> Function() request, {
+    Map<String, String>? headers,
+    Set<String> requiredScopes = const <String>{},
   }) async {
-    final isHelix = url.host == 'api.twitch.tv';
-    try {
-      final res = await http.get(url, headers: headers).timeout(_requestTimeout);
+    // Checked before queueing, so a backed-off host costs no slot...
+    _throwIfBackingOff(url);
+    return _transport.gate.run(() async {
+      // ...and again after, because a 429 may have landed while this request
+      // was waiting for its turn.
+      _throwIfBackingOff(url);
+      final isHelix = url.host == _helixHost;
+      final http.Response res;
+      try {
+        res = await request().timeout(_requestTimeout);
+      } catch (e) {
+        if (isHelix) _auth.recordHelixTransportError();
+        rethrow;
+      }
       if (isHelix) {
-        twitchAuth.recordHelixResponse(
+        _auth.recordHelixResponse(
           res.statusCode,
           credential: _credentialOf(headers),
           endpointScopes: requiredScopes,
         );
       }
+      final backoff = rateLimitBackoff(
+          statusCode: res.statusCode, headers: res.headers, now: _now());
+      if (backoff != null) {
+        final until = _now().add(backoff);
+        final current = _transport.backoffUntil[url.host];
+        if (current == null || until.isAfter(current)) {
+          _transport.backoffUntil[url.host] = until;
+        }
+      }
+      if (res.statusCode == 429) {
+        throw TwitchRateLimitedException(
+            _endpointOf(url), _transport.backoffUntil[url.host]!,
+            body: res.body);
+      }
       return res;
-    } catch (e) {
-      if (isHelix) twitchAuth.recordHelixTransportError();
-      rethrow;
-    }
+    });
   }
 
-  Future<http.Response> _post(Uri url, {Map<String, String>? headers, Object? body}) {
-    return http.post(url, headers: headers, body: body).timeout(_requestTimeout);
+  void _throwIfBackingOff(Uri url) {
+    final until = _transport.backoffUntil[url.host];
+    if (until == null) return;
+    if (until.isAfter(_now())) {
+      throw TwitchRateLimitedException(_endpointOf(url), until);
+    }
+    _transport.backoffUntil.remove(url.host);
   }
+
+  /// `helix/streams` for Helix, matching the names [TwitchApiException] has
+  /// always carried; host and path for anything else.
+  static String _endpointOf(Uri url) => url.host == _helixHost
+      ? url.path.replaceFirst(RegExp(r'^/'), '')
+      : '${url.host}${url.path}';
 
   String _getRawOauthToken(String token) {
     String cleanToken = token.trim();
@@ -237,7 +474,7 @@ class TwitchApiService {
   String _calculateUptime(String startedAtStr) {
     try {
       final startedAt = DateTime.parse(startedAtStr);
-      final diff = DateTime.now().toUtc().difference(startedAt);
+      final diff = _now().toUtc().difference(startedAt);
       final hours = diff.inHours;
       final minutes = diff.inMinutes.remainder(60);
       final seconds = diff.inSeconds.remainder(60);
@@ -300,8 +537,11 @@ class TwitchApiService {
     }
   }
 
-  Future<void> fetchChannelStats(TwitchChannel channel, AppSettings settings) async {
+  /// Refreshes one channel completely: identity, live state and follower
+  /// count.
+  Future<ChannelRefreshOutcome> fetchChannelStats(TwitchChannel channel, AppSettings settings) async {
     channel.isLoading = true;
+    final previousError = channel.errorMessage;
     channel.errorMessage = null;
 
     final username = channel.username;
@@ -451,25 +691,16 @@ class TwitchApiService {
         }
       }
 
-      channel.lastUpdated = DateTime.now();
-      channel.consecutiveFailures = 0;
+      _recordRefreshed(channel);
+      return ChannelRefreshOutcome.updated;
+    } on TwitchRateLimitedException {
+      // Nothing was learned about this channel, so nothing about it changes:
+      // not its live state, not its failure count, not the error it showed.
+      channel.errorMessage = previousError;
+      return ChannelRefreshOutcome.rateLimited;
     } catch (e) {
-      channel.errorMessage = e.toString().replaceFirst('Exception: ', '');
-      channel.consecutiveFailures++;
-
-      // Do NOT flip a live channel to offline on the first failure.
-      //
-      // This catch used to set isLive = false unconditionally, and the caller
-      // reads that as a genuine go-offline: it cleared the channel's
-      // notification and auto-play session tracking, so the next successful
-      // poll looked like a brand-new broadcast and produced a duplicate
-      // "<channel> is now LIVE!" toast plus an auto-play relaunch. A single
-      // flaky request or a brief Wi-Fi drop was enough.
-      if (channel.consecutiveFailures >= _failuresBeforeOffline) {
-        channel.isLive = false;
-        channel.streamId = null;
-        channel.uptime = 'Offline';
-      }
+      _recordFailure(channel, e.toString().replaceFirst('Exception: ', ''));
+      return ChannelRefreshOutcome.failed;
     } finally {
       channel.isLoading = false;
     }
@@ -478,6 +709,31 @@ class TwitchApiService {
   /// How many consecutive refresh failures before a live channel is treated as
   /// offline rather than temporarily unreachable.
   static const int _failuresBeforeOffline = 3;
+
+  void _recordRefreshed(TwitchChannel channel) {
+    channel.errorMessage = null;
+    channel.lastUpdated = _now();
+    channel.consecutiveFailures = 0;
+  }
+
+  void _recordFailure(TwitchChannel channel, String message) {
+    channel.errorMessage = message;
+    channel.consecutiveFailures++;
+
+    // Do NOT flip a live channel to offline on the first failure.
+    //
+    // This catch used to set isLive = false unconditionally, and the caller
+    // reads that as a genuine go-offline: it cleared the channel's
+    // notification and auto-play session tracking, so the next successful
+    // poll looked like a brand-new broadcast and produced a duplicate
+    // "<channel> is now LIVE!" toast plus an auto-play relaunch. A single
+    // flaky request or a brief Wi-Fi drop was enough.
+    if (channel.consecutiveFailures >= _failuresBeforeOffline) {
+      channel.isLive = false;
+      channel.streamId = null;
+      channel.uptime = 'Offline';
+    }
+  }
 
   Future<FollowedChannelsResult> fetchFollowedChannels(AppSettings settings) async {
     final token = _getRawOauthToken(settings.twitchOauthToken);
@@ -727,7 +983,7 @@ class TwitchApiService {
             // Same notifier as the account token, different instance - so the
             // UI has to name which credential expired and cannot imply the
             // other one did too.
-            twitchAuth.recordBrowserExpired();
+            _auth.recordBrowserExpired();
           }
         } catch (_) {}
       }
@@ -802,7 +1058,7 @@ class TwitchApiService {
     );
 
     if (response.statusCode == 401) {
-      twitchAuth.recordBrowserExpired();
+      _auth.recordBrowserExpired();
       throw Exception('Unauthorized GQL web token');
     }
   }
