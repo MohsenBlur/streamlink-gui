@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
 import '../utils/time_utils.dart';
 import '../theme/neu_theme.dart';
+import 'neumorphic/neu_focusable.dart';
 import 'neumorphic/neu_progress.dart';
+import 'shell/context_menu.dart';
 import '../theme/theme_notifier.dart';
 
 class TwitchVideoCard extends StatefulWidget {
@@ -70,7 +72,79 @@ class TwitchVideoCard extends StatefulWidget {
 // artwork, not app surfaces, and stay theme-independent by design.
 class _TwitchVideoCardState extends State<TwitchVideoCard> {
   bool _isHovered = false;
+
+  /// Keyboard focus is on the card or on one of its action buttons.
+  bool _focusWithin = false;
+
+  /// Whether the hover affordances show. Focus counts as hover: the card's
+  /// Download / Delete / Open-folder / Cancel buttons used to exist only
+  /// under a mouse, so the only way to reach them was to have one. Tracking
+  /// focus WITHIN the card, not just on it, is what lets Tab move from the
+  /// card into its buttons without them vanishing underneath it.
+  bool get _revealed => _isHovered || _focusWithin;
+
   List<String>? get _games => widget.vod.games;
+
+  /// What a click, Enter or Space does. Null while this VOD is the one
+  /// playing - a second launch is never what was meant.
+  VoidCallback? get _primaryAction => widget.isMultiSelectMode
+      ? () => widget.onSelected?.call(!widget.isSelected)
+      : (widget.isPlaying ? null : widget.onPlay);
+
+  /// Read by screen readers, which until now found a grid of unlabeled,
+  /// unfocusable boxes.
+  String get _semanticLabel {
+    final state = widget.isPlaying
+        ? 'now playing'
+        : widget.downloadStatus != null
+            ? 'downloading, ${widget.downloadStatus}'
+            : widget.isDownloaded
+                ? 'downloaded'
+                : null;
+    return state == null ? widget.vod.title : '${widget.vod.title}, $state';
+  }
+
+  /// The card's actions, for the right-click, long-press and keyboard menu.
+  /// The same set the hover buttons offer, so a pointer is never required.
+  /// Empty in multi-select mode, where the card is a checkbox and its actions
+  /// live in the selection bar.
+  List<NeuMenuItem> _menuItems() {
+    if (widget.isMultiSelectMode) return const [];
+    return [
+      NeuMenuItem(
+        label: widget.isDownloaded ? 'Play local file' : 'Play',
+        icon: Icons.play_arrow,
+        enabled: !widget.isPlaying,
+        onSelected: widget.onPlay,
+      ),
+      if (widget.downloadStatus != null)
+        NeuMenuItem(
+          label: 'Cancel download',
+          icon: Icons.close,
+          isDestructive: true,
+          onSelected: widget.onCancel,
+        )
+      else if (widget.isDownloaded) ...[
+        if (widget.onOpenFolder != null)
+          NeuMenuItem(
+            label: 'Show in Explorer',
+            icon: Icons.folder_open,
+            onSelected: widget.onOpenFolder!,
+          ),
+        NeuMenuItem(
+          label: 'Delete download',
+          icon: Icons.delete_outline,
+          isDestructive: true,
+          onSelected: widget.onDeleteDownload,
+        ),
+      ] else
+        NeuMenuItem(
+          label: 'Download',
+          icon: Icons.download,
+          onSelected: widget.onDownload,
+        ),
+    ];
+  }
 
   Widget _buildCardButton({
     required VoidCallback onTap,
@@ -213,18 +287,38 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
         : null;
 
     Widget buildCardContent() {
-      return MouseRegion(
+      // The card was a MouseRegion around a GestureDetector and nothing else:
+      // no focus, no key handling, no semantics, no context menu. A keyboard
+      // or screen-reader user could Tab through the whole sidebar and never
+      // play, download, cancel or delete a single VOD.
+      return NeuContextMenu(
+        items: _menuItems(),
+        child: Focus(
+          canRequestFocus: false,
+          skipTraversal: true,
+          onFocusChange: (focused) {
+            if (focused != _focusWithin) {
+              setState(() => _focusWithin = focused);
+            }
+          },
+          child: NeuFocusable(
+            // Never null, so a playing card stays a Tab stop: its menu
+            // (Show in Explorer, Delete) is still worth reaching while its
+            // primary action is to do nothing, exactly as a click does.
+            onActivate: _primaryAction ?? () {},
+            semanticLabel: _semanticLabel,
+            toggled: widget.isMultiSelectMode ? widget.isSelected : null,
+            focusRadius: NeuRadius.r16,
+            child: MouseRegion(
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
-          onTap: widget.isMultiSelectMode
-              ? () => widget.onSelected?.call(!widget.isSelected)
-              : (widget.isPlaying ? null : widget.onPlay),
+          onTap: _primaryAction,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
-            transform: Matrix4.translationValues(0, _isHovered ? -2 : 0, 0),
+            transform: Matrix4.translationValues(0, _revealed ? -2 : 0, 0),
             decoration: NeuTheme.raisedDecoration(
               themeNotifier.isDarkTheme,
               radius: NeuRadius.r16,
@@ -233,7 +327,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                       color: widget.theme.primaryColor,
                       width: widget.isSelected ? 2.5 : 2.0,
                     )
-                  : (_isHovered
+                  : (_revealed
                       ? Border.all(color: widget.theme.primaryColor.withValues(alpha: 0.6), width: 1.5)
                       : null),
             ),
@@ -267,7 +361,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                       fit: StackFit.expand,
                       children: [
                         AnimatedScale(
-                          scale: _isHovered ? 1.035 : 1.0,
+                          scale: _revealed ? 1.035 : 1.0,
                           duration: const Duration(milliseconds: 220),
                           curve: Curves.easeOutCubic,
                           child: thumbnailUrl != null
@@ -302,7 +396,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                             right: 0,
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
-                              height: _isHovered ? 6.0 : 4.0,
+                              height: _revealed ? 6.0 : 4.0,
                               color: Colors.black45,
                               child: Align(
                                 alignment: Alignment.centerLeft,
@@ -331,8 +425,8 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                           color: (widget.vod.watchProgress! >= (widget.watchedThreshold / 100.0))
                                               ? widget.watchedProgressColor.withValues(alpha: 0.6)
                                               : widget.activeProgressColor.withValues(alpha: 0.6),
-                                          blurRadius: _isHovered ? 8.0 : 2.0,
-                                          spreadRadius: _isHovered ? 1.0 : 0.0,
+                                          blurRadius: _revealed ? 8.0 : 2.0,
+                                          spreadRadius: _revealed ? 1.0 : 0.0,
                                         ),
                                       ],
                                     ),
@@ -490,7 +584,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                             child: IgnorePointer(
                               child: AnimatedOpacity(
                               duration: const Duration(milliseconds: 150),
-                              opacity: (_isHovered && !widget.isPlaying) ? 1.0 : 0.0,
+                              opacity: (_revealed && !widget.isPlaying) ? 1.0 : 0.0,
                               child: Container(
                                 color: Colors.black.withValues(alpha: 0.4),
                                 child: Column(
@@ -588,7 +682,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                             ],
                                           ),
                                         ),
-                                        if (_isHovered) ...[
+                                        if (_revealed) ...[
                                           const SizedBox(width: NeuSpace.s6),
                                           _buildCardButton(
                                             onTap: widget.onCancel,
@@ -600,7 +694,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                       ],
                                     )
                                   : (widget.isDownloaded
-                                      ? (_isHovered
+                                      ? (_revealed
                                           ? Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
@@ -641,7 +735,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                                                 color: NeuTheme.liveText(themeNotifier.isDarkTheme),
                                               ),
                                             ))
-                                      : (_isHovered
+                                      : (_revealed
                                           ? _buildCardButton(
                                               onTap: widget.onDownload,
                                               icon: Icons.download,
@@ -684,6 +778,9 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
             ),
           ),
         ),
