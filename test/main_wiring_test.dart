@@ -108,4 +108,10 @@ void main() {
     expect(call.substring(call.indexOf('onSurvived:')),
         contains('_downloads.unfreeze()'));
   });
+
+  test("the surface engine's status says which switch forced Canvas", () {
+    expect(src, contains("'--canvas-engine flag'"));
+    expect(src, contains("'Simple rendering setting'"));
+    expect(src, contains('forceCanvasReason: canvasReason'));
+  });
 }

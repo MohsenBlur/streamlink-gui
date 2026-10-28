@@ -134,8 +134,11 @@ Future<void> _startApp(List<String> args) async {
   // on failure rather than to a blank window. Settings' "Simple rendering"
   // and --canvas-engine skip the shader outright - the switch for a machine
   // where it renders, but slowly or wrongly, which no self-test can see.
+  final canvasReason = args.contains('--canvas-engine')
+      ? '--canvas-engine flag'
+      : (settings.canvasEngine ? 'Simple rendering setting' : null);
   await LitSurfaceProgram.load(
-      forceCanvas: args.contains('--canvas-engine') || settings.canvasEngine);
+      forceCanvas: canvasReason != null, forceCanvasReason: canvasReason);
   milestone('surface engine: ${LitSurfaceProgram.status}');
 
   // The typography gate. Off unless asked for, and it cannot be a unit test:
