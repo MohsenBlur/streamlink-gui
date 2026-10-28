@@ -247,7 +247,8 @@ class SkeuoDecoration extends Decoration {
   /// screen bezel over a video thumbnail, where an opaque shader face would
   /// obliterate the picture), and every paint before the program loads or
   /// after it fails, which is the same surface the app shipped through
-  /// v1.6.0.
+  /// v1.6.0. "Fails" includes failing to render after a successful load, and
+  /// being switched off - see `LitSurfaceProgram`.
   bool get rendersLit =>
       params.lit != null &&
       params.gradientOverride == null &&
@@ -595,31 +596,66 @@ class SurfaceParams {
   }
 }
 
-class _SkeuoPainter extends BoxPainter {
-  _SkeuoPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
-
-  final SkeuoDecoration decoration;
-
+/// The texture-cache half of both painters' lifecycles.
+///
+/// `TextureCache` queues a callback per in-flight tile, and both painters used
+/// to hand it a fresh closure on every paint that missed. A surface repainting
+/// while its tile generated (a hover, a resize drag, a spinner next to it)
+/// therefore queued one closure per frame, each holding the painter alive, and
+/// a painter torn down mid-generation left its closures behind in a static
+/// queue. One stable callback per painter makes the queue a set of surfaces
+/// rather than a log of paints, and [dispose] withdraws it.
+mixin _TileRequester on BoxPainter {
   /// Set once this painter is torn down.
   ///
-  /// `TextureCache` holds `onChanged` - which `RenderDecoratedBox` wires to its
-  /// own `markNeedsPaint` - in a static queue with no unregister path. A
-  /// textured surface that leaves the tree while its tile is generating (the
-  /// frame or two after launch, or after a material switch) therefore leaves a
-  /// dead callback behind, and the cache invokes it when the tile lands.
-  ///
-  /// In release that is harmless: `RenderDecoratedBox.detach` already set
-  /// `_needsPaint`, so `markNeedsPaint` early-returns. In debug it trips
+  /// [dispose] cancels the callback, so the cache should never invoke it
+  /// afterwards. The guard stays because being wrong is not cheap: in release a
+  /// late call is harmless (`RenderDecoratedBox.detach` already set
+  /// `_needsPaint`, so `markNeedsPaint` early-returns), but in debug it trips
   /// `assert(!_debugDisposed)`, and the throw aborts the loop that notifies
-  /// everyone else in the queue - so a *live* surface behind the dead one is
-  /// left untextured until something unrelated repaints it.
+  /// everyone else in the queue - leaving a *live* surface behind the dead one
+  /// untextured until something unrelated repaints it.
   bool _disposed = false;
+
+  TileKey? _pendingTile;
+
+  /// `onChanged` is what `RenderDecoratedBox` wires to its own
+  /// `markNeedsPaint`, so a landed tile repaints exactly this box.
+  ///
+  /// A method, handed over as a tear-off: two tear-offs of one method on one
+  /// painter compare equal, which is all the cache's set needs to register a
+  /// painter once however often it paints.
+  void _tileLanded() {
+    if (!_disposed) onChanged?.call();
+  }
+
+  /// Asks the cache for [key] after a miss.
+  ///
+  /// A painter with no `onChanged` (a test or a tool painting straight into a
+  /// recorder) has nobody to tell when it lands, so it asks for nothing.
+  void _requestTile(TileKey key) {
+    if (onChanged == null) return;
+    final previous = _pendingTile;
+    if (previous != null && previous != key) {
+      TextureCache.cancel(previous, _tileLanded);
+    }
+    _pendingTile = key;
+    TextureCache.request(key, _tileLanded);
+  }
 
   @override
   void dispose() {
     _disposed = true;
+    final pending = _pendingTile;
+    if (pending != null) TextureCache.cancel(pending, _tileLanded);
     super.dispose();
   }
+}
+
+class _SkeuoPainter extends BoxPainter with _TileRequester {
+  _SkeuoPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
+
+  final SkeuoDecoration decoration;
 
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
@@ -715,13 +751,7 @@ class _SkeuoPainter extends BoxPainter {
       // Miss: paint no grain this frame and ask for it. The surface reads as
       // an untextured material until the tile lands, which is a frame later
       // and indistinguishable in practice.
-      final notify = onChanged;
-      if (notify != null) {
-        // Guarded, not raw: see `_disposed`.
-        TextureCache.request(key, () {
-          if (!_disposed) notify();
-        });
-      }
+      _requestTile(key);
       return;
     }
 
@@ -770,6 +800,36 @@ class _SkeuoPainter extends BoxPainter {
     _draw(canvas, rect, p, Paint()..shader = gradient.createShader(rect));
   }
 
+  /// The bevel's envelope, or null for a uniform ring.
+  ///
+  /// A function of the params alone, which a painter never outlives, so it is
+  /// built once per painter. It used to be rebuilt - seventeen stops and a
+  /// `pow` each - on every paint of every bezel in a scrolling grid. Only
+  /// `createShader` depends on the rect, and that stays per paint.
+  late final SweepGradient? _bevelSweep = _bevelEnvelope(decoration.params);
+
+  static SweepGradient? _bevelEnvelope(SurfaceParams p) {
+    if (p.bevelAmbientFloor >= 1.0) return null;
+    // A sweep centred on the shape, peaking toward the light and dimming to
+    // the ambient floor on the far side. A constant-alpha ring reads as a CSS
+    // border rather than a curved edge catching a light.
+    final l = p.toLight;
+    final lightAngle = math.atan2(l.dy, l.dx);
+    const steps = 16;
+    final colors = <Color>[];
+    final stops = <double>[];
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final delta = math.cos(t * 2 * math.pi - lightAngle).clamp(-1.0, 1.0);
+      final env = p.bevelAmbientFloor +
+          (1 - p.bevelAmbientFloor) *
+              math.pow(math.max(0.0, delta), p.bevelSweepExponent).toDouble();
+      colors.add(p.bevelColour.withValues(alpha: p.bevelColour.a * env));
+      stops.add(t);
+    }
+    return SweepGradient(colors: colors, stops: stops);
+  }
+
   /// Layer 5 — the edge.
   ///
   /// A uniform ring when the material says so; otherwise an envelope that is
@@ -780,29 +840,11 @@ class _SkeuoPainter extends BoxPainter {
     final w = p.bevelWidth;
     final paint = Paint();
 
-    if (p.bevelAmbientFloor >= 1.0) {
+    final sweep = _bevelSweep;
+    if (sweep == null) {
       paint.color = p.bevelColour;
     } else {
-      // A sweep centred on the shape, peaking toward the light and dimming to
-      // the ambient floor on the far side. A constant-alpha ring reads as a CSS
-      // border rather than a curved edge catching a light.
-      final l = p.toLight;
-      final lightAngle = math.atan2(l.dy, l.dx);
-      const steps = 16;
-      final colors = <Color>[];
-      final stops = <double>[];
-      for (var i = 0; i <= steps; i++) {
-        final t = i / steps;
-        final delta =
-            math.cos(t * 2 * math.pi - lightAngle).clamp(-1.0, 1.0);
-        final env = p.bevelAmbientFloor +
-            (1 - p.bevelAmbientFloor) *
-                math.pow(math.max(0.0, delta), p.bevelSweepExponent).toDouble();
-        colors.add(p.bevelColour.withValues(alpha: p.bevelColour.a * env));
-        stops.add(t);
-      }
-      paint.shader = SweepGradient(colors: colors, stops: stops)
-          .createShader(rect);
+      paint.shader = sweep.createShader(rect);
     }
 
     // Matched to `BoxBorder._paintUniformBorderWithRadius`, which fills the
@@ -832,6 +874,13 @@ class _SkeuoPainter extends BoxPainter {
   /// leaves a dark band on the edge the light does not reach, which is what an
   /// inset shadow is. `BlurStyle.inner` fades inward from every edge equally
   /// and cannot express the offset.
+  ///
+  /// The band is a `drawDRRect` - the outer rect and the hole as one even-odd
+  /// ring - rather than a `Path.combine` difference. Same region, same blur,
+  /// same pixels (`bezel_equivalence_test` holds every shipped bezel and recess
+  /// byte-for-byte to the boolean version), but without a PathOps boolean per
+  /// layer per paint on the UI thread: every VOD card and Library thumbnail
+  /// carries a bezel, and bezels always paint through here.
   void _paintInset(Canvas canvas, Rect rect, SurfaceParams p) {
     if (p.inset.isEmpty || p.depth <= 0) return;
     final clip = decoration.getClipPath(rect, TextDirection.ltr);
@@ -853,25 +902,38 @@ class _SkeuoPainter extends BoxPainter {
         // oval pressed into a round hole. Every channel avatar in the sidebar
         // and the rail is one of these, and so is the circular add button.
         //
-        // `_draw` cannot be reused here because this is a Path for
-        // `Path.combine`, not a fill.
-        final hole = Path();
-        if (p.circle) {
-          hole.addOval(shifted);
+        // `_draw` cannot be reused here because this is a ring, not a fill.
+        // An RRect whose radii are half its sides IS an oval to Skia, which
+        // adds it to the ring exactly as `addOval` would.
+        final hole = p.circle
+            ? RRect.fromRectXY(shifted, shifted.width / 2, shifted.height / 2)
+            : RRect.fromRectAndRadius(shifted, Radius.circular(p.radius));
+        final outer = rect.inflate(
+            sigma * 4 + (p.circle ? rect.shortestSide / 2 : p.radius));
+        final paint = Paint()
+          ..color = l.color.withValues(alpha: l.color.a * p.insetStrength)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma);
+        // drawDRRect's precondition is Skia's, not ours: it draws NOTHING
+        // when the hole is empty or pokes outside the outer rect, where the
+        // difference still leaves a band. The outer rect is inflated by four
+        // sigmas plus the radius, so no shipped material comes near that -
+        // but an extreme offset must lose its speed, not its recess.
+        final contained = shifted.width > 0 &&
+            shifted.height > 0 &&
+            outer.left <= shifted.left &&
+            outer.top <= shifted.top &&
+            outer.right >= shifted.right &&
+            outer.bottom >= shifted.bottom;
+        if (contained) {
+          canvas.drawDRRect(RRect.fromRectAndRadius(outer, Radius.zero), hole,
+              paint);
         } else {
-          hole.addRRect(
-              RRect.fromRectAndRadius(shifted, Radius.circular(p.radius)));
+          canvas.drawPath(
+            Path.combine(PathOperation.difference, Path()..addRect(outer),
+                Path()..addRRect(hole)),
+            paint,
+          );
         }
-        final outer = Path()
-          ..addRect(rect.inflate(
-              sigma * 4 + (p.circle ? rect.shortestSide / 2 : p.radius)));
-        final band = Path.combine(PathOperation.difference, outer, hole);
-        canvas.drawPath(
-          band,
-          Paint()
-            ..color = l.color.withValues(alpha: l.color.a * p.insetStrength)
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma),
-        );
       }
     } finally {
       // RenderDecoratedBox throws in debug if the painter's save count differs.
@@ -965,24 +1027,39 @@ ui.Image _fallbackGrain() {
   return _fallbackGrainImage!;
 }
 
-class _LitPainter extends BoxPainter {
-  _LitPainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
+class _LitPainter extends BoxPainter with _TileRequester {
+  _LitPainter(this.decoration, VoidCallback? onChanged) : super(onChanged) {
+    // See `LitSurfaceProgram.disable`: this box is lit-painted and must be
+    // told to repaint if the engine is switched off under it.
+    if (onChanged != null) LitSurfaceProgram.addEngineListener(onChanged);
+  }
 
   final SkeuoDecoration decoration;
 
-  /// Same contract as `_SkeuoPainter._disposed`: `TextureCache` holds
-  /// `onChanged` in a static queue with no unregister path, so a painter
-  /// that dies while its tile is generating must absorb the callback.
-  bool _disposed = false;
+  /// The Canvas painter this one hands over to once the lit engine is gone.
+  ///
+  /// The program can be switched off after this painter was built - a late
+  /// self-test failure, or the kill switch at runtime - and the decoration
+  /// still compares equal, so nothing rebuilds the painter. Reading
+  /// `LitSurfaceProgram.shared` then would be a null dereference on every
+  /// lit surface in the app; delegating keeps them painting.
+  _SkeuoPainter? _canvasFallback;
 
   @override
   void dispose() {
-    _disposed = true;
+    final listener = onChanged;
+    if (listener != null) LitSurfaceProgram.removeEngineListener(listener);
+    _canvasFallback?.dispose();
     super.dispose();
   }
 
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
+    if (!LitSurfaceProgram.ready) {
+      (_canvasFallback ??= _SkeuoPainter(decoration, onChanged))
+          .paint(canvas, offset, configuration);
+      return;
+    }
     final size = configuration.size;
     if (size == null || size.isEmpty) return;
     final p = decoration.params;
@@ -1121,12 +1198,7 @@ class _LitPainter extends BoxPainter {
         tileW = tex.tileDevicePx.width;
         tileH = tex.tileDevicePx.height;
       } else {
-        final notify = onChanged;
-        if (notify != null) {
-          TextureCache.request(key, () {
-            if (!_disposed) notify();
-          });
-        }
+        _requestTile(key);
       }
     }
     f(texStrength);
