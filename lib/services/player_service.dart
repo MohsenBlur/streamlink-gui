@@ -31,14 +31,17 @@ class PlayerService {
   ///
   /// [progressPollInterval] is how often a playing VOD's player is asked
   /// where it is; tests shorten it to drive the tracker in milliseconds.
+  /// [apiService] is where watch positions are synced to Twitch.
   PlayerService({
     ProcessStarter? startProcess,
     ProcessRunner? runProcess,
     this.progressPollInterval = const Duration(seconds: 2),
+    TwitchApiService? apiService,
   })  : _startProcess = startProcess ?? Process.start,
-        _runProcess = runProcess ?? Process.run;
+        _runProcess = runProcess ?? Process.run,
+        _apiService = apiService ?? TwitchApiService();
 
-  final TwitchApiService _apiService = TwitchApiService();
+  final TwitchApiService _apiService;
   final ProcessStarter _startProcess;
   final ProcessRunner _runProcess;
   final Duration progressPollInterval;
@@ -199,6 +202,20 @@ class PlayerService {
   /// came up in the wrong place, not a user rewatching.
   void Function(String vodId, int position, double progress, int sessionAgeMs)?
       onWatchProgressUpdated;
+
+  /// Records a corroborated watch position and answers whether it was kept.
+  ///
+  /// The local store refuses a position that looks like a failed resume - far
+  /// behind the furthest point, early in a session - and answering false
+  /// keeps that position off Twitch too. The tracker used to push every
+  /// position regardless, through [onWatchProgressUpdated], which cannot say
+  /// no: a player that came up near 0 on a VOD stored at 2h30m was refused
+  /// locally and still overwrote the remote resume point every two seconds,
+  /// where other devices and Twitch's own UI read it.
+  ///
+  /// Used in place of [onWatchProgressUpdated] when set.
+  bool Function(String vodId, int position, double progress, int sessionAgeMs)?
+      recordWatchProgress;
 
   /// Ports released recently, and when.
   ///
@@ -1538,11 +1555,20 @@ class PlayerService {
     // 1. Always update local progress immediately
     final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
     final progress = totalSeconds > 0 ? position / totalSeconds : 0.0;
-    onWatchProgressUpdated?.call(vod.id, position, progress,
-        DateTime.now().millisecondsSinceEpoch - sessionStartedMs);
+    final sessionAgeMs =
+        DateTime.now().millisecondsSinceEpoch - sessionStartedMs;
+    final record = recordWatchProgress;
+    final bool kept;
+    if (record != null) {
+      kept = record(vod.id, position, progress, sessionAgeMs);
+    } else {
+      onWatchProgressUpdated?.call(vod.id, position, progress, sessionAgeMs);
+      kept = true; // this sink cannot refuse
+    }
 
-    // 2. Sync to Twitch in the background if token exists
-    if (webToken.isNotEmpty) {
+    // 2. Sync to Twitch in the background if token exists - and only what the
+    // local store kept.
+    if (kept && webToken.isNotEmpty) {
       try {
         await _apiService.syncSingleVODProgressDirect(vod.id, position, webToken);
       } catch (_) {}
