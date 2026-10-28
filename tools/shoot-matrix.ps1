@@ -9,6 +9,8 @@
   Config is isolated: a portable.txt marker beside the exe makes the app read
   and write beside itself, and a copy of the real channels_config.json is
   staged there. The user's live settings and OAuth token are never written to.
+  Only the build under test is stopped and captured; an installed copy that
+  is running makes the launch refuse rather than shoot (see shoot.ps1).
 
   Build with -dart-define=APP_VERSION=99.0.0 so the updater never offers an
   update; the modal sits over the middle of every screen otherwise.
@@ -52,39 +54,16 @@ $SIZES = @(
     @{ w = 1600; h = 1000; label = '1600x1000' }
 )
 
-Assert-ReleaseBuild $Exe
+. (Join-Path $PSScriptRoot 'shoot-common.ps1')
 
 $repo = Split-Path -Parent $PSScriptRoot
-$relDir = Split-Path -Parent (Join-Path $repo $Exe)
-$cfgPath = Join-Path $relDir 'channels_config.json'
-$srcCfg = Join-Path $env:APPDATA 'TwitchStreamlinkGUI\channels_config.json'
-
-function Stop-App {
-    Get-Process streamlink_gui -ErrorAction SilentlyContinue |
-        ForEach-Object { $_.Kill(); $_.WaitForExit(5000) }
-    Start-Sleep -Milliseconds 600
-}
-
-function Set-IsolatedConfig([bool]$dark, [string]$accentHex) {
-    if (-not (Test-Path $cfgPath)) { Copy-Item $srcCfg $cfgPath -Force }
-    $json = Get-Content $cfgPath -Raw | ConvertFrom-Json
-    $json.settings.is_dark_theme = $dark
-    if ($accentHex) {
-        if ($dark) { $json.settings.dark_accent_color_hex = $accentHex }
-        else { $json.settings.light_accent_color_hex = $accentHex }
-    }
-    # The window opens at its stored size; start wide so the first capture is
-    # not fighting a 380px restore.
-    $json.settings.is_window_maximized = $false
-    $json.settings.window_width = 1600
-    $json.settings.window_height = 1000
-    $json | ConvertTo-Json -Depth 64 | Set-Content $cfgPath -Encoding utf8
-}
+# Previously the exe was joined onto the repo for the config but handed to
+# shoot.ps1 as given, which resolves it against the CURRENT directory - and an
+# absolute -Exe was joined onto the repo too. One full path for everything.
+$exeFull = Resolve-ShootExe $Exe $repo
+Assert-ReleaseBuild $exeFull
 
 New-Item -ItemType Directory -Path (Join-Path $repo "shots\$Phase") -Force | Out-Null
-if (-not (Test-Path (Join-Path $relDir 'portable.txt'))) {
-    New-Item -ItemType File -Path (Join-Path $relDir 'portable.txt') | Out-Null
-}
 
 $themes = if ($Theme -eq 'both') { @($true, $false) } else { @($Theme -eq 'dark') }
 
@@ -92,26 +71,46 @@ foreach ($dark in $themes) {
     $themeName = if ($dark) { 'dark' } else { 'light' }
     $suffix = if ($Accent) { "_$themeName`_accent" } else { "_$themeName" }
 
-    Stop-App
-    Set-IsolatedConfig -dark $dark -accentHex $Accent
+    Stop-AppAt $exeFull
+    $settings = @{
+        is_dark_theme       = $dark
+        # The window opens at its stored size; start wide so the first capture
+        # is not fighting a 380px restore.
+        is_window_maximized = $false
+        window_width        = 1600
+        window_height       = 1000
+        # A copied config that starts minimized would rest in the tray, and
+        # shoot.ps1 waits for the app to show its own window after a launch.
+        start_minimized     = $false
+    }
+    if ($Accent) {
+        if ($dark) { $settings.dark_accent_color_hex = $Accent }
+        else { $settings.light_accent_color_hex = $Accent }
+    }
+    Set-IsolatedConfig $exeFull $settings
 
     Write-Host "=== $themeName$(if ($Accent) { " (accent $Accent)" }) ===" -ForegroundColor Cyan
 
+    # Every capture after the launch attaches with -ExpectExe rather than
+    # -LaunchExe: if the build died between captures, relaunching it would
+    # silently shoot a fresh start instead of the state being reviewed.
     $first = $true
     foreach ($s in $SIZES) {
         $out = "shots/$Phase/home_$($s.label)$suffix.png"
-        $args = @{
-            Out      = $out
-            Width    = $s.w
-            Height   = $s.h
-            SettleMs = 1200
+        $shotArgs = @{
+            Out       = $out
+            Width     = $s.w
+            Height    = $s.h
+            SettleMs  = 1200
+            ExpectExe = $exeFull
         }
         if ($first) {
-            $args.LaunchExe = $Exe
-            $args.SettleMs = 3500     # first frame + channel load
+            $shotArgs.Remove('ExpectExe')
+            $shotArgs.LaunchExe = $exeFull
+            $shotArgs.SettleMs = 3500     # first frame + channel load
             $first = $false
         }
-        & (Join-Path $PSScriptRoot 'shoot.ps1') @args
+        & (Join-Path $PSScriptRoot 'shoot.ps1') @shotArgs
     }
 
     # Other screens, reached by clicking. Home alone is NOT enough coverage:
@@ -125,6 +124,7 @@ foreach ($dark in $themes) {
         Height   = 1000
         SettleMs = 3500
         ClickAt  = '120,400'         # first channel row in the sidebar
+        ExpectExe = $exeFull
     }
     & (Join-Path $PSScriptRoot 'shoot.ps1') @channelArgs
 
@@ -133,9 +133,10 @@ foreach ($dark in $themes) {
         NoResize = $true
         SettleMs = 2500
         ClickAt  = '100,960'         # Library button (the gear is at ~44)
+        ExpectExe = $exeFull
     }
     & (Join-Path $PSScriptRoot 'shoot.ps1') @libraryArgs
 }
 
-if (-not $KeepOpen) { Stop-App }
+if (-not $KeepOpen) { Stop-AppAt $exeFull }
 Write-Host "Matrix complete: shots/$Phase" -ForegroundColor Green

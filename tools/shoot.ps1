@@ -16,12 +16,27 @@
     380x500 minimum) are LOGICAL. On a scaled display those differ, so sizes
     here are logical and converted via the window's own DPI.
 
+  And one that produces a plausible image of the wrong thing: the top-level
+  window can be visible while the engine's FLUTTERVIEW child is hidden (the
+  invisible-window bug, audit C1). Only a transparent frame shows, and a
+  capture "succeeds" with the desktop behind it. Every capture therefore
+  asserts the child is visible first, and fails loudly when it is not.
+
 .EXAMPLE
   ./tools/shoot.ps1 -Out shots/baseline/home_1600x1000.png -Width 1600 -Height 1000
 
 .EXAMPLE
   # Capture whatever is on screen right now, without touching the window.
   ./tools/shoot.ps1 -Out shots/current.png -NoResize
+
+.NOTES
+  WHICH instance gets captured is the trap. The runner's single-instance
+  mutex has a fixed name, so while any copy runs - typically the installed
+  app resting in the tray - a dev build launched beside it exits at once, and
+  the old by-class lookup then found and shot the installed app. -LaunchExe
+  and -ExpectExe confine the lookup to one executable, a launch refuses to
+  start while another copy holds the mutex, and every capture prints the exe
+  it actually captured.
 #>
 [CmdletBinding()]
 param(
@@ -29,7 +44,11 @@ param(
     [int]$Width,
     [int]$Height,
     [switch]$NoResize,
+    # Launched when no window of THIS exe exists; any other copy of the app
+    # is ignored (and, if running, makes the launch refuse - see .NOTES).
     [string]$LaunchExe,
+    # Attach only to a window of this exe, and fail rather than launch it.
+    [string]$ExpectExe,
     # "x,y" in logical pixels relative to the window's top-left. Clicked after
     # resizing and before capturing, so screens reachable only by navigation
     # (the Library, a channel dashboard) can be captured too.
@@ -57,21 +76,19 @@ function Assert-ReleaseBuild([string]$exePath) {
 
 $ErrorActionPreference = 'Stop'
 
-# Best effort: shoot.ps1 attaches to a running window rather than launching one,
-# so it warns on the process it finds rather than on a path it was given.
-try {
-    $running = Get-Process streamlink_gui -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($running) { Assert-ReleaseBuild $running.Path }
-} catch {}
-
 Add-Type -AssemblyName System.Drawing
 
-if (-not ([System.Management.Automation.PSTypeName]'Win32Shot').Type) {
+# The type name carries a version because Add-Type cannot redefine a type in a
+# session that already loaded it: a shell that had run an older copy of this
+# script would keep the old class, and the first call to a member added since
+# would fail with "method not found". Bump the suffix whenever members change.
+if (-not ([System.Management.Automation.PSTypeName]'Win32ShotV2').Type) {
 Add-Type @'
 using System;
 using System.Text;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
-public class Win32Shot {
+public class Win32ShotV2 {
     public delegate bool EnumProc(IntPtr h, IntPtr l);
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
@@ -118,82 +135,203 @@ public class Win32Shot {
     // FLUTTER_RUNNER_WIN32_WINDOW_TRAY window, and the main window is HIDDEN
     // (not merely minimised) whenever the app is resting in the tray - which
     // is its normal state. Enumeration finds it in that state; we restore it
-    // afterwards.
-    public static IntPtr FindMainWindow(string cls) {
-        IntPtr found = IntPtr.Zero;
+    // afterwards. ALL matches, not the first: the class is the stock Flutter
+    // runner's, shared by every Flutter desktop app and every copy of this
+    // one, so the caller picks by owning process.
+    public static IntPtr[] FindMainWindows(string cls) {
+        var found = new List<IntPtr>();
         EnumWindows((h, l) => {
             var sb = new StringBuilder(256);
             GetClassNameW(h, sb, 256);
-            if (sb.ToString() == cls) { found = h; return false; }
+            if (sb.ToString() == cls) found.Add(h);
             return true;
         }, IntPtr.Zero);
-        return found;
+        return found.ToArray();
+    }
+
+    public static uint ProcessIdOf(IntPtr h) {
+        uint procId;
+        GetWindowThreadProcessId(h, out procId);
+        return procId;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
+    [DllImport("user32.dll")] public static extern int GetWindowLongW(IntPtr h, int index);
+
+    // The engine's render surface is a direct child of the runner window.
+    // Wrapped so the title really is null: PowerShell passes $null to a
+    // string parameter as "", which would match only an untitled child.
+    public static IntPtr FindChildByClass(IntPtr parent, string cls) {
+        return FindWindowExW(parent, IntPtr.Zero, cls, null);
     }
 }
 '@
 }
 
 $WINDOW_CLASS = 'FLUTTER_RUNNER_WIN32_WINDOW'
+$VIEW_CLASS = 'FLUTTERVIEW'
+$APP_PROCESS = 'streamlink_gui'
 $SW_RESTORE = 9
 $SW_SHOW = 5
 $PW_RENDERFULLCONTENT = 2
+$GWL_STYLE = -16
+$WS_VISIBLE = 0x10000000
 
-function Find-AppWindow {
-    $h = [Win32Shot]::FindMainWindow($WINDOW_CLASS)
-    if ($h -eq [IntPtr]::Zero) { return $null }
-    return $h
+function Get-WindowProcess([IntPtr]$h) {
+    return Get-Process -Id ([Win32ShotV2]::ProcessIdOf($h)) -ErrorAction SilentlyContinue
+}
+
+# The app's main window - of $exePath only, when given. $null (never
+# IntPtr.Zero, which PowerShell treats as TRUE) when there is none.
+function Find-AppWindow([string]$exePath) {
+    foreach ($h in [Win32ShotV2]::FindMainWindows($WINDOW_CLASS)) {
+        $proc = Get-WindowProcess $h
+        if (-not $proc -or $proc.ProcessName -ne $APP_PROCESS) { continue }
+        if ($exePath -and $proc.Path -ne $exePath) { continue }
+        return $h
+    }
+    return $null
+}
+
+# Every copy of the app in THIS logon session: the mutex is session-local, so
+# a copy another user runs does not block our launch.
+function Get-RunningApps {
+    $session = (Get-Process -Id $PID).SessionId
+    return @(Get-Process $APP_PROCESS -ErrorAction SilentlyContinue |
+        Where-Object { $_.SessionId -eq $session })
+}
+
+function Format-Apps($procs) {
+    return ($procs | ForEach-Object { if ($_.Path) { $_.Path } else { "pid $($_.Id)" } }) -join ', '
+}
+
+# Fails unless the engine's view inside $main is actually on screen.
+#
+# The invisible-window bug (audit C1): the runner window was shown and moved
+# while its FLUTTERVIEW child stayed hidden (style 0x40000000, WS_CHILD with
+# no WS_VISIBLE), so the user saw a transparent frame - and a capture of it
+# showed the desktop behind, which reads as a rendering problem rather than a
+# hidden window. IsWindowVisible on the CHILD is what tells them apart: it is
+# true only when the child and every parent carry WS_VISIBLE. A short poll
+# absorbs a view that appears a beat after its parent; the bug state lasts.
+function Assert-ContentViewVisible([IntPtr]$main) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $view = [Win32ShotV2]::FindChildByClass($main, $VIEW_CLASS)
+        if ($view -ne [IntPtr]::Zero -and [Win32ShotV2]::IsWindowVisible($view)) { return }
+        Start-Sleep -Milliseconds 250
+    } while ($sw.ElapsedMilliseconds -lt 3000)
+
+    $mainVisible = [Win32ShotV2]::IsWindowVisible($main)
+    if ($view -eq [IntPtr]::Zero) {
+        throw "No $VIEW_CLASS child under the app window (main visible=$mainVisible): the engine never attached its view. Capture refused."
+    }
+    $style = [Win32ShotV2]::GetWindowLongW($view, $GWL_STYLE)
+    $flag = if (($style -band $WS_VISIBLE) -ne 0) { 'WS_VISIBLE set, so a parent is hidden' } else { 'WS_VISIBLE clear' }
+    # Parenthesised: -f binds tighter than +, and would format only the last part.
+    throw (("$VIEW_CLASS is not visible (main visible=$mainVisible, view style=0x{0:X8}, $flag). " +
+        "The app is showing an empty frame - the invisible-window bug (audit C1) - and a capture " +
+        "would show only what is behind it, so none was taken.") -f $style)
 }
 
 # --- locate, launching if asked -------------------------------------------
-$hwnd = Find-AppWindow
+$targetExe = $null
+if ($LaunchExe -and $ExpectExe) { throw 'Pass -LaunchExe or -ExpectExe, not both.' }
+foreach ($given in @($LaunchExe, $ExpectExe)) {
+    if (-not $given) { continue }
+    if (-not (Test-Path $given)) { throw "Exe not found: $given" }
+    $targetExe = (Resolve-Path $given).ProviderPath
+}
+
+$hwnd = Find-AppWindow $targetExe
 
 if (-not $hwnd -and $LaunchExe) {
-    if (-not (Test-Path $LaunchExe)) { throw "LaunchExe not found: $LaunchExe" }
-    Write-Host "Launching $LaunchExe ..." -ForegroundColor Gray
-    Start-Process -FilePath (Resolve-Path $LaunchExe)
+    # A second launch would only raise the running copy's window and exit, and
+    # the capture below would then be of THAT copy. Refuse; the user's own
+    # instance is theirs to quit, not ours to kill.
+    $holders = Get-RunningApps
+    if ($holders.Count -gt 0) {
+        throw ("Another copy of the app is running: $(Format-Apps $holders). Its " +
+            "single-instance mutex would make this launch exit at once and the " +
+            "capture would show that copy, not $targetExe. Quit it (tray > Exit) and retry.")
+    }
+    Write-Host "Launching $targetExe ..." -ForegroundColor Gray
+    $launched = Start-Process -FilePath $targetExe -PassThru
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while (-not $hwnd -and $sw.ElapsedMilliseconds -lt $LaunchTimeoutMs) {
         Start-Sleep -Milliseconds 300
-        $hwnd = Find-AppWindow
+        if ($launched.HasExited) {
+            throw "$targetExe exited during startup, before it created a window."
+        }
+        $hwnd = Find-AppWindow $targetExe
     }
-    if ($hwnd) { Start-Sleep -Milliseconds 2500 }   # let first frame + data settle
+    if ($hwnd) {
+        # The window exists hidden from creation; the runner shows it on the
+        # first frame. Wait for the app to do that rather than showing it from
+        # here: forcing it up before the first frame would be the harness
+        # racing the very startup path the view check below exists to test.
+        $shownSw = [Diagnostics.Stopwatch]::StartNew()
+        while (-not [Win32ShotV2]::IsWindowVisible($hwnd) -and $shownSw.ElapsedMilliseconds -lt 10000) {
+            Start-Sleep -Milliseconds 200
+            if ($launched.HasExited) { throw "$targetExe exited during startup, after creating its window." }
+        }
+        if (-not [Win32ShotV2]::IsWindowVisible($hwnd)) {
+            Write-Warning 'The app did not show its own window within 10s (set to start minimized?) - showing it from here.'
+        }
+        Start-Sleep -Milliseconds 2500   # let first frame + data settle
+    }
 }
 
 if (-not $hwnd) {
-    throw "No visible '$WINDOW_CLASS' window. Start the app, or pass -LaunchExe. (Note: a single-instance mutex means a second launch only focuses the existing window.)"
+    $running = Get-RunningApps
+    $seen = if ($running.Count -gt 0) { "Running: $(Format-Apps $running)." } else { 'No copy of the app is running.' }
+    if ($targetExe) {
+        throw "No '$WINDOW_CLASS' window belongs to $targetExe. $seen"
+    }
+    throw "No '$WINDOW_CLASS' window of $APP_PROCESS. Start the app, or pass -LaunchExe. $seen"
 }
+
+# Say which instance this is, every time: a capture of the wrong copy looks
+# exactly like a capture of the right one.
+$owner = Get-WindowProcess $hwnd
+$ownerPath = if ($owner -and $owner.Path) { $owner.Path } else { '<unknown path>' }
+Write-Host ("Capturing {0} (pid {1})" -f $ownerPath, $owner.Id) -ForegroundColor Gray
+Assert-ReleaseBuild $ownerPath
 
 # --- size ------------------------------------------------------------------
 # The window may be hidden (resting in the tray) or minimised; both must be
 # undone before it will paint anything worth capturing.
-$wasHidden = -not [Win32Shot]::IsWindowVisible($hwnd)
+$wasHidden = -not [Win32ShotV2]::IsWindowVisible($hwnd)
 if ($wasHidden) {
     Write-Host 'Window was hidden (tray) - showing it for the capture.' -ForegroundColor Gray
-    [Win32Shot]::ShowWindow($hwnd, $SW_SHOW) | Out-Null
+    [Win32ShotV2]::ShowWindow($hwnd, $SW_SHOW) | Out-Null
 }
-[Win32Shot]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
-[Win32Shot]::SetForegroundWindow($hwnd) | Out-Null
+[Win32ShotV2]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
+[Win32ShotV2]::SetForegroundWindow($hwnd) | Out-Null
 
 if (-not $NoResize) {
     if (-not $Width -or -not $Height) { throw 'Provide -Width and -Height, or pass -NoResize.' }
-    $dpi = [Win32Shot]::GetDpiForWindow($hwnd)
+    $dpi = [Win32ShotV2]::GetDpiForWindow($hwnd)
     if ($dpi -le 0) { $dpi = 96 }
     $scale = $dpi / 96.0
     $pw = [int][Math]::Round($Width * $scale)
     $ph = [int][Math]::Round($Height * $scale)
     Write-Host ("Resizing to {0}x{1} logical ({2}x{3} physical @ {4} dpi)" -f $Width, $Height, $pw, $ph, $dpi) -ForegroundColor Gray
-    [Win32Shot]::MoveWindow($hwnd, 80, 60, $pw, $ph, $true) | Out-Null
+    [Win32ShotV2]::MoveWindow($hwnd, 80, 60, $pw, $ph, $true) | Out-Null
 }
 
 Start-Sleep -Milliseconds $SettleMs   # let Flutter relayout and repaint
 
+# Before the click too: a click on a hidden view lands on whatever is behind.
+Assert-ContentViewVisible $hwnd
+
 if ($ClickAt) {
     $parts = $ClickAt.Split(',')
     if ($parts.Count -ne 2) { throw "ClickAt must be 'x,y'." }
-    $r0 = New-Object Win32Shot+RECT
-    [Win32Shot]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
+    $r0 = New-Object Win32ShotV2+RECT
+    [Win32ShotV2]::GetWindowRect($hwnd, [ref]$r0) | Out-Null
     $rect0Right = $r0.Right
-    $dpiC = [Win32Shot]::GetDpiForWindow($hwnd); if ($dpiC -le 0) { $dpiC = 96 }
+    $dpiC = [Win32ShotV2]::GetDpiForWindow($hwnd); if ($dpiC -le 0) { $dpiC = 96 }
     $sc = $dpiC / 96.0
     $cx = $r0.Left + [int]([double]$parts[0].Trim() * $sc)
     $cy = $r0.Top  + [int]([double]$parts[1].Trim() * $sc)
@@ -205,22 +343,22 @@ if ($ClickAt) {
     $HWND_TOPMOST = New-Object IntPtr(-1)
     $HWND_NOTOPMOST = New-Object IntPtr(-2)
     $SWP_NOMOVE_NOSIZE_NOACTIVATE = 0x0002 -bor 0x0001 -bor 0x0010
-    [Win32Shot]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
-    [Win32Shot]::SetForegroundWindow($hwnd) | Out-Null
+    [Win32ShotV2]::SetWindowPos($hwnd, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE_NOSIZE_NOACTIVATE) | Out-Null
+    [Win32ShotV2]::SetForegroundWindow($hwnd) | Out-Null
     Start-Sleep -Milliseconds 350
 
-    $pt = New-Object Win32Shot+POINT
+    $pt = New-Object Win32ShotV2+POINT
     $pt.X = $cx; $pt.Y = $cy
-    $under = [Win32Shot]::WindowFromPoint($pt)
+    $under = [Win32ShotV2]::WindowFromPoint($pt)
     $sb = New-Object System.Text.StringBuilder 256
-    [Win32Shot]::GetClassNameW($under, $sb, 256) | Out-Null
+    [Win32ShotV2]::GetClassNameW($under, $sb, 256) | Out-Null
     # FLUTTERVIEW is the app's own child render surface, so it counts as a hit.
     $hitClass = $sb.ToString()
     if ($hitClass -ne $WINDOW_CLASS -and $hitClass -ne 'FLUTTERVIEW') {
         Write-Warning "Point ($cx,$cy) belongs to '$hitClass', not the app - the click will miss."
     }
 
-    [Win32Shot]::ClickAbsolute($cx, $cy)
+    [Win32ShotV2]::ClickAbsolute($cx, $cy)
     Start-Sleep -Milliseconds 900
     # NOTE: topmost is NOT dropped here. Doing so immediately after the click
     # let the window fall behind, and PrintWindow then captured a released
@@ -231,13 +369,13 @@ if ($ClickAt) {
     # Park the cursor off the window before capturing. Leaving it where it
     # clicked leaves a hover highlight on whatever is under it, which shows up
     # as a real-looking difference when comparing two phases' captures.
-    [Win32Shot]::SetCursorPos($rect0Right + 40, $r0.Top + 4) | Out-Null
+    [Win32ShotV2]::SetCursorPos($rect0Right + 40, $r0.Top + 4) | Out-Null
     Start-Sleep -Milliseconds 500
 }
 
 # --- capture ---------------------------------------------------------------
-$rect = New-Object Win32Shot+RECT
-[Win32Shot]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
+$rect = New-Object Win32ShotV2+RECT
+[Win32ShotV2]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
 $w = $rect.Right - $rect.Left
 $h = $rect.Bottom - $rect.Top
 if ($w -le 0 -or $h -le 0) { throw "Window has no area ($w x $h)." }
@@ -250,7 +388,7 @@ try {
         try {
             # PW_RENDERFULLCONTENT is load-bearing: without it a Flutter window
             # captures as a black rectangle.
-            $ok = [Win32Shot]::PrintWindow($hwnd, $hdc, $PW_RENDERFULLCONTENT)
+            $ok = [Win32ShotV2]::PrintWindow($hwnd, $hdc, $PW_RENDERFULLCONTENT)
             if (-not $ok) { throw 'PrintWindow failed.' }
         } finally { $g.ReleaseHdc($hdc) }
     } finally { $g.Dispose() }
@@ -276,7 +414,7 @@ try {
 } finally { $check.Dispose() }
 
 if ($script:restoreTopmost) {
-    [Win32Shot]::SetWindowPos($hwnd, (New-Object IntPtr(-2)), 0, 0, 0, 0, 0x0002 -bor 0x0001 -bor 0x0010) | Out-Null
+    [Win32ShotV2]::SetWindowPos($hwnd, (New-Object IntPtr(-2)), 0, 0, 0, 0, 0x0002 -bor 0x0001 -bor 0x0010) | Out-Null
 }
 
 Write-Host ("Saved {0} ({1}x{2})" -f $Out, $w, $h) -ForegroundColor Green

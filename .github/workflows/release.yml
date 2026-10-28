@@ -78,8 +78,10 @@ jobs:
           flutter-version: ${{ steps.sdk.outputs.flutter }}
           cache: true
 
+      # A release builds exactly what pubspec.lock records, or nothing: see the
+      # --enforce-lockfile note in ci.yml.
       - name: Install Dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       - name: Analyze Project Code
         run: flutter analyze

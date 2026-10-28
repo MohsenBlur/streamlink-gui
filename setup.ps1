@@ -119,6 +119,13 @@ Write-Host "Configuring local Flutter..." -ForegroundColor Yellow
 & "$FlutterExe" config --enable-windows-desktop | Out-Null
 Write-Host "Local Flutter configured successfully." -ForegroundColor Green
 
+# Step 2 skips the download for ANY existing SDK, so after a pin bump this is
+# where a stale one is caught. build.ps1 and run.ps1 run the same check.
+& (Join-Path $PSScriptRoot "tools\assert-flutter-sdk.ps1") -SdkRoot (Join-Path $SdkDir "flutter")
+if ($LastExitCode -ne 0) {
+    Write-Error "The Flutter SDK in $SdkDir is not the pinned $FlutterVersion."
+}
+
 # 4. Initialize Flutter project if not already initialized
 if (-not (Test-Path (Join-Path $PSScriptRoot "pubspec.yaml"))) {
     Write-Host "Initializing new Flutter Windows project..." -ForegroundColor Yellow
