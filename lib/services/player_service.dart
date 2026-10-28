@@ -18,15 +18,51 @@ typedef ProcessStarter = Future<Process> Function(
     String executable, List<String> arguments,
     {Map<String, String>? environment});
 
+/// Runs a short command to completion; `Process.run`, in production. Used
+/// for taskkill.
+typedef ProcessRunner = Future<ProcessResult> Function(
+    String executable, List<String> arguments);
+
 class PlayerService {
   /// [startProcess] stands in for every child this service launches -
-  /// streamlink, yt-dlp, the players and the mpv bridge - so tests can drive
-  /// the real launch, exit and retry handling without running any of them.
-  PlayerService({ProcessStarter? startProcess})
-      : _startProcess = startProcess ?? Process.start;
+  /// streamlink, yt-dlp, the players and the mpv bridge - and [runProcess]
+  /// for taskkill, so tests can drive the real launch, exit, retry and stop
+  /// handling without running or killing anything.
+  PlayerService({ProcessStarter? startProcess, ProcessRunner? runProcess})
+      : _startProcess = startProcess ?? Process.start,
+        _runProcess = runProcess ?? Process.run;
 
   final TwitchApiService _apiService = TwitchApiService();
   final ProcessStarter _startProcess;
+  final ProcessRunner _runProcess;
+
+  /// Ends [procs] and everything they started, with one taskkill.
+  ///
+  /// Asynchronous on purpose. Every stop used to be `Process.runSync`, which
+  /// holds the UI isolate for the whole of taskkill's run - a process start
+  /// plus a walk of the process table, routinely a few hundred milliseconds -
+  /// so a Stop dropped frames, and quitting with a few streams, downloads and
+  /// an mpv bridge ran them back to back and froze the window for seconds.
+  ///
+  /// taskkill takes any number of /PID arguments and still ends the live ones
+  /// when some are already gone (it then exits 128), so a batch needs no
+  /// pre-filtering.
+  Future<ProcessResult?> _endProcessTrees(Iterable<Process> procs,
+      {bool force = true}) async {
+    final targets = procs.toList();
+    if (targets.isEmpty) return null;
+    if (!Platform.isWindows) {
+      for (final proc in targets) {
+        proc.kill();
+      }
+      return null;
+    }
+    return _runProcess('taskkill', [
+      if (force) '/F',
+      '/T',
+      for (final proc in targets) ...['/PID', '${proc.pid}'],
+    ]);
+  }
 
   String _getExecutablePath(String name) {
     final exeName = Platform.isWindows ? '$name.exe' : name;
@@ -121,9 +157,8 @@ class PlayerService {
       logKeyForLiveStream(channelName.trim());
 
   /// Stops the live stream for [channelName], if one is running.
-  void killLiveStream(String channelName) {
-    killProcess(liveStreamKey(channelName));
-  }
+  Future<void> killLiveStream(String channelName) =>
+      killProcess(liveStreamKey(channelName));
 
   
   // Windows PowerShell bridges
@@ -728,11 +763,7 @@ class PlayerService {
     if (proc != null) {
       _cancelledDownloads.add(vodId);
       try {
-        if (Platform.isWindows) {
-          await Process.run('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
+        await _endProcessTrees([proc]);
       } catch (_) {}
     }
 
@@ -1274,7 +1305,7 @@ class PlayerService {
               // closing it here preserves the close-at-end behaviour every
               // release before keep-open had. Marked user-initiated so the
               // teardown is snackbar-free.
-              killProcess(vod.id);
+              unawaited(killProcess(vod.id));
             }
         }
       }
@@ -1617,15 +1648,9 @@ class PlayerService {
   void _stopWindowsIpcBridge(String vodId) {
     _winIpcBridgeTokens.remove(vodId);
     final proc = _winIpcBridges.remove(vodId);
-    if (proc != null) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
-    }
+    // Fire and forget: called from exit handlers, which have nothing to wait
+    // for, and a relay that survives this is reaped by the job object at exit.
+    if (proc != null) _endProcessTrees([proc]).ignore();
   }
 
   /// A premature-EOF verdict arrived from the monitor: decide whether to
@@ -1739,7 +1764,7 @@ class PlayerService {
 
     if (Platform.isWindows) {
       try {
-        Process.runSync('taskkill', ['/T', '/PID', '${proc.pid}']);
+        await _endProcessTrees([proc], force: false);
       } catch (_) {}
       // Poll rather than sleep a fixed guess: a player that closes in 200ms
       // should not cost two seconds on every stop.
@@ -1748,10 +1773,10 @@ class PlayerService {
         if (!activePlayerProcesses.containsKey(key)) return;
       }
     }
-    killProcess(key, markUserInitiated: markUserInitiated);
+    await killProcess(key, markUserInitiated: markUserInitiated);
   }
 
-  void killProcess(String key, {bool markUserInitiated = true}) {
+  Future<void> killProcess(String key, {bool markUserInitiated = true}) async {
     // Download tabs never route here: cancelling a download must go through
     // cancelVodDownload so the _cancelledDownloads marker and partial-file
     // cleanup happen. A raw taskkill on yt-dlp would leave both dangling.
@@ -1763,19 +1788,14 @@ class PlayerService {
       // immediately, already sees it.
       if (markUserInitiated) _stoppedByUser.add(key);
       try {
-        if (Platform.isWindows) {
-          final r =
-              Process.runSync('taskkill', ['/F', '/T', '/PID', '${proc.pid}']);
-          if (r.exitCode != 0) {
-            // Swallowed silently until now. If the kill misses, the tree never
-            // dies, `proc.exitCode` never fires, and a heal waiting on that
-            // exit simply never happens — with nothing anywhere saying so.
-            log(key,
-                '[System] Could not end the player process (taskkill exit '
-                '${r.exitCode}): ${r.stderr.toString().trim()}');
-          }
-        } else {
-          proc.kill();
+        final r = await _endProcessTrees([proc]);
+        if (r != null && r.exitCode != 0) {
+          // Swallowed silently until now. If the kill misses, the tree never
+          // dies, `proc.exitCode` never fires, and a heal waiting on that
+          // exit simply never happens — with nothing anywhere saying so.
+          log(key,
+              '[System] Could not end the player process (taskkill exit '
+              '${r.exitCode}): ${r.stderr.toString().trim()}');
         }
       } catch (e) {
         log(key, '[System] Could not end the player process: $e');
@@ -1783,7 +1803,14 @@ class PlayerService {
     }
   }
 
-  void stopAll() {
+  /// Ends everything this service started.
+  ///
+  /// The bookkeeping is synchronous, so the exit handlers that follow already
+  /// see a deliberate stop; the kill itself is one asynchronous taskkill.
+  /// Callers that are about to exit need not wait for it - the runner's
+  /// kill-on-close job object ends every child with the app regardless - but
+  /// can, to know the children are gone.
+  Future<void> stopAll() async {
     // Stop the queue drain before killing anything, so terminating the active
     // download cannot cause the next queued one to start.
     _shuttingDown = true;
@@ -1797,18 +1824,17 @@ class PlayerService {
     // the same trap _cancelledDownloads already exists to close for the cancel
     // button. Marked before the kill, since the exit handler can run at once.
     _cancelledDownloads.addAll(activeDownloadProcesses.keys);
-
     _stoppedByUser.addAll(activePlayerProcesses.keys);
-    for (final proc in activePlayerProcesses.values) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
-    }
+
+    final doomed = <Process>[
+      ...activePlayerProcesses.values,
+      ...activeDownloadProcesses.values,
+      ..._winIpcBridges.values,
+    ];
     activePlayerProcesses.clear();
+    activeDownloadProcesses.clear();
+    _winIpcBridges.clear();
+    _winIpcBridgeTokens.clear();
 
     playingVodIds.clear();
     playingVodFilePaths.clear();
@@ -1818,27 +1844,11 @@ class PlayerService {
     }
     activePlayerTimers.clear();
 
-    for (final proc in activeDownloadProcesses.values) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
-    }
-    activeDownloadProcesses.clear();
-    
-    for (final proc in _winIpcBridges.values) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
-    }
-    _winIpcBridges.clear();
-    _winIpcBridgeTokens.clear();
+    // One call for the lot, rather than one blocking taskkill per process.
+    // Its exit code is not worth reading: any tree that ended on its own in
+    // the meantime makes it non-zero.
+    try {
+      await _endProcessTrees(doomed);
+    } catch (_) {}
   }
 }

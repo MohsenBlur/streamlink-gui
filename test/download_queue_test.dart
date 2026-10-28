@@ -32,7 +32,8 @@ void main() {
   setUp(() {
     temp = Directory.systemTemp.createTempSync('streamlink_gui_dlqueue_');
     launcher = FakeLauncher();
-    service = PlayerService(startProcess: launcher.start);
+    service = PlayerService(
+        startProcess: launcher.start, runProcess: FakeTaskkill(launcher).run);
     for (final list in [failed, ended, cancelled, progress, statuses]) {
       list.clear();
     }
@@ -49,12 +50,10 @@ void main() {
   });
 
   tearDown(() async {
-    // End the fakes first, so stopAll has no process left to taskkill.
+    await service.stopAll();
     for (final p in launcher.launched) {
       await p.exit(-1);
     }
-    await pumpEventQueue();
-    service.stopAll();
     try {
       temp.deleteSync(recursive: true);
     } catch (_) {}

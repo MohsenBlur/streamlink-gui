@@ -59,6 +59,37 @@ class FakeProcess implements Process {
   }
 }
 
+/// Stands in for taskkill: records each call and ends the [FakeProcess]es it
+/// names, the way the real one would.
+class FakeTaskkill {
+  FakeTaskkill(this.launcher);
+
+  final FakeLauncher launcher;
+  final List<List<String>> calls = [];
+
+  /// Whether a graceful (no `/F`) call ends its targets. Players with a window
+  /// close on the WM_CLOSE it posts; console programs ignore it.
+  bool gracefulEndsTargets = false;
+
+  /// What taskkill exits with.
+  int exitCode = 0;
+  String stderr = '';
+
+  Future<ProcessResult> run(String executable, List<String> arguments) async {
+    calls.add(arguments);
+    if (arguments.contains('/F') || gracefulEndsTargets) {
+      for (var i = 0; i < arguments.length - 1; i++) {
+        if (arguments[i] != '/PID') continue;
+        final pid = int.parse(arguments[i + 1]);
+        for (final p in launcher.launched.where((p) => p.pid == pid)) {
+          await p.exit(1); // taskkill'd processes exit non-zero
+        }
+      }
+    }
+    return ProcessResult(0, exitCode, '', stderr);
+  }
+}
+
 /// Records every launch and hands back a [FakeProcess] for each.
 class FakeLauncher {
   final List<FakeProcess> launched = [];
