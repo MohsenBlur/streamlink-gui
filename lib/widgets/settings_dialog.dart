@@ -185,6 +185,7 @@ class SettingsDialog {
     bool tempLaunchAtStartup = settings.launchAtStartup;
     bool tempStartMinimized = settings.startMinimized;
     bool tempTrayLiveMenu = settings.trayLiveMenuEnabled;
+    bool tempCanvasEngine = settings.canvasEngine;
     final tokenController = TextEditingController(text: settings.twitchOauthToken);
     final webTokenController = TextEditingController(text: settings.twitchWebOauthToken);
     final playerPathController = TextEditingController(text: settings.customPlayerPath);
@@ -306,6 +307,7 @@ class SettingsDialog {
         launchAtStartup: tempLaunchAtStartup,
         startMinimized: tempStartMinimized,
         trayLiveMenuEnabled: tempTrayLiveMenu,
+        canvasEngine: tempCanvasEngine,
         notifyWentLive: tempNotifyWentLive,
         notifyAutoPlay: tempNotifyAutoPlay,
         notifyAutoDownloadStart: tempNotifyAutoDownloadStart,
@@ -1703,7 +1705,41 @@ class SettingsDialog {
                             EngravedRule(),
                             const SizedBox(height: NeuSpace.s12),
                             Text('Diagnostics', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
-                            const SizedBox(height: NeuSpace.s4),
+                            const SizedBox(height: NeuSpace.s8),
+                            // The rendering kill switch (audit L32). Here
+                            // rather than beside the material picker: it is
+                            // for a machine where the lighting shader is
+                            // slow or draws nothing, which is a fault to
+                            // work around, not a look to choose.
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Simple rendering', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                      Text(
+                                        // Turning it ON applies at once (main
+                                        // disables the shader on save);
+                                        // turning it OFF needs the shader
+                                        // loaded and tested, at launch.
+                                        !tempCanvasEngine && settings.canvasEngine
+                                            ? 'Back to full lighting the next time the app starts.'
+                                            : 'Draws surfaces without the lighting shader. Try it if the window is slow or surfaces look blank.',
+                                        style: NeuType.caption(themeNotifier.isDarkTheme),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: NeuSpace.s8),
+                                NeuSwitch(
+                                  value: tempCanvasEngine,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempCanvasEngine = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: NeuSpace.s12),
                             Text(
                               'Output from downloads, streams and players. Useful when something fails.',
                               style: NeuType.caption(themeNotifier.isDarkTheme),

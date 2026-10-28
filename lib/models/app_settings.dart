@@ -52,6 +52,11 @@ class AppSettings {
   double? windowX;
   double? windowY;
   bool isWindowMaximized;
+
+  /// Paint surfaces with the Canvas engine instead of the lighting shader
+  /// ("Simple rendering" in Settings). For GPUs or remote sessions where the
+  /// shader is slow or draws nothing; read at startup.
+  bool canvasEngine;
   bool showGamesOnThumbnails;
   int vodWatchExclusionThreshold; // default 15%
   bool autoPlayPreemptLowerPriority;
@@ -136,6 +141,7 @@ class AppSettings {
     this.windowX,
     this.windowY,
     this.isWindowMaximized = false,
+    this.canvasEngine = false,
     this.showGamesOnThumbnails = true,
     this.vodWatchExclusionThreshold = 15,
     this.autoPlayPreemptLowerPriority = false,
@@ -206,6 +212,7 @@ class AppSettings {
     double? windowX,
     double? windowY,
     bool? isWindowMaximized,
+    bool? canvasEngine,
     bool? showGamesOnThumbnails,
     int? vodWatchExclusionThreshold,
     bool? autoPlayPreemptLowerPriority,
@@ -256,6 +263,7 @@ class AppSettings {
       windowX: clearWindowPosition ? null : (windowX ?? this.windowX),
       windowY: clearWindowPosition ? null : (windowY ?? this.windowY),
       isWindowMaximized: isWindowMaximized ?? this.isWindowMaximized,
+      canvasEngine: canvasEngine ?? this.canvasEngine,
       showGamesOnThumbnails: showGamesOnThumbnails ?? this.showGamesOnThumbnails,
       vodWatchExclusionThreshold: vodWatchExclusionThreshold ?? this.vodWatchExclusionThreshold,
       autoPlayPreemptLowerPriority: autoPlayPreemptLowerPriority ?? this.autoPlayPreemptLowerPriority,
@@ -318,6 +326,7 @@ class AppSettings {
         'window_x': windowX,
         'window_y': windowY,
         'is_window_maximized': isWindowMaximized,
+        'canvas_engine': canvasEngine,
         'show_games_on_thumbnails': showGamesOnThumbnails,
         'vod_watch_exclusion_threshold': vodWatchExclusionThreshold,
         'auto_play_preempt_lower_priority': autoPlayPreemptLowerPriority,
@@ -438,6 +447,7 @@ class AppSettings {
         windowX: _maybeDouble(json['window_x']),
         windowY: _maybeDouble(json['window_y']),
         isWindowMaximized: _flag(json['is_window_maximized'], false),
+        canvasEngine: _flag(json['canvas_engine'], false),
         showGamesOnThumbnails: _flag(json['show_games_on_thumbnails'], true),
         vodWatchExclusionThreshold:
             _clampInt(json['vod_watch_exclusion_threshold'], 15, 5, 90),

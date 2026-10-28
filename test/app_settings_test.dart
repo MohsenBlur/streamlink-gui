@@ -35,6 +35,7 @@ AppSettings buildNonDefaultSettings() {
     windowX: 120.0,
     windowY: 240.0,
     isWindowMaximized: true,
+    canvasEngine: true,
     showGamesOnThumbnails: false,
     vodWatchExclusionThreshold: 42,
     autoPlayPreemptLowerPriority: true,

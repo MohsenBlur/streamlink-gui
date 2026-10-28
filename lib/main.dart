@@ -10,6 +10,7 @@ import 'package:file_picker/file_picker.dart';
 import 'models/app_settings.dart';
 import 'models/twitch_channel.dart';
 import 'models/twitch_video.dart';
+import 'services/crash_log.dart';
 import 'services/storage_service.dart';
 import 'state/twitch_auth_notifier.dart';
 import 'state/watch_progress_store.dart';
@@ -66,40 +67,85 @@ import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
 
 
-void main(List<String> args) async {
+Future<void> main(List<String> args) async {
+  // One guarded zone around everything: the binding, the startup and runApp
+  // must share a zone, and an error thrown anywhere in them has to reach the
+  // crash log. A release build has no console, so before this an exception
+  // here simply ended startup - with the window never shown - and left nothing
+  // behind to say why.
+  await runZonedGuarded<Future<void>>(
+    () => _startApp(args),
+    (error, stack) {
+      final log = CrashLog.current;
+      if (log != null) {
+        log.error('zone', error, stack);
+      } else {
+        debugPrint('Uncaught before the crash log opened: $error\n$stack');
+      }
+    },
+  );
+}
+
+Future<void> _startApp(List<String> args) async {
+  final launch = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
+
+  final storage = StorageService();
+  // Beside the config, so portable mode keeps it beside the exe too.
+  final crashLog = CrashLog(storage.getStorageFile(CrashLog.fileName));
+  CrashLog.install(crashLog);
+  // Startup milestones. Each one is a line in crash.log, so a launch that
+  // never shows its window still says how far it got.
+  void milestone(String message) =>
+      crashLog.milestone('[startup +${launch.elapsedMilliseconds}ms] $message');
+  milestone('launch v${UpdateService.currentVersion}, pid $pid'
+      '${args.isEmpty ? '' : ', args $args'}');
+
+  // One read and one parse of the config for the whole startup. main() used
+  // to read and decrypt it here and _loadChannels read and decrypted it all
+  // again a moment later; the snapshot now goes down to the first load.
+  //
+  // Nothing before runApp may throw: the window is only ever shown by the
+  // first frame, so an exception here is an app that never appears. A load
+  // that fails outright leaves the snapshot out, and the first load reads
+  // the file again itself - never an empty snapshot that the next autosave
+  // would write over a config that is still on disk.
+  StartupConfig? startup;
+  try {
+    startup = await storage.loadStartupConfig();
+    milestone(startup.isFirstRun
+        ? 'config: none, first run'
+        : (startup.data == null
+            ? 'config: unreadable, quarantined; using defaults'
+            : 'config: loaded'));
+  } catch (e, st) {
+    crashLog.error('config', e, st);
+  }
+  final settings = startup?.parseSettings() ?? AppSettings();
+
   // The material engine's fragment program, before the first frame so the
   // first paint is already lit. Milliseconds; degrades to the Canvas engine
-  // on failure rather than to a blank window.
-  await LitSurfaceProgram.load();
+  // on failure rather than to a blank window. Settings' "Simple rendering"
+  // and --canvas-engine skip the shader outright - the switch for a machine
+  // where it renders, but slowly or wrongly, which no self-test can see.
+  await LitSurfaceProgram.load(
+      forceCanvas: args.contains('--canvas-engine') || settings.canvasEngine);
+  milestone('surface engine: ${LitSurfaceProgram.status}');
+
   // The typography gate. Off unless asked for, and it cannot be a unit test:
   // `flutter test` has no system fonts and CI is ubuntu, so an assertion about
   // Bahnschrift there would measure the fallback against itself and pass.
   if (TypeProbe.enabled) {
     await TypeProbe.run();
   }
-  await localNotifier.setup(
-    appName: 'Twitch Streamlink GUI',
-    shortcutPolicy: ShortcutPolicy.requireCreate,
-  );
-
-  await windowManager.ensureInitialized();
-
-  final storage = StorageService();
-  // Existence is checked BEFORE loading: loadConfig() quarantines an unreadable
-  // file and returns null, which is indistinguishable from a first run - so a
-  // user whose config got corrupted was shown the onboarding wizard.
-  final bool isFirstRun = !storage.configExists();
-  final config = await storage.loadConfig();
-  AppSettings settings = AppSettings();
-  if (config != null && config['settings'] is Map<String, dynamic>) {
-    // Runs before the first frame, so an unparseable config here would stop
-    // the app from starting at all rather than falling back to defaults.
-    try {
-      settings = AppSettings.fromJson(config['settings']);
-    } catch (e) {
-      print('[Config] Settings unreadable, using defaults: $e');
-    }
+  try {
+    await localNotifier.setup(
+      appName: 'Twitch Streamlink GUI',
+      shortcutPolicy: ShortcutPolicy.requireCreate,
+    );
+  } catch (e, st) {
+    // Toasts are a nicety; a failure here must not stop the window appearing.
+    crashLog.error('notifications', e, st);
   }
 
   // Autostart launches pass --start-minimized; the manual-launch preference
@@ -111,6 +157,8 @@ void main(List<String> args) async {
   if (settings.launchAtStartup) {
     StartupService().sync(true);
   }
+
+  await windowManager.ensureInitialized();
 
   // Saved geometry may reference a monitor that no longer exists (undocked
   // laptop) or carry hand-edited garbage; restore only bounds that are
@@ -206,13 +254,18 @@ void main(List<String> args) async {
   themeNotifier.darkAccentColor =
       parseHexColor(settings.darkAccentColorHex, NeuTheme.defaultDarkAccent);
 
-  runApp(TwitchStreamlinkApp(isFirstRun: isFirstRun));
+  runApp(TwitchStreamlinkApp(startup: startup));
+  milestone('runApp');
+
+  unawaited(WidgetsBinding.instance.waitUntilFirstFrameRasterized
+      .then((_) => milestone('first frame rasterized')));
 }
 
 class TwitchStreamlinkApp extends StatelessWidget {
-  const TwitchStreamlinkApp({super.key, this.isFirstRun = false});
+  const TwitchStreamlinkApp({super.key, this.startup});
 
-  final bool isFirstRun;
+  /// The config as main() read it, for the first load.
+  final StartupConfig? startup;
 
   @override
   Widget build(BuildContext context) {
@@ -228,7 +281,7 @@ class TwitchStreamlinkApp extends StatelessWidget {
           // active material.
           theme: buildAppTheme(isDark: false),
           darkTheme: buildAppTheme(isDark: true),
-          home: MainScreen(isFirstRun: isFirstRun),
+          home: MainScreen(startup: startup),
         );
       },
     );
@@ -236,9 +289,12 @@ class TwitchStreamlinkApp extends StatelessWidget {
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key, this.isFirstRun = false});
+  const MainScreen({super.key, this.startup});
 
-  final bool isFirstRun;
+  /// The config main() read at startup. Used by the first load only.
+  final StartupConfig? startup;
+
+  bool get isFirstRun => startup?.isFirstRun ?? false;
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -354,6 +410,25 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   bool _isUpdatePromptOpen = false;
   bool _isUpdateInProgress = false;
+
+  /// The log viewer's entry for the app itself, beside the per-process ones.
+  static const String _appLogKey = 'app';
+
+  /// Puts what support asks first - which surface engine is painting, and
+  /// where the crash log is - where "Copy all" in the log viewer picks it up.
+  void _logAppDiagnostics() {
+    _logNotifier.beginSession(_appLogKey, 'App');
+    _logNotifier.appendLog(
+        _appLogKey, '[System] Surface engine: ${LitSurfaceProgram.status}');
+    final crashLog = CrashLog.current;
+    if (crashLog != null) {
+      _logNotifier.appendLog(
+          _appLogKey, '[System] Crash log: ${crashLog.file.path}');
+    }
+    // Not a process: it has nothing to finish, so it is shown as done
+    // rather than as running forever.
+    _logNotifier.endSession(_appLogKey, 0);
+  }
   final Map<String, String> _lastAutoPlayedStreamSession = {};
 
   @override
@@ -370,6 +445,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
+
+    _logAppDiagnostics();
 
     // Initialize player service archive path and listener hooks
     _playerService.downloadArchiveFilePath = _storageService.getStorageFile('yt_dlp_archive.txt').path;
@@ -1269,10 +1346,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
+  /// Whether the first load has consumed [MainScreen.startup].
+  bool _startupConfigUsed = false;
+
   Future<void> _loadChannels() async {
     setState(() => _isGlobalLoading = true);
     try {
-      final config = await _storageService.loadConfig();
+      // The snapshot main() already read and decrypted, for this first load
+      // only; null there means there was none or it was quarantined, and
+      // reading again would only find the same.
+      final startup = widget.startup;
+      final config = startup != null && !_startupConfigUsed
+          ? startup.data
+          : await _storageService.loadConfig();
+      _startupConfigUsed = true;
       List<TwitchChannel> loadedChannels = [];
 
       if (config != null) {
@@ -2479,6 +2566,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       onSave: (updatedSettings) async {
         final startupChanged =
             _settings.launchAtStartup != updatedSettings.launchAtStartup;
+        // Simple rendering takes effect at once when turned on: lit painters
+        // repaint through Canvas the moment the engine is disabled. Turning
+        // it off needs the shader loaded and self-tested, which happens at
+        // launch, so that half waits for the next start.
+        if (updatedSettings.canvasEngine && !_settings.canvasEngine) {
+          LitSurfaceProgram.disable('Simple rendering turned on in Settings');
+          _logNotifier.appendLog(_appLogKey,
+              '[System] Surface engine: ${LitSurfaceProgram.status}');
+        }
         setState(() {
           _settings = updatedSettings;
           _isWebTokenExpired = false;
