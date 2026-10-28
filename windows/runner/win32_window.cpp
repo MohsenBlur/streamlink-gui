@@ -296,6 +296,10 @@ bool Win32Window::ShowChildContentIfHidden() {
   return true;
 }
 
+void Win32Window::ForgetChildContent() {
+  child_content_ = nullptr;
+}
+
 RECT Win32Window::GetClientArea() {
   RECT frame;
   GetClientRect(window_handle_, &frame);

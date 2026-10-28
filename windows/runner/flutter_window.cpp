@@ -7,7 +7,15 @@
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
-FlutterWindow::~FlutterWindow() {}
+FlutterWindow::~FlutterWindow() {
+  // Tear down through OnDestroy, never by member destruction. A unique_ptr
+  // being destroyed does not clear itself before deleting, so while the
+  // implicit teardown ran, flutter_controller_ still pointed at the dying
+  // controller and MessageHandler kept routing messages into it (see
+  // OnDestroy for why that faults). Destroy() is idempotent, so after
+  // main.cpp's explicit teardown this is a no-op.
+  Destroy();
+}
 
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
@@ -52,7 +60,19 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   // No window geometry is saved here: the Dart side owns it (see main.cpp).
   if (flutter_controller_) {
-    flutter_controller_ = nullptr;
+    // The engine is about to destroy the view HWND, so stop tracking it first.
+    ForgetChildContent();
+
+    // Detach the controller BEFORE destroying it. Tearing the view down sends
+    // this window messages (WM_PARENTNOTIFY for the dying child, among
+    // others), and MessageHandler routes every message to the controller
+    // while one is set. By then the engine has already dropped its view, and
+    // FlutterDesktopViewControllerHandleTopLevelWindowProc reaches the engine
+    // through that view (view_->GetEngine()), so a message routed in during
+    // teardown is a null dereference inside flutter_windows.dll.
+    std::unique_ptr<flutter::FlutterViewController> controller =
+        std::move(flutter_controller_);
+    controller.reset();
   }
 
   Win32Window::OnDestroy();
@@ -83,7 +103,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
   switch (message) {
     case WM_FONTCHANGE:
-      flutter_controller_->engine()->ReloadSystemFonts();
+      // The frame outlives the controller during teardown (OnDestroy runs
+      // before DestroyWindow), so this cannot assume an engine.
+      if (flutter_controller_) {
+        flutter_controller_->engine()->ReloadSystemFonts();
+      }
       break;
   }
 

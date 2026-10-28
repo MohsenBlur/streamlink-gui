@@ -81,6 +81,11 @@ class Win32Window {
   // subclass can repaint a surface that was presented while it was hidden.
   virtual void OnChildContentReshown();
 
+  // Forgets the hosted content without touching it. For the content's owner
+  // to call before destroying it, so that no message handled during or after
+  // that teardown acts on a dead HWND.
+  void ForgetChildContent();
+
  private:
   friend class WindowClassRegistrar;
 

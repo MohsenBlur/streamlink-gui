@@ -115,6 +115,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::DispatchMessage(&msg);
   }
 
+  // Tear the window down here, explicitly, while COM is still initialized.
+  //
+  // Quitting from Dart (windowManager.destroy()) is a bare PostQuitMessage:
+  // it ends the loop above without destroying the window, so the engine and
+  // every plugin used to be torn down by destructors when this function
+  // returned, after CoUninitialize. That is wrong twice over. The engine
+  // releases COM objects (DirectManipulation, among others) into an apartment
+  // that no longer exists, and the destructor path routed the teardown's own
+  // window messages into the half-destroyed view controller (see
+  // FlutterWindow::OnDestroy). The second one is the recurring exit crash:
+  // every quit through this path faulted in flutter_windows.dll at +0x1d7b0,
+  // the offset in the crash log, inside a window procedure (exit status
+  // 0xC000041D, an exception during a user callback). Destroy() runs the same
+  // ordered teardown as a real close: engine and plugins first, then the HWND.
+  window.Destroy();
+
   ::CoUninitialize();
   if (hMutex != nullptr) {
     ::CloseHandle(hMutex);
