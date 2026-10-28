@@ -60,6 +60,43 @@ void main() {
     });
   });
 
+  testWidgets('a paint-time miss never runs the pixel loops on the UI isolate',
+      (tester) async {
+    // `request` is called from paint(). Generation used to run its w*h*4
+    // pixel loops synchronously inside it, so the "asynchronous" cache put
+    // the work on exactly the frame it claimed to spare - the first frame,
+    // and every frame after a material switch.
+    //
+    // Asserted through the per-isolate pass counter rather than a stopwatch:
+    // the loops must not run during the call (synchronous in paint) and must
+    // not run here later either (a microtask or Timer deferral would only
+    // move the same work onto the next frame's UI thread).
+    const key = TileKey(
+        kind: TextureKind.brushed,
+        width: 96,
+        height: 48,
+        amplitude: 4,
+        seed: 0xA11CE);
+    TextureCache.debugPixelPassesOnThisIsolate = 0;
+
+    var landed = false;
+    await tester.runAsync(() async {
+      TextureCache.request(key, () => landed = true);
+      expect(TextureCache.debugPixelPassesOnThisIsolate, 0,
+          reason: 'request() generated the tile synchronously - inside the '
+              'paint call that missed');
+      for (var i = 0; i < 80 && !landed; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+    });
+
+    expect(landed, isTrue, reason: 'the tile never arrived');
+    expect(TextureCache.lookup(key), isNotNull);
+    expect(TextureCache.debugPixelPassesOnThisIsolate, 0,
+        reason: 'the pixel loops ran on the UI isolate after all - off the '
+            'paint call, but still on the thread that paints the next frame');
+  });
+
   Future<List<int>> pixelsOf(TileKey key) async {
     final image = await TextureCache.generateForTest(key);
     final data = await image.toByteData();

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/widgets.dart';
 
 import 'material_palette.dart';
@@ -44,6 +45,10 @@ import 'material_palette.dart';
 /// fires the painter's `onChanged` — the same mechanism `DecorationImage` uses
 /// — which `RenderDecoratedBox` has already wired to `markNeedsPaint`. The
 /// repaint is per-box and automatic; no call site learns about it.
+///
+/// "Asynchronous" has to mean off the paint call, not merely "returns a
+/// Future": the miss is discovered inside paint(), so the pixel loops run on a
+/// background isolate and the asking frame only enqueues them.
 class TextureCache {
   TextureCache._();
 
@@ -155,7 +160,34 @@ class TextureCache {
     _tiles[key] = await _generate(key);
   }
 
-  static Future<ui.Image> _generate(TileKey key) {
+  static Future<ui.Image> _generate(TileKey key) async {
+    // The pixel loops used to run right here, synchronously - and `request`
+    // is called from paint(), so "asynchronous" generation filled a w*h*4
+    // buffer (65k sin() calls for one 512x128 brushed tile) inside the very
+    // frame the class doc says it spares, on launch and again on every
+    // material switch. The loops are pure functions of the key, so they run
+    // on a background isolate; only the upload below touches this one, and
+    // the engine does that asynchronously.
+    final pixels =
+        await compute(_pixelsFor, key, debugLabel: 'texture tile $key');
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromPixels(pixels, key.width, key.height,
+        ui.PixelFormat.rgba8888, completer.complete);
+    return completer.future;
+  }
+
+  /// How many tiles' pixel loops have run on THIS isolate.
+  ///
+  /// Statics are per-isolate, so on the UI isolate this stays zero for as long
+  /// as generation stays off it - which is the contract a test can hold
+  /// without timing anything.
+  @visibleForTesting
+  static int debugPixelPassesOnThisIsolate = 0;
+
+  /// The tile's RGBA bytes. Static and fed only the key, so `compute` ships
+  /// nothing across the isolate boundary but a few ints and an enum.
+  static Uint8List _pixelsFor(TileKey key) {
+    debugPixelPassesOnThisIsolate++;
     final w = key.width, h = key.height;
     final pixels = Uint8List(w * h * 4);
     final rand = _Lcg(key.seed);
@@ -174,11 +206,7 @@ class TextureCache {
         // not a redesign.
         _speckle(pixels, w, h, key.amplitude, rand);
     }
-
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromPixels(
-        pixels, w, h, ui.PixelFormat.rgba8888, completer.complete);
-    return completer.future;
+    return pixels;
   }
 
   /// Horizontal streaks at two frequencies plus a micro grain.
