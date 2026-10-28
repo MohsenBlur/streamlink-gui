@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
+import 'config_secrets.dart';
 
 /// The most recent failed save, or null when the last save succeeded.
 final ValueNotifier<StorageWriteFailure?> storageWriteFailure =
@@ -164,6 +165,31 @@ class StorageService {
   /// does; leave null in the app.
   static String Function(String targetPath)? tempPathOverride;
 
+  /// Seals the account tokens at rest; see [ConfigSecrets].
+  ///
+  /// Static for the same reason as [_writers]: main and the player service
+  /// each construct their own instance, and both save the config.
+  static ConfigSecrets _secrets = ConfigSecrets(platformCipher(
+    isWindows: Platform.isWindows,
+    isTestRunner: _isTestRunner,
+  ));
+
+  /// DPAPI on Windows. Plaintext elsewhere, and under the test runner, so no
+  /// test depends on the account running it; tests that exercise sealing
+  /// supply their own cipher through [secretCipher].
+  @visibleForTesting
+  static SecretCipher? platformCipher({
+    required bool isWindows,
+    required bool isTestRunner,
+  }) =>
+      isWindows && !isTestRunner ? const DpapiSecretCipher() : null;
+
+  /// The cipher sealing tokens at rest. Setting it (tests do) starts over,
+  /// with nothing remembered from earlier loads.
+  static SecretCipher? get secretCipher => _secrets.cipher;
+  static set secretCipher(SecretCipher? cipher) =>
+      _secrets = ConfigSecrets(cipher);
+
   File getStorageFile(String filename) {
     try {
       final override = storageDirectoryOverride;
@@ -307,9 +333,12 @@ class StorageService {
     } catch (_) {}
   }
 
+  /// The decoded config, with its tokens already decrypted, or null when there
+  /// is none or it was unreadable (and has been quarantined).
   Future<Map<String, dynamic>?> loadConfig() async {
     final file = _getStorageFile();
     sweepTempFiles(file);
+    Map<String, dynamic>? config;
     try {
       if (!await file.exists()) return null;
       final content = await file.readAsString();
@@ -317,15 +346,35 @@ class StorageService {
 
       final decoded = json.decode(content);
       if (decoded is Map<String, dynamic>) {
-        return decoded;
+        config = decoded;
+      } else {
+        _quarantineCorruptFile(file);
       }
-      _quarantineCorruptFile(file);
     } catch (_) {
       // Unreadable or invalid JSON: preserve it rather than letting the app
       // start from defaults and immediately autosave over the user's data.
       _quarantineCorruptFile(file);
     }
-    return null;
+    // Outside the try on purpose: nothing about the tokens may quarantine a
+    // config that parsed.
+    if (config != null) await _openSecrets(file, config);
+    return config;
+  }
+
+  /// Decrypts the tokens of a freshly read [config] in place, and seals any
+  /// that are still stored in plaintext.
+  ///
+  /// That migration rewrites the file at once rather than at the next save,
+  /// so a session that happens never to save does not leave the plaintext on
+  /// disk. It writes back the map just read with only the token values
+  /// changed, so even keys this build does not know survive it.
+  Future<void> _openSecrets(File file, Map<String, dynamic> config) async {
+    final settings = config['settings'];
+    if (settings is! Map<String, dynamic>) return;
+    final sealedSettings = _secrets.openFromDisk(settings);
+    if (sealedSettings == null) return;
+    await _writerFor(file)
+        .write(json.encode({...config, 'settings': sealedSettings}));
   }
 
   Future<void> saveConfig(
@@ -337,7 +386,7 @@ class StorageService {
     final file = _getStorageFile();
     final config = {
       'channels': channels.map((c) => c.toJson()).toList(),
-      'settings': settings.toJson(),
+      'settings': _secrets.sealForDisk(settings.toJson()),
       'local_vods_progress': localProgress,
       'downloaded_vods': downloadedVods,
     };

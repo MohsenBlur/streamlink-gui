@@ -278,6 +278,17 @@ class AppSettings {
     );
   }
 
+  /// The [toJson] keys that hold account credentials.
+  ///
+  /// `StorageService` seals exactly these at rest (DPAPI on Windows) and
+  /// opens them again on load, so [fromJson] and every caller still see
+  /// plaintext. A new credential field must be listed here, or it is written
+  /// to disk in the clear.
+  static const List<String> secretJsonKeys = [
+    'twitch_oauth_token',
+    'twitch_web_oauth_token',
+  ];
+
   Map<String, dynamic> toJson() => {
         'default_quality': defaultQuality,
         'twitch_low_latency': twitchLowLatency,

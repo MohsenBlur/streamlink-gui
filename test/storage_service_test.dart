@@ -4,7 +4,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_channel.dart';
+import 'package:streamlink_gui/services/config_secrets.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
+
+import 'support/fake_cipher.dart';
 
 void main() {
   late Directory tempDir;
@@ -273,6 +276,107 @@ void main() {
           .where((f) => f.path.contains('.corrupt-'))
           .toList();
       expect(copies.length, lessThanOrEqualTo(3));
+    });
+  });
+
+  group('stored tokens are sealed at rest', () {
+    const account = 'abcdefghijklmnopqrstuvwxyz0123';
+    const browser = 'zyxwvutsrqponmlkjihgfedcba9876';
+
+    setUp(() => StorageService.secretCipher = FakeCipher());
+    tearDown(() => StorageService.secretCipher = null);
+
+    /// The next launch: nothing remembered from earlier loads or saves.
+    void relaunch() => StorageService.secretCipher = FakeCipher();
+
+    Future<void> saveTokens(String a, String b) => storage.saveConfig(
+          [TwitchChannel(username: 'alpha')],
+          AppSettings(twitchOauthToken: a, twitchWebOauthToken: b),
+          <String, int>{},
+          <String, String>{},
+        );
+
+    test('a save writes no token to disk, and a load reads both back', () async {
+      await saveTokens(account, browser);
+
+      final raw = configFile().readAsStringSync();
+      expect(raw, isNot(contains(account)));
+      expect(raw, isNot(contains(browser)));
+
+      relaunch();
+      final loaded = await storage.loadConfig();
+      expect(loaded!['settings']['twitch_oauth_token'], account);
+      expect(loaded['settings']['twitch_web_oauth_token'], browser);
+    });
+
+    test('a plaintext config from an older build is migrated on load, losing nothing', () async {
+      // Written as every build before this one wrote it, plus keys this build
+      // does not know, which the migration must not drop the way a full
+      // saveConfig would.
+      final legacy = {
+        'channels': [
+          {'username': 'alpha'},
+        ],
+        'settings': {
+          ...AppSettings(twitchOauthToken: account, twitchWebOauthToken: browser).toJson(),
+          'setting_from_a_newer_build': 'keep me',
+        },
+        'local_vods_progress': {'v1': 42},
+        'downloaded_vods': <String, String>{},
+        'key_from_a_newer_build': [1, 2, 3],
+      };
+      configFile().writeAsStringSync(json.encode(legacy));
+
+      final loaded = await storage.loadConfig();
+
+      expect(loaded!['settings']['twitch_oauth_token'], account,
+          reason: 'the app runs on the plaintext it read');
+      final onDisk = json.decode(configFile().readAsStringSync()) as Map<String, dynamic>;
+      expect(json.encode(onDisk), isNot(contains(account)));
+      expect(json.encode(onDisk), isNot(contains(browser)));
+      expect(ConfigSecrets.isSealed(onDisk['settings']['twitch_oauth_token']), isTrue);
+      expect(onDisk['settings']['setting_from_a_newer_build'], 'keep me');
+      expect(onDisk['key_from_a_newer_build'], [1, 2, 3]);
+      expect(onDisk['local_vods_progress'], {'v1': 42});
+      expect(onDisk['channels'], legacy['channels']);
+
+      // The migrated file reads back the same, and is not rewritten again.
+      relaunch();
+      final migrated = configFile().readAsBytesSync();
+      final again = await storage.loadConfig();
+      expect(again!['settings']['twitch_web_oauth_token'], browser);
+      expect(configFile().readAsBytesSync(), migrated);
+    });
+
+    test('a config with no account is left exactly as it is', () async {
+      await saveTokens('', '');
+      final before = configFile().readAsBytesSync();
+
+      relaunch();
+      await storage.loadConfig();
+
+      expect(configFile().readAsBytesSync(), before);
+      expect(json.decode(utf8.decode(before))['settings']['twitch_oauth_token'], '');
+    });
+
+    test('a token sealed elsewhere survives a load-and-save here', () async {
+      StorageService.secretCipher = FakeCipher(account: 0x11);
+      await saveTokens(account, browser);
+      final sealedElsewhere =
+          json.decode(configFile().readAsStringSync())['settings']['twitch_oauth_token'];
+
+      relaunch(); // a different account: cannot open it
+      final loaded = await storage.loadConfig();
+      expect(loaded!['settings']['twitch_oauth_token'], '');
+      await storage.saveConfig(
+        const [],
+        AppSettings.fromJson(loaded['settings']),
+        <String, int>{},
+        <String, String>{},
+      );
+
+      expect(json.decode(configFile().readAsStringSync())['settings']['twitch_oauth_token'],
+          sealedElsewhere);
     });
   });
 
