@@ -869,6 +869,43 @@ void main() {
     });
 
     testWidgets(
+        "a VOD yt-dlp's archive holds from before the upgrade is not fetched "
+        'again', (tester) async {
+      // Builds before the archive matched Twitch's ids never took a line out
+      // of it, so a VOD deleted under one is in neither the registry nor on
+      // disk: its archive line is all that is left of the download. The pass
+      // queued it, yt-dlp skipped it as done, and the user was told of an
+      // auto-download and a completed one, for a VOD they had deleted.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo(),
+          files: {'yt_dlp_archive.txt': 'twitchvod v4242\n'});
+      // The archive is read beside the load, as real file I/O, and what it
+      // adds is saved a second later.
+      bool seeded() =>
+          (h.storage.config!['download_history'] as Map?)
+              ?.containsKey('4242') ??
+          false;
+      for (var i = 0; i < 50 && !seeded(); i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await h.advance(tester, const Duration(seconds: 1));
+      }
+      expect(seeded(), isTrue, reason: 'the history starts from the archive');
+
+      // Listed only now, so that the pass reads it once the seed is in.
+      h.helix.addVideo('alpha',
+          id: '4242',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.advance(tester, const Duration(minutes: 2));
+      expect(ytDlpFor(h, '4242'), isEmpty);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'reads watch positions from Twitch only for what it would download',
         (tester) async {
       // One GQL request per VOD on the page, every minute, for every

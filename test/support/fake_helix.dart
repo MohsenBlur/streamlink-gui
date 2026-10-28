@@ -100,14 +100,16 @@ class FakeHelix {
   /// Ends [login]'s broadcast.
   void goOffline(String login) => _streams.remove(user(login));
 
-  /// Publishes a VOD at the top of [login]'s archive. Returns its id.
+  /// Publishes a VOD at the top of [login]'s archive. Returns its id: [id],
+  /// or one of its own - which, unlike Twitch's, is not a number.
   String addVideo(
     String login, {
+    String? id,
     DateTime? publishedAt,
     String? title,
     String duration = '1h0m0s',
   }) {
-    final videoId = 'v${_nextVideo++}';
+    final videoId = id ?? 'v${_nextVideo++}';
     final at = publishedAt ?? now;
     (_videos[user(login)] ??= <Map<String, dynamic>>[]).insert(0, {
       'id': videoId,

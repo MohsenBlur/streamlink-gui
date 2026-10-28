@@ -79,12 +79,15 @@ class ScreenHarness {
   ///
   /// [channels] are favourites with settings of their own, after
   /// [favorites]; [config] adds to or replaces the rest of the file.
+  /// [files] are written into the storage folder, by name, before the app
+  /// starts - yt-dlp's archive, for one.
   Future<void> launch(
     WidgetTester tester, {
     List<String> favorites = const <String>[],
     List<TwitchChannel> channels = const <TwitchChannel>[],
     AppSettings? settings,
     Map<String, dynamic> config = const <String, dynamic>{},
+    Map<String, String> files = const <String, String>{},
     Size size = const Size(1400, 900),
   }) async {
     final effective = settings ?? defaultSettings();
@@ -99,6 +102,8 @@ class ScreenHarness {
       ...config,
     };
     storage = MemoryStorageService(log: log, config: stored);
+    files.forEach(
+        (name, text) => storage.getStorageFile(name).writeAsStringSync(text));
 
     // The global look, as main() seeds it before runApp, and put back
     // afterwards for the next test.
