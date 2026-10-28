@@ -322,31 +322,93 @@ class _LibraryViewState extends State<LibraryView> {
             ],
           ),
         ),
-        if (widget.activity != null)
-          ValueListenableBuilder<ActivitySnapshot>(
-            valueListenable: widget.activity!,
-            builder: (context, snapshot, _) {
-              final live = [...snapshot.downloading, ...snapshot.queued];
-              if (live.isEmpty) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(NeuSpace.s24, NeuSpace.s12, NeuSpace.s24, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SectionHeader(
-                      title: 'In progress',
-                      density: SectionDensity.inline,
-                    ),
-                    const SizedBox(height: NeuSpace.s6),
-                    for (final item in live) _liveRow(item, theme, isDark),
-                  ],
-                ),
-              );
-            },
-          ),
-        const SizedBox(height: NeuSpace.s12),
+        // The in-progress section and the library list share what is left
+        // below the search row, measured here, because the section has to be
+        // capped against THAT space. It used to be a plain Column with one row
+        // per download or queued item ahead of an Expanded list: a bulk
+        // "Download" of fifteen VODs needs ~960px of rows, so the page
+        // overflowed and the Expanded holding every downloaded and watched
+        // entry was handed zero height until the queue drained. At the 380x500
+        // minimum three items were enough. A fraction of the whole page would
+        // not do either: at that size the header and search rows already take
+        // more than half of it.
         Expanded(
-          child: visible.isEmpty
+          child: LayoutBuilder(builder: (context, region) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (widget.activity != null)
+                  ValueListenableBuilder<ActivitySnapshot>(
+                    valueListenable: widget.activity!,
+                    builder: (context, snapshot, _) {
+                      final live = [...snapshot.downloading, ...snapshot.queued];
+                      if (live.isEmpty) {
+                        return const SizedBox(height: NeuSpace.s12);
+                      }
+                      return ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxHeight: region.maxHeight * _liveSectionShare),
+                        child: _liveSection(live, theme, isDark),
+                      );
+                    },
+                  )
+                else
+                  const SizedBox(height: NeuSpace.s12),
+                Expanded(child: _libraryList(visible)),
+              ],
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  /// The most of the space below the search row the in-progress section may
+  /// take. Past it the section scrolls inside itself, so the library list
+  /// always keeps the larger share however long the queue gets.
+  static const double _liveSectionShare = 0.4;
+
+  /// Running and queued downloads: a heading with the count, then the rows,
+  /// scrolling within whatever height the section was given.
+  Widget _liveSection(List<ActivityItem> live, ThemeData theme, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(top: NeuSpace.s12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s24),
+            child: SectionHeader(
+              title: 'In progress',
+              // The count is what says there are rows below the fold once
+              // the section starts scrolling.
+              count: live.length,
+              density: SectionDensity.inline,
+            ),
+          ),
+          Flexible(
+            child: ListView.builder(
+              // Sized to its rows until the cap, scrolling past it.
+              shrinkWrap: true,
+              // The viewport clips at its edge, so the rows' halo and cast
+              // need the shared clearance inside it - the same reason the
+              // library list below carries it. The top clearance stands in
+              // for the old 6px gap under the heading.
+              padding: const EdgeInsets.fromLTRB(NeuSpace.s24,
+                  NeuShadowRoom.above, NeuSpace.s24, NeuShadowRoom.below),
+              itemCount: live.length,
+              itemBuilder: (context, index) =>
+                  _liveRow(live[index], theme, isDark),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _libraryList(List<LibraryEntry> visible) {
+    return visible.isEmpty
               ? (widget.entries.isEmpty
                   ? EmptyState(
                       icon: Icons.video_library_outlined,
@@ -383,10 +445,7 @@ class _LibraryViewState extends State<LibraryView> {
                         onDelete: widget.onDelete,
                         onRemoveFromHistory: widget.onRemoveFromHistory,
                       ),
-                ),
-        ),
-      ],
-    );
+                );
   }
 
   /// A download that is running or queued. Intentionally NOT passed through
@@ -394,7 +453,14 @@ class _LibraryViewState extends State<LibraryView> {
   /// by a filter the user forgot they set.
   Widget _liveRow(ActivityItem item, ThemeData theme, bool isDark) {
     final queued = item.kind == ActivityKind.queued;
-    return Container(
+    // Measured against the row's own width, like the library rows. At the
+    // 380px minimum the DOWNLOADING badge alone took ~137px, leaving the
+    // progress line 81px for a bar and yt-dlp's "45.2% at 3.1MiB/s", and the
+    // row overflowed by 118px. The badge restates what the icon and the
+    // second line already say, so it is the first thing to go.
+    return LayoutBuilder(builder: (context, constraints) {
+      final showBadge = constraints.maxWidth >= _liveBadgeMinWidth;
+      return Container(
       margin: const EdgeInsets.only(bottom: NeuSpace.s6),
       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
       decoration: NeuTheme.raisedDecoration(
@@ -421,7 +487,7 @@ class _LibraryViewState extends State<LibraryView> {
                   Text('Waiting to start',
                       style: NeuType.caption(isDark))
                 else
-                  Row(
+                  LayoutBuilder(builder: (context, line) => Row(
                     children: [
                       Expanded(
                         child: NeuProgressBar(
@@ -432,20 +498,32 @@ class _LibraryViewState extends State<LibraryView> {
                       ),
                       if (item.status != null) ...[
                         const SizedBox(width: NeuSpace.s8),
-                        Text(item.status!,
-                            style:
-                                NeuType.caption(isDark)),
+                        // Capped, so a long status ellipsizes instead of
+                        // pushing the row past its edge; the bar keeps the
+                        // rest of the line however wide it is.
+                        ConstrainedBox(
+                          constraints:
+                              BoxConstraints(maxWidth: line.maxWidth * 0.6),
+                          child: Text(item.status!,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style:
+                                  NeuType.caption(isDark)),
+                        ),
                       ],
                     ],
-                  ),
+                  )),
               ],
             ),
           ),
-          const SizedBox(width: NeuSpace.s12),
-          StatusBadge(
-            label: queued ? 'Queued' : 'Downloading',
-            tone: BadgeTone.accent,
-          ),
+          if (showBadge) ...[
+            const SizedBox(width: NeuSpace.s12),
+            StatusBadge(
+              label: queued ? 'Queued' : 'Downloading',
+              tone: BadgeTone.accent,
+            ),
+          ],
           if (widget.onStopActivity != null) ...[
             const SizedBox(width: NeuSpace.s8),
             // The same action the activity popover renders - and now the
@@ -462,7 +540,13 @@ class _LibraryViewState extends State<LibraryView> {
         ],
       ),
     );
+    });
   }
+
+  /// Below this row width the in-progress badge is dropped. Measured: with
+  /// it, the label column needs ~480px of row to keep a usable progress bar
+  /// beside a typical status string.
+  static const double _liveBadgeMinWidth = 480;
 
   Widget _sortButton(LibrarySort sort, String label) {
     return NeuButton(

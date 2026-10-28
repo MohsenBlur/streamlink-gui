@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_channel.dart';
+import 'package:streamlink_gui/state/activity_state.dart';
 import 'package:streamlink_gui/state/library_entries.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
@@ -102,6 +104,7 @@ void main() {
 
   late AnimationController pulse;
   late TextEditingController search;
+  late ValueNotifier<ActivitySnapshot> bulkQueue;
 
   setUp(() {
     pulse = AnimationController(
@@ -109,11 +112,32 @@ void main() {
       duration: const Duration(seconds: 2),
     );
     search = TextEditingController();
+    // A multi-select "Download" of fifteen VODs: one running with yt-dlp's
+    // status line, the rest queued. The Library's in-progress section used
+    // to be an unbounded Column, and this is what overflowed it.
+    bulkQueue = ValueNotifier(ActivitySnapshot(
+      downloading: const [
+        ActivityItem(
+          kind: ActivityKind.downloading,
+          id: 'q0',
+          label: 'An extremely long recorded stream title that will not fit',
+          progress: 0.45,
+          status: '45.2% of 9.71GiB at 3.10MiB/s ETA 31:07',
+        ),
+      ],
+      queued: [
+        for (var i = 1; i < 15; i++)
+          ActivityItem(
+              kind: ActivityKind.queued, id: 'q$i', label: 'Queued VOD $i'),
+      ],
+      playing: const [],
+    ));
   });
 
   tearDown(() {
     pulse.dispose();
     search.dispose();
+    bulkQueue.dispose();
   });
 
   /// Hostile content: real Twitch strings run long, and the point of a sweep
@@ -161,7 +185,9 @@ void main() {
         isPlaying: false,
       );
 
-  Widget library() => LibraryView(
+  Widget library({ValueListenable<ActivitySnapshot>? activity}) => LibraryView(
+        activity: activity,
+        onStopActivity: activity == null ? null : (_) {},
         entries: [
           for (var i = 0; i < 6; i++)
             LibraryEntry(
@@ -267,6 +293,11 @@ void main() {
 
         testWidgets('the library — $label', (tester) async {
           await sweep(tester, size, m, library);
+        });
+
+        testWidgets('the library under a bulk download queue — $label',
+            (tester) async {
+          await sweep(tester, size, m, () => library(activity: bulkQueue));
         });
 
         testWidgets('a dialog with leading actions — $label', (tester) async {
