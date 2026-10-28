@@ -830,9 +830,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             _sidebarCollapsed = _settings.sidebarCollapsed;
             // The Followed/Live tabs are hidden without a token; restoring a
             // persisted tab index would strand the user on an invisible tab.
-            _sidebarTab = _settings.twitchOauthToken.trim().isEmpty
-                ? 0
-                : _settings.activeSidebarTab;
+            // The saved tab goes back to Favorites with it, as a sign-out
+            // puts it: kept at Followed, adding a token later in the session
+            // opened the next launch on a tab the sidebar had not shown.
+            if (_settings.twitchOauthToken.trim().isEmpty) {
+              _settings.activeSidebarTab = 0;
+            }
+            _sidebarTab = _settings.activeSidebarTab;
             applyStoredLook(_settings);
           });
           } catch (e) {
