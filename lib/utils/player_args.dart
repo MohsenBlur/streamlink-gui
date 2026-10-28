@@ -299,6 +299,40 @@ String shlexQuote(String token) {
 String joinPlayerArgs(Iterable<String> tokens) =>
     tokens.map(shlexQuote).join(' ');
 
+/// [args] joined into one line for the session log, with credentials masked.
+///
+/// Both launch paths logged `args.join(' ')` verbatim, and with the default
+/// web Client ID that includes the `Authorization=OAuth <token>` header - so
+/// the log viewer's Copy all, the very thing a bug report asks for, handed out
+/// a token that acts as the user's Twitch account. The header name and auth
+/// scheme survive, so the log still shows that one was sent.
+String argsForLog(List<String> args) {
+  final out = <String>[];
+  for (var i = 0; i < args.length; i++) {
+    final arg = args[i];
+    if (i > 0 && args[i - 1] == _apiHeaderFlag) {
+      out.add(_maskHeader(arg));
+    } else if (arg.startsWith('$_apiHeaderFlag=')) {
+      out.add('$_apiHeaderFlag=${_maskHeader(arg.substring(_apiHeaderFlag.length + 1))}');
+    } else {
+      out.add(arg);
+    }
+  }
+  return out.join(' ');
+}
+
+const String _apiHeaderFlag = '--twitch-api-header';
+
+/// `Authorization=OAuth abc` -> `Authorization=OAuth <redacted>`.
+String _maskHeader(String header) {
+  final eq = header.indexOf('=');
+  if (eq < 0) return '<redacted>';
+  final value = header.substring(eq + 1);
+  final scheme =
+      RegExp(r'^(OAuth|Bearer)\s+', caseSensitive: false).firstMatch(value);
+  return '${header.substring(0, eq)}=${scheme?.group(0) ?? ''}<redacted>';
+}
+
 /// The outcome of building a streamlink command for a VOD.
 class VodStreamCommand {
   const VodStreamCommand({

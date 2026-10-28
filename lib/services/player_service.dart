@@ -434,7 +434,7 @@ class PlayerService {
     onPlayerStarted?.call(key, title);
 
     log(key, '[System] Initializing VOD Download for: ${vod.title}');
-    log(key, '[System] Arguments: yt-dlp ${args.join(" ")}');
+    log(key, '[System] Arguments: yt-dlp ${argsForLog(args)}');
 
     bool needsFfmpegFallback = false;
 
@@ -923,7 +923,7 @@ class PlayerService {
         log(key, '[System] This player has no known start-position flag, so playback begins at 0. '
             'Drag the seek bar to ${vod.watchPosition}s.');
       }
-      log(key, '[System] Arguments: ${args.join(" ")}');
+      log(key, '[System] Arguments: ${argsForLog(args)}');
 
       final proc = await Process.start(
         _getExecutablePath('streamlink'),
@@ -1046,7 +1046,7 @@ class PlayerService {
 
     onPlayerStarted?.call(key, title);
     log(key, '[System] Initializing Streamlink for twitch.tv/$channelName ${settings.defaultQuality}...');
-    log(key, '[System] Arguments: ${args.join(" ")}');
+    log(key, '[System] Arguments: ${argsForLog(args)}');
 
     try {
       final proc = await Process.start(

@@ -1,5 +1,27 @@
 import 'package:flutter/foundation.dart';
 
+/// A Twitch credential, by shape: an auth keyword, its separator, then 20 or
+/// more alphanumerics (Twitch's tokens are 30).
+///
+/// The length floor is what keeps ordinary prose alone - "OAuth token
+/// rejected" has a keyword but no token after it.
+final RegExp _credentialPattern = RegExp(
+  r'\b(oauth|bearer|access_token|refresh_token|auth-token)'
+  r'''(["']?\s*[:=]\s*["']?|\s+)'''
+  r'([a-z0-9]{20,})',
+  caseSensitive: false,
+);
+
+/// [line] with anything shaped like a Twitch credential masked.
+///
+/// The launch paths mask the header they build themselves (`argsForLog`), but
+/// most lines arrive verbatim from streamlink, yt-dlp and the players, and
+/// streamlink's debug output echoes its own arguments - header included. The
+/// log viewer's Copy all exists to be pasted into bug reports, so the store is
+/// the one place that sees every line on its way there.
+String redactCredentials(String line) => line.replaceAllMapped(
+    _credentialPattern, (m) => '${m[1]}${m[2]}<redacted>');
+
 /// One process's log session — a download, a stream, or a player.
 class LogSession {
   LogSession({
@@ -58,7 +80,7 @@ class LogNotifier extends ChangeNotifier {
 
   void appendLog(String key, String line) {
     final list = _logs.putIfAbsent(key, () => []);
-    list.add(line);
+    list.add(redactCredentials(line));
     if (list.length > maxLines) {
       list.removeRange(0, list.length - maxLines);
     }
