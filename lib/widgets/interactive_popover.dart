@@ -50,7 +50,30 @@ class _InteractivePopoverState extends State<InteractivePopover> {
   // refreshed while open until it was).
   final OverlayPortalController _portal = OverlayPortalController();
 
+  // Focus moves INTO the popover when it opens, so its Esc binding below
+  // hears every Esc. It used to stay where it was: after a mouse click that
+  // was the page, the key went straight to the page's shortcuts, and Esc
+  // closed the Library behind a popover that stayed open. A scope of its own
+  // also lets an `autofocus` field inside take focus, which it cannot in a
+  // scope whose focused child is the page's.
+  final FocusScopeNode _scope = FocusScopeNode(debugLabel: 'popover');
+
+  // The trigger's key hook, so a focus move onto the trigger is not mistaken
+  // for focus leaving the popover.
+  final FocusNode _triggerFocus = FocusNode(
+      debugLabel: 'popover trigger', canRequestFocus: false, skipTraversal: true);
+
+  // Where focus was before the popover took it, given back when it closes.
+  FocusNode? _focusBeforeOpen;
+
   bool get _isOpen => _portal.isShowing;
+
+  @override
+  void dispose() {
+    _scope.dispose();
+    _triggerFocus.dispose();
+    super.dispose();
+  }
 
   void _togglePopover() {
     if (_isOpen) {
@@ -62,52 +85,92 @@ class _InteractivePopoverState extends State<InteractivePopover> {
 
   void _openPopover() {
     if (_isOpen) return;
+    _focusBeforeOpen = FocusManager.instance.primaryFocus;
     setState(_portal.show);
+    // After the frame that builds the scope. A field inside that asked for
+    // focus itself (autofocus, or a request of its own) is not overridden:
+    // a scope that already holds focus is left alone, and a later request
+    // wins over this one.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _isOpen && !_scope.hasFocus) _scope.requestFocus();
+    });
   }
 
   void _closePopover() {
     if (!_isOpen || !mounted) return;
+    final previous = _focusBeforeOpen;
+    _focusBeforeOpen = null;
+    // Only while focus is still in here. If something the popover did has
+    // already moved it - a dialog it opened, a field it handed off to -
+    // pulling it back would undo that. Synchronous, before the hide: a
+    // dialog an item opens asks for focus later, when its route builds, and
+    // still wins.
+    if (_scope.hasFocus &&
+        previous != null &&
+        (previous.context?.mounted ?? false) &&
+        previous.canRequestFocus) {
+      previous.requestFocus();
+    }
     setState(_portal.hide);
+  }
+
+  // Focus that leaves the popover for somewhere else on the same page (Ctrl+F
+  // to the sidebar search, say) closes it, as a click there would: an open
+  // popover that no longer has focus could not hear its Esc either. Focus
+  // that goes to another route (a dialog or menu opened from inside it), or
+  // nowhere (the window deactivated), is not a decision to leave, and the
+  // popover stays.
+  void _onScopeFocusChange(bool hasFocus) {
+    if (hasFocus || !_isOpen || _triggerFocus.hasFocus) return;
+    final now = FocusManager.instance.primaryFocus;
+    final page = _scope.enclosingScope;
+    if (now == null || page == null) return;
+    if (now == page || now.ancestors.contains(page)) _closePopover();
   }
 
   Widget _buildOverlay(BuildContext context, OverlayChildLayoutInfo info) {
     final trigger = MatrixUtils.transformRect(
         info.childPaintTransform, Offset.zero & info.childSize);
-    // Esc closes the popover from anywhere inside it. The portal builds this
-    // content BELOW the trigger in the widget tree, so its key events now
-    // bubble through the page's own shortcuts - where Esc closes the Library.
-    // The old OverlayEntry sat outside them. Unclaimed here, Esc typed into
-    // the search popover's field closed the Library behind a popover that
-    // stayed open.
+    // Esc closes the popover from anywhere inside it - which, with focus
+    // moved in on open, is wherever focus is while it is open. The portal
+    // builds this content BELOW the trigger in the widget tree, so its key
+    // events bubble through the page's own shortcuts - where Esc closes the
+    // Library. The old OverlayEntry sat outside them. Unclaimed here, Esc
+    // typed into the search popover's field closed the Library behind a
+    // popover that stayed open.
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): _closePopover,
       },
-      child: Stack(
-        children: [
-          // Full-screen barrier to dismiss popover when clicking outside
-          GestureDetector(
-            onTap: _closePopover,
-            behavior: HitTestBehavior.translucent,
-            child: const SizedBox.expand(),
-          ),
-          Positioned.fill(
-            child: CustomSingleChildLayout(
-              delegate: PopoverPlacement(
-                trigger: trigger,
-                targetAnchor: widget.targetAnchor,
-                followerAnchor: widget.followerAnchor,
-                offset: widget.offset,
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: widget.popoverBuilder != null
-                    ? widget.popoverBuilder!(context, _closePopover)
-                    : widget.popover!,
+      child: FocusScope(
+        node: _scope,
+        onFocusChange: _onScopeFocusChange,
+        child: Stack(
+          children: [
+            // Full-screen barrier to dismiss popover when clicking outside
+            GestureDetector(
+              onTap: _closePopover,
+              behavior: HitTestBehavior.translucent,
+              child: const SizedBox.expand(),
+            ),
+            Positioned.fill(
+              child: CustomSingleChildLayout(
+                delegate: PopoverPlacement(
+                  trigger: trigger,
+                  targetAnchor: widget.targetAnchor,
+                  followerAnchor: widget.followerAnchor,
+                  offset: widget.offset,
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: widget.popoverBuilder != null
+                      ? widget.popoverBuilder!(context, _closePopover)
+                      : widget.popover!,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -124,15 +187,16 @@ class _InteractivePopoverState extends State<InteractivePopover> {
     return OverlayPortal.overlayChildLayoutBuilder(
       controller: _portal,
       overlayChildBuilder: _buildOverlay,
-      // Esc with focus on the TRIGGER, which keeps it after Enter or Space
-      // opens the popover. The overlay's binding only hears keys from focus
-      // inside the popover, so this Esc went on up to the page's shortcuts:
-      // the Library behind closed and the popover stayed open. Claimed only
-      // while open; a closed popover's trigger leaves Esc to the page. No
-      // focus or Tab stop of its own: it hears the trigger's keys.
+      // Esc with focus on the TRIGGER while the popover is open. Opening
+      // moves focus inside, but after Enter or Space it is still on the
+      // trigger until the popover's first frame is up. The overlay's binding
+      // only hears keys from focus inside the popover, so this Esc went on up
+      // to the page's shortcuts: the Library behind closed and the popover
+      // stayed open. Claimed only while open; a closed popover's trigger
+      // leaves Esc to the page. No focus or Tab stop of its own: it hears
+      // the trigger's keys.
       child: Focus(
-        canRequestFocus: false,
-        skipTraversal: true,
+        focusNode: _triggerFocus,
         onKeyEvent: _onTriggerKey,
         child: NeuFocusable(
           onActivate: _togglePopover,

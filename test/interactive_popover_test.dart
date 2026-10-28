@@ -315,6 +315,176 @@ void main() {
     expect(pageEscapes, 1);
   });
 
+  group('focus', () {
+    // The page as main.dart builds it: Esc bound to close the Library, under
+    // a Focus(autofocus) that holds focus whenever nothing else does.
+    Widget page({
+      required VoidCallback onPageEscape,
+      Widget popover =
+          const SizedBox(key: ValueKey('menu'), width: 200, height: 80),
+      Widget? elsewhere,
+    }) =>
+        MaterialApp(
+          home: Scaffold(
+            body: CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.escape): onPageEscape,
+              },
+              child: Focus(
+                autofocus: true,
+                child: Column(
+                  children: [
+                    ?elsewhere,
+                    Center(
+                      child: InteractivePopover(
+                        popover: popover,
+                        child: const SizedBox(width: 60, height: 30),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+
+    bool focusInPopover() {
+      final focus = FocusManager.instance.primaryFocus;
+      return focus != null &&
+          [focus, ...focus.ancestors].any((n) => n.debugLabel == 'popover');
+    }
+
+    testWidgets('Esc closes a popover a mouse click opened', (tester) async {
+      // A click leaves focus where it was - the page - and the popover's Esc
+      // binding only hears keys from inside the popover, so the page's Esc
+      // closed the Library behind a popover that stayed open.
+      var pageEscapes = 0;
+      await tester.pumpWidget(page(onPageEscape: () => pageEscapes++));
+      await tester.tap(find.byType(InteractivePopover));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsOneWidget);
+      expect(focusInPopover(), isTrue, reason: 'opening moved focus inside');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsNothing);
+      expect(pageEscapes, 0, reason: 'the page never saw the Esc');
+
+      // Focus went back to the page, whose Esc works as before.
+      expect(focusInPopover(), isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(pageEscapes, 1);
+    });
+
+    testWidgets('closing gives focus back to the trigger that opened it',
+        (tester) async {
+      await tester.pumpWidget(page(onPageEscape: () {}));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final trigger = FocusManager.instance.primaryFocus;
+      expect(
+          trigger?.context?.findAncestorWidgetOfExactType<InteractivePopover>(),
+          isNotNull,
+          reason: 'the trigger has focus');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(focusInPopover(), isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsNothing);
+      expect(FocusManager.instance.primaryFocus, same(trigger));
+    });
+
+    testWidgets('an autofocus field inside a popover gets focus',
+        (tester) async {
+      // Flutter drops an autofocus request when the field's scope already
+      // has a focused child, and the page's Focus(autofocus) was that child:
+      // the field opened with no caret. In the popover's own scope it takes.
+      await tester.pumpWidget(page(
+        onPageEscape: () {},
+        popover: const SizedBox(
+            key: ValueKey('menu'),
+            width: 200,
+            child: TextField(autofocus: true)),
+      ));
+      await tester.tap(find.byType(InteractivePopover));
+      await tester.pump();
+      await tester.pump();
+      expect(
+          FocusManager.instance.primaryFocus?.context
+              ?.findAncestorWidgetOfExactType<TextField>(),
+          isNotNull);
+    });
+
+    testWidgets('focus moved elsewhere on the page closes the popover',
+        (tester) async {
+      // Ctrl+F sends focus to the sidebar search while a popover is open. An
+      // open popover without focus could not hear its Esc any more.
+      final elsewhere = FocusNode();
+      addTearDown(elsewhere.dispose);
+      await tester.pumpWidget(page(
+        onPageEscape: () {},
+        elsewhere: SizedBox(
+            width: 200, child: TextField(focusNode: elsewhere)),
+      ));
+      await tester.tap(find.byType(InteractivePopover));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsOneWidget);
+
+      elsewhere.requestFocus();
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsNothing);
+      expect(elsewhere.hasPrimaryFocus, isTrue,
+          reason: 'closing did not pull focus back from where it went');
+    });
+
+    testWidgets('a dialog opened from a popover, or the window deactivating, '
+        'leaves it open', (tester) async {
+      await tester.pumpWidget(page(
+        onPageEscape: () {},
+        popover: Builder(
+          builder: (context) => TextButton(
+            key: const ValueKey('menu'),
+            onPressed: () => Navigator.of(context).push(DialogRoute<void>(
+              context: context,
+              builder: (_) => const Material(
+                child: TextField(key: ValueKey('dialog'), autofocus: true),
+              ),
+            )),
+            child: const Text('Open dialog'),
+          ),
+        ),
+      ));
+      await tester.tap(find.byType(InteractivePopover));
+      await tester.pump();
+
+      // On Windows the FocusManager parks focus on the root scope when the
+      // app loses activation, and gives it back on resume.
+      final suspended = FocusManager.instance.primaryFocus!;
+      FocusManager.instance.rootScope.requestScopeFocus();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('menu')), findsOneWidget);
+      suspended.requestFocus();
+      await tester.pump();
+      expect(focusInPopover(), isTrue);
+
+      await tester.tap(find.text('Open dialog'));
+      await tester.pumpAndSettle();
+      expect(
+          FocusManager.instance.primaryFocus?.context
+              ?.findAncestorWidgetOfExactType<TextField>()
+              ?.key,
+          const ValueKey('dialog'));
+      expect(find.byKey(const ValueKey('menu')), findsOneWidget,
+          reason: 'focus went to another route, not elsewhere on the page');
+    });
+  });
+
   testWidgets('a popover follows a trigger that scrolls', (tester) async {
     // The dashboard header's popovers sit inside the page's CustomScrollView.
     // The follower tracked the trigger at compositing time; the portal has to
