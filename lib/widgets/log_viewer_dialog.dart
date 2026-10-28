@@ -73,13 +73,19 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
       _selected = sessions.isNotEmpty ? sessions.first.key : null;
     }
     widget.logs.addListener(_onLogs);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _revealSelected());
   }
 
-  /// Brings the requested session into view in the narrow layout's strip.
+  /// Whether the last layout was the narrow one, with the session strip.
+  bool _stripShown = false;
+
+  /// Brings the selected session into view in the narrow layout's strip.
   /// "View log" on a failure can name an older session, and the strip shows
   /// newest first - without this the selected tile could open off to the
   /// right, with nothing saying which log is on screen.
+  ///
+  /// Run each time the strip appears, not only when the dialog opens: a
+  /// strip built by a resize from wide to narrow starts scrolled to the left
+  /// as well, whatever was selected in the column before.
   void _revealSelected() {
     if (!mounted || !_sessionStrip.hasClients) return;
     final index =
@@ -228,6 +234,11 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                     // showing those lines. Narrow, the sessions become a strip
                     // above a full-width log instead.
                     if (constraints.maxWidth < _sideBySideMinWidth) {
+                      if (!_stripShown) {
+                        _stripShown = true;
+                        WidgetsBinding.instance.addPostFrameCallback(
+                            (_) => _revealSelected());
+                      }
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -252,6 +263,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                         ],
                       );
                     }
+                    _stripShown = false;
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [

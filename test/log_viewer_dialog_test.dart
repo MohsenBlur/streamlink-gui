@@ -124,6 +124,38 @@ void main() {
     expect(tile.right, lessThanOrEqualTo(sheet.right));
   });
 
+  testWidgets('the strip shows the selected session after a resize from '
+      'wide to narrow', (tester) async {
+    // The strip is built fresh when the layout turns narrow, scrolled to the
+    // left; it used to reveal the selection only when the dialog opened, so
+    // shrinking the window hid the session whose log was on screen.
+    final logs = logsWithSessions();
+    addTearDown(logs.dispose);
+    final last = logs.sessions.last;
+    await open(tester, const Size(1280, 800), logs, initialKey: last.key);
+
+    tester.view.physicalSize = const Size(380, 500);
+    await tester.pumpAndSettle();
+
+    final tile = tester.getRect(find.text(last.label));
+    final sheet = dialog(tester);
+    expect(tile.left, greaterThanOrEqualTo(sheet.left),
+        reason: 'the selected tile is in view, not scrolled off the right');
+    expect(tile.right, lessThanOrEqualTo(sheet.right));
+
+    // And once revealed it stays where the user scrolls it: a log line
+    // arriving rebuilds the dialog, and must not yank the strip back.
+    final position = tester
+        .state<ScrollableState>(find.byWidgetPredicate((w) =>
+            w is Scrollable && w.axisDirection == AxisDirection.right))
+        .position;
+    position.jumpTo(0);
+    await tester.pump();
+    logs.appendLog(last.key, '[Download] another line');
+    await tester.pumpAndSettle();
+    expect(position.pixels, 0);
+  });
+
   testWidgets('a wide window keeps the side-by-side layout', (tester) async {
     final logs = logsWithSessions();
     addTearDown(logs.dispose);
