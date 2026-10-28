@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import '../models/app_settings.dart';
@@ -115,6 +116,10 @@ class PlayerService {
   
   // Windows PowerShell bridges
   final Map<String, Process> _winIpcBridges = {};
+
+  /// Each bridge's per-session token, which a client must send before the
+  /// bridge relays anything to mpv.
+  final Map<String, String> _winIpcBridgeTokens = {};
 
   // Event Callbacks
   void Function(String vodId, double progress, String status)? onDownloadProgress;
@@ -1224,36 +1229,37 @@ class PlayerService {
         }
       } else if (isMpv) {
         try {
-          Socket? socket;
+          final String replies;
           if (Platform.isWindows) {
-            // Windows Named Pipe IPC runs through the PowerShell TCP loopback bridge
-            socket = await Socket.connect('127.0.0.1', port, timeout: const Duration(seconds: 2));
+            // Windows Named Pipe IPC runs through the PowerShell TCP loopback
+            // bridge, which drops any client without the session's token - so
+            // with no token (the bridge never started) there is no one to ask.
+            final token = _winIpcBridgeTokens[vod.id];
+            replies = token == null
+                ? ''
+                : await exchangeWithMpv(
+                    () => Socket.connect('127.0.0.1', port,
+                        timeout: const Duration(seconds: 2)),
+                    commands: mpvStatusCommands(),
+                    bridgeToken: token,
+                    // Wait for ALL THREE replies. The old code destroyed the
+                    // socket on the FIRST newline, which raced the second
+                    // reply - a latent bug that a third command would have
+                    // turned routine.
+                    isComplete: mpvRepliesComplete);
           } else {
             // macOS/Linux Unix domain socket connection
-            socket = await Socket.connect(
-              InternetAddress('/tmp/mpv-socket-${vod.id}', type: InternetAddressType.unix),
-              0,
-              timeout: const Duration(seconds: 2)
-            );
+            replies = await exchangeWithMpv(
+                () => Socket.connect(
+                    InternetAddress(mpvIpcPath(vod.id, false),
+                        type: InternetAddressType.unix),
+                    0,
+                    timeout: const Duration(seconds: 2)),
+                commands: mpvStatusCommands(),
+                isComplete: mpvRepliesComplete);
           }
 
-          String responseBuffer = '';
-          socket.listen((data) {
-            responseBuffer +=
-                const Utf8Decoder(allowMalformed: true).convert(data);
-            // Wait for ALL THREE replies. The old code destroyed the socket
-            // on the FIRST newline, which raced the second reply - a latent
-            // bug that a third command would have turned routine.
-            if (mpvRepliesComplete(responseBuffer)) {
-              socket?.destroy();
-            }
-          });
-          for (final command in mpvStatusCommands()) {
-            socket.write(command);
-          }
-          await Future.delayed(const Duration(milliseconds: 300));
-
-          status = parseMpvStatus(responseBuffer);
+          status = parseMpvStatus(replies);
         } catch (e) {
           if (!pollErrorLogged && isLive()) {
             pollErrorLogged = true;
@@ -1386,69 +1392,154 @@ class PlayerService {
     }
   }
 
-  // Windows Named Pipe to TCP loopback bridge script execution.
+  // Windows Named Pipe to TCP loopback bridge.
   //
   // MPV exposes its JSON IPC on a Windows named pipe, which dart:io cannot open
   // directly, so a small PowerShell relay fronts it with a loopback TCP socket.
+  // The script, and the protocol it speaks, live in buildMpvBridgeScript.
   //
   // The relay must serve MANY connections: the progress tracker opens a fresh
-  // socket every two seconds and closes it as soon as a reply arrives. The
-  // previous script accepted exactly ONE client and exited when either copy
+  // socket every two seconds and closes it as soon as a reply arrives. An
+  // earlier script accepted exactly ONE client and exited when either copy
   // completed - which the tracker's own close triggered - so every later poll
   // got connection-refused (swallowed by a bare catch) and the watch position
   // froze at the first sample. Worse, it connected to the pipe BEFORE starting
   // the listener, so the first polls were refused while it waited on MPV.
   Future<void> _startWindowsIpcBridge(String vodId, int port) async {
-    final pipeName = 'mpv-socket-$vodId';
-    final bridgeScript = '''
-      \$ErrorActionPreference = 'Stop'
-      try {
-        # Listen first, so a poll arriving before MPV has created its pipe is
-        # accepted and simply fails fast rather than being refused outright.
-        \$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        \$listener.Start()
+    // A displaced relay is orphaned: nothing else holds its pid, so it would
+    // sit on the loopback port until the app exits, and the new relay's
+    // Start() would fail against the port it still holds.
+    _stopWindowsIpcBridge(vodId);
 
-        while (\$true) {
-          \$tcpClient = \$listener.AcceptTcpClient()
-          try {
-            # A fresh pipe connection per request. MPV's IPC server accepts
-            # sequential clients, and this keeps each poll independent: a
-            # half-finished exchange cannot wedge the next one.
-            \$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '$pipeName', [System.IO.Pipes.PipeDirection]::InOut)
-            \$pipe.Connect(2000)
-
-            \$tcpStream = \$tcpClient.GetStream()
-            \$pTask = \$pipe.CopyToAsync(\$tcpStream)
-            \$tTask = \$tcpStream.CopyToAsync(\$pipe)
-            [System.Threading.Tasks.Task]::WaitAny(@(\$pTask, \$tTask), 5000)
-          } catch {
-            # MPV not ready yet, or the client vanished: drop this exchange and
-            # keep serving.
-          } finally {
-            if (\$pipe) { \$pipe.Dispose(); \$pipe = \$null }
-            if (\$tcpClient) { \$tcpClient.Close() }
-          }
-        }
-      } catch {
-        exit 1
-      }
-    ''';
-
+    final token = _newBridgeToken();
     try {
-      final proc = await Process.start(
-        'powershell',
-        ['-WindowStyle', 'Hidden', '-Command', bridgeScript],
-        runInShell: false
+      final proc = await startMpvPipeBridge(
+        port: port,
+        pipeName: mpvPipeName(vodId),
+        token: token,
+        onOutput: (line) => log(vodId, '[mpv bridge] $line'),
       );
-      // A displaced relay is orphaned: nothing else holds its pid, so it would
-      // sit on the loopback port until the app exits, and the new relay's
-      // Start() would fail against the port it still holds.
-      _stopWindowsIpcBridge(vodId);
       _winIpcBridges[vodId] = proc;
-    } catch (_) {}
+      _winIpcBridgeTokens[vodId] = token;
+      proc.exitCode.then((code) {
+        // Only an exit nobody asked for is news: a deliberate stop unregisters
+        // the bridge before killing it. Without this the first sign of a dead
+        // relay was a single suppressed poll error.
+        if (identical(_winIpcBridges[vodId], proc)) {
+          log(vodId,
+              '[System] The mpv progress bridge exited (code $code), so watch '
+              'progress will not be saved for the rest of this session.');
+        }
+      });
+    } catch (e) {
+      log(vodId, '[System] Could not start the mpv progress bridge: $e');
+    }
+  }
+
+  static String _newBridgeToken() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 16; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+  }
+
+  /// Starts the bridge for one session and drains everything it prints.
+  ///
+  /// Draining is load-bearing, not tidiness: dart:io creates the pipes whether
+  /// or not anyone reads them, and a child that fills one blocks on its next
+  /// write - which is exactly how the previous relay wedged. Whatever does
+  /// arrive goes to [onOutput], so a script that starts printing again shows
+  /// up in the session log instead of silently stopping the relay.
+  ///
+  /// Static so the real relay can be tested on its own.
+  static Future<Process> startMpvPipeBridge({
+    required int port,
+    required String pipeName,
+    required String token,
+    required void Function(String line) onOutput,
+  }) async {
+    final script = buildMpvBridgeScript(port: port, pipeName: pipeName);
+    final proc = await Process.start(
+      'powershell',
+      [
+        // A profile that prints anything would land in the very pipe this
+        // relay must keep empty, and costs startup time before it listens.
+        '-NoProfile',
+        '-NonInteractive',
+        '-WindowStyle', 'Hidden',
+        '-EncodedCommand', encodePowerShellCommand(script),
+      ],
+      environment: {mpvBridgeTokenVariable: token},
+      runInShell: false,
+    );
+    for (final output in [proc.stdout, proc.stderr]) {
+      output
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
+        if (line.trim().isNotEmpty) onOutput(line.trim());
+      });
+    }
+    return proc;
+  }
+
+  /// One request/reply round trip over mpv's JSON IPC.
+  ///
+  /// With [bridgeToken] the far end is the Windows bridge, which wants the
+  /// token first and a blank line after the commands, and closes the
+  /// connection once it has replied. Without one it is mpv's own unix socket,
+  /// which takes the commands bare and stays open, so [isComplete] (or
+  /// [timeout]) ends the exchange.
+  ///
+  /// The socket is destroyed on every path. The tracker used to destroy it
+  /// only once all three replies had arrived, so each poll against a wedged
+  /// relay left a connected socket behind, every two seconds, for the rest of
+  /// playback - and with no onError, a reset from the relay surfaced as an
+  /// uncaught async error on each of them.
+  static Future<String> exchangeWithMpv(
+    Future<Socket> Function() connect, {
+    required List<String> commands,
+    String? bridgeToken,
+    bool Function(String replies)? isComplete,
+    Duration timeout = const Duration(seconds: 1),
+  }) async {
+    Socket? socket;
+    try {
+      socket = await connect();
+      final replies = StringBuffer();
+      final finished = Completer<void>();
+      void finish() {
+        if (!finished.isCompleted) finished.complete();
+      }
+
+      socket.listen(
+        (data) {
+          replies.write(const Utf8Decoder(allowMalformed: true).convert(data));
+          if (isComplete != null && isComplete(replies.toString())) finish();
+        },
+        onError: (Object _) => finish(),
+        onDone: finish,
+        cancelOnError: true,
+      );
+      // Writing into a connection the far end has already reset fails here,
+      // not at write(). The reply, or its absence, is all that matters.
+      socket.done.ignore();
+      socket.write([
+        if (bridgeToken != null) '$bridgeToken\n',
+        ...commands,
+        if (bridgeToken != null) '\n',
+      ].join());
+
+      await finished.future.timeout(timeout, onTimeout: () {});
+      return replies.toString();
+    } finally {
+      socket?.destroy();
+    }
   }
 
   void _stopWindowsIpcBridge(String vodId) {
+    _winIpcBridgeTokens.remove(vodId);
     final proc = _winIpcBridges.remove(vodId);
     if (proc != null) {
       try {
@@ -1519,11 +1610,22 @@ class PlayerService {
       int durationSeconds, String logKey) async {
     try {
       if (channel == SeekChannel.mpvIpc) {
-        final socket = await Socket.connect('127.0.0.1', port,
-            timeout: const Duration(seconds: 2));
-        socket.write(mpvSeekCommand(target));
-        await socket.flush();
-        socket.destroy();
+        final token = _winIpcBridgeTokens[logKey];
+        if (Platform.isWindows && token == null) {
+          log(logKey,
+              '[System] Could not correct the playback position: the mpv '
+              'progress bridge is not running.');
+          return;
+        }
+        // Waits for the bridge's reply (it closes once mpv has answered), so
+        // a caller that logs "jumped" afterwards is not guessing.
+        await exchangeWithMpv(
+          () => Socket.connect('127.0.0.1', port,
+              timeout: const Duration(seconds: 2)),
+          commands: [mpvSeekCommand(target)],
+          bridgeToken: token,
+          timeout: const Duration(seconds: 2),
+        );
         return;
       }
       final path = seekRequestPath(channel,
@@ -1660,5 +1762,6 @@ class PlayerService {
       } catch (_) {}
     }
     _winIpcBridges.clear();
+    _winIpcBridgeTokens.clear();
   }
 }
