@@ -43,8 +43,28 @@ dependencies:
   screen_retriever: ^0.2.0
   system_tray: ^2.0.3
   local_notifier: ^0.1.6
+  # Held at 8.x on purpose (audit I7). 13.3.0 resolves under the pinned SDK,
+  # but every major below changes a call site, and only a real launch can
+  # check a native dialog. The migration, per the package changelog:
+  #   11.0.0  FilePicker.platform.x() becomes static FilePicker.x(): four call
+  #           sites (main.dart, onboarding_wizard.dart, settings_dialog.dart x2).
+  #   12.0.0  pickFiles() returns List<PlatformFile> (empty, not null, on
+  #           cancel) and allowMultiple now defaults to TRUE, so the player
+  #           picker's `result.files.single` would throw on a multi-pick: use
+  #           the new pickFile(). Needs Flutter 3.38 / Dart 3.10 (3.44.2 has).
+  #   13.0.0  The parameters 12.x deprecated are removed.
+  # win32 moves 5.x -> 6.x with it; nothing else here depends on win32.
   file_picker: ^8.0.0
   path: ^1.9.0
+  # Held at 3.x on purpose (audit I7). 4.5.2 resolves under the pinned SDK,
+  # but this is the updater's zip extraction: a regression ships a broken
+  # self-update, so the bump needs a real download, extract and apply run.
+  # The migration: ArchiveFile.content is typed Uint8List in 4.x, so
+  # update_service.dart's `entry.content as List<int>` becomes an unnecessary
+  # cast that fails analyze - drop the cast. 4.0.0 also renamed decodeBuffer to
+  # decodeStream and InputStream/OutputStream to InputMemoryStream/
+  # OutputMemoryStream (none used here), and since 4.5.0 a malformed header
+  # throws ArchiveException rather than RangeError.
   archive: ^3.6.1
 
 dev_dependencies:
