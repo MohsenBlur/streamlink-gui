@@ -22,6 +22,7 @@ import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/download_history.dart';
 import 'state/settings_repository.dart';
+import 'state/settings_save.dart';
 import 'services/downloads_controller.dart';
 import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
@@ -1761,6 +1762,35 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   UpdateInfo? _pendingUpdateInfo;
 
+  /// Saving Settings, and what a save sets off (SettingsSaveCoordinator).
+  late final SettingsSaveCoordinator _settingsSave = SettingsSaveCoordinator(
+    settings: () => _settings,
+    adopt: (updated) => setState(() {
+      _settings = updated;
+      _isWebTokenExpired = false;
+    }),
+    save: _saveChannels,
+    mounted: () => mounted,
+    auth: twitchAuth,
+    probeAccount: () => _refreshHelixAuth(force: true),
+    forgetFollowed: _channelsCtl.clearFollowed,
+    startup: _services.startup,
+    rebuildTrayMenu: () => _shell.rebuildTrayMenu(force: true),
+    loadFollowed: () => unawaited(_loadFollowedChannels()),
+    signedOut: () => setState(() {
+      _followedChannels.clear();
+      _authenticatedUserLogin = null;
+      _authenticatedUserAvatar = null;
+      _sidebarTab = 0;
+    }),
+    canvasTurnedOn: () {
+      LitSurfaceProgram.disable('Simple rendering turned on in Settings');
+      _logNotifier.appendLog(
+          _appLogKey, '[System] Surface engine: ${LitSurfaceProgram.status}');
+    },
+    showMessage: (message) => _showSnackBar(message, isError: false),
+  );
+
   void _showSettingsDialog() {
     SettingsDialog.show(
       context,
@@ -1777,66 +1807,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       // post-frame callback fired while Settings was still open and stacked
       // the prompt behind the modal.
       onUpdateAvailable: (info) => _pendingUpdateInfo = info,
-      onSave: (updatedSettings) async {
-        final startupChanged =
-            _settings.launchAtStartup != updatedSettings.launchAtStartup;
-        // Which credentials this save replaces; see the reset after saving.
-        final tokenChanged = _settings.twitchOauthToken.trim() !=
-            updatedSettings.twitchOauthToken.trim();
-        final helixChanged = tokenChanged ||
-            _settings.twitchClientId.trim() !=
-                updatedSettings.twitchClientId.trim();
-        final browserChanged = _settings.twitchWebOauthToken.trim() !=
-            updatedSettings.twitchWebOauthToken.trim();
-        // Simple rendering takes effect at once when turned on: lit painters
-        // repaint through Canvas the moment the engine is disabled. Turning
-        // it off needs the shader loaded and self-tested, which happens at
-        // launch, so that half waits for the next start.
-        if (updatedSettings.canvasEngine && !_settings.canvasEngine) {
-          LitSurfaceProgram.disable('Simple rendering turned on in Settings');
-          _logNotifier.appendLog(_appLogKey,
-              '[System] Surface engine: ${LitSurfaceProgram.status}');
-        }
-        setState(() {
-          _settings = updatedSettings;
-          _isWebTokenExpired = false;
-        });
-        await _saveChannels();
-        if (!mounted) return;
-
-        // The status described credentials this save just replaced: "Connected
-        // as A" stayed up for the session after switching to B, and clearing
-        // the token left "Connected". Start again from what is known of the
-        // new pair, and probe it now rather than at the next 401. The followed
-        // list may be another account's, and so may a load still out for it.
-        if (helixChanged) {
-          twitchAuth.setHelix(statusForToken(_settings.twitchOauthToken,
-              mintedClientId: _settings.twitchTokenClientId));
-          unawaited(_refreshHelixAuth(force: true));
-        }
-        if (browserChanged) {
-          twitchAuth.setBrowser(statusForToken(_settings.twitchWebOauthToken));
-        }
-        if (tokenChanged) _channelsCtl.clearFollowed();
-
-        if (startupChanged) {
-          _services.startup.sync(_settings.launchAtStartup);
-        }
-        // The tray menu preference may have flipped.
-        _shell.rebuildTrayMenu(force: true);
-
-        if (_settings.twitchOauthToken.trim().isNotEmpty) {
-          _loadFollowedChannels();
-        } else {
-          setState(() {
-            _followedChannels.clear();
-            _authenticatedUserLogin = null;
-            _authenticatedUserAvatar = null;
-            _sidebarTab = 0;
-          });
-        }
-        _showSnackBar('Settings saved successfully!', isError: false);
-      },
+      onSave: _settingsSave.save,
     ).then((_) {
       final info = _pendingUpdateInfo;
       _pendingUpdateInfo = null;
