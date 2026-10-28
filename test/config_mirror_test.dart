@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,12 +8,15 @@ import 'package:streamlink_gui/services/update_service.dart';
 
 /// The channels_config.json older builds mirrored beside the executable on
 /// every save - the whole config, Twitch tokens in plaintext, even for an
-/// installed copy - and what removes it now: the app at startup where it can
-/// write, the updater's write step where only that can (Program Files).
+/// installed copy - and what is done about it now: the app scrubs its tokens
+/// at startup where it can write, the updater's elevated step deletes it
+/// where only that can (Program Files).
 ///
 /// The rules that matter are the refusals. In a portable copy that file IS
 /// the config, and while AppData has no config yet it is what the one-time
-/// migration in getStorageFile still reads.
+/// migration in getStorageFile still reads. And the app never deletes it:
+/// a portable copy whose portable.txt went missing looks just like a stale
+/// mirror, and there the file is the user's real config.
 void main() {
   late Directory root;
   late Directory exeDir;
@@ -39,77 +43,163 @@ void main() {
   const mirrored = '{"settings":{"twitch_oauth_token":"plaintext"}}';
   const current = '{"settings":{"twitch_oauth_token":"sealed"}}';
 
+  /// A whole config as an older build mirrored it, or as a portable copy
+  /// keeps it: channels, history and settings around the two tokens.
+  String wholeConfig({String account = 'oauth-plaintext', String browser = 'dpapi:v1:AAAA'}) =>
+      '{"channels":[{"username":"alpha","is_favorite":true}],'
+      '"settings":{"twitch_oauth_token":"$account","default_quality":"720p60",'
+      '"twitch_web_oauth_token":"$browser","material":"deck"},'
+      '"local_vods_progress":{"v1":1234},"downloaded_vods":{}}';
+
+  List<String> leftovers() => exeDir
+      .listSync()
+      .map((e) => p.basename(e.path))
+      .where((name) => name != 'channels_config.json')
+      .toList();
+
   group('at startup', () {
-    test('a mirror beside an installed copy is deleted once AppData has the config', () {
-      mirror().writeAsStringSync(mirrored);
+    test("a mirror beside an installed copy loses its tokens and keeps the rest", () {
+      mirror().writeAsStringSync(wholeConfig());
       config().writeAsStringSync(current);
 
-      final line = StorageService().dropStaleConfigMirror();
+      final line = StorageService().scrubStaleConfigMirror();
 
-      expect(mirror().existsSync(), isFalse);
-      expect(line, contains('removed'));
+      expect(mirror().readAsStringSync(), wholeConfig(account: '', browser: ''),
+          reason: 'only the token values change, sealed or not');
+      expect(line, contains('scrubbed'));
+      expect(line, contains(mirror().path));
+      expect(leftovers(), isEmpty, reason: 'the temp file is renamed into place');
       expect(config().readAsStringSync(), current,
           reason: 'the config itself is never touched');
     });
 
-    test("a portable copy's config is never deleted", () {
+    test('a portable copy that lost its portable.txt keeps everything but the tokens', () {
+      // The case deleting got wrong: a portable folder moved or copied
+      // without its marker reads as an installed copy with a stale mirror,
+      // and putting portable.txt back must still find the user's channels.
+      mirror().writeAsStringSync(wholeConfig());
+      config().writeAsStringSync(current);
+      StorageService().scrubStaleConfigMirror();
+
+      File(p.join(exeDir.path, 'portable.txt')).writeAsStringSync('');
+      final restored = json.decode(mirror().readAsStringSync()) as Map<String, dynamic>;
+
+      expect(restored['channels'], [
+        {'username': 'alpha', 'is_favorite': true}
+      ]);
+      expect(restored['local_vods_progress'], {'v1': 1234});
+      expect((restored['settings'] as Map)['material'], 'deck');
+    });
+
+    test('a mirror that does not parse is scrubbed byte for byte', () {
+      // Cut off mid-write, and not even UTF-8 (a lone 0xE9): what is not a
+      // token survives exactly.
+      final head = utf8.encode('{"channels":[{"username":"caf');
+      final tail = utf8.encode('"}],"settings":{"twitch_oauth_token":"oauth-plain');
+      mirror().writeAsBytesSync([...head, 0xE9, ...tail]);
+      config().writeAsStringSync(current);
+
+      expect(StorageService().scrubStaleConfigMirror(), contains('scrubbed'));
+      expect(mirror().readAsBytesSync(), [
+        ...head,
+        0xE9,
+        ...utf8.encode('"}],"settings":{"twitch_oauth_token":"'),
+      ]);
+    });
+
+    test('a mirror with no token in it is left as it is', () {
+      mirror().writeAsStringSync(wholeConfig(account: '', browser: ''));
+      config().writeAsStringSync(current);
+      final stamp = DateTime(2020, 1, 2, 3, 4, 5);
+      mirror().setLastModifiedSync(stamp);
+
+      expect(StorageService().scrubStaleConfigMirror(), isNull);
+      expect(mirror().lastModifiedSync(), stamp, reason: 'not rewritten');
+    });
+
+    test("a portable copy's config is never touched", () {
       File(p.join(exeDir.path, 'portable.txt')).writeAsStringSync('');
       mirror().writeAsStringSync(mirrored);
       config().writeAsStringSync(current);
 
-      expect(StorageService().dropStaleConfigMirror(), isNull);
+      expect(StorageService().scrubStaleConfigMirror(), isNull);
       expect(mirror().readAsStringSync(), mirrored);
     });
 
     test('with no config in AppData yet the mirror is kept for the migration', () {
       mirror().writeAsStringSync(mirrored);
 
-      expect(StorageService().dropStaleConfigMirror(), isNull);
+      expect(StorageService().scrubStaleConfigMirror(), isNull);
       expect(mirror().readAsStringSync(), mirrored);
     });
 
     test('a config that lives beside the exe is not a mirror of itself', () {
       // No AppData folder: getStorageFile keeps the config beside the exe.
       StorageService.storageDirectoryOverride = exeDir.path;
-      mirror().writeAsStringSync(current);
+      mirror().writeAsStringSync(mirrored);
 
-      expect(StorageService().dropStaleConfigMirror(), isNull);
-      expect(mirror().readAsStringSync(), current);
+      expect(StorageService().scrubStaleConfigMirror(), isNull);
+      expect(mirror().readAsStringSync(), mirrored);
     });
 
     test('nothing to say when there is no mirror', () {
       config().writeAsStringSync(current);
-      expect(StorageService().dropStaleConfigMirror(), isNull);
+      expect(StorageService().scrubStaleConfigMirror(), isNull);
     });
 
-    test('a mirror this process cannot delete is kept, and says so', () {
-      // Program Files, where only the updater's elevated step can delete
-      // it. A read-only file is the same refusal without needing one.
+    test('a mirror this process cannot rewrite is kept whole, and says so', () {
+      // A read-only file: the temp file is written beside it, and the
+      // rename over it is refused.
       mirror().writeAsStringSync(mirrored);
       config().writeAsStringSync(current);
       Process.runSync('attrib', ['+r', mirror().path]);
       addTearDown(() => Process.runSync('attrib', ['-r', mirror().path]));
 
-      final line = StorageService().dropStaleConfigMirror();
+      final line = StorageService().scrubStaleConfigMirror();
 
-      expect(mirror().existsSync(), isTrue);
-      expect(line, contains('kept'));
-      expect(line, contains('next update'));
+      expect(mirror().readAsStringSync(), mirrored);
+      expect(line, contains('still holds its tokens'));
+      expect(line, contains('cannot be rewritten'));
+      expect(leftovers(), isEmpty, reason: 'the temp file is cleaned up');
     }, skip: !Platform.isWindows);
 
-    test('main() deletes it only after the config loaded', () {
+    test('in a folder this process cannot write, it is left to the next update', () {
+      // Program Files, where only the updater's elevated step can change
+      // the file. A deny ACE on adding files to the folder is the same
+      // refusal without needing one.
+      mirror().writeAsStringSync(mirrored);
+      config().writeAsStringSync(current);
+      final sid = (Process.runSync('whoami', ['/user', '/fo', 'csv', '/nh']).stdout as String)
+          .trim()
+          .split(',')
+          .last
+          .replaceAll('"', '');
+      expect(sid, startsWith('S-1-'));
+      final denied = Process.runSync('icacls', [exeDir.path, '/deny', '*$sid:(WD,AD)']);
+      expect(denied.exitCode, 0, reason: '${denied.stdout}${denied.stderr}');
+      addTearDown(() => Process.runSync('icacls', [exeDir.path, '/remove:d', '*$sid']));
+
+      final line = StorageService().scrubStaleConfigMirror();
+
+      expect(mirror().readAsStringSync(), mirrored);
+      expect(line, contains('cannot write that folder'));
+      expect(line, contains('next update'));
+      expect(leftovers(), isEmpty);
+    }, skip: !Platform.isWindows);
+
+    test('main() scrubs it only after the config loaded', () {
       // A config that would not load is quarantined, and the next launch's
       // migration recovers from the mirror: it must outlive that launch.
       final src = File('lib/main.dart').readAsStringSync().replaceAll('\r\n', '\n');
       final start = src.indexOf('Future<void> _startApp(');
       expect(start, isNonNegative);
       final body = src.substring(start, src.indexOf('\n}\n', start));
-      final call = body.indexOf('storage.dropStaleConfigMirror()');
-      expect(call, isNonNegative, reason: 'startup no longer removes the mirror');
+      final call = body.indexOf('storage.scrubStaleConfigMirror()');
+      expect(call, isNonNegative, reason: 'startup no longer scrubs the mirror');
       final guard = body.lastIndexOf('if (startup.data != null)', call);
       expect(guard, isNonNegative);
       expect(body.indexOf('}', guard), greaterThan(call),
-          reason: 'the removal must sit inside the loaded-config guard');
+          reason: 'the scrub must sit inside the loaded-config guard');
       expect(body.indexOf('storage.loadStartupConfig()'), lessThan(guard));
     });
   });
@@ -193,6 +283,25 @@ void main() {
           contains('if (dropConfigMirror) DropConfigMirror(targetDir);'));
       expect(main,
           contains('RunElevatedSwap(targetDir, stagingDir, exeName, dropConfigMirror)'));
+    });
+
+    test("and only that child deletes it: a folder the user can write is the scrub's", () {
+      // Where the user can write, the file may be a portable copy's real
+      // config that lost its portable.txt, and the app keeps everything in
+      // it but the tokens. The updater deleting it there was the data loss.
+      final cpp = File('windows/runner/win32_updater/main.cpp')
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      final start = cpp.indexOf('int APIENTRY wWinMain(');
+      final main = cpp.substring(start, cpp.indexOf('\n}\n', start));
+      expect('DropConfigMirror('.allMatches(main), hasLength(1),
+          reason: 'the elevated child is the one caller');
+      final writable = main.indexOf('if (IsDirWritable(targetDir, &accessDenied)) {');
+      expect(writable, isNonNegative);
+      final branch =
+          main.substring(writable, main.indexOf('} else if (accessDenied) {', writable));
+      expect(branch, isNot(contains('DropConfigMirror(')));
+      expect(branch, contains('Config mirror: left to the app'));
     });
   });
 }

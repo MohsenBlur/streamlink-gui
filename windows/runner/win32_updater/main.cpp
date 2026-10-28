@@ -276,8 +276,16 @@ bool IsPreservedConfig(const std::wstring& filename) {
 // Deletes the channels_config.json an older build mirrored into the install
 // folder: the whole config, Twitch tokens in plaintext, in a folder every
 // local user can read. Those builds wrote it even for an installed copy, and
-// under Program Files the app, which never runs elevated now, cannot remove
+// under Program Files the app, which never runs elevated now, cannot change
 // it - this step, which writes the folder anyway, can.
+//
+// Only there: the elevated child is the one caller. In a folder the user can
+// write, the app blanks the file's tokens itself at its next start and keeps
+// the rest (StorageService.scrubStaleConfigMirror), because a portable copy
+// whose portable.txt went missing looks just like this, and there the file
+// is the user's real config - deleted here, putting portable.txt back no
+// longer brought its channels back. A folder that needs elevation to write
+// is no portable copy's: the app could never have saved a config there.
 //
 // Asked for only by an app whose config lives in AppData
 // (--drop-config-mirror), so the copy here is stale. But in a portable copy
@@ -726,7 +734,12 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     bool accessDenied = false;
     if (IsDirWritable(targetDir, &accessDenied)) {
         outcome = PerformSwap(targetDir, stagingDir) ? kSwapOk : kSwapFailed;
-        if (dropConfigMirror) DropConfigMirror(targetDir);
+        // Writable without elevation, so the app scrubs it; see
+        // DropConfigMirror.
+        if (dropConfigMirror) {
+            LogLine(L"Config mirror: left to the app, which can write the target "
+                    L"and scrubs its tokens.");
+        }
     } else if (accessDenied) {
         outcome = RunElevatedSwap(targetDir, stagingDir, exeName, dropConfigMirror);
     } else {

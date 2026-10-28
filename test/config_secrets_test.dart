@@ -279,6 +279,43 @@ void main() {
     });
   });
 
+  group('ConfigSecrets.blankTokensInText, for the mirror beside the exe', () {
+    test('empties both tokens, sealed or not, and changes nothing else', () {
+      final sealed = ConfigSecrets(FakeCipher()).sealText(_browser)!;
+      final text = '{"channels":[{"username":"alpha"}],"settings":{'
+          '"twitch_oauth_token": "$_account","default_quality":"best",'
+          '"twitch_web_oauth_token":"$sealed"}}';
+
+      expect(
+          ConfigSecrets.blankTokensInText(text),
+          '{"channels":[{"username":"alpha"}],"settings":{'
+          '"twitch_oauth_token": "","default_quality":"best",'
+          '"twitch_web_oauth_token":""}}');
+    });
+
+    test('an escaped token goes whole, and a cut-off one as far as it goes', () {
+      expect(ConfigSecrets.blankTokensInText(r'{"twitch_oauth_token":"oauth:a\"b\/c","x":1}'),
+          '{"twitch_oauth_token":"","x":1}');
+      expect(
+          ConfigSecrets.blankTokensInText(
+              '{"settings":{"twitch_web_oauth_token":"${_browser.substring(0, 9)}'),
+          '{"settings":{"twitch_web_oauth_token":"');
+      expect(ConfigSecrets.blankTokensInText(r'{"twitch_oauth_token":"abc\'),
+          '{"twitch_oauth_token":"');
+    });
+
+    test('null when there is no token to blank', () {
+      for (final text in [
+        '{"twitch_oauth_token":"","twitch_web_oauth_token":""}',
+        '{"default_quality":"$_account"}',
+        '{"twitch_oauth_token":null}',
+        '',
+      ]) {
+        expect(ConfigSecrets.blankTokensInText(text), isNull, reason: text);
+      }
+    });
+  });
+
   group('StorageService.platformCipher', () {
     test('seals with DPAPI only on Windows, outside the test runner', () {
       expect(StorageService.platformCipher(isWindows: true, isTestRunner: false),

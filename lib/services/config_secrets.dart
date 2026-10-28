@@ -179,6 +179,25 @@ class ConfigSecrets {
     return changed ? sealed : null;
   }
 
+  /// [text] with every token's value emptied, sealed or not, and every other
+  /// character as it was; null when it holds no token that is not already
+  /// empty.
+  ///
+  /// For the config an older build mirrored beside the executable
+  /// (`StorageService.scrubStaleConfigMirror`), which can also be a portable
+  /// copy's real config, so only the credentials go. Raw text, as in
+  /// [sealTokensInText], so a file that does not parse is scrubbed too; a
+  /// value cut off by the end of the text stays unterminated.
+  static String? blankTokensInText(String text) {
+    var changed = false;
+    final blanked = text.replaceAllMapped(_tokenInText, (match) {
+      if (match[2]!.isEmpty) return match[0]!;
+      changed = true;
+      return '${match[1]}${match[3] == '"' ? '"' : ''}';
+    });
+    return changed ? blanked : null;
+  }
+
   /// `"<token key>" : "` (group 1), the string's contents (group 2), and its
   /// closing quote, or the end of a text that stops inside it (group 3).
   static final RegExp _tokenInText = RegExp(
