@@ -150,8 +150,9 @@ class VodBrowserController extends ChangeNotifier {
   }
 
   /// Set when the last refresh failed and the list on screen is more than
-  /// [staleAfter] old. A failed fetch over a cached list used to say nothing
-  /// at all, so a list from hours ago passed for a current one.
+  /// [staleAfter] old - or of any age, when the user asked for that refresh.
+  /// A failed fetch over a cached list used to say nothing at all, so a list
+  /// from hours ago passed for a current one.
   StaleVodList? get stale => _stale;
   StaleVodList? _stale;
 
@@ -505,6 +506,14 @@ class VodBrowserController extends ChangeNotifier {
     final reason = describeTwitchError(e);
     if (_vods.isEmpty) {
       _error = reason;
+      return;
+    }
+    // A refresh the user asked for (the toolbar spinner is up) says it
+    // failed however new the list is. Over one under a minute old it used to
+    // say nothing: the spinner stopped, which reads as "nothing new".
+    if (_isRefreshing) {
+      final since = _fetchedAt ?? cache.fetchedAt(_channel!.username);
+      if (since != null) _stale = StaleVodList(since: since, reason: reason);
       return;
     }
     final since = _fetchedAt;

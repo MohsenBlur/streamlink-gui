@@ -242,6 +242,44 @@ void main() {
       expect(browser.stale, isNull);
     });
 
+    test('one the user asked for says so, however new the list', () async {
+      // "Check for new VODs" over a list under a minute old just stopped its
+      // spinner, which reads as "nothing new".
+      twitch.addVideo('shroud');
+      final browser = browserFor();
+      await browser.open(FakeHelix.channel('shroud'));
+      final fetchedAt = browser.fetchedAt;
+
+      later(const Duration(seconds: 10));
+      twitch.failVideos = true;
+      await browser.refresh(silent: false);
+
+      expect(browser.stale, isNotNull);
+      expect(browser.stale!.since, fetchedAt);
+      expect(browser.isRefreshing, isFalse);
+    });
+
+    test('so does one the user asked for while a background one was out',
+        () async {
+      twitch.addVideo('shroud');
+      final browser = browserFor();
+      await browser.open(FakeHelix.channel('shroud'));
+
+      later(const Duration(seconds: 10));
+      twitch.failVideos = true;
+      twitch.holdVideos = Completer<void>();
+      final background = browser.refresh();
+      final manual = browser.refresh(silent: false);
+      await settle();
+      twitch.holdVideos!.complete();
+      twitch.holdVideos = null;
+      await Future.wait([background, manual]);
+
+      expect(twitch.to('/helix/videos'), hasLength(2),
+          reason: 'the open and the one shared refresh');
+      expect(browser.stale, isNotNull);
+    });
+
     test('over nothing, the error is shown', () async {
       twitch.failVideos = true;
       final browser = browserFor();
