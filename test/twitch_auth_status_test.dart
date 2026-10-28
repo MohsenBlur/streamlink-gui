@@ -239,6 +239,52 @@ void main() {
       expect(s.fault, TwitchAuthFault.revoked);
     });
 
+    test('a scoped 401 after only unscoped 200s reads as the missing scope',
+        () {
+      // Startup with a token lacking user:read:follows: the poll's 200 makes
+      // it valid knowing no scopes, then the followed list's 401 said
+      // "expired or revoked" until the probe answered - and the next poll
+      // 200 healed that, which restarted the round.
+      const unverified = TwitchAuthStatus(
+          state: TwitchAuthState.unverified, login: 'mohsenblur');
+      final afterPoll =
+          statusFromHelix(unverified, statusCode: 200, now: now);
+      expect(afterPoll.state, TwitchAuthState.valid, reason: 'precondition');
+
+      final s = statusFromHelix(afterPoll,
+          statusCode: 401, now: now, endpointScopes: kRequiredHelixScopes);
+      expect(s.state, TwitchAuthState.invalid);
+      expect(s.fault, TwitchAuthFault.missingScope);
+      expect(connectionLabel(s), isNot(contains('rejected')));
+      expect(connectionDetail(s), isNot(contains('revoked')));
+      expect(s.login, 'mohsenblur');
+      expect(statusFromHelix(s, statusCode: 200, now: now).isUsable, isFalse,
+          reason: 'the next poll does not heal it into another round');
+    });
+
+    test('...and a revoked token still says so once an unscoped call fails',
+        () {
+      const proved = TwitchAuthStatus(state: TwitchAuthState.valid);
+      final pending = statusFromHelix(proved,
+          statusCode: 401, now: now, endpointScopes: kRequiredHelixScopes);
+      final s = statusFromHelix(pending, statusCode: 401, now: now);
+      expect(s.fault, TwitchAuthFault.revoked);
+    });
+
+    test('a scoped 401 against a token shown to hold the scope is revoked', () {
+      const proved = TwitchAuthStatus(
+          state: TwitchAuthState.valid, scopes: <String>['user:read:follows']);
+      final s = statusFromHelix(proved,
+          statusCode: 401, now: now, endpointScopes: kRequiredHelixScopes);
+      expect(s.fault, TwitchAuthFault.revoked);
+      expect(
+          statusFromHelix(const TwitchAuthStatus(state: TwitchAuthState.valid),
+                  statusCode: 401, now: now)
+              .fault,
+          TwitchAuthFault.revoked,
+          reason: 'an unscoped 401 from a working token is the token');
+    });
+
     test('a 200 landing mid-probe does not heal what is being re-checked', () {
       // _refreshHelixAuth publishes `checking` before the probe. Dropping the
       // fault there let any poll or VOD-prefetch 200 in flight read as a
