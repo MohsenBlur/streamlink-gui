@@ -36,6 +36,52 @@ void main() {
       expect(restored.avatarUrl, 'u');
     });
 
+    test('a stored id that is not a number is dropped so it is re-resolved', () {
+      // Older builds saved DecAPI's 200-status error text as the id, and the
+      // Helix path then sent it on every poll and got a 400 forever.
+      final channel = TwitchChannel.tryFromJson({
+        'username': 'streamer',
+        'id': 'Error: User not found',
+        'avatarUrl': 'https://example.invalid/a.png',
+      });
+      expect(channel, isNotNull, reason: 'the channel itself is kept');
+      expect(channel!.id, isNull);
+      expect(channel.avatarUrl, 'https://example.invalid/a.png');
+    });
+
+    test('a numeric id stored as a number is kept, not fatal', () {
+      final channel =
+          TwitchChannel.tryFromJson({'username': 'streamer', 'id': 12345});
+      expect(channel, isNotNull);
+      expect(channel!.id, '12345');
+    });
+  });
+
+  group('Twitch identifiers', () {
+    test('logins are letters, digits and underscores, up to 25', () {
+      for (final ok in ['a', 'some_user', 'User123', 'x' * 25]) {
+        expect(isValidTwitchLogin(ok), isTrue, reason: ok);
+      }
+      for (final bad in [
+        '',
+        'foo bar',
+        'foo&login=bar',
+        'a/b',
+        'x' * 26,
+        'émile',
+        'twitch.tv/foo',
+      ]) {
+        expect(isValidTwitchLogin(bad), isFalse, reason: bad);
+      }
+    });
+
+    test('user ids are decimal strings', () {
+      expect(isValidTwitchUserId('123456789'), isTrue);
+      for (final bad in [null, '', '12a', ' 12', 'Error: rate limited', '-5']) {
+        expect(isValidTwitchUserId(bad), isFalse, reason: '$bad');
+      }
+    });
+
     test('returns null for unusable entries instead of throwing', () {
       // One malformed entry used to abort the entire config load, leaving the
       // channel list empty - which the next autosave then persisted.

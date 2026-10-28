@@ -213,6 +213,8 @@ class _Transport {
   final Map<String, DateTime> backoffUntil = <String, DateTime>{};
 }
 
+enum _DecapiUptime { live, offline, unreadable }
+
 class TwitchApiService {
   /// [client] replaces the process-wide shared client (and with it the shared
   /// concurrency cap and back-off), which is what tests use to fake Twitch.
@@ -430,6 +432,57 @@ class TwitchApiService {
     _transport.backoffUntil.remove(url.host);
   }
 
+  /// Every URL is built from parts, so a value is always encoded and can never
+  /// add a parameter of its own.
+  ///
+  /// The VOD "Load more" cursor was appended raw while the followed-list
+  /// cursor two methods away was encoded, and logins went in unencoded in
+  /// both the Helix and DecAPI paths. A cursor with a `+` in it reached Twitch
+  /// as a space.
+  static Uri _helix(String path, [Map<String, dynamic>? query]) =>
+      Uri.https(_helixHost, path, query);
+
+  /// DecAPI takes the login as a path segment, so it is validated by the
+  /// caller first: encoding alone would not stop a `/` changing the endpoint.
+  static Uri _decapi(String what, String login) =>
+      Uri.https('decapi.me', '/twitch/$what/$login');
+
+  /// A request whose failure must not take the rest of the refresh with it.
+  static Future<http.Response?> _optional(Future<http.Response> request) async {
+    try {
+      return await request;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The trimmed body of a 200, or null for anything else or an empty body.
+  static String? _okBody(http.Response? response) {
+    if (response == null || response.statusCode != 200) return null;
+    final body = response.body.trim();
+    return body.isEmpty ? null : body;
+  }
+
+  static bool _isWebUrl(String text) {
+    final uri = Uri.tryParse(text);
+    return uri != null &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        uri.host.isNotEmpty &&
+        !text.contains(RegExp(r'\s'));
+  }
+
+  /// DecAPI's uptime reads "2 hours, 13 minutes, 7 seconds" when live and
+  /// "`<channel>` is offline" when not. Anything else is an error message.
+  static final RegExp _decapiUptimePattern =
+      RegExp(r'^\d+\s+(?:day|hour|minute|second)s?\b', caseSensitive: false);
+
+  static _DecapiUptime _readDecapiUptime(String body) {
+    final text = body.trim();
+    if (_decapiUptimePattern.hasMatch(text)) return _DecapiUptime.live;
+    if (text.toLowerCase().contains('offline')) return _DecapiUptime.offline;
+    return _DecapiUptime.unreadable;
+  }
+
   /// `helix/streams` for Helix, matching the names [TwitchApiException] has
   /// always carried; host and path for anything else.
   static String _endpointOf(Uri url) => url.host == _helixHost
@@ -548,20 +601,36 @@ class TwitchApiService {
     final token = _getRawOauthToken(settings.twitchOauthToken);
 
     try {
+      // Refused before any request: nothing a server could say about it is
+      // more useful than "that is not a username". Helix can still look a
+      // channel up by a known id; DecAPI only ever takes the name.
+      final canLookUpById = token.isNotEmpty && isValidTwitchUserId(channel.id);
+      if (!isValidTwitchLogin(username) && !canLookUpById) {
+        throw Exception('"$username" is not a valid Twitch username.');
+      }
       if (token.isNotEmpty) {
         // Authenticated: Use Helix API
         final headers = _helixHeaders(token, settings);
 
-        // 1. Resolve ID & Profile Avatar if not cached
-        if (channel.id == null || channel.id!.isEmpty || channel.avatarUrl == null || channel.avatarUrl!.isEmpty) {
+        // 1. Resolve ID & Profile Avatar if not cached. A stored id that is
+        // not numeric is re-resolved rather than trusted: it is a DecAPI error
+        // string saved by an older build.
+        if (!isValidTwitchUserId(channel.id) || channel.avatarUrl == null || channel.avatarUrl!.isEmpty) {
+          // By id when there is one: ids survive a rename, logins do not.
           final userRes = await _get(
-            Uri.parse('https://api.twitch.tv/helix/users?login=$username'),
+            _helix('/helix/users', isValidTwitchUserId(channel.id)
+                ? {'id': channel.id!}
+                : {'login': username}),
             headers: headers,
           );
           if (userRes.statusCode == 200) {
             final userData = json.decode(userRes.body);
             if (userData['data'] != null && userData['data'].isNotEmpty) {
-              channel.id = userData['data'][0]['id'] as String;
+              final id = userData['data'][0]['id'];
+              if (id is! String || !isValidTwitchUserId(id)) {
+                throw Exception('Twitch returned no usable id for "$username".');
+              }
+              channel.id = id;
               channel.avatarUrl = userData['data'][0]['profile_image_url'] as String?;
             } else {
               throw Exception('Twitch user "$username" not found.');
@@ -573,7 +642,7 @@ class TwitchApiService {
 
         // 2. Fetch Stream status
         final streamRes = await _get(
-          Uri.parse('https://api.twitch.tv/helix/streams?user_id=${channel.id}'),
+          _helix('/helix/streams', {'user_id': channel.id!}),
           headers: headers,
         );
         if (streamRes.statusCode == 200) {
@@ -618,7 +687,7 @@ class TwitchApiService {
         // just been fetched successfully.
         try {
           final followsRes = await _get(
-            Uri.parse('https://api.twitch.tv/helix/channels/followers?broadcaster_id=${channel.id}'),
+            _helix('/helix/channels/followers', {'broadcaster_id': channel.id!}),
             headers: headers,
           );
           if (followsRes.statusCode == 200) {
@@ -632,58 +701,75 @@ class TwitchApiService {
           // Follower count is cosmetic; keep the live status we already have.
         }
       } else {
-        // Unauthenticated: Fallback to DecAPI
+        // Unauthenticated: Fallback to DecAPI.
+        //
+        // DecAPI answers many errors with status 200 and a sentence of plain
+        // text, so a 200 is not an answer until the body looks like one. Any
+        // uptime body that did not say "offline" used to read as live - the
+        // error text shown as the uptime, plus a "now LIVE" toast - and any id
+        // body that did not say "user not found" was saved as the channel id.
         // 1. Verify/Fetch User ID
-        final idResponse = await _get(Uri.parse('https://decapi.me/twitch/id/$username'));
+        final idResponse = await _get(_decapi('id', username));
         if (idResponse.statusCode == 200) {
           final resText = idResponse.body.trim();
           if (resText.toLowerCase().contains('user not found')) {
             throw Exception('Twitch user "$username" not found on Twitch.');
+          }
+          if (!isValidTwitchUserId(resText)) {
+            throw Exception('DecAPI sent an unreadable id for "$username".');
           }
           channel.id = resText;
         } else {
           throw Exception('API returned status code ${idResponse.statusCode}');
         }
 
-        // 2. Fetch Uptime, Avatar, Followers, Viewers, Game, and Title in parallel
-        final futures = await Future.wait([
-          _get(Uri.parse('https://decapi.me/twitch/avatar/$username')),
-          _get(Uri.parse('https://decapi.me/twitch/uptime/$username')),
-          _get(Uri.parse('https://decapi.me/twitch/followcount/$username')),
-          _get(Uri.parse('https://decapi.me/twitch/viewercount/$username')),
-          _get(Uri.parse('https://decapi.me/twitch/game/$username')),
-          _get(Uri.parse('https://decapi.me/twitch/title/$username')),
+        // 2. Uptime decides live or offline, so it alone can fail the
+        // refresh. The rest is decoration fetched alongside it: when all six
+        // shared one Future.wait, a socket reset on the follower count failed
+        // the live check too.
+        final results = await Future.wait<http.Response?>([
+          _optional(_get(_decapi('avatar', username))),
+          _get(_decapi('uptime', username)),
+          _optional(_get(_decapi('followcount', username))),
+          _optional(_get(_decapi('viewercount', username))),
+          _optional(_get(_decapi('game', username))),
+          _optional(_get(_decapi('title', username))),
         ]);
 
-        if (futures[0].statusCode == 200) {
-          channel.avatarUrl = futures[0].body.trim();
+        final uptime = results[1]!;
+        if (uptime.statusCode != 200) {
+          throw Exception('DecAPI uptime returned status ${uptime.statusCode}');
         }
-        
-        if (futures[1].statusCode == 200) {
-          final uptimeStr = futures[1].body.trim();
-          if (uptimeStr.toLowerCase().contains('offline')) {
+        switch (_readDecapiUptime(uptime.body)) {
+          case _DecapiUptime.live:
+            channel.isLive = true;
+            channel.uptime = uptime.body.trim();
+          case _DecapiUptime.offline:
             channel.isLive = false;
             channel.uptime = 'Offline';
-          } else {
-            channel.isLive = true;
-            channel.uptime = uptimeStr;
-          }
+          case _DecapiUptime.unreadable:
+            throw Exception('DecAPI sent an unreadable live status for "$username".');
         }
 
-        if (futures[2].statusCode == 200) {
-          channel.followerCount = _formatNumberString(futures[2].body.trim());
+        final avatar = _okBody(results[0]);
+        if (avatar != null && _isWebUrl(avatar)) {
+          channel.avatarUrl = avatar;
+        }
+
+        final followers = _okBody(results[2]);
+        if (followers != null && int.tryParse(followers) != null) {
+          channel.followerCount = _formatNumberString(followers);
         }
 
         if (channel.isLive) {
-          if (futures[3].statusCode == 200) {
-            channel.viewerCount = _formatNumberString(futures[3].body.trim());
+          final viewers = _okBody(results[3]);
+          if (viewers != null && int.tryParse(viewers) != null) {
+            channel.viewerCount = _formatNumberString(viewers);
           }
-          if (futures[4].statusCode == 200) {
-            channel.game = futures[4].body.trim();
-          }
-          if (futures[5].statusCode == 200) {
-            channel.streamTitle = futures[5].body.trim();
-          }
+          final game = _okBody(results[4]);
+          if (game != null) channel.game = game;
+          final title = _okBody(results[5]);
+          if (title != null) channel.streamTitle = title;
         } else {
           channel.viewerCount = '0';
           channel.game = 'Offline';
@@ -743,10 +829,7 @@ class TwitchApiService {
 
     final headers = _helixHeaders(token, settings);
 
-    final userRes = await _get(
-      Uri.parse('https://api.twitch.tv/helix/users'),
-      headers: headers,
-    );
+    final userRes = await _get(_helix('/helix/users'), headers: headers);
 
     if (userRes.statusCode != 200) {
       throw TwitchApiException(userRes.statusCode, 'helix/users', userRes.body);
@@ -771,13 +854,13 @@ class TwitchApiService {
     const maxPages = 20;
 
     for (var page = 0; page < maxPages; page++) {
-      final url = StringBuffer('https://api.twitch.tv/helix/channels/followed'
-          '?user_id=$userId&first=100');
-      if (cursor != null && cursor.isNotEmpty) {
-        url.write('&after=${Uri.encodeQueryComponent(cursor)}');
-      }
+      final url = _helix('/helix/channels/followed', {
+        'user_id': userId,
+        'first': '100',
+        if (cursor != null && cursor.isNotEmpty) 'after': cursor,
+      });
 
-      final followsRes = await _get(Uri.parse(url.toString()),
+      final followsRes = await _get(url,
           headers: headers, requiredScopes: kRequiredHelixScopes);
       if (followsRes.statusCode != 200) {
         // Keep whatever was already collected rather than losing every page to
@@ -796,7 +879,8 @@ class TwitchApiService {
         final clean = name.toLowerCase().trim();
         if (!seen.add(clean)) continue;
         final channel = TwitchChannel(username: clean);
-        channel.id = item['broadcaster_id'] as String?;
+        final id = item['broadcaster_id'];
+        channel.id = id is String && isValidTwitchUserId(id) ? id : null;
         channel.game = item['game_name'] as String?;
         tempFollowed.add(channel);
       }
@@ -834,42 +918,53 @@ class TwitchApiService {
 
     final headers = _helixHeaders(token, settings);
 
-    // Resolve channel ID via Helix if missing (instead of falling back directly to DecAPI)
-    if (channel.id == null || channel.id!.isEmpty) {
+    // A login that cannot exist is not looked up anywhere: it would only
+    // produce a malformed query, or a DecAPI path pointing somewhere else.
+    final canLookUp = isValidTwitchLogin(channel.username);
+
+    // Resolve channel ID via Helix if missing (instead of falling back directly
+    // to DecAPI). A non-numeric stored id is an old DecAPI error string, and is
+    // resolved again rather than sent.
+    if (!isValidTwitchUserId(channel.id) && canLookUp) {
       final userRes = await _get(
-        Uri.parse('https://api.twitch.tv/helix/users?login=${channel.username}'),
+        _helix('/helix/users', {'login': channel.username}),
         headers: headers,
       );
       if (userRes.statusCode == 200) {
         final userData = json.decode(userRes.body);
         if (userData['data'] != null && userData['data'].isNotEmpty) {
-          channel.id = userData['data'][0]['id'] as String;
-          channel.avatarUrl = userData['data'][0]['profile_image_url'] as String?;
+          final id = userData['data'][0]['id'];
+          if (id is String && isValidTwitchUserId(id)) {
+            channel.id = id;
+            channel.avatarUrl = userData['data'][0]['profile_image_url'] as String?;
+          }
         }
       }
     }
 
     // Secondary fallback to DecAPI if Helix resolution failed
-    if (channel.id == null || channel.id!.isEmpty) {
-      final idResponse = await _get(Uri.parse('https://decapi.me/twitch/id/${channel.username}'));
+    if (!isValidTwitchUserId(channel.id) && canLookUp) {
+      final idResponse = await _get(_decapi('id', channel.username));
       if (idResponse.statusCode == 200) {
         final resText = idResponse.body.trim();
-        if (!resText.toLowerCase().contains('user not found')) {
+        if (isValidTwitchUserId(resText)) {
           channel.id = resText;
         }
       }
     }
 
-    if (channel.id == null || channel.id!.isEmpty) {
+    if (!isValidTwitchUserId(channel.id)) {
       throw Exception('Could not resolve Twitch User ID for ${channel.username}');
     }
 
-    String url = 'https://api.twitch.tv/helix/videos?user_id=${channel.id}&type=archive&first=20';
-    if (afterCursor != null && afterCursor.isNotEmpty) {
-      url += '&after=$afterCursor';
-    }
+    final url = _helix('/helix/videos', {
+      'user_id': channel.id!,
+      'type': 'archive',
+      'first': '20',
+      if (afterCursor != null && afterCursor.isNotEmpty) 'after': afterCursor,
+    });
 
-    final response = await _get(Uri.parse(url), headers: headers);
+    final response = await _get(url, headers: headers);
 
     if (response.statusCode != 200) {
       throw TwitchApiException(

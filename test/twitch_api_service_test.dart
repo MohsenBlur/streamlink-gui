@@ -43,6 +43,11 @@ class FakeTwitch {
       requests.where((r) => r.url.path == path).toList();
 }
 
+/// Stands in for a socket reset on one request.
+class SocketLikeException implements Exception {
+  const SocketLikeException();
+}
+
 /// Headers are lower-case, as package:http delivers them from a real socket.
 http.Response jsonResponse(Object body,
         {int status = 200, Map<String, String> headers = const {}}) =>
@@ -248,6 +253,191 @@ void main() {
             .having((e) => e.isAuthFailure, 'isAuthFailure', isFalse)
             .having((e) => e.endpoint, 'endpoint', 'helix/users')),
       );
+    });
+  });
+
+  group('values never escape their parameter', () {
+    test('a name that cannot be a login is refused before any request',
+        () async {
+      final twitch = FakeTwitch((_) => jsonResponse({'data': []}));
+      final api = serviceFor(twitch);
+      for (final s in [settings, AppSettings()]) {
+        final channel = TwitchChannel(username: 'foo&login=bar');
+        expect(await api.fetchChannelStats(channel, s),
+            ChannelRefreshOutcome.failed);
+        expect(channel.errorMessage, contains('not a valid Twitch username'));
+      }
+      expect(twitch.requests, isEmpty,
+          reason: 'this used to send a two-user query and bind whichever '
+              'account came back first to the typed name');
+    });
+
+    test('a login is sent as exactly one value', () async {
+      final twitch = FakeTwitch((request) => switch (request.url.path) {
+            '/helix/users' => jsonResponse({
+                'data': [
+                  {'id': '123', 'profile_image_url': 'https://img/a.png'},
+                ],
+              }),
+            '/helix/streams' => jsonResponse({'data': []}),
+            _ => jsonResponse({'total': 1}),
+          });
+      await serviceFor(twitch)
+          .fetchChannelStats(TwitchChannel(username: 'some_user'), settings);
+      expect(twitch.to('/helix/users').single.url.queryParametersAll,
+          {'login': ['some_user']});
+      expect(twitch.to('/helix/streams').single.url.queryParameters['user_id'],
+          '123');
+    });
+
+    test('the Load-more cursor reaches Twitch intact', () async {
+      // Base64 cursors can carry + / and =. The raw append delivered the
+      // + as a space, so Twitch decoded a different cursor.
+      const cursor = 'eyJiIjp7Ik+Zmb3/NldCI6MX19==';
+      final twitch = FakeTwitch((_) => jsonResponse({'data': []}));
+      await serviceFor(twitch).fetchVodsForChannel(
+        channel: known('streamer', '111'),
+        settings: settings,
+        localVodsProgress: {},
+        afterCursor: cursor,
+      );
+      expect(twitch.to('/helix/videos').single.url.queryParameters['after'],
+          cursor);
+    });
+
+    test('a stored id that is not a number is resolved again, not sent',
+        () async {
+      final twitch = FakeTwitch((request) => switch (request.url.path) {
+            '/helix/users' => jsonResponse({
+                'data': [
+                  {'id': '987', 'profile_image_url': 'https://img/a.png'},
+                ],
+              }),
+            '/helix/streams' => jsonResponse({'data': []}),
+            _ => jsonResponse({'total': 1}),
+          });
+      final channel = TwitchChannel(
+          username: 'streamer',
+          id: 'Error: rate limited',
+          avatarUrl: 'https://img/old.png');
+
+      expect(await serviceFor(twitch).fetchChannelStats(channel, settings),
+          ChannelRefreshOutcome.updated);
+      expect(channel.id, '987');
+      expect(twitch.to('/helix/users').single.url.queryParameters['login'],
+          'streamer');
+      expect(twitch.to('/helix/streams').single.url.queryParameters['user_id'],
+          '987',
+          reason: 'helix/streams?user_id=<garbage> is a 400 on every poll');
+    });
+  });
+
+  group('DecAPI answers are read, not trusted', () {
+    // Without an account token the app falls back to DecAPI, which answers
+    // many errors with status 200 and a sentence of plain text.
+    final anonymous = AppSettings();
+
+    FakeTwitch decapi(Map<String, Object> bodies) => FakeTwitch((request) {
+          final what = request.url.pathSegments[1];
+          final body = bodies[what];
+          if (body is Exception) throw body;
+          return http.Response('${body ?? ''}', 200);
+        });
+
+    Map<String, Object> liveBodies() => {
+          'id': '4242',
+          'avatar': 'https://img/streamer.png',
+          'uptime': '2 hours, 13 minutes, 7 seconds',
+          'followcount': '12345',
+          'viewercount': '678',
+          'game': 'Chess',
+          'title': 'Endgames',
+        };
+
+    test('a live answer is applied', () async {
+      final channel = TwitchChannel(username: 'streamer');
+      expect(
+          await serviceFor(decapi(liveBodies()))
+              .fetchChannelStats(channel, anonymous),
+          ChannelRefreshOutcome.updated);
+      expect(channel.isLive, isTrue);
+      expect(channel.uptime, '2 hours, 13 minutes, 7 seconds');
+      expect(channel.id, '4242');
+      expect(channel.avatarUrl, 'https://img/streamer.png');
+      expect(channel.followerCount, '12.3K');
+      expect(channel.viewerCount, '678');
+      expect(channel.streamTitle, 'Endgames');
+    });
+
+    test('an offline answer is applied', () async {
+      final channel = TwitchChannel(username: 'streamer')..isLive = true;
+      await serviceFor(decapi({...liveBodies(), 'uptime': 'streamer is offline'}))
+          .fetchChannelStats(channel, anonymous);
+      expect(channel.isLive, isFalse);
+      expect(channel.uptime, 'Offline');
+    });
+
+    test('an error sentence in the uptime is not a live stream', () async {
+      // Every non-"offline" body used to mean live: the error text became the
+      // uptime and fired a "now LIVE" toast.
+      final channel = TwitchChannel(username: 'streamer');
+      final outcome = await serviceFor(decapi({
+        ...liveBodies(),
+        'uptime': 'An error occurred retrieving uptime for streamer',
+      })).fetchChannelStats(channel, anonymous);
+      expect(outcome, ChannelRefreshOutcome.failed);
+      expect(channel.isLive, isFalse);
+      expect(channel.errorMessage, contains('unreadable live status'));
+    });
+
+    test('an error sentence is never stored as the channel id', () async {
+      final channel = TwitchChannel(username: 'streamer');
+      final outcome = await serviceFor(
+              decapi({...liveBodies(), 'id': 'Rate limit exceeded, slow down'}))
+          .fetchChannelStats(channel, anonymous);
+      expect(outcome, ChannelRefreshOutcome.failed);
+      expect(channel.id, isNull,
+          reason: 'it was persisted and sent to Helix forever after');
+    });
+
+    test('a failed cosmetic request does not fail the live check', () async {
+      final channel = TwitchChannel(username: 'streamer');
+      final outcome = await serviceFor(decapi({
+        ...liveBodies(),
+        'followcount': const SocketLikeException(),
+      })).fetchChannelStats(channel, anonymous);
+      expect(outcome, ChannelRefreshOutcome.updated);
+      expect(channel.isLive, isTrue);
+    });
+
+    test('decoration that is not what it claims to be is ignored', () async {
+      final channel = TwitchChannel(
+          username: 'streamer', avatarUrl: 'https://img/kept.png')
+        ..followerCount = '1.0K';
+      await serviceFor(decapi({
+        ...liveBodies(),
+        'avatar': 'User not found: streamer',
+        'followcount': 'Error retrieving follow count',
+        'viewercount': 'Something went wrong',
+      })).fetchChannelStats(channel, anonymous);
+      expect(channel.avatarUrl, 'https://img/kept.png');
+      expect(channel.followerCount, '1.0K');
+      expect(channel.viewerCount, isNull);
+    });
+
+    test('the VOD path does not adopt a DecAPI error as the id', () async {
+      final twitch = FakeTwitch((request) => request.url.host == 'decapi.me'
+          ? http.Response('An error occurred', 200)
+          : jsonResponse({'data': []}));
+      final channel = TwitchChannel(username: 'streamer');
+      await expectLater(
+        serviceFor(twitch).fetchVodsForChannel(
+            channel: channel, settings: settings, localVodsProgress: {}),
+        throwsA(isA<Exception>().having(
+            (e) => e.toString(), 'message', contains('Could not resolve'))),
+      );
+      expect(channel.id, isNull);
+      expect(twitch.to('/helix/videos'), isEmpty);
     });
   });
 
