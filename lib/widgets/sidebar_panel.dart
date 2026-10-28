@@ -5,6 +5,7 @@ import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../state/channel_search.dart';
 import 'hover_overlay_menu.dart';
+import 'horizontal_mouse_scrollable.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
 import 'shell/neu_dialog.dart';
@@ -923,24 +924,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                 return const SizedBox.shrink();
               }
               return Listener(
-              onPointerSignal: (pointerSignal) {
-                if (pointerSignal is PointerScrollEvent) {
-                  GestureBinding.instance.pointerSignalResolver.register(pointerSignal, (event) {
-                    if (event is PointerScrollEvent && _horizontalScrollController.hasClients) {
-                      final delta = event.scrollDelta.dy != 0.0
-                          ? event.scrollDelta.dy
-                          : event.scrollDelta.dx;
-                      if (delta != 0.0) {
-                        final newOffset = (_horizontalScrollController.offset + delta).clamp(
-                          0.0,
-                          _horizontalScrollController.position.maxScrollExtent,
-                        );
-                        _horizontalScrollController.jumpTo(newOffset);
-                      }
-                    }
-                  });
-                }
-              },
+              // Claims the wheel only when the rail can actually move, so a
+              // rail that fits (or is at its end) no longer eats the event.
+              onPointerSignal: (signal) => routeWheelToHorizontalStrip(
+                  signal, _horizontalScrollController),
               child: ListView.builder(
                 controller: _horizontalScrollController,
                 scrollDirection: Axis.horizontal,
