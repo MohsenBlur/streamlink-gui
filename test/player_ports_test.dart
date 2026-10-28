@@ -74,4 +74,66 @@ void main() {
     // The dying player may still hold it, exactly as on the streamed path.
     expect(await service.getNextAvailablePlayerPort(), isNot(port));
   });
+
+  // Checking a port awaits, and the check sits between each launch path's
+  // "already playing?" guard and the point where the VOD used to be recorded
+  // as playing. A double-click, or an automation pass landing on a manual
+  // play, must still start one player: a second would clobber the first's
+  // process, port, timer and bridge entries, which are all keyed by VOD id.
+  group('two launches of the same VOD at once start one player', () {
+    late Directory temp;
+    late FakeLauncher launcher;
+    late PlayerService service;
+    final vod = TwitchVideo(
+      id: '2',
+      title: 'A VOD',
+      duration: '1h0m0s',
+      thumbnailUrl: '',
+      viewCount: '0',
+      publishedAt: DateTime(2026),
+    );
+
+    AppSettings settings() => AppSettings(
+          playerType: 'custom',
+          customPlayerPath: r'C:\nowhere\someplayer.exe',
+          vodDownloadFolder: temp.path,
+        );
+
+    setUp(() {
+      temp = Directory.systemTemp.createTempSync('streamlink_gui_ports_');
+      launcher = FakeLauncher();
+      service = PlayerService(
+          startProcess: launcher.start, runProcess: FakeTaskkill(launcher).run);
+    });
+
+    tearDown(() async {
+      await service.stopAll();
+      for (final p in launcher.launched) {
+        await p.exit(0);
+      }
+      try {
+        temp.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    test('from a downloaded file', () async {
+      final file = File('${temp.path}${Platform.pathSeparator}A VOD - 2.mp4')
+        ..writeAsStringSync('');
+      await Future.wait([
+        service.playDownloadedVod(file, vod, settings()),
+        service.playDownloadedVod(file, vod, settings()),
+      ]);
+      expect(launcher.launched, hasLength(1));
+      expect(service.playingVodIds, {vod.id});
+    });
+
+    test('streamed', () async {
+      await Future.wait([
+        service.launchStreamlinkForVod(vod, 'chan', settings()),
+        service.launchStreamlinkForVod(vod, 'chan', settings()),
+      ]);
+      expect(launcher.launched, hasLength(1));
+      expect(service.playingVodIds, {vod.id});
+    });
+  });
 }

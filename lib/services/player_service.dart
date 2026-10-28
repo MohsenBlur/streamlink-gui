@@ -921,6 +921,9 @@ class PlayerService {
     // streaming path: resolving a player touches the filesystem, and a throw
     // out here would skip the stop callback the caller depends on.
     try {
+      // Claimed before the first await (the port check), or a second launch
+      // arriving meanwhile passes the guard above too. The catch releases it.
+      playingVodIds.add(vod.id);
       final path = file.path;
       final args = <String>[];
       String exe = '';
@@ -957,7 +960,6 @@ class PlayerService {
         args.add(path);
       }
 
-      playingVodIds.add(vod.id);
       // Recorded so retention never deletes the file being watched.
       playingVodFilePaths[vod.id] = file.path;
       _recordPlayerPort(vod.id, port);
@@ -1038,6 +1040,9 @@ class PlayerService {
     // here left the caller's "now playing" marker set with no stop callback
     // ever firing to clear it.
     try {
+      // Claimed before the first await (the port check), or a second launch
+      // arriving meanwhile passes the guard above too. The catch releases it.
+      playingVodIds.add(vod.id);
       String titleString = '$channelName - ${vod.title}';
       // Resolve "default" to a real player before building arguments.
       final playerType = resolveEffectivePlayerType(settings);
@@ -1080,7 +1085,6 @@ class PlayerService {
       );
       final args = cmd.args;
 
-      playingVodIds.add(vod.id);
       _recordPlayerPort(vod.id, port);
       activePlayerDurations[vod.id] = vod.duration;
 
