@@ -888,11 +888,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// The rest of the download history's seed (see [_loadChannels]): the VODs
   /// yt-dlp's archive records. Builds before the history never took a line
   /// out of the archive, so it lists every VOD they downloaded, deleted ones
-  /// too.
+  /// too. Beneath what the registry and the disk say, past the cap.
   Future<void> _seedDownloadHistoryFromArchive() async {
     final ids = await _playerService.readArchivedVodIds();
     if (!mounted) return;
-    if (_downloadHistory.addAll(ids, _services.clock())) {
+    if (_downloadHistory.addBeneath(ids, _services.clock())) {
       _settingsRepo.requestSave();
     }
   }

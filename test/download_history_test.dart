@@ -66,6 +66,56 @@ void main() {
     expect(history.contains('new'), isTrue);
   });
 
+  group("yt-dlp's archive, seeded beneath what the app knows itself", () {
+    // The registry's ids are seeded when the config loads, the archive's a
+    // moment later, once the file is read - so the archive's were stamped
+    // later, and past the cap the registry's went first. A VOD the registry
+    // held was then fetched again the next time its file went.
+    final archive = [
+      for (var i = 0; i < DownloadHistory.maxEntries; i++) 'archive$i',
+    ];
+
+    test('outranks it past the cap', () {
+      final history = DownloadHistory()
+        ..restore(null, seed: ['registry1', 'registry2'], now: now);
+      expect(
+          history.addBeneath(archive, now.add(const Duration(seconds: 5))),
+          isTrue);
+
+      expect(history.length, DownloadHistory.maxEntries);
+      expect(history.contains('registry1'), isTrue);
+      expect(history.contains('registry2'), isTrue);
+      expect(history.contains('archive0'), isFalse,
+          reason: "the archive's oldest lines go first");
+      expect(history.contains('archive1'), isFalse);
+      expect(history.contains('archive2'), isTrue);
+    });
+
+    test('and so does a file the scan found before the archive was read',
+        () {
+      final history = DownloadHistory()
+        ..restore(null, seed: ['registry1'], now: now)
+        ..addAll(['onDisk'], now.add(const Duration(seconds: 1)))
+        ..addBeneath(archive, now.add(const Duration(seconds: 2)));
+      expect(history.contains('registry1'), isTrue);
+      expect(history.contains('onDisk'), isTrue);
+
+      // And one downloaded later still outranks the archive's.
+      history.record('later', now.add(const Duration(minutes: 1)));
+      expect(history.contains('later'), isTrue);
+      expect(history.contains('registry1'), isTrue);
+      expect(history.length, DownloadHistory.maxEntries);
+    });
+
+    test('keeps the first time of an id it already holds', () {
+      final history = DownloadHistory()
+        ..restore(null, seed: ['1'], now: now);
+      expect(history.addBeneath(['1'], now.add(const Duration(hours: 1))),
+          isFalse);
+      expect(history.toJson(), {'1': now.millisecondsSinceEpoch});
+    });
+  });
+
   test('reaches the config and comes back from it', () {
     final history = DownloadHistory()
       ..record('1', now)

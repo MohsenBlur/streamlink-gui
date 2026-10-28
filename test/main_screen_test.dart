@@ -13,6 +13,7 @@ import 'package:streamlink_gui/services/desktop_shell.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/services/update_service.dart';
 import 'package:streamlink_gui/state/app_shell_controller.dart';
+import 'package:streamlink_gui/state/download_history.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/state/vod_cache.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
@@ -901,6 +902,44 @@ void main() {
           publishedAt: h.helix.now.subtract(const Duration(days: 1)));
       await h.advance(tester, const Duration(minutes: 2));
       expect(ytDlpFor(h, '4242'), isEmpty);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        "past the history's cap, the registry's VODs outrank the archive's",
+        (tester) async {
+      // The registry is seeded as the config loads, the archive once it has
+      // been read, a moment later - and stamped later, the archive's lines
+      // outranked the registry's VODs, which went first past the cap.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final archive = StringBuffer();
+      for (var i = 0; i < DownloadHistory.maxEntries; i++) {
+        archive.writeln('twitchvod v${9000 + i}');
+      }
+      Directory(p.join(folder.path, 'alpha')).createSync(recursive: true);
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo(),
+          config: {
+            'downloaded_vods': {'5150': fileOf('5150').path},
+          },
+          files: {'yt_dlp_archive.txt': archive.toString()});
+      Map<dynamic, dynamic> saved() =>
+          h.storage.config!['download_history'] as Map? ?? const {};
+      for (var i = 0; i < 50 && !saved().containsKey('9999'); i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await h.advance(tester, const Duration(seconds: 1));
+      }
+      expect(saved().containsKey('9999'), isTrue,
+          reason: "precondition: the archive's seed is in");
+
+      expect(saved(), hasLength(DownloadHistory.maxEntries));
+      expect(saved().containsKey('5150'), isTrue);
+      expect(saved().containsKey('9000'), isFalse,
+          reason: "the archive's oldest line went instead");
 
       await h.close(tester);
     });
