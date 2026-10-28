@@ -74,6 +74,75 @@ bool accountTestDescribesSavedToken(
     token.trim() == saved.twitchOauthToken.trim() &&
     clientId.trim() == saved.twitchClientId.trim();
 
+/// Whether the custom player path names a file: checked off the UI thread,
+/// and only once the typing stops.
+///
+/// This was `File(path).existsSync()`, called six times per rebuild, and the
+/// dialog rebuilds on every keystroke and every slider tick. Free on a local
+/// disk. For a player kept on a share (`\\nas\tools\mpv.exe`) that is slow or
+/// offline, every one of those stats blocked the UI thread, and the dialog
+/// froze for seconds per character typed.
+class PlayerPathCheck {
+  PlayerPathCheck({
+    required String path,
+    required bool exists,
+    Future<bool> Function(String path)? probe,
+    this.debounce = const Duration(milliseconds: 350),
+  })  : _path = normalize(path),
+        _exists = exists,
+        _probe = probe ?? ((path) => File(path).exists());
+
+  /// The launcher's own normalisation, so the verdict is about the file that
+  /// would actually run. Explorer's "Copy as path" wraps a path in quotes;
+  /// the launcher strips them and the old check did not, so a player that
+  /// played fine was labelled "File not found".
+  static String normalize(String raw) => raw.trim().replaceAll('"', '');
+
+  final Duration debounce;
+  final Future<bool> Function(String path) _probe;
+  String _path;
+  bool? _exists;
+  Timer? _pending;
+  bool _disposed = false;
+
+  /// The normalised path the verdict is about. Empty when none is set.
+  String get path => _path;
+
+  /// Whether [path] names a file; null while an edit waits to be checked.
+  bool? get exists => _path.isEmpty ? false : _exists;
+
+  /// Records the field's text.
+  ///
+  /// Free when the path has not changed, so it is safe on every keystroke.
+  /// [onSettled] runs once the latest edit's verdict lands, and never for an
+  /// edit a later one has replaced.
+  void update(String rawPath, VoidCallback onSettled) {
+    final next = normalize(rawPath);
+    if (next == _path) return;
+    _path = next;
+    _exists = null;
+    _pending?.cancel();
+    if (next.isEmpty) return;
+    _pending = Timer(debounce, () async {
+      bool found;
+      try {
+        found = await _probe(next);
+      } catch (_) {
+        found = false;
+      }
+      // Replaced by a later edit while the stat ran, or the dialog is gone.
+      if (_disposed || next != _path) return;
+      _exists = found;
+      onSettled();
+    });
+  }
+
+  void dispose() {
+    _disposed = true;
+    _pending?.cancel();
+  }
+}
+
 class SettingsDialog {
   static Future<void> show(
     BuildContext context, {
@@ -138,16 +207,12 @@ class SettingsDialog {
     // probe shells out / stats the filesystem for four players).
     final detectedPlayers = PlayerService().detectInstalledPlayers(settings);
     // The custom-path entry is the exception: it must react to what the user
-    // is typing, not to the last saved settings.
-    bool customPathValid() {
-      final path = playerPathController.text.trim();
-      if (path.isEmpty) return false;
-      try {
-        return File(path).existsSync();
-      } catch (_) {
-        return false;
-      }
-    }
+    // is typing, not to the last saved settings. Seeded from the probe above,
+    // which already stat'ed the saved path, so opening costs no second stat.
+    final playerPathCheck = PlayerPathCheck(
+      path: settings.customPlayerPath,
+      exists: detectedPlayers['custom'] == true,
+    );
 
     String? portError;
     String? maxDownloadsError;
@@ -289,6 +354,7 @@ class SettingsDialog {
       downloadFolderController.dispose();
       maxDownloadsController.dispose();
       customVodArgsController.dispose();
+      playerPathCheck.dispose();
     }
 
     return NeuDialog.show<void>(
@@ -297,6 +363,19 @@ class SettingsDialog {
       builder: (context) {
         final dialog = StatefulBuilder(
           builder: (context, setDialogState) {
+            // Null while an edit to the custom path waits to be checked.
+            final playerPathFound = playerPathCheck.exists;
+            final playerPathInk = playerPathFound == null
+                ? NeuTheme.subtext(themeNotifier.isDarkTheme)
+                : (playerPathFound
+                    ? NeuTheme.liveText(themeNotifier.isDarkTheme)
+                    : NeuTheme.dangerText(themeNotifier.isDarkTheme));
+            void recheckPlayerPath() => playerPathCheck.update(
+                  playerPathController.text,
+                  () {
+                    if (context.mounted) setDialogState(() {});
+                  },
+                );
             return DefaultTabController(
               length: 5,
               child: NeuDialog(
@@ -561,11 +640,11 @@ class SettingsDialog {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       Flexible(child: Text('Custom Executable Path', maxLines: 1, overflow: TextOverflow.ellipsis)),
-                                      if (playerPathController.text.trim().isNotEmpty) ...[
+                                      if (playerPathCheck.path.isNotEmpty && playerPathFound != null) ...[
                                         const SizedBox(width: NeuSpace.s8),
                                         Text(
-                                          customPathValid() ? '(Valid Path)' : '(File Missing)',
-                                          style: NeuType.plate(themeNotifier.isDarkTheme, color: customPathValid() ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                          playerPathFound ? '(Valid Path)' : '(File Missing)',
+                                          style: NeuType.plate(themeNotifier.isDarkTheme, color: playerPathInk),
                                         ),
                                       ],
                                     ],
@@ -590,7 +669,7 @@ class SettingsDialog {
                                     child: TextField(
                                       controller: playerPathController,
                                       style: NeuType.bodySm(themeNotifier.isDarkTheme),
-                                      onChanged: (_) => setDialogState(() {}),
+                                      onChanged: (_) => setDialogState(recheckPlayerPath),
                                       decoration: const InputDecoration(
                                         hintText: 'e.g. C:\\Program Files\\MPV\\mpv.exe',
                                       ),
@@ -615,6 +694,8 @@ class SettingsDialog {
                                       if (result != null && result.files.single.path != null) {
                                         setDialogState(() {
                                           playerPathController.text = result.files.single.path!;
+                                          // Assigning .text fires no onChanged.
+                                          recheckPlayerPath();
                                         });
                                       }
                                     },
@@ -626,24 +707,24 @@ class SettingsDialog {
                                   ),
                                 ],
                               ),
-                              if (playerPathController.text.trim().isNotEmpty) ...[
+                              if (playerPathCheck.path.isNotEmpty) ...[
                                 const SizedBox(height: NeuSpace.s6),
                                 Row(
                                   children: [
                                     Icon(
-                                      customPathValid() ? Icons.check_circle : Icons.error_outline,
+                                      playerPathFound == null
+                                          ? Icons.hourglass_empty
+                                          : (playerPathFound ? Icons.check_circle : Icons.error_outline),
                                       size: 13,
-                                      color: customPathValid()
-                                          ? NeuTheme.liveText(themeNotifier.isDarkTheme)
-                                          : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                      color: playerPathInk,
                                     ),
                                     const SizedBox(width: NeuSpace.s6),
                                     Expanded(
                                       child: Text(
-                                        customPathValid() ? 'Executable found' : 'File not found at this path',
-                                        style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: customPathValid()
-                                              ? NeuTheme.liveText(themeNotifier.isDarkTheme)
-                                              : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                        playerPathFound == null
+                                            ? 'Checking path...'
+                                            : (playerPathFound ? 'Executable found' : 'File not found at this path'),
+                                        style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: playerPathInk),
                                       ),
                                     ),
                                   ],

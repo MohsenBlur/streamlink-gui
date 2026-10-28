@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
+import 'package:streamlink_gui/services/player_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
@@ -385,6 +387,184 @@ void main() {
 
       expect(saves.single.material, other.id.key);
       expect(themeNotifier.material, other.id);
+    });
+  });
+
+  group('PlayerPathCheck', () {
+    // testWidgets for its fake clock, so the debounce is a pump. The probe
+    // records what it was asked and answers only when told to.
+    late List<String> probed;
+    late List<Completer<bool>> answers;
+    late int settled;
+
+    PlayerPathCheck check({String path = '', bool exists = false}) {
+      probed = <String>[];
+      answers = <Completer<bool>>[];
+      settled = 0;
+      return PlayerPathCheck(
+        path: path,
+        exists: exists,
+        probe: (p) {
+          probed.add(p);
+          final answer = Completer<bool>();
+          answers.add(answer);
+          return answer.future;
+        },
+      );
+    }
+
+    void onSettled() => settled++;
+    const debounce = Duration(milliseconds: 350);
+
+    testWidgets('rebuilds and unchanged text never stat the disk',
+        (tester) async {
+      // The defect: six stats per rebuild, and a slider drag is dozens of
+      // rebuilds a second.
+      final c = check(path: r'C:\mpv\mpv.exe', exists: true);
+      for (var i = 0; i < 50; i++) {
+        c.update(r'C:\mpv\mpv.exe', onSettled);
+      }
+      c.update(r'  C:\mpv\mpv.exe  ', onSettled);
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(probed, isEmpty);
+      expect(c.exists, isTrue, reason: 'the verdict from opening still holds');
+    });
+
+    testWidgets('a burst of keystrokes is checked once, where it stopped',
+        (tester) async {
+      final c = check();
+      const typed = r'C:\mpv\mpv.exe';
+      for (var i = 1; i <= typed.length; i++) {
+        c.update(typed.substring(0, i), onSettled);
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(probed, isEmpty, reason: 'nothing is checked mid-word');
+      expect(c.exists, isNull, reason: 'and nothing is claimed either');
+
+      await tester.pump(debounce);
+      expect(probed, [typed]);
+      answers.single.complete(true);
+      await tester.pump();
+      expect(c.exists, isTrue);
+      expect(settled, 1);
+    });
+
+    testWidgets('a verdict for a path since replaced is dropped',
+        (tester) async {
+      // A slow share answers late. By then the field says something else,
+      // and the old answer is about a path nobody is looking at.
+      final c = check();
+      c.update('first', onSettled);
+      await tester.pump(debounce);
+      c.update('second', onSettled);
+      answers.first.complete(true);
+      await tester.pump();
+      expect(c.exists, isNull);
+      expect(settled, 0);
+
+      await tester.pump(debounce);
+      expect(probed, ['first', 'second']);
+      answers.last.complete(false);
+      await tester.pump();
+      expect(c.exists, isFalse);
+      expect(settled, 1);
+    });
+
+    testWidgets('a closed dialog takes no verdict', (tester) async {
+      final c = check();
+      c.update('in flight', onSettled);
+      await tester.pump(debounce);
+      c.update('never checked', onSettled);
+      c.dispose();
+      answers.single.complete(true);
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(probed, ['in flight'], reason: 'the pending check was cancelled');
+      expect(settled, 0, reason: 'onSettled would rebuild a disposed builder');
+    });
+
+    testWidgets('a probe that throws reads as missing', (tester) async {
+      final c = PlayerPathCheck(
+          path: '', exists: false, probe: (_) => throw const FileSystemException());
+      c.update(r'\\offline\share\mpv.exe', onSettled);
+      await tester.pump(debounce);
+      await tester.pump();
+      expect(c.exists, isFalse);
+    });
+
+    testWidgets('an emptied field needs no stat', (tester) async {
+      final c = check(path: r'C:\mpv\mpv.exe', exists: true);
+      c.update('   ', onSettled);
+      await tester.pump(const Duration(seconds: 1));
+      expect(probed, isEmpty);
+      expect(c.path, isEmpty);
+      expect(c.exists, isFalse);
+    });
+
+    test('the dialog itself never stats synchronously', () {
+      // The class above is only the fix if the dialog goes through it. A
+      // build-time existsSync is the exact defect, and one line brings it
+      // back. Comments are skipped, since they describe the old code.
+      final code = File('lib/widgets/settings_dialog.dart')
+          .readAsLinesSync()
+          .where((l) => !l.trimLeft().startsWith('//'));
+      expect(code.where((l) => l.contains('existsSync')), isEmpty,
+          reason: 'a synchronous stat in this dialog runs on every rebuild');
+    });
+
+    test('it names the file the launcher would actually run', () {
+      // The indicator is only useful if it is about the same file. Explorer's
+      // "Copy as path" adds quotes; the launcher strips them, and the old
+      // check did not, so a working player was labelled "File not found".
+      for (final raw in const [
+        r'"C:\Program Files\mpv\mpv.exe"',
+        r'  C:\mpv\mpv.exe  ',
+        r' "C:\a folder\mpv.exe" ',
+      ]) {
+        expect(
+            PlayerPathCheck.normalize(raw),
+            PlayerService().resolvePlayerExecutable(
+                'custom', AppSettings()..customPlayerPath = raw),
+            reason: raw);
+      }
+    });
+  });
+
+  group('the custom player path in the dialog', () {
+    testWidgets('is checked once the typing stops, and says so meanwhile',
+        (tester) async {
+      final dir = Directory.systemTemp.createTempSync('settings_player_path');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final sep = Platform.pathSeparator;
+      final player = File('${dir.path}${sep}mpv.exe')..createSync();
+      final missing = '${dir.path}${sep}not-here.exe';
+
+      await openSettings(tester, AppSettings()..playerType = 'custom');
+      final field = _field(r'e.g. C:\Program Files\MPV\mpv.exe');
+
+      Future<void> typeAndWait(String text) async {
+        await tester.enterText(field, text);
+        await tester.pump();
+        expect(find.text('Checking path...'), findsOneWidget,
+            reason: 'no verdict is claimed for a path not yet checked');
+        await tester.pump(const Duration(milliseconds: 400));
+        // The stat is real IO: give the event loop turns to deliver it.
+        for (var i = 0;
+            i < 50 && find.text('Checking path...').evaluate().isNotEmpty;
+            i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 20)));
+          await _settle(tester);
+        }
+      }
+
+      await typeAndWait(missing);
+      expect(find.text('File not found at this path'), findsOneWidget);
+
+      await typeAndWait('"${player.path}"');
+      expect(find.text('Executable found'), findsOneWidget,
+          reason: 'a quoted path is one the launcher runs');
     });
   });
 }
