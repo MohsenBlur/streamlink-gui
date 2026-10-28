@@ -16,6 +16,12 @@
     380x500 minimum) are LOGICAL. On a scaled display those differ, so sizes
     here are logical and converted via the window's own DPI.
 
+  And one that produces a plausible image of the wrong thing: the top-level
+  window can be visible while the engine's FLUTTERVIEW child is hidden (the
+  invisible-window bug, audit C1). Only a transparent frame shows, and a
+  capture "succeeds" with the desktop behind it. Every capture therefore
+  asserts the child is visible first, and fails loudly when it is not.
+
 .EXAMPLE
   ./tools/shoot.ps1 -Out shots/baseline/home_1600x1000.png -Width 1600 -Height 1000
 
@@ -148,15 +154,28 @@ public class Win32ShotV2 {
         GetWindowThreadProcessId(h, out procId);
         return procId;
     }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
+    [DllImport("user32.dll")] public static extern int GetWindowLongW(IntPtr h, int index);
+
+    // The engine's render surface is a direct child of the runner window.
+    // Wrapped so the title really is null: PowerShell passes $null to a
+    // string parameter as "", which would match only an untitled child.
+    public static IntPtr FindChildByClass(IntPtr parent, string cls) {
+        return FindWindowExW(parent, IntPtr.Zero, cls, null);
+    }
 }
 '@
 }
 
 $WINDOW_CLASS = 'FLUTTER_RUNNER_WIN32_WINDOW'
+$VIEW_CLASS = 'FLUTTERVIEW'
 $APP_PROCESS = 'streamlink_gui'
 $SW_RESTORE = 9
 $SW_SHOW = 5
 $PW_RENDERFULLCONTENT = 2
+$GWL_STYLE = -16
+$WS_VISIBLE = 0x10000000
 
 function Get-WindowProcess([IntPtr]$h) {
     return Get-Process -Id ([Win32ShotV2]::ProcessIdOf($h)) -ErrorAction SilentlyContinue
@@ -184,6 +203,35 @@ function Get-RunningApps {
 
 function Format-Apps($procs) {
     return ($procs | ForEach-Object { if ($_.Path) { $_.Path } else { "pid $($_.Id)" } }) -join ', '
+}
+
+# Fails unless the engine's view inside $main is actually on screen.
+#
+# The invisible-window bug (audit C1): the runner window was shown and moved
+# while its FLUTTERVIEW child stayed hidden (style 0x40000000, WS_CHILD with
+# no WS_VISIBLE), so the user saw a transparent frame - and a capture of it
+# showed the desktop behind, which reads as a rendering problem rather than a
+# hidden window. IsWindowVisible on the CHILD is what tells them apart: it is
+# true only when the child and every parent carry WS_VISIBLE. A short poll
+# absorbs a view that appears a beat after its parent; the bug state lasts.
+function Assert-ContentViewVisible([IntPtr]$main) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $view = [Win32ShotV2]::FindChildByClass($main, $VIEW_CLASS)
+        if ($view -ne [IntPtr]::Zero -and [Win32ShotV2]::IsWindowVisible($view)) { return }
+        Start-Sleep -Milliseconds 250
+    } while ($sw.ElapsedMilliseconds -lt 3000)
+
+    $mainVisible = [Win32ShotV2]::IsWindowVisible($main)
+    if ($view -eq [IntPtr]::Zero) {
+        throw "No $VIEW_CLASS child under the app window (main visible=$mainVisible): the engine never attached its view. Capture refused."
+    }
+    $style = [Win32ShotV2]::GetWindowLongW($view, $GWL_STYLE)
+    $flag = if (($style -band $WS_VISIBLE) -ne 0) { 'WS_VISIBLE set, so a parent is hidden' } else { 'WS_VISIBLE clear' }
+    # Parenthesised: -f binds tighter than +, and would format only the last part.
+    throw (("$VIEW_CLASS is not visible (main visible=$mainVisible, view style=0x{0:X8}, $flag). " +
+        "The app is showing an empty frame - the invisible-window bug (audit C1) - and a capture " +
+        "would show only what is behind it, so none was taken.") -f $style)
 }
 
 # --- locate, launching if asked -------------------------------------------
@@ -217,7 +265,21 @@ if (-not $hwnd -and $LaunchExe) {
         }
         $hwnd = Find-AppWindow $targetExe
     }
-    if ($hwnd) { Start-Sleep -Milliseconds 2500 }   # let first frame + data settle
+    if ($hwnd) {
+        # The window exists hidden from creation; the runner shows it on the
+        # first frame. Wait for the app to do that rather than showing it from
+        # here: forcing it up before the first frame would be the harness
+        # racing the very startup path the view check below exists to test.
+        $shownSw = [Diagnostics.Stopwatch]::StartNew()
+        while (-not [Win32ShotV2]::IsWindowVisible($hwnd) -and $shownSw.ElapsedMilliseconds -lt 10000) {
+            Start-Sleep -Milliseconds 200
+            if ($launched.HasExited) { throw "$targetExe exited during startup, after creating its window." }
+        }
+        if (-not [Win32ShotV2]::IsWindowVisible($hwnd)) {
+            Write-Warning 'The app did not show its own window within 10s (set to start minimized?) - showing it from here.'
+        }
+        Start-Sleep -Milliseconds 2500   # let first frame + data settle
+    }
 }
 
 if (-not $hwnd) {
@@ -259,6 +321,9 @@ if (-not $NoResize) {
 }
 
 Start-Sleep -Milliseconds $SettleMs   # let Flutter relayout and repaint
+
+# Before the click too: a click on a hidden view lands on whatever is behind.
+Assert-ContentViewVisible $hwnd
 
 if ($ClickAt) {
     $parts = $ClickAt.Split(',')
