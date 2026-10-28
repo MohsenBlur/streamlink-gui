@@ -2416,6 +2416,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           });
         }
       }
+      // Again, now that the followed channels have been refreshed: the open
+      // channel is part of the pulse's gate, and when it is a followed one
+      // its liveness only changed here, after the check above - so its
+      // header started breathing a whole poll late, and the pulse ran on
+      // for a poll after it went offline.
+      _updatePulse();
     }
 
     _prefetchVodsInBackground(_channels);
