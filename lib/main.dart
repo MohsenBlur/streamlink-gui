@@ -37,7 +37,8 @@ import 'widgets/neumorphic/neu_button.dart';
 import 'widgets/shell/neu_dialog.dart';
 import 'widgets/neumorphic/neu_progress.dart';
 import 'widgets/neumorphic/neu_text_field.dart';
-import 'state/vod_cache.dart';
+import 'state/channels_controller.dart';
+import 'state/vod_browser_controller.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
@@ -401,26 +402,29 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   
   AppSettings _settings = AppSettings();
   final SystemTray _systemTray = SystemTray();
-  final Set<String> _previouslyLiveFavoriteUsernames = {};
+  Set<String> get _previouslyLiveFavoriteUsernames => _channelsCtl.liveFavorites;
   
   Timer? _favoritesLiveCheckTimer;
   Timer? _downloadCheckTimer;
   HttpServer? _oauthServer;
   
-  List<TwitchChannel> _followedChannels = [];
-  bool _isLoadingFollowed = false;
+  List<TwitchChannel> get _followedChannels => _channelsCtl.followed;
+  bool get _isLoadingFollowed => _channelsCtl.isLoadingFollowed;
   String? _authenticatedUserLogin;
   String? _authenticatedUserAvatar;
   int _sidebarTab = 0; 
   
-  List<TwitchVideo> _channelVods = [];
-  bool _isLoadingVods = false;
-  String? _vodsError;
+  // The open channel's VOD list lives in _vodBrowser (see the refresh block
+  // by _selectChannel); these read it for the code that predates it.
+  List<TwitchVideo> get _channelVods => _vodBrowser.vods;
+  bool get _isLoadingVods => _vodBrowser.isLoading;
+  String? get _vodsError => _vodBrowser.error;
+  set _vodsError(String? value) => _vodBrowser.error = value;
 
   final TextEditingController _vodSearchController = TextEditingController();
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
-  String? _vodPaginationCursor;
+  String? get _vodPaginationCursor => _vodBrowser.cursor;
   final Set<String> _selectedGamesFilter = {};
   bool _isWebTokenExpired = false;
   bool _isMultiSelectMode = false;
@@ -722,6 +726,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       }
     };
 
+    // Channel and VOD refresh wiring: lib/state/channels_controller.dart and
+    // vod_browser_controller.dart, driven from the block by _selectChannel.
+    // Before _loadChannels, whose startup pass already reports through it.
+    _channelsCtl.addListener(_onRefreshStateChanged);
+    _channelsCtl.onPass = _onChannelsPass;
+    _vodBrowser.addListener(_onRefreshStateChanged);
+
     _watchSaveFailures();
     twitchAuth.helix.addListener(_onAuthStatusChanged);
     _loadChannels();
@@ -731,7 +742,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     });
     
     _favoritesLiveCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      _refreshAllChannels();
+      _onPollTick();
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -1038,6 +1049,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
     _windowSaveTimer?.cancel();
+    // Channel and VOD refresh wiring (see initState).
+    _cameBackTimer?.cancel();
+    _channelsCtl
+      ..removeListener(_onRefreshStateChanged)
+      ..dispose();
+    _vodBrowser
+      ..removeListener(_onRefreshStateChanged)
+      ..dispose();
     twitchAuth.helix.removeListener(_onAuthStatusChanged);
     _activity.dispose();
     _logNotifier.dispose();
@@ -1380,6 +1399,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // Going to the tray is often the last thing a session does before
     // Windows shuts down around it, so the geometry is captured on the way.
     if (eventName == 'hide') _saveWindowState();
+    // Coming back into view, what it shows is brought up to date.
+    if (eventName == 'show' || eventName == kWindowEventRestore || eventName == kWindowEventFocus) _onWindowCameBack();
   }
 
   Timer? _windowSaveTimer;
@@ -2010,39 +2031,49 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  Future<void> _loadFollowedChannels() async {
-    setState(() {
-      _isLoadingFollowed = true;
-    });
-
+  /// Loads the followed list (see ChannelsController.loadFollowed: coalesced,
+  /// reconciled into the existing objects, live state in one batched pass).
+  ///
+  /// [background] is the periodic reload, so a new follow on twitch.tv turns
+  /// up without a restart. It reports nothing but a refused token: an
+  /// unattended reload that hit a network blip is not worth interrupting
+  /// anyone for, and the previous list stays in place.
+  Future<void> _loadFollowedChannels({bool background = false}) async {
     try {
-      final result = await _apiService.fetchFollowedChannels(_settings);
+      final result = await _channelsCtl.loadFollowed();
+      if (!mounted || result == null) return;
       setState(() {
         _authenticatedUserLogin = result.userLogin;
         _authenticatedUserAvatar = result.userAvatar;
-        _followedChannels = result.channels;
+        // The open channel follows its streamer to the object the poll now
+        // keeps current. A reload used to replace every object and leave it
+        // pointing at one nothing refreshed any more.
+        final open = _selectedChannel;
+        if (open != null) _selectedChannel = _channelsCtl.canonical(open);
       });
-
-      for (var ch in _followedChannels) {
-        _apiService.fetchChannelStats(ch, _settings).then((_) {
-          if (mounted) setState(() {});
-        });
+      if (!result.isComplete && !background) {
+        // Not silent: a failed later page used to shorten the list without a
+        // word. reconcileWith kept what it did not reach, so nothing went.
+        final why = result.pageError == null
+            ? ''
+            : ': ${describeTwitchError(result.pageError!)}';
+        _showSnackBar(
+            'Showing ${_followedChannels.length} followed channels; Twitch '
+            'did not return the rest$why',
+            isError: true);
       }
     } catch (e) {
+      if (!mounted) return;
       if (e is TwitchApiException && e.isAuthFailure) {
         // The banner does the talking, and it offers the one button that
         // actually fixes this. A snackbar cannot: it scrolls away, it has no
         // remedy on it, and it used to carry a raw JSON body.
         unawaited(_refreshHelixAuth(force: true));
-      } else {
+      } else if (!background) {
         _showSnackBar(
             'Could not load followed channels: ${describeTwitchError(e)}',
             isError: true);
       }
-    } finally {
-      setState(() {
-        _isLoadingFollowed = false;
-      });
     }
   }
 
@@ -2081,13 +2112,161 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     if (mounted) setState(() {});
   }
 
-  final VodCache _vodCache = VodCache();
+  // ---------------------------------------------------------------------------
+  // Channel and VOD refresh.
+  //
+  // The state and its rules live in lib/state/channels_controller.dart (the
+  // poll, the followed list, went-live detection, adding a favourite) and
+  // lib/state/vod_browser_controller.dart (the open channel's VOD list, its
+  // cache, Load more, and the refreshes that keep it current). What stays
+  // here is what needs the widget: toasts, setState, the tray, saving.
 
-  /// Identifies the newest VOD request, so a slower earlier one cannot win.
-  ///
-  /// Selecting channel A then B fires two fetches; whichever the network
-  /// returns last used to be the one displayed, under B's header either way.
-  int _vodRequestId = 0;
+  late final ChannelsController _channelsCtl = ChannelsController(
+    api: _apiService,
+    settings: () => _settings,
+    favorites: _channels,
+    selected: () => _selectedChannel,
+  );
+
+  late final VodBrowserController _vodBrowser = VodBrowserController(
+    api: _apiService,
+    settings: () => _settings,
+    localProgress: () => _localVodsProgress,
+  );
+
+  /// Debounces the window's show, restore and focus events.
+  Timer? _cameBackTimer;
+
+  bool get _hasAccountToken => _settings.twitchOauthToken.trim().isNotEmpty;
+
+  /// Either controller changed something on screen. Each notifies once per
+  /// refresh phase, so a poll repaints the sidebar and the welcome screen
+  /// itself - it used to rely on an unrelated ten-second timer's setState,
+  /// which an unreachable download folder skipped.
+  void _onRefreshStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// The one-minute timer.
+  void _onPollTick() {
+    // Nothing until startup has loaded the channels and run its own pass. A
+    // tick that beat a slow startup polled channels the initial pass had not
+    // seen yet, and announced every favourite that was already live.
+    if (!_startupComplete) return;
+    unawaited(_channelsCtl.tick());
+    // The rest is on a slower clock, and only with a token that works: a
+    // rejected one would just collect a 401 a minute until it is fixed, and
+    // fixing it refreshes everything anyway (_onAuthStatusChanged).
+    if (!twitchAuth.helix.value.isUsable) return;
+    if (_channelsCtl.isFollowedReloadDue) {
+      unawaited(_loadFollowedChannels(background: true));
+    }
+    final open = _selectedChannel;
+    if (open != null && _channelsCtl.detailsDue(open)) {
+      unawaited(_refreshChannelDetails(open));
+    }
+    // The open channel's VODs, every few minutes while they can be seen.
+    if (_windowVisible) {
+      unawaited(_refreshSelectedVods(
+          maxAge: VodBrowserController.visibleRefreshInterval));
+    }
+  }
+
+  /// The window came back into view: shown from the tray, restored, or
+  /// focused. What it shows is fetched again if it is old - the channels
+  /// when the last pass is over 30s old, the open VOD list when it is over a
+  /// minute old. Nothing did this, so a grid left in the tray overnight came
+  /// back showing last night. Debounced: one restore fires several of these,
+  /// and alt-tabbing fires them constantly.
+  void _onWindowCameBack() {
+    _cameBackTimer?.cancel();
+    _cameBackTimer = Timer(const Duration(milliseconds: 300), () {
+      _cameBackTimer = null;
+      if (!mounted || !_startupComplete) return;
+      unawaited(_channelsCtl.refreshIfOlderThan(const Duration(seconds: 30)));
+      if (twitchAuth.helix.value.isUsable) {
+        unawaited(
+            _refreshSelectedVods(maxAge: VodBrowserController.staleAfter));
+      }
+    });
+  }
+
+  /// One refresh of every channel's live state, for the callers that want a
+  /// current answer: startup, the Refresh button, a token that starts working
+  /// again. Coalesced with any pass already running (see
+  /// ChannelsController.refresh); the timer goes through [_onPollTick].
+  Future<void> _refreshAllChannels({bool isInitialLoad = false}) =>
+      _channelsCtl.refresh(isInitialLoad: isInitialLoad, force: true);
+
+  /// Everything a refresh pass found that needs the widget. Called once per
+  /// pass, however many callers shared it.
+  void _onChannelsPass(ChannelsPass pass) {
+    if (!mounted) return;
+    final selected = pass.selected;
+    final open = _selectedChannel;
+    final stillOpen = open != null &&
+        selected != null &&
+        open.username == selected.username;
+    if (stillOpen && !identical(open, selected)) {
+      setState(() => _selectedChannel = selected);
+    }
+
+    // Announced first and automation after, as before: an auto-play's own
+    // toast follows the went-live toast it is about.
+    unawaited(_announceWentLive(pass).whenComplete(() {
+      if (mounted) _checkFavoritesAutomation();
+    }));
+    // Liveness just changed, so the pulse may need to start or stop.
+    _updatePulse();
+
+    // The open channel's archive changed: the broadcast that ended is a VOD
+    // now, or a new one has started. Until this, only clicking another
+    // channel and back brought either into the grid.
+    if (stillOpen && pass.selectedBroadcastChanged) {
+      unawaited(_refreshSelectedVods(
+          endedBroadcastStart: selected.isLive ? null : selected.wentLiveTime));
+    }
+
+    unawaited(_vodBrowser.prefetch(_channels));
+    _rebuildTrayMenu();
+  }
+
+  /// The went-live toasts for one pass, one after another, over the pass's
+  /// own list. This used to await each toast inside a loop over _channels,
+  /// and starring a channel during that await threw
+  /// ConcurrentModificationError and skipped the rest of the pass.
+  Future<void> _announceWentLive(ChannelsPass pass) async {
+    final channels = <TwitchChannel>[
+      if (_settings.notifyWentLive) ...pass.favoritesWentLive,
+    ];
+    for (final channel in channels) {
+      try {
+        final gameText = channel.game ?? 'Twitch';
+        final titleText = channel.streamTitle ?? 'Streaming Live!';
+        final notification = LocalNotification(
+          title: '${channel.username} is now LIVE!',
+          body: 'Playing $gameText\n$titleText',
+          silent: false,
+        );
+        notification.onClick = () async {
+          await _showWindow();
+          if (!mounted) return;
+          _selectChannel(channel);
+
+          _playerService.launchStreamlinkForLive(
+            channel.username,
+            channel.isLive,
+            channel.streamTitle,
+            channel.game,
+            _settings,
+          );
+        };
+        await notification.show();
+      } catch (e) {
+        print('[Favorites Notification] Error displaying desktop toast: $e');
+      }
+    }
+  }
 
   /// Selects a channel and loads its VODs.
   ///
@@ -2097,75 +2276,87 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// from the previous channel, the stale error, the async fetch started from
   /// inside setState.
   void _selectChannel(TwitchChannel channel) {
+    // The object the poll keeps current, whichever row was clicked.
+    final target = _channelsCtl.canonical(channel);
     setState(() {
       _showLibraryView = false;
-      _selectedChannel = channel;
-      _channelVods = [];
+      _selectedChannel = target;
       _selectedGamesFilter.clear();
       _selectedVodIds.clear();
-      _vodsError = null;
     });
     // The open channel is part of the pulse's gate (its header breathes
     // while it is live), so selecting one can start or stop it.
     _updatePulse();
-    if (_settings.twitchOauthToken.trim().isNotEmpty) {
-      _fetchVodsForChannel(channel);
+    final hasToken = _hasAccountToken;
+    unawaited(_applyVodOutcome(_vodBrowser.open(target, fetch: hasToken),
+        userInitiated: true));
+    // The batched poll leaves follower counts out; the open channel's come
+    // from here, at most every half hour.
+    if (hasToken && _channelsCtl.detailsDue(target)) {
+      unawaited(_refreshChannelDetails(target));
     }
   }
 
-  Future<void> _fetchVodsForChannel(TwitchChannel channel, {bool loadMore = false}) async {
-    final cached = _vodCache.read(channel.username);
-    final int requestId = ++_vodRequestId;
-    setState(() {
-      _isLoadingVods = cached == null || loadMore;
-      _vodsError = null;
-      if (!loadMore) {
-        // A copy. _channelVods is mutated in place elsewhere (notably cleared
-        // on channel switch), and handing out the cache's own list meant that
-        // clear() emptied the cache entry too - so every channel visited once
-        // was permanently cached as "no past broadcasts".
-        _channelVods = List<TwitchVideo>.from(cached ?? const []);
-        _vodPaginationCursor = null;
-      }
-    });
+  /// Fetches [channel]'s VODs into the grid: the next page with [loadMore],
+  /// else its first page again - merged into the list on screen, or opened
+  /// afresh when the grid shows another channel.
+  Future<void> _fetchVodsForChannel(TwitchChannel channel, {bool loadMore = false}) {
+    final Future<VodFetchOutcome?> fetch;
+    if (loadMore) {
+      fetch = _vodBrowser.loadMore();
+    } else if (_vodBrowser.isShowing(channel)) {
+      fetch = _vodBrowser.refresh(silent: false);
+    } else {
+      fetch = _vodBrowser.open(channel);
+    }
+    return _applyVodOutcome(fetch, userInitiated: true);
+  }
 
-    try {
-      final result = await _apiService.fetchVodsForChannel(
-        channel: channel,
-        settings: _settings,
-        localVodsProgress: _localVodsProgress,
-        afterCursor: loadMore ? _vodPaginationCursor : null,
-      );
+  /// Fetches the open channel's first page again and merges it in, keeping
+  /// the pages loaded with Load more, the scroll position and the selection.
+  /// With [maxAge], only when the list on screen is older than that.
+  Future<void> _refreshSelectedVods({
+    Duration? maxAge,
+    bool silent = true,
+    DateTime? endedBroadcastStart,
+  }) {
+    final open = _selectedChannel;
+    if (open == null || !_hasAccountToken || !_vodBrowser.isShowing(open)) {
+      return Future<void>.value();
+    }
+    final fetch = maxAge != null
+        ? _vodBrowser.refreshIfOlderThan(maxAge)
+        : _vodBrowser.refresh(
+            silent: silent, endedBroadcastStart: endedBroadcastStart);
+    return _applyVodOutcome(fetch, userInitiated: !silent);
+  }
 
-      if (!mounted || requestId != _vodRequestId) return;
+  /// What a fetch that reached the grid is followed by: the downloaded
+  /// badges for what it brought, and saving the watch positions it merged in
+  /// from Twitch. Background refreshes skip both when nothing changed, and
+  /// leave the browser-token warning to fetches the user asked for, so a
+  /// dismissed warning is not raised again every few minutes.
+  Future<void> _applyVodOutcome(Future<VodFetchOutcome?> fetch,
+      {required bool userInitiated}) async {
+    final outcome = await fetch;
+    if (!mounted || outcome == null) return;
+    if (userInitiated) {
+      setState(() => _isWebTokenExpired = outcome.isWebTokenExpired);
+    } else if (!outcome.changedVisible) {
+      return;
+    }
+    _checkDownloadedVods();
+    await _saveChannels();
+  }
 
-      setState(() {
-        _vodPaginationCursor = result.nextCursor;
-        _isWebTokenExpired = result.isWebTokenExpired;
-        if (loadMore) {
-          _channelVods.addAll(result.vods);
-        } else {
-          _channelVods = List<TwitchVideo>.from(result.vods);
-        }
-        _vodCache.store(channel.username, _channelVods);
-      });
-      _checkDownloadedVods();
-      await _saveChannels();
-    } catch (e) {
-      if (!mounted || requestId != _vodRequestId) return;
-      if (_channelVods.isEmpty) {
-        setState(() {
-          _vodsError = describeTwitchError(e);
-        });
-      }
-    } finally {
-      // Only the newest request may clear the spinner: a superseded one
-      // finishing later would otherwise report the live fetch as done.
-      if (mounted && requestId == _vodRequestId) {
-        setState(() {
-          _isLoadingVods = false;
-        });
-      }
+  /// The open channel's full refresh, follower count included.
+  Future<void> _refreshChannelDetails(TwitchChannel channel) async {
+    final broadcastChanged = await _channelsCtl.refreshDetails(channel);
+    if (!mounted) return;
+    _updatePulse();
+    if (broadcastChanged && identical(channel, _selectedChannel)) {
+      unawaited(_refreshSelectedVods(
+          endedBroadcastStart: channel.isLive ? null : channel.wentLiveTime));
     }
   }
 
@@ -2266,6 +2457,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     for (final channel in channels) {
       try {
+        final fetchedAt = DateTime.now();
         final result = await _apiService.fetchVodsForChannel(
           channel: channel,
           settings: _settings,
@@ -2274,6 +2466,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           // overhead. It runs for every auto-download channel every minute.
           fetchGames: false,
         );
+        // What this pass already paid for reaches the cache and, for the open
+        // channel, the grid. It used to be thrown away every minute.
+        if (_vodBrowser.ingest(channel, result,
+            fetchedAt: fetchedAt, detailed: false)) {
+          _checkDownloadedVods();
+        }
         if (result.vods.isEmpty) continue;
 
         final selected = selectVodsToAutoDownload(
@@ -2319,144 +2517,48 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  void _prefetchVodsInBackground(List<TwitchChannel> channels) async {
-    if (_settings.twitchOauthToken.trim().isEmpty) return;
-    for (final channel in channels.take(10)) {
-      if (!_vodCache.has(channel.username)) {
-        try {
-          final result = await _apiService.fetchVodsForChannel(
-            channel: channel,
-            settings: _settings,
-            localVodsProgress: _localVodsProgress,
-          );
-          _vodCache.store(channel.username, result.vods);
-        } catch (_) {}
-      }
-    }
-  }
-
-  Future<void> _refreshAllChannels({bool isInitialLoad = false}) async {
-    final prevLiveMap = { for (var c in _channels) c.username: c.isLive };
-    final prevFollowedLiveMap = { for (var c in _followedChannels) c.username: c.isLive };
-
-    final futures = _channels.map((c) => _apiService.fetchChannelStats(c, _settings));
-    await Future.wait(futures);
-
-    for (final channel in _channels) {
-      final cleanName = channel.username.toLowerCase().trim();
-      final wasLive = prevLiveMap[channel.username] ?? false;
-      if (channel.isLive) {
-        if (!wasLive && !isInitialLoad) {
-          channel.wentLiveTime = DateTime.now();
-        }
-        if (!_previouslyLiveFavoriteUsernames.contains(cleanName)) {
-          _previouslyLiveFavoriteUsernames.add(cleanName);
-          if (!isInitialLoad && _settings.notifyWentLive) {
-            try {
-              final gameText = channel.game ?? 'Twitch';
-              final titleText = channel.streamTitle ?? 'Streaming Live!';
-              final notification = LocalNotification(
-                title: '${channel.username} is now LIVE!',
-                body: 'Playing $gameText\n$titleText',
-                silent: false,
-              );
-              notification.onClick = () async {
-                await _showWindow();
-                
-                _selectChannel(channel);
-
-                _playerService.launchStreamlinkForLive(
-                  channel.username,
-                  channel.isLive,
-                  channel.streamTitle,
-                  channel.game,
-                  _settings,
-                );
-              };
-              await notification.show();
-            } catch (e) {
-              print('[Favorites Notification] Error displaying desktop toast: $e');
-            }
-          }
-        }
-      } else {
-        _previouslyLiveFavoriteUsernames.remove(cleanName);
-      }
-    }
-
-    _checkFavoritesAutomation();
-    // Liveness just changed, so the pulse may need to start or stop.
-    _updatePulse();
-
-    if (_selectedChannel != null) {
-      final index = _channels.indexWhere((c) => c.username == _selectedChannel!.username);
-      if (index != -1) {
-        setState(() {
-          _selectedChannel = _channels[index];
-        });
-      }
-    }
-
-    if (_settings.twitchOauthToken.trim().isNotEmpty && _followedChannels.isNotEmpty) {
-      final followedFutures = _followedChannels.map((c) => _apiService.fetchChannelStats(c, _settings));
-      await Future.wait(followedFutures);
-
-      for (final channel in _followedChannels) {
-        final wasLive = prevFollowedLiveMap[channel.username] ?? false;
-        if (channel.isLive && !wasLive && !isInitialLoad) {
-          channel.wentLiveTime = DateTime.now();
-        }
-      }
-
-      if (_selectedChannel != null) {
-        final index = _followedChannels.indexWhere((c) => c.username == _selectedChannel!.username);
-        if (index != -1) {
-          setState(() {
-            _selectedChannel = _followedChannels[index];
-          });
-        }
-      }
-      // Again, now that the followed channels have been refreshed: the open
-      // channel is part of the pulse's gate, and when it is a followed one
-      // its liveness only changed here, after the check above - so its
-      // header started breathing a whole poll late, and the pulse ran on
-      // for a poll after it went offline.
-      _updatePulse();
-    }
-
-    _prefetchVodsInBackground(_channels);
-    _rebuildTrayMenu();
-  }
-
   Future<void> _addChannel(String name) async {
     final cleanName = name.toLowerCase().trim();
-    if (cleanName.isEmpty) return;
-
-    if (_channels.any((c) => c.username == cleanName)) {
-      _showSnackBar('Channel "$cleanName" is already in your list.', isError: true);
-      return;
+    // Refused before the spinner shows: nothing Twitch could say about a name
+    // that cannot be a login is more useful than saying so at once.
+    switch (_channelsCtl.checkAdd(cleanName)) {
+      case AddCheck.empty:
+      case AddCheck.pending:
+        // A second Enter while the first lookup runs; it is on its way.
+        return;
+      case AddCheck.invalidName:
+        _showSnackBar('"$cleanName" is not a valid Twitch username.', isError: true);
+        return;
+      case AddCheck.duplicate:
+        _showSnackBar('Channel "$cleanName" is already in your list.', isError: true);
+        return;
+      case AddCheck.ok:
+        break;
     }
 
     setState(() => _isAdding = true);
+    final outcome = await _channelsCtl.addFavorite(cleanName);
+    if (!mounted) return;
+    setState(() => _isAdding = _channelsCtl.hasPendingAdds);
 
-    final newChannel = TwitchChannel(username: cleanName);
-    await _apiService.fetchChannelStats(newChannel, _settings);
-
-    if (newChannel.errorMessage != null) {
-      _showSnackBar('Failed to add channel: ${newChannel.errorMessage}', isError: true);
-      setState(() => _isAdding = false);
+    final added = outcome.channel;
+    if (added == null) {
+      _showSnackBar(
+          outcome.check == AddCheck.duplicate
+              ? 'Channel "$cleanName" is already in your list.'
+              : 'Failed to add channel: ${outcome.error}',
+          isError: true);
       return;
     }
 
-    setState(() {
-      _channels.add(newChannel);
-      _selectedChannel = newChannel;
-      _searchController.clear();
-      _isAdding = false;
-    });
-    _seedLiveTracking(newChannel);
+    _searchController.clear();
+    // Opened through the one selection path, so the grid loads this channel's
+    // VODs rather than going on showing the previous channel's under its
+    // header.
+    _selectChannel(added);
 
     await _saveChannels();
+    if (!mounted) return;
     _showSnackBar('Channel "$cleanName" added successfully!', isError: false);
   }
 
@@ -4081,9 +4183,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                       _settings
                     );
                   },
-                  onRefresh: () => _apiService.fetchChannelStats(channel, _settings).then((_) {
-                    if (mounted) setState(() {});
-                  }),
+                  // The whole channel: its details (follower count
+                  // included, which the batched poll leaves out) and its
+                  // VOD list, merged in place.
+                  onRefresh: () {
+                    unawaited(_refreshChannelDetails(channel));
+                    unawaited(_refreshSelectedVods(silent: false));
+                  },
                   openExternalLink: _openExternalLink,
                 )),
 
@@ -4178,8 +4284,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                             ],
                           ),
                         ),
-                        const Spacer(),
-                        if (_isLoadingVods) ...[
+                        // The note a failed refresh leaves gives way (with
+                        // an ellipsis) before any control does.
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: _buildStaleVodNote(),
+                          ),
+                        ),
+                        const SizedBox(width: NeuSpace.s8),
+                        if (_isLoadingVods || _vodBrowser.isRefreshing) ...[
                           const SizedBox(
                             width: 16,
                             height: 16,
@@ -4189,6 +4303,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                           ),
                           const SizedBox(width: NeuSpace.s12),
                         ],
+                        // The list refreshes by itself (a broadcast starting
+                        // or ending, every few minutes while on screen, on
+                        // coming back from the tray); this is for not
+                        // waiting. Merged in, so loaded pages and the
+                        // selection stay.
+                        NeuIconAction(
+                          icon: Icons.refresh,
+                          tooltip: 'Check for new VODs',
+                          onPressed: _isLoadingVods || _vodBrowser.isRefreshing
+                              ? null
+                              : () => _refreshSelectedVods(silent: false),
+                        ),
+                        const SizedBox(width: NeuSpace.s8),
                         // One control path, not two. These settings used to be
                         // rendered inline when the window was wide and in a
                         // popover when it was narrow, and the two copies had
@@ -4349,6 +4476,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
                 ]),
               ),
             ],
+    );
+  }
+
+  /// "Couldn't refresh" over a list that is not current, with when it is
+  /// from. A failed fetch over a cached list used to say nothing at all, so a
+  /// list from hours ago passed for a current one.
+  Widget _buildStaleVodNote() {
+    final stale = _vodBrowser.stale;
+    if (stale == null) return const SizedBox.shrink();
+    final isDark = themeNotifier.isDarkTheme;
+    final since = stale.since;
+    String two(int v) => v < 10 ? '0$v' : '$v';
+    final clock = '${two(since.hour)}:${two(since.minute)}';
+    return Tooltip(
+      message: stale.reason,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.history, size: 14, color: NeuTheme.warningText(isDark)),
+          const SizedBox(width: NeuSpace.s6),
+          Flexible(
+            child: Text(
+              "Couldn't refresh - showing the list from $clock",
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: NeuType.caption(isDark, color: NeuTheme.warningText(isDark)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
