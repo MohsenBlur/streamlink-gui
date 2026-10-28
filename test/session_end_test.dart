@@ -83,4 +83,67 @@ void main() {
     saving.completeError(StateError('disk'));
     expect(await reply, isTrue);
   });
+
+  group('a session end this process outlives', () {
+    // The Restart Manager closing apps for an installer sends a real
+    // WM_ENDSESSION(TRUE), but only asks: the app goes on running. Its hold
+    // on the download queue stayed for the rest of the run, and a later real
+    // shutdown was handed the finished save instead of a fresh one.
+    late int survived;
+
+    setUp(() {
+      survived = 0;
+      SessionEnd.listen(
+        onEnding: () {
+          saves++;
+          return saving.future;
+        },
+        onCancelled: () => cancels++,
+        onSurvived: () => survived++,
+        survivalGrace: const Duration(milliseconds: 40),
+      );
+    });
+
+    test('goes back to normal once the grace has passed', () async {
+      saving.complete();
+      expect(await send('end'), isTrue);
+      expect(survived, 0, reason: 'Windows may still end the process');
+
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(survived, 1);
+      expect(cancels, 0);
+    });
+
+    test('a later session end saves afresh', () async {
+      saving.complete();
+      await send('end');
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      await send('queryEnd');
+      expect(saves, 2, reason: 'not the save the first end finished');
+    });
+
+    test('so does one that arrives inside the grace, which keeps the hold',
+        () async {
+      saving.complete();
+      await send('end');
+      await send('queryEnd');
+      expect(saves, 2);
+
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(survived, 0,
+          reason: 'the second session end is still under way');
+    });
+
+    test('without its own callback, it is treated as called off', () async {
+      SessionEnd.listen(
+        onEnding: () async => saves++,
+        onCancelled: () => cancels++,
+        survivalGrace: const Duration(milliseconds: 40),
+      );
+      await send('end');
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(cancels, 1);
+    });
+  });
 }

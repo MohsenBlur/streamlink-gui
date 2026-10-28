@@ -181,6 +181,30 @@ void main() {
       expect(LitSurfaceProgram.status, contains('forced'));
       expect(raised().rendersLit, isFalse);
     });
+
+    test('the status names which switch forced it', () async {
+      // Every forced start read "requested at launch", whether the Settings
+      // switch or the command-line flag did it.
+      await LitSurfaceProgram.load(
+          forceCanvas: true,
+          forceCanvasReason: 'Simple rendering setting',
+          environment: const {});
+      expect(LitSurfaceProgram.status,
+          'Canvas engine (forced: Simple rendering setting)');
+
+      await LitSurfaceProgram.load(
+          forceCanvas: true,
+          forceCanvasReason: '--canvas-engine flag',
+          environment: {LitSurfaceProgram.canvasEnvironmentVariable: '1'});
+      expect(LitSurfaceProgram.status,
+          'Canvas engine (forced: --canvas-engine flag)',
+          reason: "the caller's reason, not the variable it also has set");
+
+      await LitSurfaceProgram.load(
+          environment: {LitSurfaceProgram.canvasEnvironmentVariable: '1'});
+      expect(LitSurfaceProgram.status,
+          'Canvas engine (forced: ${LitSurfaceProgram.canvasEnvironmentVariable} is set)');
+    });
   });
 
   test('a disposed lit painter leaves the engine switch\'s registry',

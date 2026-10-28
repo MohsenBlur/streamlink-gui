@@ -358,6 +358,18 @@ TwitchAuthFault _faultAfterRejection(
       endpointScopes.any((s) => !current.scopes.contains(s))) {
     return TwitchAuthFault.missingScope;
   }
+  // Nor is a scoped endpoint refusing a token Helix has just been answering,
+  // when nothing showed it holds that scope: `valid` from unscoped 200s
+  // alone (the poll) knows of no scopes. It is the missing permission until
+  // the probe this 401 triggers says otherwise - and if the token really was
+  // revoked, the next unscoped request is refused too, which says revoked.
+  // Read as revoked, the next poll 200 "healed" it, the recovery refresh
+  // asked for the followed list again, and the label read "expired or
+  // revoked" in between.
+  if (current.state == TwitchAuthState.valid &&
+      endpointScopes.any((s) => !current.scopes.contains(s))) {
+    return TwitchAuthFault.missingScope;
+  }
   return TwitchAuthFault.revoked;
 }
 

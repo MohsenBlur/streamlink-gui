@@ -307,8 +307,12 @@ class DownloadsController {
   /// everything else, and a download ended that way reports itself as failed
   /// - which would otherwise drop it from the queue that is about to be
   /// saved for the next launch.
+  ///
+  /// A hold already in place stays: a second session end before the first
+  /// one's hold is released (see SessionEnd's survival grace) would otherwise
+  /// take its copy from a queue the first one's kills had already shortened.
   void freeze() {
-    if (!_restored) return;
+    if (!_restored || _frozen != null) return;
     _frozen = _copy(_unfinished.values);
   }
 

@@ -134,8 +134,11 @@ Future<void> _startApp(List<String> args) async {
   // on failure rather than to a blank window. Settings' "Simple rendering"
   // and --canvas-engine skip the shader outright - the switch for a machine
   // where it renders, but slowly or wrongly, which no self-test can see.
+  final canvasReason = args.contains('--canvas-engine')
+      ? '--canvas-engine flag'
+      : (settings.canvasEngine ? 'Simple rendering setting' : null);
   await LitSurfaceProgram.load(
-      forceCanvas: args.contains('--canvas-engine') || settings.canvasEngine);
+      forceCanvas: canvasReason != null, forceCanvasReason: canvasReason);
   milestone('surface engine: ${LitSurfaceProgram.status}');
 
   // The typography gate. Off unless asked for, and it cannot be a unit test:
@@ -260,6 +263,12 @@ Future<void> _prepareWindow(
   }
 }
 
+/// Set while the window is hidden because the user hid it (closed or
+/// minimized to the tray), and cleared when it is shown again; see
+/// _MainScreenState._hideWindow. Read by [_checkWindowAfterFirstFrame], which
+/// must not bring back a window put away on purpose.
+bool _windowHiddenByUser = false;
+
 /// Records what the window looks like once the first frame is up, and puts
 /// right what it can.
 ///
@@ -285,8 +294,11 @@ Future<void> _checkWindowAfterFirstFrame({
         : '; laid out at ${view.physicalSize.width.round()}x'
             '${view.physicalSize.height.round()} @ ${view.devicePixelRatio}';
     milestone('window after first frame: $state$layout');
-    if (state == null || startHidden) return;
-    if (!state.visible || !state.contentVisible) {
+    if (!startHidden && _windowHiddenByUser) {
+      milestone('hidden to the tray since; leaving it as it is');
+    }
+    if (shouldReshowAfterFirstFrame(state,
+        startHidden: startHidden, hiddenByUser: _windowHiddenByUser)) {
       milestone('window or its content is not visible; showing it again');
       await NativeWindow.show();
       milestone('window after re-show: ${await NativeWindow.state()}');
@@ -493,15 +505,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   /// Re-arms the save-failure banner once a save succeeds, so a dismissal
   /// covers the problem the user saw and not every future one.
-  void _watchSaveFailures() {
-    storageWriteFailure.addListener(() {
-      if (!mounted) return;
-      if (storageWriteFailure.value == null && _saveWarningDismissed) {
-        setState(() => _saveWarningDismissed = false);
-      } else {
-        setState(() {});
-      }
-    });
+  ///
+  /// A method, so dispose can take it off again: storageWriteFailure is
+  /// global and outlives this screen, and the closure added here was never
+  /// removed - one more listener holding a dead State for every screen that
+  /// was ever built.
+  void _onSaveFailureChanged() {
+    if (!mounted) return;
+    if (storageWriteFailure.value == null && _saveWarningDismissed) {
+      setState(() => _saveWarningDismissed = false);
+    } else {
+      setState(() {});
+    }
   }
 
   /// Library screen state. Entries are CACHED - built (with file stats) only
@@ -809,7 +824,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _progressStatuses.remove(vodId);
         _publishActivity();
         _checkDownloadedVods();
-        _saveChannels();
+        // With the queue change forget() asked for: downloads finish in
+        // bursts (a backlog resumed at launch), one write for the burst.
+        _settingsRepo.requestSave();
         if (_showLibraryView) _refreshLibraryEntries();
         _showSnackBar('Download completed: $title', isError: false);
         if (_settings.notifyDownloadComplete) {
@@ -845,7 +862,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _vodBrowser.addListener(_onRefreshStateChanged);
     _vodBrowser.onNewVods = _onNewVods;
 
-    _watchSaveFailures();
+    storageWriteFailure.addListener(_onSaveFailureChanged);
     twitchAuth.helix.addListener(_onAuthStatusChanged);
     _loadChannels();
     
@@ -858,6 +875,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     SessionEnd.listen(
       onEnding: _saveForSessionEnd,
       onCancelled: _downloads.unfreeze,
+      // Answered, yet not ended: the Restart Manager asking for an installer
+      // (ENDSESSION_CLOSEAPP). Without this the queue stayed frozen for the
+      // rest of the run.
+      onSurvived: () {
+        CrashLog.current?.milestone(
+            '[session] still running after the session end; saving normally');
+        _downloads.unfreeze();
+      },
     );
 
     _favoritesLiveCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -1216,6 +1241,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     SessionEnd.stopListening();
     _downloads.dispose();
     _settingsRepo.dispose();
+    storageWriteFailure.removeListener(_onSaveFailureChanged);
     twitchAuth.helix.removeListener(_onAuthStatusChanged);
     _activity.dispose();
     _logNotifier.dispose();
@@ -1405,6 +1431,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _isExiting = true;
     final log = CrashLog.current;
     log?.milestone('[exit] requested');
+    // A line per step, timed from the request: an exit seen taking 6.9s
+    // (against well under one second usually) left nothing to say which
+    // step it was.
+    final steps = TimedMilestones('exit', log);
 
     // Nothing new may start while this runs.
     _favoritesLiveCheckTimer?.cancel();
@@ -1417,6 +1447,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // final watch position, a download's resume state) is already in memory
     // when the saves below snapshot it.
     await _stopAllBounded('exit');
+    steps.mark('players stopped');
 
     // Each save resolves only once its file's writer has drained, earlier
     // fire-and-forget writes to the same file included - and the config,
@@ -1427,6 +1458,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     } catch (e, st) {
       log?.error('exit: saving', e, st);
     }
+    steps.mark('saved');
 
     windowManager.removeListener(this);
     _singleInstanceChannel.setMethodCallHandler(null);
@@ -1434,6 +1466,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     try {
       await _systemTray.destroy();
     } catch (_) {}
+    steps.mark('tray destroyed');
 
     log?.milestone('[exit] saved and stopped; closing');
     await windowManager.destroy();
@@ -1508,6 +1541,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// maximized session, its first appearance must be maximized, and a plain
   /// show brought it back at its normal size.
   Future<void> _showWindow() async {
+    _windowHiddenByUser = false;
     try {
       await NativeWindow.show();
     } catch (_) {
@@ -1516,7 +1550,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
+  /// The user's own hide: close or minimize to the tray, or the tray's Hide
+  /// App. Marked first, so the check after the first frame leaves it hidden.
   Future<void> _hideWindow() async {
+    _windowHiddenByUser = true;
     await windowManager.hide();
   }
 
@@ -1565,13 +1602,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Timer? _windowSaveTimer;
 
-  /// Debounced: a drag emits a stream of moves.
+  /// Debounced: a drag emits a stream of moves. The write is the
+  /// repository's debounced one too, config only - every move, resize and
+  /// trip to the tray rewrote the progress sidecar as well. Exit and session
+  /// end capture the geometry and flush it themselves.
   void _saveWindowState() {
     _windowSaveTimer?.cancel();
     _windowSaveTimer = Timer(const Duration(milliseconds: 300), () async {
       _windowSaveTimer = null;
       if (await _captureWindowState()) {
-        await _saveChannels();
+        _settingsRepo.requestSave();
       }
     });
   }
@@ -1735,7 +1775,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
           NeuDialogAction.primary('Choose folder', () async {
             final String? path = await FilePicker.getDirectoryPath();
-            if (path != null && path.isNotEmpty) {
+            if (path != null && path.isNotEmpty && mounted) {
               setState(() {
                 _settings.vodDownloadFolder = path;
               });
@@ -1926,7 +1966,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // arming earlier would make the first successful probe refresh it all a
       // second time.
       _startupComplete = true;
-      setState(() => _isGlobalLoading = false);
+      if (mounted) setState(() => _isGlobalLoading = false);
     }
   }
 
@@ -2372,17 +2412,23 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   /// A channel's archive gained a VOD (see VodBrowserController.onNewVods).
   /// Announced for favourites only, and not for the open channel while the
-  /// window is on screen: the grid shows it arriving.
-  void _onNewVods(TwitchChannel channel, List<TwitchVideo> vods) {
+  /// window is on screen: the grid shows it arriving. Nor for a VOD the
+  /// auto-download pass takes, which has a toast of its own.
+  void _onNewVods(TwitchChannel channel, List<TwitchVideo> vods,
+      List<TwitchVideo> firstPage) {
     if (!mounted || !_settings.notifyNewVod || vods.isEmpty) return;
     final name = channel.username.toLowerCase().trim();
-    if (!_channels.any((c) => c.username == name)) return;
+    final index = _channels.indexWhere((c) => c.username == name);
+    if (index == -1) return;
     if (_windowVisible &&
         !_showLibraryView &&
         _selectedChannel?.username == name) {
       return;
     }
-    unawaited(_announceNewVods(name, vods));
+    final news =
+        _automation.newVodsToAnnounce(_channels[index], vods, firstPage);
+    if (news.isEmpty) return;
+    unawaited(_announceNewVods(name, news));
   }
 
   Future<void> _announceNewVods(String name, List<TwitchVideo> vods) async {
@@ -2483,7 +2529,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       return;
     }
     _checkDownloadedVods();
-    await _saveChannels();
+    // Debounced, config only: this follows every fetch - each selection,
+    // each refresh, the cadence while the grid is on screen - and wrote the
+    // config and the progress sidecar at once, each fsync'd, every time.
+    // What a fetch changes (the merged positions, a resolved channel id)
+    // can wait a second; exit and session end flush it regardless.
+    _settingsRepo.requestSave();
   }
 
   /// The open channel's full refresh, follower count included.
@@ -2767,6 +2818,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   void _showSnackBar(String message,
       {required bool isError, SnackBarAction? action}) {
+    // Most callers report on something they awaited, and the screen can be
+    // gone by then: ScaffoldMessenger.of a dead context throws. One check
+    // here rather than one after every await.
+    if (!mounted) return;
     // Errors use the fixed danger red (white text); info follows the accent.
     //
     // Replace rather than queue: ScaffoldMessenger plays queued snackbars one
@@ -3072,7 +3127,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           _sidebarTab = tabIdx;
           _settings.activeSidebarTab = tabIdx;
         });
-        _saveChannels();
+        // A tab click is no reason to write the config at once; a run of
+        // them is one debounced write.
+        _settingsRepo.requestSave();
         if (tabIdx == 1 && _followedChannels.isEmpty && !_isLoadingFollowed) {
           _loadFollowedChannels();
         }
@@ -4049,10 +4106,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _localVodsProgress.remove(entry.vodId);
       _progressStore.clear(entry.vodId);
     });
-    await _storageService.saveRecentWatchedVods(
-      _recentWatchedVods.map((v) => v.toJson()).toList(),
-    );
-    await _saveChannels();
+    // All three files, through the repository: the list was written here
+    // straight through the storage service, round the gate that keeps it
+    // from being written before it has been read.
+    await _settingsRepo.saveNow(recents: true);
+    if (!mounted) return;
     _refreshLibraryEntries();
   }
 
@@ -4785,7 +4843,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Future<void> _cancelVodDownload(String vodId, String channelName) async {
     await _playerService.cancelVodDownload(vodId, channelName, _settings.vodDownloadFolder);
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   /// Deletes the files for [vodId], preferring the path recorded in the
@@ -5013,7 +5071,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       } catch (_) {}
     }
     await _saveChannels();
-    
+    if (!mounted) return;
+
     _checkDownloadedVods();
     setState(() {
       _selectedVodIds.clear();

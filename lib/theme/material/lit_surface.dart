@@ -90,7 +90,9 @@ abstract final class LitSurfaceProgram {
   /// before the shader existed.
   ///
   /// [forceCanvas] is the caller's half of the kill switch (a command-line
-  /// flag or a persisted setting); [environment] defaults to the process
+  /// flag or a persisted setting), and [forceCanvasReason] says which one,
+  /// for [status]: "requested at launch" could not tell support the
+  /// Settings switch from the flag. [environment] defaults to the process
   /// environment and is a parameter so the switch can be tested.
   ///
   /// The self-test waits at most [probeBudget]. Slow is not broken - a cold
@@ -100,12 +102,13 @@ abstract final class LitSurfaceProgram {
   /// switching to Canvas then if it fails.
   static Future<void> load({
     bool forceCanvas = false,
+    String? forceCanvasReason,
     Map<String, String>? environment,
     Duration probeBudget = const Duration(seconds: 2),
   }) async {
     final env = environment ?? Platform.environment;
     final forcedBy = forceCanvas
-        ? 'requested at launch'
+        ? (forceCanvasReason ?? 'requested at launch')
         : (_isOn(env[canvasEnvironmentVariable])
             ? '$canvasEnvironmentVariable is set'
             : null);

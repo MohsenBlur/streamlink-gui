@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/state/channels_controller.dart';
 import 'package:streamlink_gui/state/vod_browser_controller.dart';
 import 'package:streamlink_gui/state/vod_cache.dart';
@@ -26,15 +27,15 @@ void main() {
     announced = <(String, List<String>)>[];
   });
 
-  VodBrowserController browserFor({VodCache? cache}) {
+  VodBrowserController browserFor({VodCache? cache, AppSettings? settings}) {
     final browser = VodBrowserController(
       api: twitch.service(),
-      settings: () => FakeHelix.settings,
+      settings: () => settings ?? FakeHelix.settings,
       localProgress: () => progress,
       cache: cache,
       clock: () => twitch.now,
     );
-    browser.onNewVods = (channel, vods) =>
+    browser.onNewVods = (channel, vods, _) =>
         announced.add((channel.username, [for (final v in vods) v.id]));
     addTearDown(browser.dispose);
     return browser;
@@ -242,6 +243,44 @@ void main() {
       expect(browser.stale, isNull);
     });
 
+    test('one the user asked for says so, however new the list', () async {
+      // "Check for new VODs" over a list under a minute old just stopped its
+      // spinner, which reads as "nothing new".
+      twitch.addVideo('shroud');
+      final browser = browserFor();
+      await browser.open(FakeHelix.channel('shroud'));
+      final fetchedAt = browser.fetchedAt;
+
+      later(const Duration(seconds: 10));
+      twitch.failVideos = true;
+      await browser.refresh(silent: false);
+
+      expect(browser.stale, isNotNull);
+      expect(browser.stale!.since, fetchedAt);
+      expect(browser.isRefreshing, isFalse);
+    });
+
+    test('so does one the user asked for while a background one was out',
+        () async {
+      twitch.addVideo('shroud');
+      final browser = browserFor();
+      await browser.open(FakeHelix.channel('shroud'));
+
+      later(const Duration(seconds: 10));
+      twitch.failVideos = true;
+      twitch.holdVideos = Completer<void>();
+      final background = browser.refresh();
+      final manual = browser.refresh(silent: false);
+      await settle();
+      twitch.holdVideos!.complete();
+      twitch.holdVideos = null;
+      await Future.wait([background, manual]);
+
+      expect(twitch.to('/helix/videos'), hasLength(2),
+          reason: 'the open and the one shared refresh');
+      expect(browser.stale, isNotNull);
+    });
+
     test('over nothing, the error is shown', () async {
       twitch.failVideos = true;
       final browser = browserFor();
@@ -335,6 +374,30 @@ void main() {
       expect(browser.cache.read('summit1g'), hasLength(1));
       expect(twitch.to('/gql'), isEmpty, reason: 'the cheap check skips games');
     });
+
+    test('a broadcast end that joins the first fetch still finds its VOD',
+        () async {
+      // The poll reports the end while the channel's very first list is on
+      // its way. The refresh joins that fetch, and used to drop the start it
+      // carried, so the list became a baseline and announced nothing.
+      final start = twitch.now.subtract(const Duration(hours: 3));
+      final vodId = twitch.addVideo('summit1g', publishedAt: start);
+      final summit = FakeHelix.channel('summit1g')..wentLiveTime = start;
+      final browser = browserFor();
+
+      twitch.holdVideos = Completer<void>();
+      final opening = browser.open(summit);
+      await settle();
+      final ended = browser.refresh(endedBroadcastStart: start);
+      twitch.holdVideos!.complete();
+      twitch.holdVideos = null;
+      await Future.wait([opening, ended]);
+
+      expect(twitch.to('/helix/videos'), hasLength(1),
+          reason: 'joined, not fetched twice');
+      expect(announced, hasLength(1));
+      expect(announced.single.$2, [vodId]);
+    });
   });
 
   group('prefetch', () {
@@ -357,6 +420,105 @@ void main() {
       await browser.prefetch(channels);
       expect(twitch.to('/helix/videos'), hasLength(2),
           reason: 'a list from hours ago is not a cache hit');
+    });
+
+    test('a list is not read again just because ten minutes passed', () async {
+      // At a ten-minute TTL the prefetch re-read every favourite's list that
+      // often, around the clock, for lists nobody had opened.
+      twitch.addVideo('a');
+      final browser = browserFor();
+      final channels = [FakeHelix.channel('a')];
+      await browser.prefetch(channels);
+      twitch.requests.clear();
+
+      for (var i = 0; i < 2; i++) {
+        later(const Duration(minutes: 11));
+        await browser.prefetch(channels);
+      }
+      expect(twitch.to('/helix/videos'), isEmpty);
+    });
+
+    test('reads no watch positions, and leaves the open channel alone',
+        () async {
+      final withBrowserToken = AppSettings(
+        twitchOauthToken: 'oauth:account-token',
+        twitchWebOauthToken: 'oauth:browser-token',
+      );
+      List<Object> positionLookups() => [
+            for (final r in twitch.to('/gql'))
+              if (r.headers['Authorization'] != null) r,
+          ];
+      for (final name in ['a', 'b', 'open']) {
+        twitch.addVideo(name);
+      }
+      final browser = browserFor(settings: withBrowserToken);
+      final open = FakeHelix.channel('open');
+      await browser.open(open);
+      expect(positionLookups(), hasLength(1),
+          reason: 'opening a channel does read them (and the fake sees it)');
+      // Old enough for the prefetch, were it not on screen.
+      later(VodCache.ttl);
+      twitch.requests.clear();
+
+      await browser
+          .prefetch([FakeHelix.channel('a'), FakeHelix.channel('b'), open]);
+
+      expect(twitch.to('/helix/videos'), hasLength(2),
+          reason: 'the open channel is kept current by its own refresh');
+      expect(positionLookups(), isEmpty,
+          reason: 'one GQL request per VOD, for lists nobody has opened');
+    });
+
+    test('a favourite whose broadcast started or ended is read again',
+        () async {
+      // Its archive gained (or finished) a VOD, however young its list is.
+      twitch.addVideo('a');
+      twitch.addVideo('b');
+      final a = FakeHelix.channel('a')..lastUpdated = twitch.now;
+      final b = FakeHelix.channel('b')..lastUpdated = twitch.now;
+      final browser = browserFor();
+      await browser.prefetch([a, b]);
+      twitch.requests.clear();
+
+      later(const Duration(minutes: 1));
+      a
+        ..isLive = true
+        ..streamId = 'broadcast-1';
+      await browser.prefetch([a, b]);
+      expect(twitch.to('/helix/videos'), hasLength(1), reason: 'a only');
+
+      twitch.requests.clear();
+      later(const Duration(minutes: 1));
+      await browser.prefetch([a, b]);
+      expect(twitch.to('/helix/videos'), isEmpty,
+          reason: 'its list is from this broadcast now');
+
+      a.isLive = false;
+      await browser.prefetch([a, b]);
+      expect(twitch.to('/helix/videos'), hasLength(1),
+          reason: 'and again once it ends');
+    });
+
+    test("leaves a channel to the stream-end check that is reading it",
+        () async {
+      twitch.addVideo('a');
+      final a = FakeHelix.channel('a')..lastUpdated = twitch.now;
+      final browser = browserFor();
+      await browser.prefetch([a]);
+      twitch.requests.clear();
+
+      a
+        ..isLive = false
+        ..streamId = 'ended';
+      twitch.holdVideos = Completer<void>();
+      final check = browser.checkForNewVods(a, endedBroadcastStart: twitch.now);
+      final prefetch = browser.prefetch([a]);
+      await settle();
+      twitch.holdVideos!.complete();
+      twitch.holdVideos = null;
+      await Future.wait([check, prefetch]);
+
+      expect(twitch.to('/helix/videos'), hasLength(1));
     });
   });
 

@@ -7,6 +7,9 @@ import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/automation_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart'
     show VodsFetchResult;
+import 'package:streamlink_gui/state/vod_browser_controller.dart';
+
+import 'support/fake_helix.dart';
 
 TwitchChannel channel(
   String name, {
@@ -310,6 +313,80 @@ void main() {
 
       expect(stamps, hasLength(1));
       expect(stamps.single.isBefore(answeredAt), isTrue);
+    });
+  });
+
+  group('the "New VOD" toast beside auto-download', () {
+    /// A favourite that auto-downloads, whose last VOD has been watched, so
+    /// the window auto-download keeps is whatever comes after it.
+    (Rig, TwitchChannel, TwitchVideo, TwitchVideo) watchedThenNew() {
+      final rig = Rig();
+      final a = channel('a', autoPlay: false, autoDownload: true);
+      rig.favorites.add(a);
+      final watched = vod('v1', daysAgo: 2)..watchProgress = 1.0;
+      final fresh = vod('v2', daysAgo: 1);
+      return (rig, a, watched, fresh);
+    }
+
+    test('one toast for a VOD the pass downloads, not two', () async {
+      // The order main.dart wires: the pass hands its list to the VOD
+      // browser, whose new-VOD check fires before anything is queued.
+      final (rig, _, watched, fresh) = watchedThenNew();
+      final browser = VodBrowserController(
+        api: FakeHelix().service(),
+        settings: () => rig.settings,
+        localProgress: () => <String, int>{},
+      );
+      addTearDown(browser.dispose);
+      browser.onNewVods = (c, vods, page) {
+        if (rig.service.newVodsToAnnounce(c, vods, page).isNotEmpty) {
+          rig.notifications.add('New VOD from ${c.username}');
+        }
+      };
+      rig.service.onVodsFetched = (c, result, fetchedAt) =>
+          browser.ingest(c, result, fetchedAt: fetchedAt, detailed: false);
+
+      rig.vodsByChannel['a'] = [watched];
+      await rig.service.runPass();
+      expect(rig.notifications, isEmpty, reason: 'the first list is a baseline');
+
+      rig.vodsByChannel['a'] = [fresh, watched];
+      await rig.service.runPass();
+
+      expect(rig.queued.map((q) => q.vod), ['v2']);
+      expect(rig.notifications, ['Auto-Downloading VOD']);
+    });
+
+    test('a VOD the pass does not take is still announced', () {
+      // Keep 1, nothing watched: the window is the OLDEST unwatched VOD.
+      final rig = Rig();
+      final a = channel('a', autoPlay: false, autoDownload: true);
+      final older = vod('v1', daysAgo: 2);
+      final fresh = vod('v2', daysAgo: 1);
+      expect(rig.service.newVodsToAnnounce(a, [fresh], [fresh, older]),
+          [fresh]);
+    });
+
+    test('nothing is left out when the pass would not announce it', () {
+      final (rig, a, watched, fresh) = watchedThenNew();
+      final page = [fresh, watched];
+      expect(rig.service.newVodsToAnnounce(a, [fresh], page), isEmpty,
+          reason: 'precondition: the pass would take it and say so');
+
+      rig.settings.notifyAutoDownloadStart = false;
+      expect(rig.service.newVodsToAnnounce(a, [fresh], page), [fresh],
+          reason: 'its toasts are off');
+
+      rig.settings
+        ..notifyAutoDownloadStart = true
+        ..vodDownloadFolder = '';
+      expect(rig.service.newVodsToAnnounce(a, [fresh], page), [fresh],
+          reason: 'no folder, so the pass is skipped');
+
+      rig.settings.vodDownloadFolder = r'D:\VODs';
+      a.autoDownloadVods = false;
+      expect(rig.service.newVodsToAnnounce(a, [fresh], page), [fresh],
+          reason: 'not an auto-download favourite');
     });
   });
 

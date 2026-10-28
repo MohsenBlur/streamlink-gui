@@ -160,7 +160,11 @@ class ChannelsController extends ChangeNotifier {
   /// asking, so it runs once more after the current pass; any number of
   /// forced requests during one pass share that single rerun. So does
   /// [isInitialLoad], which must never be folded into an ordinary pass.
+  ///
+  /// Nothing once disposed - a rerun queued before then included, which
+  /// otherwise still sent one batched request on its way out.
   Future<void> refresh({bool isInitialLoad = false, bool force = false}) {
+    if (_disposed) return Future<void>.value();
     final running = _inFlight;
     if (running != null) {
       if (!force && !isInitialLoad) return running;

@@ -94,13 +94,16 @@ class SettingsRepository {
   }
 
   /// Writes the config and the watch progress now: what a save always did.
+  /// With [recents], the recently-watched list too, for a change to it the
+  /// user made by hand.
   ///
   /// Completes once both writes have finished (a failure is reported through
   /// the writers, not thrown). A file whose gate is still closed is written
   /// when it opens instead, and the returned future does not wait for that.
-  Future<void> saveNow() {
+  Future<void> saveNow({bool recents = false}) {
     _configDirty = true;
     _progressDirty = true;
+    if (recents) _recentsDirty = true;
     return _flush();
   }
 

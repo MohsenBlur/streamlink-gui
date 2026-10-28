@@ -171,6 +171,22 @@ void main() {
       downloads.unfreeze();
       expect(savedIds(), ['2']);
     });
+
+    test('a second session end while frozen keeps the first hold', () async {
+      // A session end the process outlived (the Restart Manager asking) is
+      // still holding when the next one comes: re-taking the hold then would
+      // take it from a queue the first one's kills had already emptied.
+      downloads.restore(const []);
+      player.queueVodDownload(_vod('1'), 'chan', settings);
+      player.queueVodDownload(_vod('2'), 'chan', settings);
+      await pumpEventQueue();
+
+      downloads.freeze();
+      await launcher.launched.single.exit(1);
+      await pumpEventQueue();
+      downloads.freeze();
+      expect(savedIds(), ['1', '2']);
+    });
   });
 
   group('scanDownloadFolder', () {

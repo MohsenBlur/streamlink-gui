@@ -96,6 +96,20 @@ class AutomationService {
   void forgetChannel(String channel) =>
       _playedSessions.remove(channel.toLowerCase().trim());
 
+  /// Which of [appeared], just found on [channel]'s [firstPage], a "New VOD"
+  /// toast should still mention: not the ones this service's own pass
+  /// queues and announces (see [newVodsLeftToAnnounce]). Read with the
+  /// settings and progress the pass itself reads.
+  List<TwitchVideo> newVodsToAnnounce(TwitchChannel channel,
+          List<TwitchVideo> appeared, List<TwitchVideo> firstPage) =>
+      newVodsLeftToAnnounce(
+        channel: channel,
+        appeared: appeared,
+        firstPage: firstPage,
+        localProgress: localProgress(),
+        settings: settings(),
+      );
+
   /// One automation pass: auto-play, then auto-download.
   ///
   /// A call while a pass is still running does nothing. The 60s timer can

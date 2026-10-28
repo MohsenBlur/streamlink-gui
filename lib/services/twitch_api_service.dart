@@ -1277,6 +1277,10 @@ class TwitchApiService {
     /// Games are display-only. The automation pass does not render anything,
     /// so it skips them and halves the request count.
     bool fetchGames = true,
+    /// The browser token's watch positions: one GQL request per VOD, so a
+    /// page costs twenty. The background prefetch skips them - its list is
+    /// fetched again, positions and all, the moment the channel is opened.
+    bool fetchWatchProgress = true,
   }) async {
     final token = _getRawOauthToken(settings.twitchOauthToken);
     if (token.isEmpty) {
@@ -1401,7 +1405,7 @@ class TwitchApiService {
       if (webToken.startsWith('oauth:')) {
         webToken = webToken.substring(6);
       }
-      if (webToken.isNotEmpty) {
+      if (fetchWatchProgress && webToken.isNotEmpty) {
         try {
           final progressBody = json.encode({
             'query': '''
