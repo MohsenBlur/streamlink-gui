@@ -111,13 +111,18 @@ void main() {
   });
 
   test('a rejected account token raises a banner with a remedy on it', () {
-    final src = read('lib/main.dart');
-    expect(src, contains('_buildTwitchAuthBanner'));
     // The remedy has to be ON the banner. Describing the fix and making the
-    // user go find it is what turns a warning into noise.
-    final banner = src.substring(src.indexOf('Widget _buildTwitchAuthBanner'));
-    final body = banner.substring(0, banner.indexOf('void _showSaveFailureDetail'));
-    expect(body, contains('Reconnect'));
-    expect(body, contains('_startOAuthServer'));
+    // user go find it is what turns a warning into noise. That the banner
+    // shows is main_screen_test's; this is what its button does.
+    final banners = read('lib/widgets/shell/status_banners.dart');
+    final banner = banners.substring(
+        banners.indexOf('class TwitchAuthBanner'),
+        banners.indexOf('void showSaveFailureDetail'));
+    expect(banner, contains("Text('Reconnect'"));
+    expect(banner, contains('onPressed: onReconnect'));
+    final src = read('lib/main.dart');
+    final use = src.substring(src.indexOf('TwitchAuthBanner('));
+    expect(use.substring(0, use.indexOf(');')),
+        contains('onReconnect: _startOAuthServer'));
   });
 }

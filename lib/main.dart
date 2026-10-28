@@ -26,30 +26,21 @@ import 'state/settings_repository.dart';
 import 'services/downloads_controller.dart';
 import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
-import 'widgets/shell/edge_fade.dart';
 import 'widgets/shell/app_chassis.dart';
-import 'widgets/shell/engraved_rule.dart';
-import 'widgets/neumorphic/neu_icon_action.dart';
+import 'widgets/shell/channel_dashboard.dart';
+import 'widgets/shell/home_view.dart';
+import 'widgets/shell/status_banners.dart';
 import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
-import 'widgets/shell/section_header.dart';
-import 'widgets/shell/selection_bar.dart';
-import 'widgets/shell/empty_state.dart';
-import 'widgets/neumorphic/neu_button.dart';
 import 'widgets/shell/neu_dialog.dart';
 import 'widgets/neumorphic/neu_progress.dart';
-import 'widgets/neumorphic/neu_text_field.dart';
 import 'state/channels_controller.dart';
 import 'state/vod_browser_controller.dart';
 import 'widgets/activity_pill.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
-import 'widgets/dashboard_header.dart';
 import 'widgets/download_folder_prompt.dart';
-import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
-import 'widgets/hover_overlay_menu.dart';
-import 'widgets/interactive_popover.dart';
 import 'widgets/shell/route_handle.dart';
 
 import 'services/startup_service.dart';
@@ -58,18 +49,12 @@ import 'state/library_entries.dart';
 import 'utils/window_bounds.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
-import 'widgets/live_preview_popup.dart';
-import 'widgets/horizontal_mouse_scrollable.dart';
-import 'widgets/neumorphic/neu_checkbox.dart';
-import 'widgets/neumorphic/neu_switch.dart';
 import 'widgets/neumorphic/neu_title_bar.dart';
 import 'services/oauth_loopback_server.dart';
 import 'services/automation_service.dart';
-import 'theme/neu_material_themes.dart';
 import 'theme/material/lit_surface.dart';
 import 'theme/app_theme.dart';
 import 'theme/neu_theme.dart';
-import 'widgets/neumorphic/neu_avatar.dart';
 import 'widgets/neumorphic/neu_pulse.dart';
 import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
@@ -461,14 +446,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   // The open channel's VOD list lives in _vodBrowser (see the refresh block
   // by _selectChannel); these read it for the code that predates it.
   List<TwitchVideo> get _channelVods => _vodBrowser.vods;
-  bool get _isLoadingVods => _vodBrowser.isLoading;
-  String? get _vodsError => _vodBrowser.error;
   set _vodsError(String? value) => _vodBrowser.error = value;
 
   final TextEditingController _vodSearchController = TextEditingController();
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
-  String? get _vodPaginationCursor => _vodBrowser.cursor;
   final Set<String> _selectedGamesFilter = {};
   bool _isWebTokenExpired = false;
   bool _isMultiSelectMode = false;
@@ -2600,7 +2582,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     // One measurement, published to the subtree. Everything below reads
     // AppLayout.of(context) rather than re-deriving its own breakpoints.
     final layout = AppLayoutData.fromSize(MediaQuery.sizeOf(context));
@@ -2685,8 +2666,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         child: _showLibraryView
             ? _buildLibraryView()
             : _selectedChannel == null
-                ? _buildWelcomeScreen(theme)
-                : _buildDashboard(theme, _selectedChannel!),
+                ? _buildHome()
+                : _buildDashboard(_selectedChannel!),
       ),
     );
 
@@ -2755,7 +2736,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               if (failure == null || _saveWarningDismissed) {
                 return const SizedBox.shrink();
               }
-              return _buildSaveFailureBanner(failure);
+              return SaveFailureBanner(
+                failure: failure,
+                onDismiss: () => setState(() => _saveWarningDismissed = true),
+              );
             },
           ),
           ValueListenableBuilder<TwitchAuthStatus>(
@@ -2771,7 +2755,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               if (!status.needsReconnect || _authWarningDismissed) {
                 return const SizedBox.shrink();
               }
-              return _buildTwitchAuthBanner(status);
+              return TwitchAuthBanner(
+                status: status,
+                // Reconnecting happens on the banner: see TwitchAuthBanner.
+                onReconnect: _startOAuthServer,
+                onDismiss: () => setState(() {
+                  _authWarningDismissed = true;
+                  _dismissedFault = status.fault;
+                }),
+              );
             },
           ),
           Expanded(
@@ -2808,697 +2800,35 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildWelcomeScreen(ThemeData theme) {
-    final liveFavorites = _channels.where((c) => c.isLive).toList();
-    final runningDownloads = _activity.value.downloading;
-
-    return SingleChildScrollView(
-            padding: const EdgeInsets.all(NeuSpace.s32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Title Header
-                Row(
-                  children: [
-                    Icon(Icons.home_outlined, size: 26, color: themeNotifier.accentInk),
-                    const SizedBox(width: NeuSpace.s12),
-                    Text(
-                      'Home',
-                      style: NeuType.display(themeNotifier.isDarkTheme),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: NeuSpace.s6),
-                Text(
-                  'Pick a channel from the sidebar, or jump back into something below.',
-                  style: NeuType.body(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                ),
-                const SizedBox(height: NeuSpace.s24),
-
-          // Order matters here. This screen used to lead with the
-          // downloader and put live channels third, which is the priority
-          // order of a download manager rather than of a Twitch client.
-          // What is live is the most perishable thing on the page, so it
-          // goes first; downloads are long-running and can wait.
-          // Live Channels Section
-          SectionHeader(
-            title: 'Live now',
-            count: liveFavorites.isEmpty ? null : liveFavorites.length,
-          ),
-          const SizedBox(height: NeuSpace.s12),
-          if (liveFavorites.isEmpty)
-            Container(
-              width: double.infinity,
-              decoration: NeuTheme.sunkenDecoration(
-                  themeNotifier.isDarkTheme,
-                  radius: NeuRadius.r12),
-              child: _channels.isEmpty
-                  // Two different situations that shared one sentence. With no
-                  // channels at all the answer is an action, not information.
-                  ? EmptyState(
-                      icon: Icons.person_add_alt,
-                      title: 'No channels yet',
-                      message: 'Add a streamer to see when they go live and to '
-                          'browse their past broadcasts.',
-                      compact: true,
-                      action: NeuButton(
-                        onPressed: () =>
-                            _sidebarSearchFocus.requestFocus(),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
-                        borderRadius: BorderRadius.circular(NeuRadius.r8),
-                        child: const Text('Add a channel',
-                            style: NeuType.bodySmMetrics),
-                      ),
-                    )
-                  : EmptyState(
-                      icon: Icons.bedtime_outlined,
-                      title: 'Nobody is live',
-                      message: 'None of your favorite channels are streaming '
-                          'right now.',
-                      compact: true,
-                    ),
-            )
-          else
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              // A shrink-wrapped, never-scrolling grid's clip does no work -
-              // except amputating the boundary tiles' cast shadows exactly at
-              // the grid's edge. Clip.none lets them land in the page's own
-              // scroll padding, which is sitting right there.
-              clipBehavior: Clip.none,
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 220,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                mainAxisExtent: 130,
-              ),
-              itemCount: liveFavorites.length,
-              itemBuilder: (context, index) {
-                final channel = liveFavorites[index];
-                final itemCard = GestureDetector(
-                  onTap: () => _selectChannel(channel),
-                  onDoubleTap: () {
-                    if (_playerService.runningChannels.contains(channel.username)) return;
-                    _playerService.launchStreamlinkForLive(
-                      channel.username,
-                      channel.isLive,
-                      channel.streamTitle,
-                      channel.game,
-                      _settings,
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(NeuSpace.s12),
-                    decoration: NeuTheme.raisedDecoration(
-                      themeNotifier.isDarkTheme,
-                      radius: NeuRadius.r12,
-                      border: Border.all(color: theme.primaryColor.withValues(alpha: 0.25)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            NeuAvatar(
-                              url: channel.avatarUrl,
-                              radius: 18,
-                              isDark: themeNotifier.isDarkTheme,
-                              // This one sits on a coloured card, so it keeps
-                              // its transparent ground and brighter icon.
-                              backgroundColor: Colors.transparent,
-                              iconColor: NeuTheme.text(themeNotifier.isDarkTheme),
-                            ),
-                            const SizedBox(width: NeuSpace.s8),
-                            Expanded(
-                              child: Text(
-                                channel.username,
-                                style: NeuType.headingSm(themeNotifier.isDarkTheme),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: NeuSpace.s8),
-                        Expanded(
-                          child: Text(
-                            channel.streamTitle ?? 'No Stream Title',
-                            style: NeuType.caption(themeNotifier.isDarkTheme),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(height: NeuSpace.s4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            // Expanded, not a bare Text. `overflow: ellipsis`
-                            // can only engage when the Text is given a bounded
-                            // width; in an unconstrained Row it reports its
-                            // full intrinsic width instead and the ROW
-                            // overflows. These tiles are maxCrossAxisExtent
-                            // 220 and the window minimum is 380 wide, so a
-                            // long game name overflowed in the normal case,
-                            // not an exotic one.
-                            Expanded(
-                              child: Text(
-                                channel.game ?? 'Unknown Game',
-                                style: NeuType.plate(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: NeuSpace.s8),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.remove_red_eye, size: 10, color: NeuTheme.liveText(themeNotifier.isDarkTheme)),
-                                const SizedBox(width: NeuSpace.s4),
-                                Text(
-                                  channel.viewerCount != null ? '${channel.viewerCount}' : '0',
-                                  style: NeuType.caption(themeNotifier.isDarkTheme),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-
-                return HoverOverlayMenu(
-                  trigger: itemCard,
-                  menu: LivePreviewPopup(channel: channel),
-                );
-              },
-            ),
-          const SizedBox(height: NeuSpace.s32),
-
-          // Recently Watched VODs (Conditional)
-          if (_recentWatchedVods.isNotEmpty) ...[
-            SectionHeader(title: 'Continue watching'),
-            const SizedBox(height: NeuSpace.s12),
-            SizedBox(
-              height: 135 + NeuShadowRoom.above + NeuShadowRoom.below,
-              child: NotificationListener<ScrollNotification>(
-                onNotification: (_) {
-                  _updateRecentFades();
-                  return false;
-                },
-                child: EdgeFade(
-                  left: _recentFadeLeft,
-                  right: _recentFadeRight,
-                  child: HorizontalMouseScrollable(
-                controller: _recentScroll,
-                // Shadow clearance comes from the scroller itself now -
-                // NeuShadowRoom.strip, one definition for every strip.
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: List.generate(_recentWatchedVods.length, (index) {
-                    final video = _recentWatchedVods[index];
-                    final w = 240;
-                    final h = 135;
-                    final thumbUrl = video.thumbnailUrl.isNotEmpty
-                        ? video.thumbnailUrl.replaceAll('%{width}', w.toString()).replaceAll('%{height}', h.toString())
-                        : null;
-
-                    bool isHovered = false;
-
-                    final progressPct = ((video.watchProgress ?? 0.0) * 100).toInt();
-
-                    return StatefulBuilder(
-                      builder: (context, setHoverState) {
-                        return MouseRegion(
-                          onEnter: (_) => setHoverState(() => isHovered = true),
-                          onExit: (_) => setHoverState(() => isHovered = false),
-                          cursor: SystemMouseCursors.click,
-                          child: Tooltip(
-                            message: '${video.title}\nResume at $progressPct% (${video.duration})',
-                            child: GestureDetector(
-                              onTap: () => _playVod(video, _channelNameForVod(video.id)),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
-                                child: Container(
-                                  width: w.toDouble(),
-                                  height: h.toDouble(),
-                                  margin: const EdgeInsets.only(right: NeuSpace.s12),
-                                  // A caller border REPLACES the material's
-                                  // edge, so a transparent width-0 border at
-                                  // rest deleted the bevel and zeroed the
-                                  // decoration padding - and the hover flip
-                                  // to 1.5px shifted the card's contents.
-                                  decoration: NeuTheme.raisedDecoration(
-                                    themeNotifier.isDarkTheme,
-                                    radius: NeuRadius.r12,
-                                    border: isHovered
-                                        ? Border.all(
-                                            color: theme.primaryColor,
-                                            width: 1.5)
-                                        : null,
-                                  ),
-                                  child: ClipRRect(
-                                    // Concentric: inner = outer - inset, and
-                                    // the inset is the material's 1px edge.
-                                    borderRadius: BorderRadius.circular(NeuRadius.inner(NeuRadius.r12, 1)),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: Stack(
-                                            children: [
-                                              Positioned.fill(
-                                                child: thumbUrl != null
-                                                    ? Image.network(
-                                                        thumbUrl,
-                                                        fit: BoxFit.cover,
-                                                        // A missing-artwork
-                                                        // slot is a recessed
-                                                        // screen; the raised
-                                                        // token put the
-                                                        // lightest ground
-                                                        // where the darkest
-                                                        // belongs. Matches
-                                                        // the Library's
-                                                        // fallback.
-                                                        errorBuilder: (context, error, stackTrace) => Container(
-                                                          color: NeuTheme.wellSurface(themeNotifier.isDarkTheme),
-                                                          child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
-                                                        ),
-                                                      )
-                                                    : Container(
-                                                        color: NeuTheme.wellSurface(themeNotifier.isDarkTheme),
-                                                        child: Icon(Icons.movie, color: NeuTheme.subtext(themeNotifier.isDarkTheme), size: 36),
-                                                      ),
-                                              ),
-                                              if (isHovered)
-                                                Positioned.fill(
-                                                  child: Container(
-                                                    // Intentional: scrim over video artwork, theme-independent.
-                                                    color: Colors.black45,
-                                                    child: Center(
-                                                      child: Container(
-                                                        padding: const EdgeInsets.all(NeuSpace.s8),
-                                                        decoration: BoxDecoration(
-                                                          color: theme.primaryColor,
-                                                          shape: BoxShape.circle,
-                                                          boxShadow: [
-                                                            BoxShadow(
-                                                              color: theme.primaryColor.withValues(alpha: 0.5),
-                                                              blurRadius: 10,
-                                                            )
-                                                          ],
-                                                        ),
-                                                        child: Icon(Icons.play_arrow, color: themeNotifier.onPrimaryColor, size: 24),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              Positioned(
-                                                bottom: 4,
-                                                right: 6,
-                                                // Intentional: white-on-black pill over video artwork, theme-independent.
-                                                child: Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s4, vertical: NeuSpace.s2),
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.black.withValues(alpha: 0.75),
-                                                    borderRadius: BorderRadius.circular(NeuRadius.r4),
-                                                  ),
-                                                  child: Text(
-                                                    video.duration,
-                                                    style: NeuType.plate(themeNotifier.isDarkTheme, color: Colors.white),
-                                                  ),
-                                                ),
-                                              ),
-                                              if (video.watchProgress != null && video.watchProgress! > 0.0)
-                                                Positioned(
-                                                  bottom: 0,
-                                                  left: 0,
-                                                  right: 0,
-                                                  child: Container(
-                                                    height: 3,
-                                                    // Intentional: track scrim over video artwork.
-                                                    color: Colors.black45,
-                                                    child: Align(
-                                                      alignment: Alignment.centerLeft,
-                                                      child: FractionallySizedBox(
-                                                        widthFactor: (video.watchProgress ?? 0.0).clamp(0.0, 1.0),
-                                                        child: Container(
-                                                          color: theme.primaryColor,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                        ),
-                                        Container(
-                                          // No fill: the card's own lit
-                                          // surface shows behind the title.
-                                          // With the thumbnail above and a
-                                          // flat strip below, zero pixels of
-                                          // the card's material were visible
-                                          // - a picture of a card, not a
-                                          // machined part.
-                                          padding: const EdgeInsets.all(NeuSpace.s8),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                video.title,
-                                                style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              const SizedBox(height: NeuSpace.s2),
-                                              Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    video.publishedAt.toLocal().toString().substring(0, 10),
-                                                    style: NeuType.caption(themeNotifier.isDarkTheme),
-                                                  ),
-                                                  if (progressPct > 0)
-                                                    Text(
-                                                      '$progressPct%',
-                                                      style: NeuType.plate(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
-                                                    ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  }),
-                ),
-              ),
-                ),
-              ),
-            ),
-            const SizedBox(height: NeuSpace.s24),
-          ],
-
-          // Active Downloads card (Conditional)
-          if (runningDownloads.isNotEmpty) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(NeuSpace.s16),
-              // Through the engine, not around it: this was the only card on
-              // Home with a hand-rolled BoxDecoration - accent gradient wash,
-              // outline, glow - so it had no bevel, no grain and no cast
-              // shadow agreeing with the light, and read as a web promo
-              // banner taped onto the rack. The accent identity survives as
-              // a tinted base plus ring; the material does the rest.
-              decoration: NeuTheme.raised(
-                themeNotifier.isDarkTheme,
-                radius: NeuRadius.r12,
-                base: Color.alphaBlend(
-                    theme.primaryColor.withValues(alpha: 0.12),
-                    themeNotifier.surfaceColor),
-                border: Border.all(
-                    color: theme.primaryColor.withValues(alpha: 0.3),
-                    width: 1.5),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.downloading, color: themeNotifier.accentInk, size: 20),
-                          const SizedBox(width: NeuSpace.s8),
-                          Text(
-                            'Active Downloads Running',
-                            style: NeuType.headingSm(themeNotifier.isDarkTheme),
-                          ),
-                        ],
-                      ),
-                      TextButton.icon(
-                        onPressed: _openLibrary,
-                        icon: const Icon(Icons.open_in_new, size: 14),
-                        label: const Text('Open Library', style: NeuType.labelMetrics),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: NeuSpace.s12),
-                  ...runningDownloads.take(2).map((item) {
-                    final progress = item.progress ?? 0.0;
-                    final taskText = item.status ?? 'Downloading...';
-                    final title = item.label;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: NeuSpace.s8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  title,
-                                  style: NeuType.bodySm(themeNotifier.isDarkTheme),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: NeuSpace.s4),
-                                NeuProgressBar(
-                                  value: progress,
-                                  size: NeuProgressSize.sm,
-                                  semanticLabel: 'Download progress',
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: NeuSpace.s16),
-                          Text(
-                            taskText.length > 25 ? '${taskText.substring(0, 22)}...' : taskText,
-                            style: NeuType.caption(themeNotifier.isDarkTheme),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ],
-              ),
-            ),
-            const SizedBox(height: NeuSpace.s24),
-          ],
-
-          // Quick Action Cards
-          SectionHeader(title: 'Quick actions'),
-          const SizedBox(height: NeuSpace.s12),
-          GridView(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            // Same reasoning as the Live-now grid: the clip only ever cuts
-            // the bottom row's shadow - the last thing on the Home page.
-            clipBehavior: Clip.none,
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 220,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              mainAxisExtent: 90,
-            ),
-            children: [
-              _buildQuickActionCard(
-                context: context,
-                theme: theme,
-                icon: Icons.settings,
-                title: 'Open Settings',
-                subtitle: 'Configure Players & Themes',
-                onTap: _showSettingsDialog,
-              ),
-              _buildQuickActionCard(
-                context: context,
-                theme: theme,
-                icon: Icons.video_library,
-                title: 'Library',
-                subtitle:
-                    '${_downloadedVodsRegistry.length} downloaded VOD${_downloadedVodsRegistry.length == 1 ? '' : 's'} & history',
-                onTap: _openLibrary,
-              ),
-              _buildQuickActionCard(
-                context: context,
-                theme: theme,
-                icon: Icons.account_circle,
-                title: 'Twitch Account',
-                subtitle: _authenticatedUserLogin != null ? 'Logged in as $_authenticatedUserLogin' : 'Connect Account',
-                onTap: () {
-                  if (_authenticatedUserLogin == null) {
-                    _startOAuthServer();
-                  } else {
-                    _showSettingsDialog();
-                  }
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Warns that changes are not reaching disk.
-  ///
-  /// A banner rather than a message: this is a CONDITION, not an event. It
-  /// clears itself the moment a save succeeds (which happens within seconds
-  /// during normal use), and a snackbar would be missed entirely while the app
-  /// sits minimised in the tray, which is its normal state.
-  Widget _buildSaveFailureBanner(StorageWriteFailure failure) {
-    final isDark = themeNotifier.isDarkTheme;
-    // The translucent wash lets the panel grain through; the engraved cut at
-    // its bottom is what makes it read as a milled warning band of the
-    // chassis rather than a highlighter stroke across the plate.
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-    Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s8),
-      color: NeuTheme.danger.withValues(alpha: 0.12),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline,
-              size: 16, color: NeuTheme.dangerText(isDark)),
-          const SizedBox(width: NeuSpace.s8),
-          Expanded(
-            child: Text(
-              'Your settings could not be saved to disk. Recent changes may be '
-              'lost when the app closes.',
-              style: NeuType.label(isDark, color: NeuTheme.dangerText(isDark)),
-            ),
-          ),
-          TextButton(
-            // Same fix as the reconnect banner: the accent ink vanished into
-            // the danger wash.
-            onPressed: () => _showSaveFailureDetail(failure),
-            style: TextButton.styleFrom(
-              foregroundColor: NeuTheme.dangerText(isDark),
-            ),
-            child: Text('Details',
-                style: NeuType.captionStrong(isDark,
-                    color: NeuTheme.dangerText(isDark))),
-          ),
-          // NeuIconAction, whose whole reason to exist is ending exactly
-          // this: a dismiss target collapsed to its 14px glyph.
-          NeuIconAction(
-            icon: Icons.close,
-            tooltip: 'Dismiss',
-            size: NeuActionSize.sm,
-            style: NeuActionStyle.flat,
-            onPressed: () => setState(() => _saveWarningDismissed = true),
-          ),
-        ],
-      ),
-    ),
-    EngravedRule(),
-    ]);
-  }
-
-  /// The account token was rejected, and this is where it gets fixed.
-  ///
-  /// Persistent rather than a snackbar, and carrying the remedy rather than
-  /// describing it: the failure this replaces greeted the user on every
-  /// launch with a raw `{"error":"Unauthorized"...}` blob that scrolled away
-  /// before it could be acted on, while Settings kept showing a green tick.
-  Widget _buildTwitchAuthBanner(TwitchAuthStatus status) {
-    final isDark = themeNotifier.isDarkTheme;
-    final detail = connectionDetail(status);
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(
-            horizontal: NeuSpace.s16, vertical: NeuSpace.s8),
-        color: NeuTheme.danger.withValues(alpha: 0.12),
-        child: Row(
-          children: [
-            Icon(Icons.link_off, size: 16, color: NeuTheme.dangerText(isDark)),
-            const SizedBox(width: NeuSpace.s8),
-            Expanded(
-              child: Text(
-                detail ??
-                    'Your Twitch account token was rejected. Followed channels '
-                        'and VOD lists are unavailable until you reconnect.',
-                style: NeuType.label(isDark, color: NeuTheme.dangerText(isDark)),
-              ),
-            ),
-            TextButton(
-              // Reconnecting happens HERE. Sending the user to Settings to
-              // find the button is the extra step that makes a warning feel
-              // like a scolding.
-              onPressed: _startOAuthServer,
-              style: TextButton.styleFrom(
-                foregroundColor: NeuTheme.dangerText(isDark),
-              ),
-              child: Text('Reconnect',
-                  style: NeuType.captionStrong(isDark,
-                      color: NeuTheme.dangerText(isDark))),
-            ),
-            NeuIconAction(
-              icon: Icons.close,
-              tooltip: 'Dismiss',
-              size: NeuActionSize.sm,
-              style: NeuActionStyle.flat,
-              onPressed: () => setState(() {
-                _authWarningDismissed = true;
-                _dismissedFault = status.fault;
-              }),
-            ),
-          ],
-        ),
-      ),
-      EngravedRule(),
-    ]);
-  }
-
-  void _showSaveFailureDetail(StorageWriteFailure failure) {
-    NeuDialog.show<void>(
-      context,
-      // Read-only detail: clicking away is a fine way to leave it.
-      dismissible: true,
-      builder: (context) => NeuDialog(
-        title: 'Could not save settings',
-        icon: Icons.error_outline,
-        tone: DialogTone.destructive,
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Writing to this file keeps failing. Common causes are a full '
-              'disk, antivirus or backup software holding the file open, or '
-              'the folder no longer being writable.',
-              style: NeuType.body(themeNotifier.isDarkTheme),
-            ),
-            const SizedBox(height: NeuSpace.s12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(NeuSpace.s8),
-              decoration: NeuTheme.sunkenDecoration(
-                  themeNotifier.isDarkTheme,
-                  radius: NeuRadius.r8),
-              child: SelectableText(
-                '${failure.path}\n\n${failure.error}',
-                style: NeuType.mono(themeNotifier.isDarkTheme),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          NeuDialogAction.secondary('Close', () => Navigator.pop(context)),
-        ],
-      ),
+  Widget _buildHome() {
+    return HomeView(
+      channels: _channels,
+      recentVods: _recentWatchedVods,
+      runningDownloads: _activity.value.downloading,
+      downloadedCount: _downloadedVodsRegistry.length,
+      accountLogin: _authenticatedUserLogin,
+      recentScroll: _recentScroll,
+      fadeLeft: _recentFadeLeft,
+      fadeRight: _recentFadeRight,
+      onRecentScrolled: _updateRecentFades,
+      onAddChannel: () => _sidebarSearchFocus.requestFocus(),
+      onSelectChannel: _selectChannel,
+      // Not _launchChannelStream, which compares the running set with the
+      // clean name: this is what the live card always did.
+      onLaunchLive: (channel) {
+        if (_playerService.runningChannels.contains(channel.username)) return;
+        _playerService.launchStreamlinkForLive(
+          channel.username,
+          channel.isLive,
+          channel.streamTitle,
+          channel.game,
+          _settings,
+        );
+      },
+      onPlayRecent: (video) => _playVod(video, _channelNameForVod(video.id)),
+      onOpenLibrary: _openLibrary,
+      onOpenSettings: _showSettingsDialog,
+      onConnectAccount: _startOAuthServer,
     );
   }
 
@@ -3659,639 +2989,96 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildQuickActionCard({
-    required BuildContext context,
-    required ThemeData theme,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    bool isHovered = false;
-    return StatefulBuilder(
-      builder: (context, setHoverState) {
-        return MouseRegion(
-          onEnter: (_) => setHoverState(() => isHovered = true),
-          onExit: (_) => setHoverState(() => isHovered = false),
-          cursor: SystemMouseCursors.click,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(NeuRadius.r12),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              transform: Matrix4.translationValues(0, isHovered ? -2 : 0, 0),
-              padding: const EdgeInsets.all(NeuSpace.s12),
-              decoration: NeuTheme.raisedDecoration(
-                themeNotifier.isDarkTheme,
-                radius: NeuRadius.r12,
-                // Border only when it exists - see the strip cards.
-                // The card hover grammar, same as the VOD cards: -2px lift
-                // with a 0.6-alpha ring. Full alpha here made near-identical
-                // cards light up at two different strengths in one window.
-                border: isHovered
-                    ? Border.all(
-                        color: theme.primaryColor.withValues(alpha: 0.6),
-                        width: 1.5)
-                    : null,
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(NeuSpace.s8),
-                    // A pocket cut into the card, not a sticker on it - the
-                    // dashboard header does this same job with sunken chips,
-                    // and the two screens should speak one language.
-                    decoration: NeuTheme.sunken(
-                      themeNotifier.isDarkTheme,
-                      radius: NeuRadius.r8,
-                      depth: NeuElevation.d1,
-                      base: Color.alphaBlend(
-                          theme.primaryColor.withValues(alpha: 0.12),
-                          NeuTheme.wellSurface(themeNotifier.isDarkTheme)),
-                    ),
-                    child: Icon(icon, size: 20, color: themeNotifier.accentInk),
-                  ),
-                  const SizedBox(width: NeuSpace.s12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          style: NeuType.headingSm(themeNotifier.isDarkTheme),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: NeuSpace.s2),
-                        Text(
-                          subtitle,
-                          style: NeuType.caption(themeNotifier.isDarkTheme),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+  Widget _buildDashboard(TwitchChannel channel) {
+    final channelName = _selectedChannel?.username ?? 'VOD';
+    return ChannelDashboard(
+      channel: channel,
+      settings: _settings,
+      vodBrowser: _vodBrowser,
+      pulseController: _pulseController!,
+      isPlaying: _playerService.runningChannels.contains(channel.username),
+      isMultiSelectMode: _isMultiSelectMode,
+      selectedVodIds: _selectedVodIds,
+      isBulkUpdating: _isBulkUpdatingVods,
+      isWebTokenExpired: _isWebTokenExpired,
+      selectedGamesFilter: _selectedGamesFilter,
+      vodSearchController: _vodSearchController,
+      displayMenu: VodDisplayMenu(
+        settings: _settings,
+        vods: _channelVods,
+        selectedGamesFilter: _selectedGamesFilter,
+        vodSearchController: _vodSearchController,
+        update: setState,
+        onSave: _saveChannels,
+      ),
+      isVodPlaying: (id) => _playerService.playingVodIds.contains(id),
+      isVodDownloaded: (id) => _downloadedVodIds.contains(id),
+      downloadStatus: (id) => _playerService.activeDownloadTasks[id],
+      downloadProgress: (id) => _playerService.activeDownloadsProgress[id],
+      onPlayLive: () {
+        _playerService.launchStreamlinkForLive(
+          channel.username,
+          channel.isLive,
+          channel.streamTitle,
+          channel.game,
+          _settings
         );
       },
-    );
-  }
-
-  Widget _buildDashboard(ThemeData theme, TwitchChannel channel) {
-    // maybeOf, not of. This method is CALLED from build() with the State's own
-    // context, which sits ABOVE the AppLayout that build() returns - so
-    // AppLayout.of asserted "No AppLayout ancestor" and took the entire
-    // channel dashboard down. maybeOf measures the media query instead, which
-    // yields the same values.
-    final layout = AppLayout.maybeOf(context);
-    // isSmall is gone: the VOD toolbar no longer has a wide-only variant to
-    // switch to, because the inline duplicate of the display controls was
-    // removed in favour of the single popover.
-    final isCompact = layout.isRail;
-    // CustomScrollView so the VOD grid renders as a real SliverGrid and
-    // off-screen cards are culled; the old SingleChildScrollView +
-    // shrinkWrap GridView materialized every card at once.
-    return CustomScrollView(
-            slivers: [
-              SliverPadding(
-                // s16 minimum: the viewport clips at its bounds, and a d3
-                // card's cast shadow reaches ~15px - s12 cut its tail on
-                // every bottom-row card in compact windows.
-                padding: EdgeInsets.all(isCompact ? NeuSpace.s16 : NeuSpace.s24),
-                sliver: SliverMainAxisGroup(slivers: [
-                // Real-time Stats Card Widget
-                SliverToBoxAdapter(child: DashboardHeader(
-                  channel: channel,
-                  pulseController: _pulseController!,
-                  isPlaying: _playerService.runningChannels.contains(channel.username),
-                  onPlay: () {
-                    _playerService.launchStreamlinkForLive(
-                      channel.username,
-                      channel.isLive,
-                      channel.streamTitle,
-                      channel.game,
-                      _settings
-                    );
-                  },
-                  // The whole channel: its details (follower count
-                  // included, which the batched poll leaves out) and its
-                  // VOD list, merged in place.
-                  onRefresh: () {
-                    unawaited(_refreshChannelDetails(channel));
-                    unawaited(_refreshSelectedVods(silent: false));
-                  },
-                  openExternalLink: _openExternalLink,
-                )),
-
-                // VOD section (if OAuth token present)
-                if (_settings.twitchOauthToken.trim().isNotEmpty) ...[
-                  SliverToBoxAdapter(child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  SizedBox(height: isCompact ? 12 : 32),
-                  // In selection mode the SelectionBar REPLACES this row
-                  // rather than growing out of it. Appending the bulk actions
-                  // to the toolbar is what made the toolbar overflow: four
-                  // labelled buttons, a count, a progress ring and two icon
-                  // buttons, with no compact branch anywhere.
-                  if (_isMultiSelectMode)
-                    SelectionBar(
-                      selectedCount: _selectedVodIds.length,
-                      busy: _isBulkUpdatingVods,
-                      busyLabel: 'Syncing with Twitch...',
-                      onExit: () => setState(() {
-                        _isMultiSelectMode = false;
-                        _selectedVodIds.clear();
-                      }),
-                      onClear: () => setState(() => _selectedVodIds.clear()),
-                      onSelectAllVisible: () => setState(() {
-                        _selectedVodIds
-                            .addAll(_filteredChannelVods().map((v) => v.id));
-                      }),
-                      actions: [
-                        SelectionAction(
-                          label: 'Watched',
-                          icon: Icons.check_circle_outline,
-                          tone: SelectionTone.accent,
-                          onPressed: _selectedVodIds.isEmpty
-                              ? null
-                              : () => _bulkUpdateSelectedVods(true),
-                        ),
-                        SelectionAction(
-                          label: 'Unwatched',
-                          icon: Icons.unpublished_outlined,
-                          onPressed: _selectedVodIds.isEmpty
-                              ? null
-                              : () => _bulkUpdateSelectedVods(false),
-                        ),
-                        SelectionAction(
-                          label: 'Download',
-                          icon: Icons.download,
-                          tone: SelectionTone.positive,
-                          onPressed: _selectedVodIds.isEmpty
-                              ? null
-                              : _bulkDownloadSelectedVods,
-                        ),
-                        SelectionAction(
-                          label: 'Delete files',
-                          icon: Icons.delete_outline,
-                          tone: SelectionTone.destructive,
-                          onPressed: _selectedVodIds.isEmpty
-                              ? null
-                              : _bulkDeleteSelectedVods,
-                        ),
-                      ],
-                    )
-                  else
-                    Row(
-                      children: [
-                        // A labelled button, not a bare pencil. The pencil had
-                        // a tooltip and nothing else, so the only way to learn
-                        // the grid had a selection mode was to hover a 40px
-                        // icon and wait.
-                        NeuButton(
-                          onPressed: () => setState(() {
-                            _isMultiSelectMode = true;
-                            _selectedVodIds.clear();
-                          }),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
-                          borderRadius: BorderRadius.circular(NeuRadius.r8),
-                          tooltip: 'Pick several VODs to download or mark',
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.checklist,
-                                  size: 15,
-                                  color: NeuTheme.text(
-                                      themeNotifier.isDarkTheme)),
-                              const SizedBox(width: NeuSpace.s6),
-                              Text('Select',
-                                  style: NeuType.captionStrong(
-                                      themeNotifier.isDarkTheme,
-                                      color: NeuTheme.text(
-                                          themeNotifier.isDarkTheme))),
-                            ],
-                          ),
-                        ),
-                        // The note a failed refresh leaves gives way (with
-                        // an ellipsis) before any control does.
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: _buildStaleVodNote(),
-                          ),
-                        ),
-                        const SizedBox(width: NeuSpace.s8),
-                        if (_isLoadingVods || _vodBrowser.isRefreshing) ...[
-                          const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: NeuProgressRing(
-                                size: NeuProgressRingSize.sm,
-                                semanticLabel: 'Loading'),
-                          ),
-                          const SizedBox(width: NeuSpace.s12),
-                        ],
-                        // The list refreshes by itself (a broadcast starting
-                        // or ending, every few minutes while on screen, on
-                        // coming back from the tray); this is for not
-                        // waiting. Merged in, so loaded pages and the
-                        // selection stay.
-                        NeuIconAction(
-                          icon: Icons.refresh,
-                          tooltip: 'Check for new VODs',
-                          onPressed: _isLoadingVods || _vodBrowser.isRefreshing
-                              ? null
-                              : () => _refreshSelectedVods(silent: false),
-                        ),
-                        const SizedBox(width: NeuSpace.s8),
-                        // One control path, not two. These settings used to be
-                        // rendered inline when the window was wide and in a
-                        // popover when it was narrow, and the two copies had
-                        // already drifted ('Font: ' versus 'Font Size: ', a
-                        // 110px slider versus an Expanded one).
-                        InteractivePopover(
-                          popover: _buildVodsSettingMenu(theme),
-                          child: _VodDisplayButton(theme: theme),
-                        ),
-                      ],
-                    ),
-                  const SizedBox(height: NeuSpace.s16),
-                  if (_isWebTokenExpired) ...[
-                    Container(
-                      margin: const EdgeInsets.only(bottom: NeuSpace.s16),
-                      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s16, vertical: NeuSpace.s12),
-                      // Intentional: translucent warning tint, readable over both themes.
-                      decoration: BoxDecoration(
-                        color: NeuTheme.warning.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(NeuRadius.r8),
-                        border: Border.all(color: NeuTheme.warning.withValues(alpha: 0.3)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.warning_amber_rounded,
-                              color: NeuTheme.warningText(themeNotifier.isDarkTheme), size: 20),
-                          const SizedBox(width: NeuSpace.s12),
-                          Expanded(
-                            child: Text(
-                              'Your Twitch Browser OAuth Token has expired. VOD watch progress tracking is currently paused.',
-                              style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                            ),
-                          ),
-                          const SizedBox(width: NeuSpace.s12),
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: NeuTheme.warning.withValues(alpha: 0.2),
-                              foregroundColor: NeuTheme.warningText(themeNotifier.isDarkTheme),
-                              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
-                            ),
-                            onPressed: _showSettingsDialog,
-                            child: const Text('Update Token', style: NeuType.labelMetrics),
-                          ),
-                          const SizedBox(width: NeuSpace.s8),
-                          NeuIconAction(
-                            icon: Icons.close,
-                            tooltip: 'Dismiss',
-                            size: NeuActionSize.sm,
-                            style: NeuActionStyle.flat,
-                            onPressed: () {
-                              setState(() {
-                                _isWebTokenExpired = false;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  ])),
-
-                  // Modular Vods Grid Component
-                  VodsGrid(
-                    vods: _channelVods,
-                    isLoading: _isLoadingVods,
-                    vodsError: _vodsError,
-                    vodScale: _settings.vodCardScale,
-                    vodTitleFontSize: _settings.vodTitleFontSize,
-                    showGamesOnThumbnails: _settings.showGamesOnThumbnails,
-                    selectedGamesFilter: _selectedGamesFilter,
-                    vodSearchController: _vodSearchController,
-                    theme: theme,
-                    isMultiSelectMode: _isMultiSelectMode,
-                    selectedVodIds: _selectedVodIds,
-                    isPlaying: (id) => _playerService.playingVodIds.contains(id),
-                    isDownloaded: (id) => _downloadedVodIds.contains(id),
-                    getDownloadStatus: (id) => _playerService.activeDownloadTasks[id],
-                    getDownloadProgress: (id) => _playerService.activeDownloadsProgress[id],
-                    pulseController: _pulseController,
-                    watchedThreshold: _settings.watchedThreshold,
-                    activeProgressColor: themeNotifier.activeProgressColor,
-                    watchedProgressColor: themeNotifier.watchedProgressColor,
-                    onGameFilterSelected: (game) {
-                      setState(() {
-                        if (_selectedGamesFilter.contains(game)) {
-                          _selectedGamesFilter.remove(game);
-                        } else {
-                          _selectedGamesFilter.add(game);
-                        }
-                      });
-                    },
-                    onClearGameFilter: () => setState(() => _selectedGamesFilter.clear()),
-                    onPlay: (vod) => _playVod(vod, _selectedChannel?.username ?? 'VOD'),
-                    onDownload: (vod) => _queueVodDownload(vod, _selectedChannel?.username ?? 'VOD'),
-                    onDeleteDownload: (id) => _deleteDownloadedVod(id, _selectedChannel?.username ?? 'VOD'),
-                    onCancelDownload: (id) => _cancelVodDownload(id, _selectedChannel?.username ?? 'VOD'),
-                    onVodSelectedChange: (id, isSelected) {
-                      setState(() {
-                        if (isSelected) {
-                          _selectedVodIds.add(id);
-                        } else {
-                          _selectedVodIds.remove(id);
-                        }
-                      });
-                    },
-                    onOpenFolder: (vod) {
-                      final path = _downloadedVodsRegistry[vod.id];
-                      if (path != null) _revealInExplorer(path);
-                    },
-                  ),
-                  
-                  if (_vodPaginationCursor != null && _vodPaginationCursor!.isNotEmpty && _channelVods.isNotEmpty) ...[
-                    SliverToBoxAdapter(child: Column(children: [
-                    const SizedBox(height: NeuSpace.s24),
-                    Center(
-                      child: Container(
-                        width: 180,
-                        height: 40,
-                        // Through the engine: a flat outlined token-fill pill
-                        // under a grid of machined VOD cards was the web
-                        // outline-button idiom, and it is what the page ends
-                        // on.
-                        decoration: NeuTheme.raised(themeNotifier.isDarkTheme,
-                            radius: NeuRadius.r8),
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            foregroundColor: NeuTheme.text(themeNotifier.isDarkTheme),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(NeuRadius.r8),
-                            ),
-                            elevation: 0,
-                          ),
-                          onPressed: _isLoadingVods
-                              ? null
-                              : () => _fetchVodsForChannel(channel, loadMore: true),
-                          child: _isLoadingVods
-                              ? SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: NeuProgressRing(size: NeuProgressRingSize.sm, color: NeuTheme.text(themeNotifier.isDarkTheme), semanticLabel: 'Loading'),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.expand_more, size: 18),
-                                    SizedBox(width: NeuSpace.s6),
-                                    Text('Load More VODs', style: NeuType.labelMetrics),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ),
-                    ])),
-                  ],
-                ],
-                ]),
-              ),
-            ],
-    );
-  }
-
-  /// "Couldn't refresh" over a list that is not current, with when it is
-  /// from. A failed fetch over a cached list used to say nothing at all, so a
-  /// list from hours ago passed for a current one.
-  Widget _buildStaleVodNote() {
-    final stale = _vodBrowser.stale;
-    if (stale == null) return const SizedBox.shrink();
-    final isDark = themeNotifier.isDarkTheme;
-    final since = stale.since;
-    String two(int v) => v < 10 ? '0$v' : '$v';
-    final clock = '${two(since.hour)}:${two(since.minute)}';
-    return Tooltip(
-      message: stale.reason,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.history, size: 14, color: NeuTheme.warningText(isDark)),
-          const SizedBox(width: NeuSpace.s6),
-          Flexible(
-            child: Text(
-              "Couldn't refresh - showing the list from $clock",
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: NeuType.caption(isDark, color: NeuTheme.warningText(isDark)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVodsSettingMenu(ThemeData theme) {
-    return Container(
-      width: 320,
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.75,
-      ),
-      padding: const EdgeInsets.all(NeuSpace.s16),
-      decoration: NeuTheme.raisedDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r12),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            StatefulBuilder(
-              builder: (context, setMenuState) {
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                        const SizedBox(width: NeuSpace.s6),
-                        Text('Show All Games on Thumbnails', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
-                      ],
-                    ),
-                    NeuSwitch(
-                      value: _settings.showGamesOnThumbnails,
-                      onChanged: (val) {
-                        setState(() {
-                          _settings.showGamesOnThumbnails = val;
-                        });
-                        _saveChannels();
-                        setMenuState(() {});
-                      },
-                    ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: NeuSpace.s12),
-            Text('Filter Broadcasts:', style: NeuType.captionStrong(themeNotifier.isDarkTheme)),
-            const SizedBox(height: NeuSpace.s6),
-            NeuTextField(
-              controller: _vodSearchController,
-              hintText: 'Filter VODs...',
-              prefixIcon: Icons.search,
-              size: NeuFieldSize.md,
-              onChanged: (val) => setState(() {}),
-              onClear: () => setState(() {}),
-            ),
-            const SizedBox(height: NeuSpace.s12),
-            StatefulBuilder(
-              builder: (context, setMenuState) {
-                final uniqueGames = _channelVods.expand((vod) => vod.games).toSet().toList()..sort();
-                if (uniqueGames.isEmpty) return const SizedBox.shrink();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Filter by Games:', style: NeuType.captionStrong(themeNotifier.isDarkTheme)),
-                        if (_selectedGamesFilter.isNotEmpty)
-                          MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _selectedGamesFilter.clear();
-                                });
-                                setMenuState(() {});
-                              },
-                              child: Text(
-                                'Clear All',
-                                style: NeuType.plate(themeNotifier.isDarkTheme, color: themeNotifier.accentInk),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: NeuSpace.s8),
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: NeuTheme.sunkenDecoration(themeNotifier.isDarkTheme, radius: NeuRadius.r6),
-                      child: ListView(
-                        shrinkWrap: true,
-                        padding: const EdgeInsets.symmetric(vertical: NeuSpace.s4),
-                        children: uniqueGames.map((game) {
-                          final isChecked = _selectedGamesFilter.contains(game);
-                          return InkWell(
-                            onTap: () {
-                              setState(() {
-                                if (isChecked) {
-                                  _selectedGamesFilter.remove(game);
-                                } else {
-                                  _selectedGamesFilter.add(game);
-                                }
-                              });
-                              setMenuState(() {});
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s8, vertical: NeuSpace.s6),
-                              child: Row(
-                                children: [
-                                  NeuCheckbox(
-                                    value: isChecked,
-                                    activeColor: theme.primaryColor,
-                                    size: 16,
-                                    onChanged: (val) {
-                                      setState(() {
-                                        if (isChecked) {
-                                          _selectedGamesFilter.remove(game);
-                                        } else {
-                                          _selectedGamesFilter.add(game);
-                                        }
-                                      });
-                                      setMenuState(() {});
-                                    },
-                                  ),
-                                  const SizedBox(width: NeuSpace.s8),
-                                  Expanded(
-                                    child: Text(
-                                      game,
-                                      style: NeuType.caption(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: NeuSpace.s16),
-            Row(
-              children: [
-                Icon(Icons.photo_size_select_large, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                const SizedBox(width: NeuSpace.s6),
-                Text('Card Size: ', style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-                Expanded(
-                  child: SliderTheme(
-                    data: neuSliderTheme(context),
-                    child: Slider(
-                      value: _settings.vodCardScale,
-                      min: 200.0,
-                      max: 600.0,
-                      onChanged: (val) {
-                        setState(() {
-                          _settings.vodCardScale = val;
-                        });
-                      },
-                      onChangeEnd: (_) => _saveChannels(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: NeuSpace.s8),
-            Row(
-              children: [
-                Icon(Icons.format_size, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                const SizedBox(width: NeuSpace.s6),
-                Text('Font Size: ', style: NeuType.bodySm(themeNotifier.isDarkTheme, color: NeuTheme.subtext(themeNotifier.isDarkTheme))),
-                Expanded(
-                  child: SliderTheme(
-                    data: neuSliderTheme(context),
-                    child: Slider(
-                      value: _settings.vodTitleFontSize,
-                      min: AppSettings.minVodTitleFontSize,
-                      max: AppSettings.maxVodTitleFontSize,
-                      onChanged: (val) {
-                        setState(() {
-                          _settings.vodTitleFontSize = val;
-                        });
-                      },
-                      onChangeEnd: (_) => _saveChannels(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+      // The whole channel: its details (follower count included, which the
+      // batched poll leaves out) and its VOD list, merged in place.
+      onRefreshChannel: () {
+        unawaited(_refreshChannelDetails(channel));
+        unawaited(_refreshSelectedVods(silent: false));
+      },
+      openExternalLink: _openExternalLink,
+      onEnterSelection: () => setState(() {
+        _isMultiSelectMode = true;
+        _selectedVodIds.clear();
+      }),
+      onExitSelection: () => setState(() {
+        _isMultiSelectMode = false;
+        _selectedVodIds.clear();
+      }),
+      onClearSelection: () => setState(() => _selectedVodIds.clear()),
+      onSelectAllVisible: () => setState(() {
+        _selectedVodIds.addAll(_filteredChannelVods().map((v) => v.id));
+      }),
+      onBulkMark: _bulkUpdateSelectedVods,
+      onBulkDownload: _bulkDownloadSelectedVods,
+      onBulkDelete: _bulkDeleteSelectedVods,
+      onRefreshVods: () => _refreshSelectedVods(silent: false),
+      onUpdateToken: _showSettingsDialog,
+      onDismissWebTokenWarning: () => setState(() {
+        _isWebTokenExpired = false;
+      }),
+      onGameFilterSelected: (game) {
+        setState(() {
+          if (_selectedGamesFilter.contains(game)) {
+            _selectedGamesFilter.remove(game);
+          } else {
+            _selectedGamesFilter.add(game);
+          }
+        });
+      },
+      onClearGameFilter: () => setState(() => _selectedGamesFilter.clear()),
+      onPlayVod: (vod) => _playVod(vod, channelName),
+      onDownloadVod: (vod) => _queueVodDownload(vod, channelName),
+      onDeleteDownload: (id) => _deleteDownloadedVod(id, channelName),
+      onCancelDownload: (id) => _cancelVodDownload(id, channelName),
+      onVodSelectedChange: (id, isSelected) {
+        setState(() {
+          if (isSelected) {
+            _selectedVodIds.add(id);
+          } else {
+            _selectedVodIds.remove(id);
+          }
+        });
+      },
+      onOpenFolder: (vod) {
+        final path = _downloadedVodsRegistry[vod.id];
+        if (path != null) _revealInExplorer(path);
+      },
+      onLoadMore: () => _fetchVodsForChannel(channel, loadMore: true),
     );
   }
 
@@ -4604,46 +3391,5 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _isMultiSelectMode = false;
     });
     _showSnackBar('Deleted $count downloaded VOD files.', isError: false);
-  }
-}
-
-/// The trigger for the VOD display settings.
-///
-/// Was a hover-morphing chip that only revealed its accent styling when the
-/// pointer was over it, and appeared ONLY when the window was narrow - so at
-/// wide widths the controls it opens had no button at all, and at narrow
-/// widths there was no static hint that a menu existed. It is now a plain
-/// labelled button, present at every width.
-class _VodDisplayButton extends StatelessWidget {
-  const _VodDisplayButton({required this.theme});
-
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = themeNotifier.isDarkTheme;
-    // A plain raised chip, NOT a NeuButton. With onPressed: null the button
-    // painted the full disabled treatment - dimmed ink, flat depth, basic
-    // cursor, excluded from Tab order - so the only entry point to the
-    // grid's display settings LOOKED dead while working by accident of the
-    // gesture arena. InteractivePopover owns the tap, cursor and focus.
-    return Tooltip(
-      message: 'Card size, title size, filters and game badges',
-      child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
-      decoration: NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.tune, size: 15, color: NeuTheme.text(isDark)),
-          const SizedBox(width: NeuSpace.s6),
-          Text('Display',
-              style: NeuType.bodySm(isDark)),
-          const SizedBox(width: NeuSpace.s2),
-          Icon(Icons.arrow_drop_down, size: 16, color: NeuTheme.subtext(isDark)),
-        ],
-      ),
-      ),
-    );
   }
 }

@@ -182,6 +182,69 @@ void main() {
     });
 
     testWidgets(
+        "the toolbar's refresh says when it failed, over a list of any age, "
+        'and a good one clears that', (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.addVideo('alpha', title: 'Older broadcast');
+      await h.launch(tester, favorites: ['alpha']);
+      await openChannel(tester, h, 'alpha');
+      Finder note() => find.textContaining("Couldn't refresh");
+
+      h.helix.failVideos = true;
+      final mark = h.helix.requests.length;
+      await tester.tap(find.byTooltip('Check for new VODs'));
+      await h.settle(tester);
+      expect(videoFetches(h, mark), 1);
+      expect(note(), findsOneWidget,
+          reason: 'a refresh the user asked for that failed says so, '
+              'however new the list is');
+      expect(find.text('Older broadcast'), findsOneWidget,
+          reason: 'the list stays');
+
+      h.helix.failVideos = false;
+      h.helix.addVideo('alpha', title: 'Fresh broadcast');
+      await tester.tap(find.byTooltip('Check for new VODs'));
+      await h.settle(tester);
+      expect(note(), findsNothing);
+      expect(find.text('Fresh broadcast'), findsOneWidget);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'selection mode: pick VODs by clicking them, mark them watched, and '
+        'leave', (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.addVideo('alpha', title: 'First');
+      h.helix.addVideo('alpha', title: 'Second');
+      await h.launch(tester, favorites: ['alpha']);
+      await openChannel(tester, h, 'alpha');
+
+      await tester.tap(find.text('Select'));
+      await h.settle(tester);
+      expect(find.text('Select videos'), findsOneWidget);
+      await tester.tap(find.text('First'));
+      await h.settle(tester);
+      expect(find.text('1 selected'), findsOneWidget);
+      await tester.tap(find.text('All'));
+      await h.settle(tester);
+      expect(find.text('2 selected'), findsOneWidget);
+
+      final progress = h.storage.progressWrites;
+      await tester.tap(find.text('Watched'));
+      await h.settle(tester);
+      expect(find.textContaining('Marked 2 VODs watched'), findsOneWidget);
+      expect(find.text('Select'), findsOneWidget,
+          reason: 'marking ends selection mode');
+      expect(h.storage.progressWrites, progress + 1);
+      expect(h.storage.watchProgress, hasLength(2));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'is left alone while the window is in the tray, and refreshed when '
         'it is shown again', (tester) async {
       final h = ScreenHarness();
@@ -529,13 +592,64 @@ void main() {
     await h.close(tester);
   });
 
-  testWidgets('a token Twitch refuses raises the reconnect banner',
-      (tester) async {
-    final h = ScreenHarness();
-    h.helix.revokedTokens.add('account-token');
-    await h.launch(tester);
-    expect(twitchAuth.helix.value.fault, TwitchAuthFault.revoked);
-    expect(find.text('Reconnect'), findsOneWidget);
-    await h.close(tester);
+  group('the banners', () {
+    testWidgets(
+        'a token Twitch refuses raises the reconnect banner; a dismissal '
+        'covers that reason and not the next', (tester) async {
+      final h = ScreenHarness();
+      h.helix.revokedTokens.add('account-token');
+      await h.launch(tester);
+      expect(twitchAuth.helix.value.fault, TwitchAuthFault.revoked);
+      expect(find.text('Reconnect'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Dismiss'));
+      await h.settle(tester);
+      expect(find.text('Reconnect'), findsNothing);
+
+      twitchAuth.setHelix(const TwitchAuthStatus(
+        state: TwitchAuthState.invalid,
+        fault: TwitchAuthFault.clientIdMismatch,
+      ));
+      await h.settle(tester);
+      expect(find.text('Reconnect'), findsOneWidget,
+          reason: 'a different problem is a different message');
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'a failing save raises its banner until dismissed, and a new failure '
+        'after a good save raises it again', (tester) async {
+      final h = ScreenHarness();
+      await h.launch(tester);
+      Finder banner() => find.textContaining('could not be saved to disk');
+      expect(banner(), findsNothing);
+
+      storageWriteFailure.value =
+          StorageWriteFailure('channels_config.json', 'disk full', DateTime(2026));
+      await h.settle(tester);
+      expect(banner(), findsOneWidget);
+      await tester.tap(find.text('Details'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('disk full'), findsOneWidget);
+      await tester.tap(find.text('Close'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await tester.tap(find.byTooltip('Dismiss'));
+      await h.settle(tester);
+      expect(banner(), findsNothing);
+
+      storageWriteFailure.value = null;
+      await h.settle(tester);
+      storageWriteFailure.value =
+          StorageWriteFailure('channels_config.json', 'disk full', DateTime(2026));
+      await h.settle(tester);
+      expect(banner(), findsOneWidget);
+
+      storageWriteFailure.value = null;
+      await h.close(tester);
+    });
   });
 }
