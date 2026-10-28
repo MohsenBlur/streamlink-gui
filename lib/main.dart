@@ -1049,68 +1049,129 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _launchChannelStream(channel);
   }
 
+  /// Set while an exit request is being answered (its dialogs are open), so a
+  /// second Exit from the tray does not stack a second set on top.
+  bool _exitRequestOpen = false;
+
+  /// Set once the app has committed to quitting.
+  bool _isExiting = false;
+
   Future<void> _handleAppExitRequest() async {
-    await _showWindow();
+    if (_exitRequestOpen || _isExiting) return;
+    _exitRequestOpen = true;
+    try {
+      await _showWindow();
 
-    final hasUnfinished = _playerService.activeDownloadProcesses.isNotEmpty || _playerService.downloadQueue.isNotEmpty;
-    if (hasUnfinished) {
-      if (!mounted) return;
-      final bool? confirmExit = await NeuDialog.show<bool>(
-        context,
-        dismissible: true,
-        builder: (context) => NeuDialog(
-          title: 'Downloads are still running',
-          icon: Icons.download_for_offline_outlined,
-          content: Text(
-            'Exiting pauses them. They resume the next time you start the app.',
-            style: NeuType.body(themeNotifier.isDarkTheme),
-          ),
-          actions: [
-            NeuDialogAction.secondary(
-                'Keep running', () => Navigator.pop(context, false)),
-            NeuDialogAction.primary(
-                'Exit and save queue', () => Navigator.pop(context, true)),
-          ],
-        ),
-      );
-
-      if (confirmExit != true) {
-        return;
-      }
-
-      await _persistUnfinishedDownloadsForRestart();
-
-      // They chose "Exit & Save Queue". If that save did not reach disk,
-      // exiting now loses the queue with no trace - and the banner that would
-      // normally report it goes with the window.
-      if (storageWriteFailure.value != null && mounted) {
-        final bool? exitAnyway = await NeuDialog.show<bool>(
+      final hasUnfinished = _playerService.activeDownloadProcesses.isNotEmpty || _playerService.downloadQueue.isNotEmpty;
+      if (hasUnfinished) {
+        if (!mounted) return;
+        final bool? confirmExit = await NeuDialog.show<bool>(
           context,
           dismissible: true,
           builder: (context) => NeuDialog(
-            title: 'Could not save the download queue',
-            icon: Icons.error_outline,
-            tone: DialogTone.destructive,
+            title: 'Downloads are still running',
+            icon: Icons.download_for_offline_outlined,
             content: Text(
-              'Writing to ${storageWriteFailure.value?.path} failed, so the '
-              'queued downloads will not resume after a restart.'
-              '\n\nThis usually means the folder is full, read-only, or locked '
-              'by another program. Go back to fix it and try again.',
+              'Exiting pauses them. They resume the next time you start the app.',
               style: NeuType.body(themeNotifier.isDarkTheme),
             ),
             actions: [
               NeuDialogAction.secondary(
-                  'Go back', () => Navigator.pop(context, false)),
+                  'Keep running', () => Navigator.pop(context, false)),
               NeuDialogAction.primary(
-                  'Exit anyway', () => Navigator.pop(context, true)),
+                  'Exit and save queue', () => Navigator.pop(context, true)),
             ],
           ),
         );
-        if (exitAnyway != true) return;
+
+        if (confirmExit != true) {
+          return;
+        }
+
+        await _persistUnfinishedDownloadsForRestart();
+
+        // They chose "Exit & Save Queue". If that save did not reach disk,
+        // exiting now loses the queue with no trace - and the banner that would
+        // normally report it goes with the window.
+        if (storageWriteFailure.value != null && mounted) {
+          final bool? exitAnyway = await NeuDialog.show<bool>(
+            context,
+            dismissible: true,
+            builder: (context) => NeuDialog(
+              title: 'Could not save the download queue',
+              icon: Icons.error_outline,
+              tone: DialogTone.destructive,
+              content: Text(
+                'Writing to ${storageWriteFailure.value?.path} failed, so the '
+                'queued downloads will not resume after a restart.'
+                '\n\nThis usually means the folder is full, read-only, or locked '
+                'by another program. Go back to fix it and try again.',
+                style: NeuType.body(themeNotifier.isDarkTheme),
+              ),
+              actions: [
+                NeuDialogAction.secondary(
+                    'Go back', () => Navigator.pop(context, false)),
+                NeuDialogAction.primary(
+                    'Exit anyway', () => Navigator.pop(context, true)),
+              ],
+            ),
+          );
+          if (exitAnyway != true) return;
+        }
       }
+    } finally {
+      _exitRequestOpen = false;
     }
 
-    _playerService.stopAll();
+    await _shutDownAndExit();
+  }
+
+  /// Everything that has to happen before the process goes, then the exit.
+  ///
+  /// No Dart runs after windowManager.destroy(): the runner tears the engine
+  /// down as soon as its message loop ends. Anything still pending then was
+  /// lost - the debounced window save (a 300ms timer that never fired), a
+  /// progress write still queued, the tray icon left behind until the mouse
+  /// passed over it - and players were killed without being waited for.
+  Future<void> _shutDownAndExit() async {
+    if (_isExiting) return;
+    _isExiting = true;
+    final log = CrashLog.current;
+    log?.milestone('[exit] requested');
+
+    // Nothing new may start while this runs.
+    _favoritesLiveCheckTimer?.cancel();
+    _downloadCheckTimer?.cancel();
+
+    // The window's last geometry, now rather than in 300ms.
+    await _captureWindowState();
+
+    // Players and downloads first, so whatever their stopping reports (a
+    // final watch position, a download's resume state) is already in memory
+    // when the saves below snapshot it.
+    try {
+      await _playerService.stopAll();
+    } catch (e, st) {
+      log?.error('exit: stopping players', e, st);
+    }
+
+    // Each save resolves only once its file's writer has drained, earlier
+    // fire-and-forget writes to the same file included.
+    try {
+      await _saveChannels();
+      await _storageService.saveRecentWatchedVods(
+          _recentWatchedVods.map((v) => v.toJson()).toList());
+    } catch (e, st) {
+      log?.error('exit: saving', e, st);
+    }
+
+    windowManager.removeListener(this);
+    _singleInstanceChannel.setMethodCallHandler(null);
+    try {
+      await _systemTray.destroy();
+    } catch (_) {}
+
+    log?.milestone('[exit] saved and stopped; closing');
     await windowManager.destroy();
   }
 
