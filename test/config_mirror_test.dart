@@ -169,5 +169,30 @@ void main() {
       final cpp = File('windows/runner/win32_updater/main.cpp').readAsStringSync();
       expect(cpp, contains('L"${UpdateService.dropConfigMirrorFlag}"'));
     });
+
+    test('and hands it to the elevated child, which deletes it', () {
+      // Under Program Files - where the mirror this exists for sits - only
+      // the elevated child can write the folder, and it is started with a
+      // command line of its own. Dropped there, the request did nothing for
+      // exactly the installs that need it, and no other test would notice.
+      final cpp = File('windows/runner/win32_updater/main.cpp')
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      String body(String signature) {
+        final start = cpp.indexOf(signature);
+        expect(start, isNonNegative, reason: signature);
+        return cpp.substring(start, cpp.indexOf('\n}\n', start));
+      }
+
+      expect(body('SwapOutcome RunElevatedSwap('),
+          contains('params += std::wstring(L" ") + DROP_CONFIG_MIRROR_FLAG;'));
+      final main = body('int APIENTRY wWinMain(');
+      final elevated = main.indexOf('if (isElevated) {');
+      expect(elevated, isNonNegative);
+      expect(main.substring(elevated, main.indexOf('\n    }\n', elevated)),
+          contains('if (dropConfigMirror) DropConfigMirror(targetDir);'));
+      expect(main,
+          contains('RunElevatedSwap(targetDir, stagingDir, exeName, dropConfigMirror)'));
+    });
   });
 }
