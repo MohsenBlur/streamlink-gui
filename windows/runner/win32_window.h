@@ -71,6 +71,16 @@ class Win32Window {
   // Called when Destroy is called.
   virtual void OnDestroy();
 
+  // Shows the hosted content if its own WS_VISIBLE flag is clear, and returns
+  // whether it had to. The frame being visible says nothing about the
+  // content: the hidden-content state is an empty, see-through window with
+  // only the DWM border drawn. See the WM_WINDOWPOSCHANGED handler.
+  bool ShowChildContentIfHidden();
+
+  // Called after ShowChildContentIfHidden had to re-show the content, so a
+  // subclass can repaint a surface that was presented while it was hidden.
+  virtual void OnChildContentReshown();
+
  private:
   friend class WindowClassRegistrar;
 

@@ -28,6 +28,11 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
+    // Re-assert the content view's visibility before the frame appears:
+    // showing only the frame is how the window came up empty. See
+    // Win32Window's WM_WINDOWPOSCHANGED handler.
+    ShowChildContentIfHidden();
+
     // --start-minimized: stay hidden; the Dart side also skips its show(), so
     // the window only appears when summoned from the tray (or by a second
     // instance's FindWindow+ShowWindow).
@@ -69,6 +74,15 @@ void FlutterWindow::OnDestroy() {
   }
 
   Win32Window::OnDestroy();
+}
+
+void FlutterWindow::OnChildContentReshown() {
+  // The engine kept presenting while the view was hidden, and nothing about
+  // the view becoming visible asks it for a new frame. Request one so the
+  // surface the user now sees is current rather than stale or blank.
+  if (flutter_controller_) {
+    flutter_controller_->ForceRedraw();
+  }
 }
 
 LRESULT
