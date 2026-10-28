@@ -238,8 +238,9 @@ class _InteractivePopoverState extends State<InteractivePopover> {
 ///   edge opens upward);
 /// * it slides along each axis until it is inside the window, which is what
 ///   keeps a right-aligned popover from opening off the left of a narrow one
-///   - unless the trigger itself has scrolled out of the window, when it
-///   follows the trigger out instead.
+///   - except along an axis the trigger itself has scrolled out of the
+///   window by, where it follows the trigger out instead, on the side of it
+///   that faces the window.
 ///
 /// Public so the geometry can be tested without pumping anything.
 class PopoverPlacement extends SingleChildLayoutDelegate {
@@ -276,34 +277,48 @@ class PopoverPlacement extends SingleChildLayoutDelegate {
   Offset getPositionForChild(Size size, Size childSize) {
     var position =
         _aligned(childSize, targetAnchor, followerAnchor, offset);
-
-    bool fitsVertically(Offset p) =>
-        p.dy >= margin && p.dy + childSize.height <= size.height - margin;
-    if (!fitsVertically(position)) {
-      final flipped = _aligned(
-        childSize,
-        Alignment(targetAnchor.x, -targetAnchor.y),
-        Alignment(followerAnchor.x, -followerAnchor.y),
-        Offset(offset.dx, -offset.dy),
-      );
-      if (fitsVertically(flipped)) position = flipped;
-    }
+    final flipped = _aligned(
+      childSize,
+      Alignment(targetAnchor.x, -targetAnchor.y),
+      Alignment(followerAnchor.x, -followerAnchor.y),
+      Offset(offset.dx, -offset.dy),
+    );
 
     // A trigger scrolled clean out of the window takes its popover with it.
     // Held inside the edge instead, the popover hung there over whatever had
     // scrolled in, attached to nothing. Strict comparisons, so a trigger
     // touching the edge, or one with no size yet, still counts as on screen.
-    final triggerGone = trigger.bottom < 0 ||
-        trigger.top > size.height ||
-        trigger.right < 0 ||
-        trigger.left > size.width;
-    if (triggerGone) return position;
+    //
+    // Per axis. A trigger gone off the top is still where it was across, so
+    // the slide that held the popover inside a narrow window stays: dropping
+    // both clamps threw the popover sideways in the frame the trigger left.
+    final goneAbove = trigger.bottom < 0;
+    final goneBelow = trigger.top > size.height;
+    final goneAcross = trigger.right < 0 || trigger.left > size.width;
+
+    bool fitsVertically(Offset p) =>
+        p.dy >= margin && p.dy + childSize.height <= size.height - margin;
+    if (goneAbove || goneBelow) {
+      // On the trigger's side facing the window, which is the side it was on
+      // as the trigger left: near an edge, the side with room is the one away
+      // from it. A trigger gone off the bottom used to drop its popover back
+      // below it, out of the window in one frame instead of following it.
+      final flippedFacesWindow =
+          goneAbove ? flipped.dy > position.dy : flipped.dy < position.dy;
+      if (flippedFacesWindow) position = flipped;
+    } else if (!fitsVertically(position) && fitsVertically(flipped)) {
+      position = flipped;
+    }
 
     double inside(double value, double extent, double available) =>
         value.clamp(margin, math.max(margin, available - margin - extent));
     return Offset(
-      inside(position.dx, childSize.width, size.width),
-      inside(position.dy, childSize.height, size.height),
+      goneAcross
+          ? position.dx
+          : inside(position.dx, childSize.width, size.width),
+      goneAbove || goneBelow
+          ? position.dy
+          : inside(position.dy, childSize.height, size.height),
     );
   }
 

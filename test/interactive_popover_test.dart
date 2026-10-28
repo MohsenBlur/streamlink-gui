@@ -126,6 +126,24 @@ void main() {
       expect(place(const Rect.fromLTWH(500, -29, 100, 30)).dy, 8);
     });
 
+    test('a trigger gone off the top keeps the slide that held it across',
+        () {
+      // The activity popover's 380px case, scrolled out: while the trigger
+      // showed, the popover sat 8px in from the left edge. Unclamped on both
+      // axes it jumped to -110 the moment the trigger left.
+      final p = place(const Rect.fromLTWH(180, -40, 50, 28),
+          overlay: const Size(380, 500));
+      expect(p, const Offset(8, -6));
+    });
+
+    test('a trigger gone off the bottom takes the popover down above it', () {
+      // Near the bottom edge it opens upward. Once the trigger was gone it
+      // went back below it, wholly out of the window in one frame (847).
+      expect(place(const Rect.fromLTWH(500, 770, 100, 40)).dy, 770 - 6 - 200);
+      expect(place(const Rect.fromLTWH(500, 801, 100, 40)),
+          const Offset(260, 801 - 6 - 200));
+    });
+
     test('it is never larger than the window less its margins', () {
       final c = const PopoverPlacement(
         trigger: Rect.zero,
