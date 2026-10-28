@@ -13,7 +13,60 @@ class FollowedChannelsResult {
   final List<TwitchChannel> channels;
   final String userLogin;
   final String? userAvatar;
-  FollowedChannelsResult({required this.channels, required this.userLogin, this.userAvatar});
+
+  /// False when the walk stopped before Twitch's last page: a later page
+  /// failed ([pageError] says how), or the page cap was reached ([pageError]
+  /// is null).
+  ///
+  /// A failed later page used to end the walk silently, and the caller
+  /// replaced its whole list with the shortened one: someone following 350
+  /// channels lost 150 from the Followed tab, the tray and Live, with no sign
+  /// anything had gone wrong.
+  final bool isComplete;
+
+  /// What stopped the walk early: a [TwitchApiException] (a
+  /// [TwitchRateLimitedException] for a 429), or the transport error. Never an
+  /// auth failure - a refused token throws instead, however many pages were
+  /// already in, because that is the banner's to explain.
+  final Object? pageError;
+
+  FollowedChannelsResult({
+    required this.channels,
+    required this.userLogin,
+    this.userAvatar,
+    this.isComplete = true,
+    this.pageError,
+  });
+
+  /// The list to show in place of [previous].
+  ///
+  /// A channel already in [previous] keeps its object, so its avatar, live
+  /// state and failure count survive the reload, and a selected channel is
+  /// not left pointing at an object nothing refreshes any more. A complete
+  /// result is the truth about who is followed, so channels missing from it
+  /// go. An incomplete one is not: channels it never reached are kept from
+  /// [previous] rather than dropped.
+  List<TwitchChannel> reconcileWith(List<TwitchChannel> previous) {
+    final byName = {for (final c in previous) c.username: c};
+    final merged = <TwitchChannel>[];
+    final placed = <String>{};
+    for (final fresh in channels) {
+      if (!placed.add(fresh.username)) continue;
+      final kept = byName[fresh.username];
+      if (kept == null) {
+        merged.add(fresh);
+        continue;
+      }
+      if (isValidTwitchUserId(fresh.id)) kept.id = fresh.id;
+      merged.add(kept);
+    }
+    if (!isComplete) {
+      for (final old in previous) {
+        if (placed.add(old.username)) merged.add(old);
+      }
+    }
+    return merged;
+  }
 }
 
 class VodsFetchResult {
@@ -852,6 +905,8 @@ class TwitchApiService {
     String? cursor;
     // Bounded so a malformed cursor cannot spin forever.
     const maxPages = 20;
+    var isComplete = true;
+    Object? pageError;
 
     for (var page = 0; page < maxPages; page++) {
       final url = _helix('/helix/channels/followed', {
@@ -860,17 +915,25 @@ class TwitchApiService {
         if (cursor != null && cursor.isNotEmpty) 'after': cursor,
       });
 
-      final followsRes = await _get(url,
-          headers: headers, requiredScopes: kRequiredHelixScopes);
-      if (followsRes.statusCode != 200) {
-        // Keep whatever was already collected rather than losing every page to
-        // a failure on the last one.
-        if (tempFollowed.isNotEmpty) break;
-        throw TwitchApiException(
-            followsRes.statusCode, 'helix/channels/followed', followsRes.body);
+      final Map<String, dynamic> followsData;
+      try {
+        final followsRes = await _get(url,
+            headers: headers, requiredScopes: kRequiredHelixScopes);
+        if (followsRes.statusCode != 200) {
+          throw TwitchApiException(
+              followsRes.statusCode, 'helix/channels/followed', followsRes.body);
+        }
+        followsData = json.decode(followsRes.body) as Map<String, dynamic>;
+      } catch (e) {
+        final refused = e is TwitchApiException && e.isAuthFailure;
+        if (tempFollowed.isEmpty || refused) rethrow;
+        // Keep whatever was already collected rather than losing every page
+        // to a failure on the last one - but say it is not the whole list.
+        isComplete = false;
+        pageError = e;
+        break;
       }
 
-      final followsData = json.decode(followsRes.body);
       final List<dynamic> data = followsData['data'] ?? [];
 
       for (final item in data) {
@@ -887,12 +950,16 @@ class TwitchApiService {
 
       cursor = followsData['pagination']?['cursor'] as String?;
       if (data.isEmpty || cursor == null || cursor.isEmpty) break;
+      // Still holding a cursor after the last allowed page: Twitch had more.
+      if (page == maxPages - 1) isComplete = false;
     }
 
     return FollowedChannelsResult(
       channels: tempFollowed,
       userLogin: userLogin,
       userAvatar: userAvatar,
+      isComplete: isComplete,
+      pageError: pageError,
     );
   }
 

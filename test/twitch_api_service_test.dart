@@ -441,6 +441,139 @@ void main() {
     });
   });
 
+  group('the followed list never shrinks silently', () {
+    /// Pages of [perPage] follows, named p<page>_<n>; [failPage] answers with
+    /// [failure] instead.
+    FakeTwitch followed({
+      int pages = 3,
+      int perPage = 100,
+      int? failPage,
+      FutureOr<http.Response> Function()? failure,
+    }) =>
+        FakeTwitch((request) {
+          if (request.url.path == '/helix/users') {
+            return jsonResponse({
+              'data': [
+                {'id': '1', 'login': 'me', 'profile_image_url': 'https://img/me.png'},
+              ],
+            });
+          }
+          final after = request.url.queryParameters['after'];
+          final page = after == null ? 0 : int.parse(after.substring(4));
+          if (page == failPage) return failure!();
+          final last = page == pages - 1;
+          return jsonResponse({
+            'data': [
+              for (var n = 0; n < perPage; n++)
+                {
+                  'broadcaster_id': '${page * 1000 + n + 10}',
+                  'broadcaster_login': 'p${page}_$n',
+                },
+            ],
+            'pagination': last ? {} : {'cursor': 'page${page + 1}'},
+          });
+        });
+
+    test('a complete walk says so', () async {
+      final result =
+          await serviceFor(followed()).fetchFollowedChannels(settings);
+      expect(result.channels, hasLength(300));
+      expect(result.isComplete, isTrue);
+      expect(result.pageError, isNull);
+    });
+
+    test('a failed later page is reported, not swallowed', () async {
+      final result = await serviceFor(followed(
+              failPage: 2, failure: () => jsonResponse({}, status: 503)))
+          .fetchFollowedChannels(settings);
+      expect(result.channels, hasLength(200),
+          reason: 'the pages that did arrive are still real');
+      expect(result.isComplete, isFalse);
+      expect(result.pageError,
+          isA<TwitchApiException>().having((e) => e.statusCode, 'status', 503));
+    });
+
+    test('a rate limit or a dropped connection part-way is partial too',
+        () async {
+      final limited = await serviceFor(followed(
+              failPage: 1, failure: () => jsonResponse({}, status: 429)))
+          .fetchFollowedChannels(settings);
+      expect(limited.isComplete, isFalse);
+      expect(limited.pageError, isA<TwitchRateLimitedException>());
+
+      final dropped = await serviceFor(followed(
+              failPage: 1, failure: () => throw const SocketLikeException()))
+          .fetchFollowedChannels(settings);
+      expect(dropped.channels, hasLength(100));
+      expect(dropped.isComplete, isFalse);
+      expect(dropped.pageError, isA<SocketLikeException>());
+    });
+
+    test('a refused token on a later page throws for the banner', () async {
+      await expectLater(
+        serviceFor(followed(
+                failPage: 1, failure: () => jsonResponse({}, status: 401)))
+            .fetchFollowedChannels(settings),
+        throwsA(isA<TwitchApiException>()
+            .having((e) => e.isAuthFailure, 'isAuthFailure', isTrue)),
+      );
+    });
+
+    test('a failure on the first page still throws', () async {
+      await expectLater(
+        serviceFor(followed(
+                failPage: 0, failure: () => jsonResponse({}, status: 503)))
+            .fetchFollowedChannels(settings),
+        throwsA(isA<TwitchApiException>()),
+      );
+    });
+
+    test('running into the page cap is incomplete, with no error', () async {
+      final result = await serviceFor(followed(pages: 25, perPage: 1))
+          .fetchFollowedChannels(settings);
+      expect(result.channels, hasLength(20));
+      expect(result.isComplete, isFalse);
+      expect(result.pageError, isNull);
+    });
+
+    group('reconcileWith', () {
+      TwitchChannel fresh(String name, String id) =>
+          TwitchChannel(username: name, id: id);
+
+      test('a complete result keeps existing objects and drops unfollows', () {
+        final kept = TwitchChannel(
+            username: 'kept', id: '1', avatarUrl: 'https://img/kept.png')
+          ..isLive = true;
+        final unfollowed = TwitchChannel(username: 'gone', id: '2');
+        final result = FollowedChannelsResult(
+          channels: [fresh('newcomer', '3'), fresh('kept', '1')],
+          userLogin: 'me',
+        );
+
+        final merged = result.reconcileWith([kept, unfollowed]);
+
+        expect(merged.map((c) => c.username), ['newcomer', 'kept']);
+        expect(identical(merged[1], kept), isTrue,
+            reason: 'a reload used to swap in blank objects: avatars lost, '
+                'live state reset, the selected channel orphaned');
+        expect(merged[1].isLive, isTrue);
+        expect(merged[1].avatarUrl, 'https://img/kept.png');
+      });
+
+      test('an incomplete result keeps the channels it never reached', () {
+        final unreached = TwitchChannel(username: 'page_three', id: '9');
+        final result = FollowedChannelsResult(
+          channels: [fresh('page_one', '1')],
+          userLogin: 'me',
+          isComplete: false,
+        );
+        final merged = result.reconcileWith([unreached]);
+        expect(merged.map((c) => c.username), ['page_one', 'page_three']);
+        expect(identical(merged[1], unreached), isTrue);
+      });
+    });
+  });
+
   group('shared transport', () {
     test('concurrency is capped across every caller', () async {
       final twitch = FakeTwitch((request) => request.url.path == '/helix/streams'
