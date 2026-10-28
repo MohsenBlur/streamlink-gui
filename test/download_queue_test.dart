@@ -215,6 +215,72 @@ void main() {
     expect(service.isQueueProcessing, isFalse);
   });
 
+  group('a running download cancelled and queued again', () {
+    // A taskkill that returns before its target has died, as the real one
+    // can: the cancel finishes, and the old yt-dlp's exit is processed only
+    // after the user has queued the VOD again.
+    late PlayerService lateDeaths;
+    late AppSettings settings;
+    setUp(() {
+      lateDeaths = PlayerService(
+        startProcess: launcher.start,
+        runProcess: (executable, arguments) async =>
+            ProcessResult(0, 0, '', ''),
+      );
+      settings = AppSettings(vodDownloadFolder: temp.path);
+    });
+    tearDown(() => lateDeaths.stopAll());
+
+    test('downloads into its own channel folder', () async {
+      // The drain was started for another channel, so falling back to the
+      // drain's own channelName puts the VOD in the wrong folder.
+      lateDeaths.queueVodDownload(vod('1'), 'alpha', settings);
+      lateDeaths.queueVodDownload(vod('2'), 'beta', settings);
+      await pumpEventQueue();
+      await launcher.launched.single.exit(0);
+      await pumpEventQueue();
+      final cancelledRun = launcher.launched.last;
+      expect(cancelledRun.arguments.last, 'https://twitch.tv/videos/2');
+
+      await lateDeaths.cancelVodDownload('2', 'beta', temp.path);
+      lateDeaths.queueVodDownload(vod('2'), 'beta', settings);
+      await cancelledRun.exit(1);
+      await pumpEventQueue();
+
+      expect(launcher.launched, hasLength(3), reason: 'the re-queue must start');
+      expect(launcher.launched.last.arguments,
+          contains(startsWith('${temp.path}/beta/')),
+          reason: 'the old run\'s exit cleared the channel name, and the '
+              'drain fell back to alpha');
+      expect(lateDeaths.activeDownloadProcesses.keys, ['2']);
+
+      await launcher.launched.last.exit(0);
+      await pumpEventQueue();
+      expect(lateDeaths.downloadQueue, isEmpty);
+      expect(lateDeaths.activeDownloadTasks, isEmpty);
+      expect(lateDeaths.downloadChannelNames, isEmpty);
+    });
+
+    test('still shows as queued after the old run has exited', () async {
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      final cancelledRun = launcher.launched.single;
+
+      await lateDeaths.cancelVodDownload('1', 'chan', temp.path);
+      // Another download ahead of it keeps the re-queue waiting, so what the
+      // old run's exit leaves behind is what the Downloads panel shows.
+      lateDeaths.queueVodDownload(vod('9'), 'other', settings);
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await cancelledRun.exit(1);
+      await pumpEventQueue();
+
+      expect(launcher.launched.last.arguments.last, 'https://twitch.tv/videos/9');
+      expect(lateDeaths.activeDownloadTasks['1'], 'Queued');
+      expect(lateDeaths.downloadChannelNames['1'], 'chan');
+      expect(lateDeaths.downloadTitles['1'], 'Some VOD');
+    });
+  });
+
   test('a download it already has is not announced as queued', () async {
     final settings = AppSettings(vodDownloadFolder: temp.path);
     final queued = <String>[];

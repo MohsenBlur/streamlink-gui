@@ -506,6 +506,7 @@ class PlayerService {
     final vodId = vod.id;
     final key = logKeyForDownload(vodId);
     final title = 'Download: ${vod.title}';
+    final claim = _claimDownloadState(vodId);
 
     // Reported like any other failure, not thrown. These used to throw
     // straight out of the queue drain, which then never reset
@@ -678,7 +679,7 @@ class PlayerService {
       });
 
       final exitCode = await proc.exitCode;
-      _cleanupDownloadState(vodId);
+      _cleanupDownloadState(vodId, onlyFor: claim);
       // Before every branch below, including the cancelled early return and
       // the ffmpeg retry (which begins a fresh session of its own).
       onDownloadEnded?.call(vodId, exitCode);
@@ -728,7 +729,7 @@ class PlayerService {
       }
     } catch (e) {
       log(key, '[System Error] Download failed to start: $e');
-      _cleanupDownloadState(vodId);
+      _cleanupDownloadState(vodId, onlyFor: claim);
       onDownloadEnded?.call(vodId, -1);
       onDownloadFailed?.call(vodId, vod.title, -1);
     }
@@ -748,7 +749,26 @@ class PlayerService {
   /// started a second later, after the cancel had deleted its partial files.
   final Set<String> _downloadsAwaitingRetry = {};
 
-  void _cleanupDownloadState(String vodId) {
+  /// Which queueing or run of a VOD its download state belongs to.
+  ///
+  /// The state is keyed by VOD id, and a download cancelled while it runs
+  /// can be queued again before its yt-dlp's exit is processed (taskkill
+  /// returns before its target is gone). That exit used to clear the new
+  /// entry's "Queued" status, title and channel name; the drain then fell
+  /// back to its own channelName, which is whichever download started it, and
+  /// could save the VOD into another channel's folder. A run now clears the
+  /// state only while no queueing or run has claimed it since.
+  final Map<String, int> _downloadStateOwners = {};
+  int _lastDownloadStateOwner = 0;
+
+  int _claimDownloadState(String vodId) =>
+      _downloadStateOwners[vodId] = ++_lastDownloadStateOwner;
+
+  /// With [onlyFor], only while that claim (see [_claimDownloadState]) still
+  /// owns the state.
+  void _cleanupDownloadState(String vodId, {int? onlyFor}) {
+    if (onlyFor != null && _downloadStateOwners[vodId] != onlyFor) return;
+    _downloadStateOwners.remove(vodId);
     activeDownloadProcesses.remove(vodId);
     activeDownloadsProgress.remove(vodId);
     activeDownloadTasks.remove(vodId);
@@ -776,6 +796,7 @@ class PlayerService {
       downloadTaskFastDownloadOverrides[vodId] = overrideDisablePostProcessing;
     }
 
+    _claimDownloadState(vodId);
     downloadChannelNames[vodId] = channelName;
     downloadTitles[vodId] = vod.title;
     queuedDownloadTasks[vodId] = vod;
