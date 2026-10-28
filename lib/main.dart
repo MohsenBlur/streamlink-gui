@@ -1812,9 +1812,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _showSnackBar('Error loading saved channels: ${describeTwitchError(e)}', isError: true);
     } finally {
       // Whatever went wrong above, the app goes on and must be able to save,
-      // as it always could. (Both are no-ops when already open.)
+      // as it always could (a no-op when already open). The history only once
+      // it has been read, though: opened unread after a failure above, its
+      // gate would let the next save replace the sidecar with the flat copy -
+      // or with nothing - which is the loss the gate exists to stop.
       _settingsRepo.markConfigLoaded();
-      _settingsRepo.markHistoryLoaded();
+      if (!_settingsRepo.historyLoaded) await _loadWatchHistory();
       // Arms the recovery refresh. Startup already fetches everything, so
       // arming earlier would make the first successful probe refresh it all a
       // second time.
