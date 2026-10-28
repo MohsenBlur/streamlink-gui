@@ -493,15 +493,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   /// Re-arms the save-failure banner once a save succeeds, so a dismissal
   /// covers the problem the user saw and not every future one.
-  void _watchSaveFailures() {
-    storageWriteFailure.addListener(() {
-      if (!mounted) return;
-      if (storageWriteFailure.value == null && _saveWarningDismissed) {
-        setState(() => _saveWarningDismissed = false);
-      } else {
-        setState(() {});
-      }
-    });
+  ///
+  /// A method, so dispose can take it off again: storageWriteFailure is
+  /// global and outlives this screen, and the closure added here was never
+  /// removed - one more listener holding a dead State for every screen that
+  /// was ever built.
+  void _onSaveFailureChanged() {
+    if (!mounted) return;
+    if (storageWriteFailure.value == null && _saveWarningDismissed) {
+      setState(() => _saveWarningDismissed = false);
+    } else {
+      setState(() {});
+    }
   }
 
   /// Library screen state. Entries are CACHED - built (with file stats) only
@@ -847,7 +850,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _vodBrowser.addListener(_onRefreshStateChanged);
     _vodBrowser.onNewVods = _onNewVods;
 
-    _watchSaveFailures();
+    storageWriteFailure.addListener(_onSaveFailureChanged);
     twitchAuth.helix.addListener(_onAuthStatusChanged);
     _loadChannels();
     
@@ -1218,6 +1221,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     SessionEnd.stopListening();
     _downloads.dispose();
     _settingsRepo.dispose();
+    storageWriteFailure.removeListener(_onSaveFailureChanged);
     twitchAuth.helix.removeListener(_onAuthStatusChanged);
     _activity.dispose();
     _logNotifier.dispose();
@@ -1740,7 +1744,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           NeuDialogAction.secondary('Cancel', () => Navigator.pop(context, false)),
           NeuDialogAction.primary('Choose folder', () async {
             final String? path = await FilePicker.getDirectoryPath();
-            if (path != null && path.isNotEmpty) {
+            if (path != null && path.isNotEmpty && mounted) {
               setState(() {
                 _settings.vodDownloadFolder = path;
               });
@@ -1931,7 +1935,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // arming earlier would make the first successful probe refresh it all a
       // second time.
       _startupComplete = true;
-      setState(() => _isGlobalLoading = false);
+      if (mounted) setState(() => _isGlobalLoading = false);
     }
   }
 
@@ -2783,6 +2787,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   void _showSnackBar(String message,
       {required bool isError, SnackBarAction? action}) {
+    // Most callers report on something they awaited, and the screen can be
+    // gone by then: ScaffoldMessenger.of a dead context throws. One check
+    // here rather than one after every await.
+    if (!mounted) return;
     // Errors use the fixed danger red (white text); info follows the accent.
     //
     // Replace rather than queue: ScaffoldMessenger plays queued snackbars one
@@ -4804,7 +4812,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Future<void> _cancelVodDownload(String vodId, String channelName) async {
     await _playerService.cancelVodDownload(vodId, channelName, _settings.vodDownloadFolder);
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   /// Deletes the files for [vodId], preferring the path recorded in the
@@ -5032,7 +5040,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       } catch (_) {}
     }
     await _saveChannels();
-    
+    if (!mounted) return;
+
     _checkDownloadedVods();
     setState(() {
       _selectedVodIds.clear();

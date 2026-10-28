@@ -35,6 +35,20 @@ void main() {
     return bracketed(src.indexOf('{', end), '{', '}');
   }
 
+  test('the save-failure listener is taken off the global when the screen goes',
+      () {
+    // storageWriteFailure outlives the screen; the closure added to it was
+    // never removed.
+    expect(bodyOf('void initState()'),
+        contains('storageWriteFailure.addListener(_onSaveFailureChanged)'));
+    expect(bodyOf('void dispose()'),
+        contains('storageWriteFailure.removeListener(_onSaveFailureChanged)'));
+  });
+
+  test('a snackbar after the screen went is dropped, not thrown', () {
+    expect(bodyOf('void _showSnackBar('), contains('if (!mounted) return;'));
+  });
+
   test('frequent saves go through the debounced, config-only write', () {
     // Every VOD fetch and every window move wrote the config and the
     // progress sidecar at once, each fsync'd.
