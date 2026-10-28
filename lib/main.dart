@@ -64,6 +64,7 @@ import 'theme/material/lit_surface.dart';
 import 'theme/app_theme.dart';
 import 'theme/neu_theme.dart';
 import 'widgets/neumorphic/neu_avatar.dart';
+import 'widgets/neumorphic/neu_pulse.dart';
 import 'theme/theme_notifier.dart';
 import 'utils/color_utils.dart';
 
@@ -291,7 +292,7 @@ Future<void> _checkWindowAfterFirstFrame({
   }
 }
 
-class TwitchStreamlinkApp extends StatelessWidget {
+class TwitchStreamlinkApp extends StatefulWidget {
   const TwitchStreamlinkApp({super.key, this.startup, this.startHidden = false});
 
   /// The config as main() read it, for the first load.
@@ -299,6 +300,21 @@ class TwitchStreamlinkApp extends StatelessWidget {
 
   /// The window starts hidden to the tray.
   final bool startHidden;
+
+  @override
+  State<TwitchStreamlinkApp> createState() => _TwitchStreamlinkAppState();
+}
+
+class _TwitchStreamlinkAppState extends State<TwitchStreamlinkApp> {
+  /// The shell's live heartbeat, provided ABOVE the navigator.
+  ///
+  /// Provided from MainScreen's own build it would reach only the main route,
+  /// and the LEDs in dialogs - routes of their own - would keep private
+  /// controllers. The controller lives in MainScreen (it is gated on what is
+  /// live there), below the navigator, so this proxy is what the tree sees:
+  /// MainScreen attaches its controller, and until then it rests at 1.0, the
+  /// parked value.
+  final ProxyAnimation _shellPulse = ProxyAnimation(kAlwaysCompleteAnimation);
 
   @override
   Widget build(BuildContext context) {
@@ -314,7 +330,15 @@ class TwitchStreamlinkApp extends StatelessWidget {
           // active material.
           theme: buildAppTheme(isDark: false),
           darkTheme: buildAppTheme(isDark: true),
-          home: MainScreen(startup: startup, startHidden: startHidden),
+          builder: (context, child) => NeuPulse(
+            pulse: _shellPulse,
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: MainScreen(
+            startup: widget.startup,
+            startHidden: widget.startHidden,
+            shellPulse: _shellPulse,
+          ),
         );
       },
     );
@@ -322,13 +346,22 @@ class TwitchStreamlinkApp extends StatelessWidget {
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key, this.startup, this.startHidden = false});
+  const MainScreen({
+    super.key,
+    this.startup,
+    this.startHidden = false,
+    this.shellPulse,
+  });
 
   /// The config main() read at startup. Used by the first load only.
   final StartupConfig? startup;
 
   /// The window starts hidden to the tray, so it is not on screen.
   final bool startHidden;
+
+  /// Where the shell's heartbeat is published for the whole app; see
+  /// [_TwitchStreamlinkAppState._shellPulse].
+  final ProxyAnimation? shellPulse;
 
   bool get isFirstRun => startup?.isFirstRun ?? false;
 
@@ -495,10 +528,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // only ever touched again by dispose(), so it drove a 60fps rebuild for
     // the entire life of the process - including while the app sat in the
     // tray, which is its normal resting state, with nothing live to pulse.
+    // Parked at 1.0, the value a stopped pulse settles at, so nothing that
+    // breathes with it starts out dimmed.
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
+      value: 1.0,
     );
+    // Every pulsing indicator in the app - dialogs included - breathes with
+    // this one controller, through the NeuPulse above the navigator.
+    widget.shellPulse?.parent = _pulseController;
 
     _logAppDiagnostics();
 
@@ -985,6 +1024,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   void dispose() {
     windowManager.removeListener(this);
     _singleInstanceChannel.setMethodCallHandler(null);
+    // Detached before the controller goes: the proxy outlives this screen.
+    widget.shellPulse?.parent = kAlwaysCompleteAnimation;
     _recentScroll.dispose();
     _vodSearchController.dispose();
     _pulseController?.dispose();
@@ -1228,11 +1269,19 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// the app means the same thing ("this is live"), and independent
   /// controllers would drift out of phase, so a sidebar of live channels would
   /// shimmer instead of breathe.
+  ///
+  /// The LEDs follow this gate too, dialogs included (see NeuPulse): a
+  /// pulsing LED only ever marks something live, so "nothing live" and "an
+  /// LED is breathing" cannot both be true - with one exception this gate now
+  /// covers, the open channel. Its header shows a breathing LED and badge
+  /// while it is live, and a live followed channel that is not a favourite
+  /// used to leave both parked.
   void _updatePulse() {
     final controller = _pulseController;
     if (controller == null) return;
 
     final somethingLive = _channels.any((c) => c.isLive) ||
+        (_selectedChannel?.isLive ?? false) ||
         _playerService.runningChannels.isNotEmpty ||
         _playerService.playingVodIds.isNotEmpty;
     // Gated here rather than in each consumer, so honouring the setting is not
@@ -2034,6 +2083,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _selectedVodIds.clear();
       _vodsError = null;
     });
+    // The open channel is part of the pulse's gate (its header breathes
+    // while it is live), so selecting one can start or stop it.
+    _updatePulse();
     if (_settings.twitchOauthToken.trim().isNotEmpty) {
       _fetchVodsForChannel(channel);
     }
