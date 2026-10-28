@@ -76,22 +76,34 @@ class ScreenHarness {
       AppSettings()..twitchOauthToken = 'oauth:account-token';
 
   /// Starts the app with [favorites] in its config and runs its startup.
+  ///
+  /// [channels] are favourites with settings of their own, after
+  /// [favorites]; [config] adds to or replaces the rest of the file.
+  /// [files] are written into the storage folder, by name, before the app
+  /// starts - yt-dlp's archive, for one.
   Future<void> launch(
     WidgetTester tester, {
     List<String> favorites = const <String>[],
+    List<TwitchChannel> channels = const <TwitchChannel>[],
     AppSettings? settings,
+    Map<String, dynamic> config = const <String, dynamic>{},
+    Map<String, String> files = const <String, String>{},
     Size size = const Size(1400, 900),
   }) async {
     final effective = settings ?? defaultSettings();
-    final config = <String, dynamic>{
+    final stored = <String, dynamic>{
       'channels': [
         for (final name in favorites) TwitchChannel(username: name).toJson(),
+        for (final channel in channels) channel.toJson(),
       ],
       'settings': effective.toJson(),
       'local_vods_progress': <String, dynamic>{},
       'downloaded_vods': <String, dynamic>{},
+      ...config,
     };
-    storage = MemoryStorageService(log: log, config: config);
+    storage = MemoryStorageService(log: log, config: stored);
+    files.forEach(
+        (name, text) => storage.getStorageFile(name).writeAsStringSync(text));
 
     // The global look, as main() seeds it before runApp, and put back
     // afterwards for the next test.
@@ -133,7 +145,7 @@ class ScreenHarness {
       // As main() hands it over: read and parsed once, before runApp.
       startup: StartupConfig(
         existed: true,
-        data: json.decode(json.encode(config)) as Map<String, dynamic>,
+        data: json.decode(json.encode(stored)) as Map<String, dynamic>,
       ),
       services: AppServices(
         storage: storage,

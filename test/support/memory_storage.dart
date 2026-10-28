@@ -53,8 +53,9 @@ class MemoryStorageService extends StorageService {
     List<TwitchChannel> channels,
     AppSettings settings,
     Map<String, int> localProgress,
-    Map<String, String> downloadedVods,
-  ) async {
+    Map<String, String> downloadedVods, {
+    Map<String, int>? downloadHistory,
+  }) async {
     configWrites++;
     log?.add('save.config');
     config = _copy({
@@ -62,6 +63,7 @@ class MemoryStorageService extends StorageService {
       'settings': settings.toJson(),
       'local_vods_progress': localProgress,
       'downloaded_vods': downloadedVods,
+      'download_history': ?downloadHistory,
     });
   }
 

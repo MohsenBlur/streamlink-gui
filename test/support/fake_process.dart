@@ -107,9 +107,23 @@ class FakeLauncher {
   /// CreateProcess plus whatever the child does before Dart hears back.
   Duration startDelay = Duration.zero;
 
+  /// When set, each start waits for it before the process exists, and
+  /// [starting] counts the starts held there.
+  Completer<void>? startGate;
+  int starting = 0;
+
   Future<Process> start(String executable, List<String> arguments,
       {Map<String, String>? environment}) async {
     if (startDelay > Duration.zero) await Future<void>.delayed(startDelay);
+    final gate = startGate;
+    if (gate != null) {
+      starting++;
+      try {
+        await gate.future;
+      } finally {
+        starting--;
+      }
+    }
     final p = FakeProcess(executable, arguments, pid: _nextPid);
     _nextPid += 2;
     launched.add(p);

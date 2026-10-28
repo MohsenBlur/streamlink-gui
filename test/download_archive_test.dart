@@ -93,6 +93,57 @@ void main() {
         reason: 'opening it for the rewrite must not create it');
   });
 
+  group('a download queued by hand', () {
+    TwitchVideo vod(String id) => TwitchVideo(
+          id: id,
+          title: 'Some VOD',
+          duration: '1h0m0s',
+          thumbnailUrl: '',
+          viewCount: '0',
+          publishedAt: DateTime(2026),
+        );
+
+    Future<void> untilLaunched() async {
+      for (var i = 0; i < 500 && launcher.launched.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(launcher.launched, isNotEmpty);
+    }
+
+    test('takes its line out of the archive before yt-dlp starts', () async {
+      // A line builds before the id match left behind - or one yt-dlp wrote
+      // while skipping a VOD without a file - made Download exit 0 with no
+      // file, and the auto-download pass will never fetch such a VOD again.
+      archive.writeAsStringSync('twitchvod v1\ntwitchvod v2\n');
+      service.queueVodDownload(
+          vod('1'), 'chan', AppSettings(vodDownloadFolder: temp.path),
+          byHand: true);
+      await untilLaunched();
+      expect(archive.readAsLinesSync(), ['twitchvod v2']);
+    });
+
+    test('but one the auto-download pass queues leaves it there', () async {
+      archive.writeAsStringSync('twitchvod v1\n');
+      service.queueVodDownload(
+          vod('1'), 'chan', AppSettings(vodDownloadFolder: temp.path));
+      await untilLaunched();
+      expect(archive.readAsLinesSync(), ['twitchvod v1']);
+    });
+  });
+
+  test("reads the Twitch VODs the archive records, in yt-dlp's order",
+      () async {
+    // The download history's seed for a config from before it existed.
+    expect(await service.readArchivedVodIds(), isEmpty, reason: 'no archive');
+    archive.writeAsStringSync('twitchvod v30\r\n'
+        'twitchvod 20\n'
+        'youtube dQw4w9WgXcQ\n'
+        '\n'
+        'twitchvod vx\n'
+        '  TwitchVod v10  \n');
+    expect(await service.readArchivedVodIds(), ['30', '20', '10']);
+  });
+
   group('beside yt-dlp, which locks the whole file', () {
     // yt-dlp takes LockFileEx over the whole file to read it and to append a
     // line, and RandomAccessFile.lock takes that same range. Windows byte-

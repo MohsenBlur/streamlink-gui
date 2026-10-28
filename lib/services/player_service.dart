@@ -485,6 +485,33 @@ class PlayerService {
     return id == vodId || id == 'v$vodId';
   }
 
+  /// The Twitch VOD ids yt-dlp's archive [text] records, in the order it
+  /// recorded them: its `twitchvod v<id>` lines, as [isArchiveLineFor]
+  /// reads them.
+  static List<String> archivedVodIds(String text) {
+    final ids = <String>[];
+    for (final line in const LineSplitter().convert(text)) {
+      final parts = line.trim().split(RegExp(r'\s+'));
+      if (parts.length < 2 || parts.first.toLowerCase() != 'twitchvod') continue;
+      final match = RegExp(r'^v?(\d+)$').firstMatch(parts.last);
+      if (match != null) ids.add(match.group(1)!);
+    }
+    return ids;
+  }
+
+  /// [archivedVodIds] of the archive on disk; empty when there is none or it
+  /// cannot be read. Never throws.
+  Future<List<String>> readArchivedVodIds() async {
+    final archivePath = downloadArchiveFilePath?.trim() ?? '';
+    if (archivePath.isEmpty) return const <String>[];
+    try {
+      final bytes = await File(archivePath).readAsBytes();
+      return archivedVodIds(utf8.decode(bytes, allowMalformed: true));
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
   /// Every archive rewrite this service has started, in order; see
   /// [removeVodFromArchive].
   Future<void> _archiveWrites = Future<void>.value();
@@ -648,16 +675,49 @@ class PlayerService {
     bool needsFfmpegFallback = false;
 
     try {
-      // A VOD deleted and then downloaded again must be out of the archive
-      // before yt-dlp reads it, or yt-dlp skips it as already done and exits
-      // 0 with no file. Bounded, so an archive some other program keeps
-      // locked cannot hold every download at "Starting...".
-      await _archiveWrites.timeout(const Duration(seconds: 5), onTimeout: () {});
-      final proc = await _startProcess(
-        _getExecutablePath('yt-dlp'),
-        args,
-        environment: _getEnvironmentWithBin(),
-      );
+      // Until its process exists, a cancel has nothing to end: it is noted
+      // (_cancelledWhileStarting) and carried out here once it does.
+      _startingDownloads.add(vodId);
+      final Process proc;
+      try {
+        // A VOD deleted and then downloaded again must be out of the archive
+        // before yt-dlp reads it, or yt-dlp skips it as already done and
+        // exits 0 with no file. Bounded, so an archive some other program
+        // keeps locked cannot hold every download at "Starting...".
+        await _archiveWrites.timeout(const Duration(seconds: 5), onTimeout: () {});
+        if (_startCalledOff(vodId)) {
+          _endCalledOffStart(vodId, claim, -1);
+          return;
+        }
+        proc = await _startProcess(
+          _getExecutablePath('yt-dlp'),
+          args,
+          environment: _getEnvironmentWithBin(),
+        );
+      } finally {
+        _startingDownloads.remove(vodId);
+      }
+
+      if (_startCalledOff(vodId)) {
+        // It started after all, and used to download in full: the cancel had
+        // already cleared its state, so nothing showed it, and only a second
+        // cancel once its progress surfaced could stop it. Ended at once
+        // instead, as the cancel would have ended a running one.
+        final cancelled = _cancelledWhileStarting.contains(vodId);
+        unawaited(proc.stdout.drain<void>().catchError((_) {}));
+        unawaited(proc.stderr.drain<void>().catchError((_) {}));
+        try {
+          await _endProcessTrees([proc]);
+        } catch (_) {}
+        final exitCode = await proc.exitCode;
+        // The cancel deleted the VOD's files before this one could write
+        // any. Stopping everything leaves them, as it does a running one's.
+        if (cancelled) {
+          deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
+        }
+        _endCalledOffStart(vodId, claim, exitCode);
+        return;
+      }
 
       activeDownloadProcesses[vodId] = proc;
 
@@ -680,9 +740,8 @@ class PlayerService {
         }
         // Cancelled and queued again: a yt-dlp still talking on its way out
         // (taskkill returns before its target is gone) would overwrite the new
-        // entry's "Queued". Only then: one a cancel could not stop at all,
-        // because it was still starting, shows its progress again, and so
-        // can be cancelled again.
+        // entry's "Queued". Only then: what one cancelled and not queued again
+        // prints is shown until its exit clears it.
         final owner = _downloadStateOwners[vodId];
         if (owner != null && owner != claim) return;
 
@@ -808,11 +867,42 @@ class PlayerService {
         }
       }
     } catch (e) {
+      // A start that fails after its cancel is the cancel's: the user was
+      // told "Download cancelled", not that it failed.
+      if (_cancelledWhileStarting.contains(vodId)) {
+        _endCalledOffStart(vodId, claim, -1);
+        return;
+      }
       log(key, '[System Error] Download failed to start: $e');
       _cleanupDownloadState(vodId, onlyFor: claim);
       onDownloadEnded?.call(vodId, -1);
       onDownloadFailed?.call(vodId, vod.title, -1);
     }
+  }
+
+  /// Downloads whose yt-dlp is being started: past "Starting...", with no
+  /// process yet for a cancel to end.
+  final Set<String> _startingDownloads = {};
+
+  /// Downloads cancelled while their yt-dlp was starting, for
+  /// [startVodDownload] to end the moment it exists. The cancel had nothing
+  /// to end and marked nothing, so the yt-dlp started anyway and downloaded
+  /// the VOD, with the cancel having cleared every trace of it on screen.
+  final Set<String> _cancelledWhileStarting = {};
+
+  /// Whether a start still on its way was cancelled, or everything was
+  /// stopped ([stopAll]), since it began.
+  bool _startCalledOff(String vodId) =>
+      _cancelledWhileStarting.contains(vodId) || _shuttingDown;
+
+  /// What a start called off still owes: its log session's end. A cancel
+  /// has already cleared the rest and told the screen; [stopAll] leaves the
+  /// queue saved, as it does for a running download.
+  void _endCalledOffStart(String vodId, int claim, int exitCode) {
+    _cancelledWhileStarting.remove(vodId);
+    _cleanupDownloadState(vodId, onlyFor: claim);
+    onDownloadEnded?.call(vodId, exitCode);
+    log(logKeyForDownload(vodId), '[System] Download cancelled by user.');
   }
 
   /// `[download]  45.3% of ~1.23GiB at 2.34MiB/s ETA 05:12` - anchored, so a
@@ -847,9 +937,8 @@ class PlayerService {
   /// With [onlyFor], only while that claim (see [_claimDownloadState]) still
   /// owns the state, or nothing does. A cancel releases the state without
   /// claiming it, and the cancelled run must still clear what it records
-  /// after that: a yt-dlp the cancel could not stop because it was still
-  /// starting, which used to stay on record as running and refuse every
-  /// later queueing of the VOD.
+  /// after that: the progress a yt-dlp prints between taskkill returning and
+  /// its exit, which used to stay on show for good.
   void _cleanupDownloadState(String vodId, {int? onlyFor}) {
     final owner = _downloadStateOwners[vodId];
     if (onlyFor != null && owner != null && owner != onlyFor) return;
@@ -863,7 +952,15 @@ class PlayerService {
 
   final Map<String, bool> downloadTaskFastDownloadOverrides = {};
 
-  void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool? overrideDisablePostProcessing}) {
+  /// [byHand] for a download the user asked for, which yt-dlp's archive is
+  /// no reason to skip: its line there, if any, is taken out before yt-dlp
+  /// starts. Builds before the archive matched Twitch's ids never took one
+  /// out, so a VOD deleted under them - and one yt-dlp ever skipped as done
+  /// without a file - came back from Download as "completed", with no file.
+  /// Not for the auto-download pass, which must not fetch such a VOD again,
+  /// nor for the resume at launch.
+  void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings,
+      {bool? overrideDisablePostProcessing, bool byHand = false}) {
     // Queueing a download means we are not shutting down after all.
     //
     // stopAll() latches _shuttingDown, and it is not only called on exit: the
@@ -880,6 +977,9 @@ class PlayerService {
     if (overrideDisablePostProcessing != null) {
       downloadTaskFastDownloadOverrides[vodId] = overrideDisablePostProcessing;
     }
+    // startVodDownload waits for the archive's rewrites before yt-dlp reads
+    // it, this one included.
+    if (byHand) unawaited(removeVodFromArchive(vodId));
 
     _claimDownloadState(vodId);
     downloadChannelNames[vodId] = channelName;
@@ -968,6 +1068,10 @@ class PlayerService {
       try {
         await _endProcessTrees([proc]);
       } catch (_) {}
+    } else if (_startingDownloads.contains(vodId)) {
+      // Its yt-dlp is on its way up: ended by startVodDownload once it
+      // exists, or never started if it does not yet.
+      _cancelledWhileStarting.add(vodId);
     }
 
     // A download between its failed first run and its ffmpeg retry has no

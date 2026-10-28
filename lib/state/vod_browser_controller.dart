@@ -227,9 +227,7 @@ class VodBrowserController extends ChangeNotifier {
       // was dropped here, and when that fetch was the channel's first one -
       // a broadcast ending while the channel was just being opened - its
       // list became the baseline and the VOD was never announced.
-      if (endedBroadcastStart != null) {
-        _firstPageAsk?.endedBroadcastStart = endedBroadcastStart;
-      }
+      _firstPageAsk?.lookFor(endedBroadcastStart);
       return running;
     }
     return _startFirstPage(
@@ -269,6 +267,7 @@ class VodBrowserController extends ChangeNotifier {
     final session = _session;
     bool isCurrent() => session == _session && request == _firstPageRequest;
     final startedAt = _now();
+    final listedAs = ChannelSnapshot.of(channel);
     if (showSpinner) _startSpinner();
     try {
       final result = await _api.fetchVodsForChannel(
@@ -282,6 +281,7 @@ class VodBrowserController extends ChangeNotifier {
       // for its own channel, and used to be thrown away before it was cached.
       final changed = _absorb(channel, result,
           fetchedAt: startedAt,
+          listedAs: listedAs,
           detailed: true,
           visible: isCurrent(),
           endedBroadcastStart: ask.endedBroadcastStart);
@@ -357,18 +357,23 @@ class VodBrowserController extends ChangeNotifier {
   /// games already known are kept, and the list does not count as freshly
   /// fetched for [visibleRefreshInterval], so the next full refresh still
   /// comes round to fill them in.
+  ///
+  /// [listedAs] is [channel]'s broadcast as it was when the request began;
+  /// without it, as it is now.
   bool ingest(
     TwitchChannel channel,
     VodsFetchResult result, {
     required DateTime fetchedAt,
     bool detailed = true,
     DateTime? endedBroadcastStart,
+    ChannelSnapshot? listedAs,
   }) {
     final shown = _fetchedAt;
     final visible = isShowing(channel) &&
         (shown == null || !fetchedAt.isBefore(shown));
     final changed = _absorb(channel, result,
         fetchedAt: fetchedAt,
+        listedAs: listedAs ?? ChannelSnapshot.of(channel),
         detailed: detailed,
         visible: visible,
         endedBroadcastStart: endedBroadcastStart);
@@ -378,9 +383,12 @@ class VodBrowserController extends ChangeNotifier {
 
   bool _prefetching = false;
 
-  /// Each channel's broadcast as it was when its list last reached the
-  /// cache, by clean username: a list fetched before a broadcast started or
-  /// ended is missing that broadcast's VOD, however young it is.
+  /// Each channel's broadcast as it was when the request for its cached list
+  /// began, by clean username: a list fetched before a broadcast started or
+  /// ended is missing that broadcast's VOD, however young it is. It used to
+  /// be taken when the answer landed, so a broadcast that started or ended
+  /// while the request was out counted as listed, and the list without its
+  /// VOD passed for current for the whole of the cache's TTL.
   final Map<String, ChannelSnapshot> _listedAs = <String, ChannelSnapshot>{};
 
   /// Clean usernames whose list [checkForNewVods] is fetching right now.
@@ -398,19 +406,29 @@ class VodBrowserController extends ChangeNotifier {
   /// (opening a channel fetches its first page, positions and all), the open
   /// channel is left to [refresh], and so is a channel [checkForNewVods] is
   /// already fetching.
-  Future<void> prefetch(Iterable<TwitchChannel> channels) async {
+  ///
+  /// [open] is the channel the screen has open, or null when it shows none.
+  /// Only that one is left to [refresh]: the screen refreshes the channel it
+  /// has open, while this controller goes on holding the last one opened
+  /// after the screen goes back to the dashboard. Skipping whatever it held
+  /// left that channel to no refresh at all until another one was opened.
+  Future<void> prefetch(Iterable<TwitchChannel> channels,
+      {required TwitchChannel? open}) async {
     if (_prefetching || _settings().twitchOauthToken.trim().isEmpty) return;
     _prefetching = true;
     try {
+      final refreshed = open != null && isShowing(open) ? open : null;
       for (final channel in channels.take(prefetchLimit).toList()) {
         if (_disposed || _api.helixRateLimitedUntil != null) return;
         final key = _key(channel.username);
-        if (isShowing(channel) || _checking.contains(key)) continue;
+        if (refreshed != null && _sameChannel(refreshed, channel)) continue;
+        if (_checking.contains(key)) continue;
         if (cache.isFresh(channel.username) &&
             !broadcastChanged(_listedAs[key], channel)) {
           continue;
         }
         final startedAt = _now();
+        final listedAs = ChannelSnapshot.of(channel);
         try {
           final result = await _api.fetchVodsForChannel(
             channel: channel,
@@ -421,7 +439,8 @@ class VodBrowserController extends ChangeNotifier {
           if (_disposed) return;
           // Not detailed: should the channel have been opened meanwhile, a
           // list without watch positions must not count as its refresh.
-          ingest(channel, result, fetchedAt: startedAt, detailed: false);
+          ingest(channel, result,
+              fetchedAt: startedAt, listedAs: listedAs, detailed: false);
         } catch (_) {}
       }
     } finally {
@@ -438,6 +457,7 @@ class VodBrowserController extends ChangeNotifier {
     if (_settings().twitchOauthToken.trim().isEmpty) return;
     final key = _key(channel.username);
     final startedAt = _now();
+    final listedAs = ChannelSnapshot.of(channel);
     _checking.add(key);
     try {
       final result = await _api.fetchVodsForChannel(
@@ -449,6 +469,7 @@ class VodBrowserController extends ChangeNotifier {
       if (_disposed) return;
       ingest(channel, result,
           fetchedAt: startedAt,
+          listedAs: listedAs,
           detailed: false,
           endedBroadcastStart: endedBroadcastStart);
     } catch (_) {
@@ -464,6 +485,7 @@ class VodBrowserController extends ChangeNotifier {
     TwitchChannel channel,
     VodsFetchResult result, {
     required DateTime fetchedAt,
+    required ChannelSnapshot listedAs,
     required bool detailed,
     required bool visible,
     DateTime? endedBroadcastStart,
@@ -501,7 +523,7 @@ class VodBrowserController extends ChangeNotifier {
         fetchedAt: fetchedAt,
       );
     }
-    _listedAs[_key(channel.username)] = ChannelSnapshot.of(channel);
+    _listedAs[_key(channel.username)] = listedAs;
 
     final appeared = _detector.observe(
       channel.username,
@@ -583,4 +605,17 @@ class _FirstPageAsk {
   /// The start of a broadcast that ended on the channel (see
   /// [NewVodDetector.observe]).
   DateTime? endedBroadcastStart;
+
+  /// One more ended broadcast to look for; the earliest start is kept. On a
+  /// channel's first list everything dated from that start on is announced,
+  /// so the earliest covers each broadcast that ended while the fetch was
+  /// out. The latest used to win, and two ends inside one fetch announced
+  /// only the second one's VOD.
+  void lookFor(DateTime? start) {
+    if (start == null) return;
+    final current = endedBroadcastStart;
+    if (current == null || start.isBefore(current)) {
+      endedBroadcastStart = start;
+    }
+  }
 }

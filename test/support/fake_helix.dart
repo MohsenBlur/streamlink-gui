@@ -36,6 +36,11 @@ class FakeHelix {
   /// helix/videos answers 500 while set.
   bool failVideos = false;
 
+  /// How far into each VOD, by id, the browser token's account has watched,
+  /// in seconds: what the GQL viewingHistory query answers. None for a VOD
+  /// not listed.
+  final Map<String, int> watchPositions = <String, int>{};
+
   /// When set, helix/videos waits for it before answering.
   Completer<void>? holdVideos;
 
@@ -95,14 +100,16 @@ class FakeHelix {
   /// Ends [login]'s broadcast.
   void goOffline(String login) => _streams.remove(user(login));
 
-  /// Publishes a VOD at the top of [login]'s archive. Returns its id.
+  /// Publishes a VOD at the top of [login]'s archive. Returns its id: [id],
+  /// or one of its own - which, unlike Twitch's, is not a number.
   String addVideo(
     String login, {
+    String? id,
     DateTime? publishedAt,
     String? title,
     String duration = '1h0m0s',
   }) {
-    final videoId = 'v${_nextVideo++}';
+    final videoId = id ?? 'v${_nextVideo++}';
     final at = publishedAt ?? now;
     (_videos[user(login)] ??= <Map<String, dynamic>>[]).insert(0, {
       'id': videoId,
@@ -236,8 +243,22 @@ class FakeHelix {
         if (failVideos) return _json({'error': 'oops'}, status: 500);
         return _videosPage(request.url.queryParameters);
       case '/gql':
-        // Chapter (games) lookups; watch progress needs a browser token, and
-        // the tests have none.
+        if (request.body.contains('viewingHistory')) {
+          final videoId =
+              (json.decode(request.body) as Map)['variables']?['videoID'];
+          final position = watchPositions[videoId];
+          return _json({
+            'data': {
+              'video': {
+                'self': {
+                  'viewingHistory':
+                      position == null ? null : {'position': position},
+                },
+              },
+            },
+          });
+        }
+        // Chapter (games) lookups.
         return _json({
           'data': {
             'video': {

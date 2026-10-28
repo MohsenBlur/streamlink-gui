@@ -1348,10 +1348,9 @@ class TwitchApiService {
 
     final newVods = videosList.map((item) => TwitchVideo.fromJson(item)).toList();
     bool isWebTokenExpired = false;
+    final webToken = _webToken(settings);
 
-    // Enrich in small batches rather than firing one request per VOD at once.
-    // A 20-VOD page previously issued up to 40 simultaneous GQL requests, with
-    // no concurrency limit and no 429 handling.
+    // Enriched in small batches (_inBatches), not one request per VOD at once.
     Future<void> enrich(TwitchVideo vod) async {
       // 1. Games: served from cache when known, and skipped entirely when the
       //    caller does not display them.
@@ -1400,95 +1399,142 @@ class TwitchApiService {
         } catch (_) {}
       }
 
-      // 2. Fetch watch progress via GQL viewingHistory query if web token is present
-      String webToken = settings.twitchWebOauthToken.trim();
-      if (webToken.startsWith('oauth:')) {
-        webToken = webToken.substring(6);
-      }
+      // 2. Watch progress via GQL viewingHistory, when there is a browser
+      //    token; 3. the local position merged in.
       if (fetchWatchProgress && webToken.isNotEmpty) {
-        try {
-          final progressBody = json.encode({
-            'query': '''
-              query(\$videoID: ID!) {
-                video(id: \$videoID) {
-                  self {
-                    viewingHistory {
-                      position
-                    }
-                  }
-                }
-              }
-            ''',
-            'variables': {
-              'videoID': vod.id,
-            },
-          });
-
-          final progressResponse = await _post(
-            Uri.parse('https://gql.twitch.tv/gql'),
-            headers: {
-              'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
-              'Authorization': 'OAuth $webToken',
-              'Content-Type': 'application/json',
-            },
-            body: progressBody,
-          );
-
-          if (progressResponse.statusCode == 200) {
-            final decoded = json.decode(progressResponse.body);
-            final position = decoded['data']?['video']?['self']?['viewingHistory']?['position'] as int?;
-            if (position != null) {
-              vod.watchPosition = position;
-              final totalSeconds = parseDurationToSeconds(vod.duration);
-              if (totalSeconds > 0) {
-                vod.watchProgress = position / totalSeconds;
-              }
-            }
-          } else if (progressResponse.statusCode == 401) {
-            isWebTokenExpired = true;
-            // Same notifier as the account token, different instance - so the
-            // UI has to name which credential expired and cannot imply the
-            // other one did too.
-            _auth.recordBrowserExpired();
-          }
-        } catch (_) {}
+        if (await _readWatchPosition(vod, webToken)) isWebTokenExpired = true;
       }
-
-      final localPos = localVodsProgress[vod.id];
-      final totalSeconds = parseDurationToSeconds(vod.duration);
-      // Defense in depth behind the confirmation gate: a stored position
-      // past the end of the video is corruption from before the gate
-      // existed, and max-merging it back onto the model would resurrect it
-      // forever. (+6s: the gate's own tolerance, for a final segment's
-      // rounding.)
-      final localPlausible = localPos != null &&
-          (totalSeconds <= 0 || localPos <= totalSeconds + 6);
-      if (localPlausible &&
-          (vod.watchPosition == null || localPos > vod.watchPosition!)) {
-        vod.watchPosition = localPos;
-        if (totalSeconds > 0) {
-          vod.watchProgress = localPos / totalSeconds;
-        } else {
-          vod.watchProgress = 0.0;
-        }
-      }
-
-      if (vod.watchPosition != null && vod.watchPosition! > 0) {
-        localVodsProgress[vod.id] = vod.watchPosition!;
-      }
+      _mergeLocalProgress(vod, localVodsProgress);
     }
 
-    const batchSize = 5;
-    for (var i = 0; i < newVods.length; i += batchSize) {
-      final end = (i + batchSize) > newVods.length ? newVods.length : i + batchSize;
-      await Future.wait(newVods.sublist(i, end).map(enrich));
-    }
+    await _inBatches(newVods, enrich);
 
     return VodsFetchResult(
       vods: newVods,
       nextCursor: nextCursor,
       isWebTokenExpired: isWebTokenExpired,
     );
+  }
+
+  /// The browser token's watch position for each of [vods], read into it,
+  /// with [localVodsProgress] merged in afterwards - exactly what
+  /// [fetchVodsForChannel] does for every VOD of its page unless told not
+  /// to. For a page fetched with `fetchWatchProgress: false` when only a few
+  /// of its VODs turn out to need positions: the auto-download pass reads
+  /// them for the VODs it would queue. One GQL request per VOD, five at a
+  /// time, and none without a browser token. Returns whether Twitch refused
+  /// the token.
+  Future<bool> fetchWatchProgressFor({
+    required List<TwitchVideo> vods,
+    required AppSettings settings,
+    required Map<String, int> localVodsProgress,
+  }) async {
+    final webToken = _webToken(settings);
+    var isWebTokenExpired = false;
+    await _inBatches(vods, (vod) async {
+      if (webToken.isNotEmpty && await _readWatchPosition(vod, webToken)) {
+        isWebTokenExpired = true;
+      }
+      _mergeLocalProgress(vod, localVodsProgress);
+    });
+    return isWebTokenExpired;
+  }
+
+  /// [each] for every one of [vods], in small batches rather than all at
+  /// once. A 20-VOD page previously issued up to 40 simultaneous GQL
+  /// requests, with no concurrency limit and no 429 handling.
+  static Future<void> _inBatches(
+      List<TwitchVideo> vods, Future<void> Function(TwitchVideo vod) each) async {
+    const batchSize = 5;
+    for (var i = 0; i < vods.length; i += batchSize) {
+      final end = (i + batchSize) > vods.length ? vods.length : i + batchSize;
+      await Future.wait(vods.sublist(i, end).map(each));
+    }
+  }
+
+  /// The browser token without its `oauth:` prefix; empty when there is none.
+  static String _webToken(AppSettings settings) {
+    final webToken = settings.twitchWebOauthToken.trim();
+    return webToken.startsWith('oauth:') ? webToken.substring(6) : webToken;
+  }
+
+  /// Reads [vod]'s watch position on Twitch into it: the GQL viewingHistory
+  /// query, with the browser token. Returns whether Twitch refused the token.
+  Future<bool> _readWatchPosition(TwitchVideo vod, String webToken) async {
+    try {
+      final progressBody = json.encode({
+        'query': '''
+          query(\$videoID: ID!) {
+            video(id: \$videoID) {
+              self {
+                viewingHistory {
+                  position
+                }
+              }
+            }
+          }
+        ''',
+        'variables': {
+          'videoID': vod.id,
+        },
+      });
+
+      final progressResponse = await _post(
+        Uri.parse('https://gql.twitch.tv/gql'),
+        headers: {
+          'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+          'Authorization': 'OAuth $webToken',
+          'Content-Type': 'application/json',
+        },
+        body: progressBody,
+      );
+
+      if (progressResponse.statusCode == 200) {
+        final decoded = json.decode(progressResponse.body);
+        final position = decoded['data']?['video']?['self']?['viewingHistory']?['position'] as int?;
+        if (position != null) {
+          vod.watchPosition = position;
+          final totalSeconds = parseDurationToSeconds(vod.duration);
+          if (totalSeconds > 0) {
+            vod.watchProgress = position / totalSeconds;
+          }
+        }
+      } else if (progressResponse.statusCode == 401) {
+        // Same notifier as the account token, different instance - so the
+        // UI has to name which credential expired and cannot imply the
+        // other one did too.
+        _auth.recordBrowserExpired();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// Merges the position recorded locally for [vod] into it, and the result
+  /// back into [localVodsProgress].
+  void _mergeLocalProgress(TwitchVideo vod, Map<String, int> localVodsProgress) {
+    final localPos = localVodsProgress[vod.id];
+    final totalSeconds = parseDurationToSeconds(vod.duration);
+    // Defense in depth behind the confirmation gate: a stored position
+    // past the end of the video is corruption from before the gate
+    // existed, and max-merging it back onto the model would resurrect it
+    // forever. (+6s: the gate's own tolerance, for a final segment's
+    // rounding.)
+    final localPlausible = localPos != null &&
+        (totalSeconds <= 0 || localPos <= totalSeconds + 6);
+    if (localPlausible &&
+        (vod.watchPosition == null || localPos > vod.watchPosition!)) {
+      vod.watchPosition = localPos;
+      if (totalSeconds > 0) {
+        vod.watchProgress = localPos / totalSeconds;
+      } else {
+        vod.watchProgress = 0.0;
+      }
+    }
+
+    if (vod.watchPosition != null && vod.watchPosition! > 0) {
+      localVodsProgress[vod.id] = vod.watchPosition!;
+    }
   }
 
   Future<void> syncSingleVODProgressDirect(String videoID, int position, String webToken) async {
