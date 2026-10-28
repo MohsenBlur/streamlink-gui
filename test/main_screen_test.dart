@@ -1016,6 +1016,30 @@ void main() {
     });
 
     testWidgets(
+        'a VOD the pass downloads and announces raises no New VOD toast as '
+        'well', (tester) async {
+      // A broadcast ending off screen leaves a VOD inside the auto-download
+      // window: one toast for it, the pass's, not "New VOD" too.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.goLive('alpha', archive: false);
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo());
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+
+      h.helix.goOffline('alpha');
+      final vod = h.helix.addVideo('alpha', title: 'Last night, recorded');
+      await h.advance(tester, const Duration(seconds: 61));
+      expect(ytDlpFor(h, vod), hasLength(1));
+      expect(h.notifications.titles, contains('Auto-Downloading VOD'));
+      expect(h.notifications.titles, isNot(contains('New VOD from alpha')));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'reads watch positions from Twitch only for what it would download',
         (tester) async {
       // One GQL request per VOD on the page, every minute, for every
