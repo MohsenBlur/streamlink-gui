@@ -494,17 +494,38 @@ class UpdateService {
     return appRoot;
   }
 
+  /// The updater's command line. [appPid] is this process, which the updater
+  /// waits on (`--wait-pid`) before it closes anything. It used to wait only
+  /// on the single-instance mutex, which has that fixed name only in an
+  /// installed copy: a portable copy's is named per folder, so it was sent
+  /// WM_CLOSE the moment the updater ran and terminated 2.5s later, however
+  /// far its own shutdown had got. An updater from before the flag ignores
+  /// it, and one given no flag waits on the mutex as before.
+  static List<String> updaterArguments({
+    required String targetPath,
+    required String sourcePath,
+    required String exeName,
+    required String readyFile,
+    required int appPid,
+  }) =>
+      [
+        // Positional: an updater of any age reads these three by place.
+        targetPath, sourcePath, exeName,
+        '--ready-file', readyFile,
+        '--wait-pid', '$appPid',
+      ];
+
   /// Starts the native updater on the build extracted at [sourceDir], and
   /// returns once it has confirmed it is running outside this app's job.
   ///
   /// The caller must then end this process promptly, through its normal
-  /// shutdown: the updater waits for the app to exit (its mutex, then a
-  /// WM_CLOSE and finally a kill for anything still running from the
-  /// install folder) before it swaps the files and relaunches the app. This
-  /// used to end the process itself with exit(0), which skipped everything
-  /// the app does on the way out - the tray icon stayed behind as a ghost
-  /// until the mouse passed over it, and the runner's ordered teardown of
-  /// the engine, plugins and window never ran.
+  /// shutdown: the updater waits for the app to exit (this process, for up
+  /// to 30s, then a WM_CLOSE and finally a kill for anything still running
+  /// from the install folder) before it swaps the files and relaunches the
+  /// app. This used to end the process itself with exit(0), which skipped
+  /// everything the app does on the way out - the tray icon stayed behind as
+  /// a ghost until the mouse passed over it, and the runner's ordered
+  /// teardown of the engine, plugins and window never ran.
   ///
   /// Throws, with the installation untouched, when the updater cannot be
   /// found or copied, or never confirms it started.
@@ -567,7 +588,13 @@ class UpdateService {
 
     await Process.start(
       tempRunner.path,
-      [targetPath, sourcePath, exeName, '--ready-file', sentinel.path],
+      updaterArguments(
+        targetPath: targetPath,
+        sourcePath: sourcePath,
+        exeName: exeName,
+        readyFile: sentinel.path,
+        appPid: pid,
+      ),
       mode: ProcessStartMode.detached,
     );
 

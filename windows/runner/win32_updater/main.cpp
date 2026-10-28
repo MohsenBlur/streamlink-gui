@@ -3,6 +3,7 @@
 #include <tlhelp32.h>
 #include <shellapi.h>
 #include <shlwapi.h>
+#include <cwchar>
 #include <cwctype>
 #include <string>
 #include <filesystem>
@@ -131,15 +132,74 @@ BOOL CALLBACK CloseWindowForPid(HWND hwnd, LPARAM lParam) {
     return TRUE;
 }
 
+// Whether the process runs an executable from inside dir, which must end in
+// a separator. Its image path goes to *image when there is one.
+bool RunsFromDir(HANDLE process, const std::wstring& dir, std::wstring* image) {
+    wchar_t exePath[MAX_PATH];
+    DWORD size = MAX_PATH;
+    if (!QueryFullProcessImageNameW(process, 0, exePath, &size)) return false;
+    const std::wstring path(exePath);
+    if (image) *image = path;
+    return _wcsicmp(path.substr(0, dir.length()).c_str(), dir.c_str()) == 0;
+}
+
+std::wstring WithTrailingSeparator(const fs::path& dir) {
+    std::wstring s = dir.wstring();
+    if (!s.empty() && s.back() != L'\\' && s.back() != L'/') s += L'\\';
+    return s;
+}
+
+// How long the app gets to finish its own shutdown before it is closed for
+// it. That shutdown stops its players and downloads (for at most 5s) and
+// flushes its saves; this is far past it, and still bounded, so an app that
+// hangs on the way out cannot hold the update up for good.
+const DWORD kAppExitTimeoutMs = 30000;
+
+// The app's own process, named by --wait-pid, or NULL.
+//
+// The updater used to wait only on the installed copy's single-instance
+// mutex. A portable copy's mutex is named per folder, so for one the wait
+// found nothing, and the app was sent WM_CLOSE the moment the updater ran and
+// terminated 2.5s later, wherever its shutdown had got to. Waiting on the
+// process itself works for every copy.
+//
+// Opened before SignalReady, while the app is certainly still running (it
+// waits on the ready file), and only if it runs from the folder being
+// updated, so a pid recycled since cannot make us wait on something else.
+// NULL without the flag: an app from before it passes none, and gets the
+// mutex wait as before.
+HANDLE OpenAppProcess(int argc, LPWSTR* argv, const fs::path& targetDir) {
+    const std::wstring value = ArgValue(argc, argv, L"--wait-pid");
+    if (value.empty()) return NULL;
+    wchar_t* end = nullptr;
+    const unsigned long pid = wcstoul(value.c_str(), &end, 10);
+    if (pid == 0 || end == value.c_str() || *end != L'\0') {
+        LogLine(L"Ignoring --wait-pid " + value + L": not a process id.");
+        return NULL;
+    }
+    HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                                 FALSE, static_cast<DWORD>(pid));
+    if (!process) {
+        LogLine(L"Could not open process " + value + L" (error " +
+                std::to_wstring(GetLastError()) + L").");
+        return NULL;
+    }
+    std::wstring image;
+    if (!RunsFromDir(process, WithTrailingSeparator(targetDir), &image)) {
+        LogLine(L"Process " + value + L" (" + image +
+                L") is not the application being updated; not waiting on it.");
+        CloseHandle(process);
+        return NULL;
+    }
+    return process;
+}
+
 // 1. Terminate processes whose executable resides inside target directory
 void TerminateProcessesInDir(const fs::path& targetDir) {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return;
 
-    std::wstring targetStr = targetDir.wstring();
-    if (!targetStr.empty() && targetStr.back() != L'\\' && targetStr.back() != L'/') {
-        targetStr += L'\\';
-    }
+    const std::wstring targetStr = WithTrailingSeparator(targetDir);
 
     PROCESSENTRY32W pe = { sizeof(pe) };
     if (Process32FirstW(hSnapshot, &pe)) {
@@ -147,25 +207,21 @@ void TerminateProcessesInDir(const fs::path& targetDir) {
             if (pe.th32ProcessID == GetCurrentProcessId()) continue;
             HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID);
             if (hProcess) {
-                wchar_t exePath[MAX_PATH];
-                DWORD size = MAX_PATH;
-                if (QueryFullProcessImageNameW(hProcess, 0, exePath, &size)) {
-                    std::wstring pStr(exePath);
-                    if (_wcsicmp(pStr.substr(0, targetStr.length()).c_str(), targetStr.c_str()) == 0) {
-                        LogLine(L"Closing process: " + pStr);
-                        // Ask nicely first. This used to call
-                        // PostThreadMessage(pe.th32ProcessID, WM_QUIT, ...),
-                        // passing a PROCESS id where a THREAD id is required:
-                        // it always failed, so every process ate the full
-                        // timeout and was then hard-killed - and because thread
-                        // and process ids share a namespace it could also
-                        // deliver WM_QUIT into an unrelated application.
-                        EnumWindows(CloseWindowForPid, static_cast<LPARAM>(pe.th32ProcessID));
-                        if (WaitForSingleObject(hProcess, 2500) == WAIT_TIMEOUT) {
-                            LogLine(L"  did not exit in time; terminating.");
-                            TerminateProcess(hProcess, 0);
-                            WaitForSingleObject(hProcess, 2000);
-                        }
+                std::wstring pStr;
+                if (RunsFromDir(hProcess, targetStr, &pStr)) {
+                    LogLine(L"Closing process: " + pStr);
+                    // Ask nicely first. This used to call
+                    // PostThreadMessage(pe.th32ProcessID, WM_QUIT, ...),
+                    // passing a PROCESS id where a THREAD id is required:
+                    // it always failed, so every process ate the full
+                    // timeout and was then hard-killed - and because thread
+                    // and process ids share a namespace it could also
+                    // deliver WM_QUIT into an unrelated application.
+                    EnumWindows(CloseWindowForPid, static_cast<LPARAM>(pe.th32ProcessID));
+                    if (WaitForSingleObject(hProcess, 2500) == WAIT_TIMEOUT) {
+                        LogLine(L"  did not exit in time; terminating.");
+                        TerminateProcess(hProcess, 0);
+                        WaitForSingleObject(hProcess, 2000);
                     }
                 }
                 CloseHandle(hProcess);
@@ -568,6 +624,9 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         return 0;
     }
 
+    // Before the signal below: until then the app is still waiting for it.
+    HANDLE appProcess = OpenAppProcess(argc, argv, targetDir);
+
     // Safely outside the app's job object (or never in one). Tell the app it
     // may now exit: until this point, its exit would close the job and kill us
     // in the middle of replacing its files.
@@ -575,11 +634,27 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         LogLine(L"Signalled ready; the application may now exit.");
     }
 
-    // Wait for the app to release its single-instance mutex.
-    HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, MUTEX_NAME);
-    if (hMutex) {
-        WaitForSingleObject(hMutex, 6000);
-        CloseHandle(hMutex);
+    if (appProcess) {
+        // Its own shutdown first; WM_CLOSE and termination below are only for
+        // an app still running once this has run out.
+        const ULONGLONG waitStart = GetTickCount64();
+        if (WaitForSingleObject(appProcess, kAppExitTimeoutMs) == WAIT_OBJECT_0) {
+            LogLine(L"The application exited after " +
+                    std::to_wstring(GetTickCount64() - waitStart) + L" ms.");
+        } else {
+            LogLine(L"The application is still running after " +
+                    std::to_wstring(kAppExitTimeoutMs / 1000) + L"s; closing it.");
+        }
+        CloseHandle(appProcess);
+    } else {
+        // Wait for the app to release its single-instance mutex. Only the
+        // installed copy's has this name, so a portable copy from before
+        // --wait-pid is closed below without this wait.
+        HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, MUTEX_NAME);
+        if (hMutex) {
+            WaitForSingleObject(hMutex, 6000);
+            CloseHandle(hMutex);
+        }
     }
 
     TerminateProcessesInDir(targetDir);
