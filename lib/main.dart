@@ -25,6 +25,7 @@ import 'state/settings_repository.dart';
 import 'state/settings_save.dart';
 import 'services/downloads_controller.dart';
 import 'theme/type_probe.dart';
+import 'widgets/shell/announcements.dart';
 import 'widgets/shell/app_dialogs.dart';
 import 'widgets/shell/app_frame.dart';
 import 'widgets/shell/app_snackbar.dart';
@@ -576,7 +577,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // shows them (see build); the channels show nearly everywhere.
     _channelsCtl.addListener(_onRefreshStateChanged);
     _channelsCtl.onPass = _onChannelsPass;
-    _vodBrowser.onNewVods = _onNewVods;
+    _vodBrowser.onNewVods = _announcements.newVods;
 
     storageWriteFailure.addListener(_onSaveFailureChanged);
     _account
@@ -1067,6 +1068,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     showMessage: _showSnackBar,
   );
 
+  /// The went-live and New VOD toasts, and what a click on one does
+  /// (Announcements).
+  late final Announcements _announcements = Announcements(
+    notifications: _notifications,
+    favorites: _channels,
+    automation: _automation,
+    player: _playerService,
+    settings: () => _settings,
+    mounted: () => mounted,
+    windowVisible: () => _shell.windowVisible,
+    libraryOpen: () => _library.isOpen,
+    openChannel: () => _selectedChannel,
+    showWindow: _shell.showWindow,
+    select: _selectChannel,
+  );
+
   late final VodBrowserController _vodBrowser = VodBrowserController(
     api: _apiService,
     settings: () => _settings,
@@ -1146,7 +1163,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
     // Announced first and automation after, as before: an auto-play's own
     // toast follows the went-live toast it is about.
-    unawaited(_announceWentLive(pass).whenComplete(() {
+    unawaited(_announcements.wentLive(pass).whenComplete(() {
       if (mounted) _checkFavoritesAutomation();
     }));
     // Liveness just changed, so the pulse may need to start or stop.
@@ -1172,81 +1189,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // dashboard" there is none, though the browser still holds the last one.
     unawaited(_vodBrowser.prefetch(_channels, open: _selectedChannel));
     _shell.rebuildTrayMenu();
-  }
-
-  /// The went-live toasts for one pass, one after another, over the pass's
-  /// own lists. This used to await each toast inside a loop over _channels,
-  /// and starring a channel during that await threw
-  /// ConcurrentModificationError and skipped the rest of the pass.
-  Future<void> _announceWentLive(ChannelsPass pass) async {
-    final channels = <TwitchChannel>[
-      if (_settings.notifyWentLive) ...pass.favoritesWentLive,
-      if (_settings.notifyFollowedWentLive) ...pass.followedWentLive,
-    ];
-    for (final channel in channels) {
-      try {
-        final gameText = channel.game ?? 'Twitch';
-        final titleText = channel.streamTitle ?? 'Streaming Live!';
-        await _notifications.show(AppNotification(
-          title: '${channel.username} is now LIVE!',
-          body: 'Playing $gameText\n$titleText',
-          onClick: () async {
-            await _shell.showWindow();
-            if (!mounted) return;
-            _selectChannel(channel);
-
-            _playerService.launchStreamlinkForLive(
-              channel.username,
-              channel.isLive,
-              channel.streamTitle,
-              channel.game,
-              _settings,
-            );
-          },
-        ));
-      } catch (e) {
-        print('[Favorites Notification] Error displaying desktop toast: $e');
-      }
-    }
-  }
-
-  /// A channel's archive gained a VOD (see VodBrowserController.onNewVods).
-  /// Announced for favourites only, and not for the open channel while the
-  /// window is on screen: the grid shows it arriving. Nor for a VOD the
-  /// auto-download pass takes, which has a toast of its own.
-  void _onNewVods(TwitchChannel channel, List<TwitchVideo> vods,
-      List<TwitchVideo> firstPage) {
-    if (!mounted || !_settings.notifyNewVod || vods.isEmpty) return;
-    final name = channel.username.toLowerCase().trim();
-    final index = _channels.indexWhere((c) => c.username == name);
-    if (index == -1) return;
-    if (_shell.windowVisible &&
-        !_library.isOpen &&
-        _selectedChannel?.username == name) {
-      return;
-    }
-    final news =
-        _automation.newVodsToAnnounce(_channels[index], vods, firstPage);
-    if (news.isEmpty) return;
-    unawaited(_announceNewVods(name, news));
-  }
-
-  Future<void> _announceNewVods(String name, List<TwitchVideo> vods) async {
-    try {
-      final more = vods.length - 1;
-      await _notifications.show(AppNotification(
-        title: 'New VOD from $name',
-        body: more > 0 ? '${vods.first.title}\n+$more more' : vods.first.title,
-        onClick: () async {
-          await _shell.showWindow();
-          if (!mounted) return;
-          final index = _channels.indexWhere((c) => c.username == name);
-          if (index != -1) _selectChannel(_channels[index]);
-        },
-      ));
-    } catch (e) {
-      print('[New VOD Notification] Error displaying desktop toast: $e');
-    }
   }
 
   /// Selects a channel and loads its VODs.

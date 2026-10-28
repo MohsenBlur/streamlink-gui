@@ -82,11 +82,6 @@ void main() {
         contains('hiddenByUser: AppShellController.windowHiddenByUser'));
   });
 
-  test('a VOD auto-download announces is left out of the New VOD toast', () {
-    expect(bodyOf('void _onNewVods('),
-        contains('_automation.newVodsToAnnounce('));
-  });
-
   test('a session end freezes the download queue, and letting go thaws it',
       () {
     // The shell calls these at the right moments - a process that outlives
