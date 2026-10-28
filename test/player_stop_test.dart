@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
-import 'package:streamlink_gui/services/player_service.dart';
 
 import 'support/fake_process.dart';
 import 'support/fake_vlc.dart';
@@ -16,7 +15,7 @@ void main() {
   late Directory temp;
   late FakeLauncher launcher;
   late FakeTaskkill taskkill;
-  late PlayerService service;
+  late OwnPortsPlayerService service;
   final stopped = <String, bool>{};
   final failedDownloads = <String>[];
   final logs = <String, List<String>>{};
@@ -33,7 +32,7 @@ void main() {
     temp = Directory.systemTemp.createTempSync('streamlink_gui_stop_');
     launcher = FakeLauncher();
     taskkill = FakeTaskkill(launcher);
-    service = PlayerService(
+    service = OwnPortsPlayerService(
       startProcess: launcher.start,
       runProcess: taskkill.run,
       progressPollInterval: const Duration(milliseconds: 40),
@@ -121,8 +120,9 @@ void main() {
     /// Plays to a confirmed position, then lets the stream die, and returns
     /// once the heal has asked the player to close.
     Future<void> playUntilTheHealBegins() async {
+      vlc = await service.serveVlc();
       await service.launchStreamlinkForVod(vod, 'chan', vlcSettings());
-      vlc = await FakeVlc.serve(service.activePlayerPorts[vod.id]!);
+      expect(service.activePlayerPorts[vod.id], vlc.port);
       await waitFor(() => vlc.polls >= 3, reason: 'playback to be confirmed');
       vlc.state = 'stopped';
       await waitFor(() => taskkill.calls.isNotEmpty,
@@ -164,8 +164,9 @@ void main() {
       // keeps ticking while it runs - and a stream that dies in that window
       // (the very moment a user, seeing it stall, reaches for Stop) used to
       // get a heal staged behind the Stop, which the exit handler then obeyed.
+      vlc = await service.serveVlc();
       await service.launchStreamlinkForVod(vod, 'chan', vlcSettings());
-      vlc = await FakeVlc.serve(service.activePlayerPorts[vod.id]!);
+      expect(service.activePlayerPorts[vod.id], vlc.port);
       await waitFor(() => vlc.polls >= 3, reason: 'playback to be confirmed');
 
       taskkill.delay = const Duration(milliseconds: 600);

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
-import 'package:streamlink_gui/services/player_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
 
 import 'support/fake_process.dart';
@@ -26,7 +25,7 @@ void main() {
   late Directory temp;
   late FakeLauncher launcher;
   late _RecordingApi api;
-  late PlayerService service;
+  late OwnPortsPlayerService service;
   late FakeVlc vlc;
   final vod = TwitchVideo(
     id: '9001',
@@ -41,7 +40,7 @@ void main() {
     temp = Directory.systemTemp.createTempSync('streamlink_gui_progress_');
     launcher = FakeLauncher();
     api = _RecordingApi();
-    service = PlayerService(
+    service = OwnPortsPlayerService(
       startProcess: launcher.start,
       runProcess: FakeTaskkill(launcher).run,
       progressPollInterval: const Duration(milliseconds: 40),
@@ -61,6 +60,7 @@ void main() {
   Future<void> play(bool Function() enough) async {
     final file = File('${temp.path}${Platform.pathSeparator}Long VOD - 9001.mp4')
       ..writeAsStringSync('');
+    vlc = await service.serveVlc(startAt: 30);
     await service.playDownloadedVod(
         file,
         vod,
@@ -70,7 +70,7 @@ void main() {
           twitchWebOauthToken: 'oauth:webtoken',
           vodDownloadFolder: temp.path,
         ));
-    vlc = await FakeVlc.serve(service.activePlayerPorts[vod.id]!, startAt: 30);
+    expect(service.activePlayerPorts[vod.id], vlc.port);
     await waitFor(enough, reason: 'positions to be recorded');
     await pumpEventQueue();
   }
