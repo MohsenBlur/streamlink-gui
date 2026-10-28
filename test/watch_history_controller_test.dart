@@ -68,6 +68,19 @@ void main() {
     expect(repository.historyLoaded, isTrue);
   });
 
+  test('reading it tells what shows it, with the recents in', () async {
+    // The welcome screen's Continue watching repaints with this controller
+    // alone; until a read said so, it showed an empty strip.
+    storage.recents = [vod('1').toJson()];
+    final seen = <List<String>>[];
+    history.addListener(
+        () => seen.add([for (final v in history.recents) v.id]));
+    await history.load();
+    expect(seen, [
+      ['1'],
+    ]);
+  });
+
   test('a VOD forgotten before the history is read is written once it has '
       'been, not over it', () async {
     storage.recents = [vod('1').toJson(), vod('2').toJson()];
@@ -168,6 +181,28 @@ void main() {
       history.record('3', 7300, 0.61, 600000);
       await tester.pump(WatchHistoryController.offerDelay);
       expect(offers, [7200]);
+      // Its progress-delay timer, which fake time would otherwise leave
+      // pending.
+      repository.dispose();
+    });
+
+    testWidgets('is not offered once the history has gone with its screen',
+        (tester) async {
+      // The message itself is the screen's to drop, but nothing should be
+      // asked of a player or a screen after that.
+      history.restoreFlat({});
+      history.record('3', 7200, 0.6, 600000);
+      history.record('3', 600, 0.05, 600000);
+      var asked = 0;
+      final offers = <int>[];
+      history.offerFurthestPosition(vod('3'), stillPlaying: () {
+        asked++;
+        return true;
+      }, offer: offers.add);
+      history.dispose();
+      await tester.pump(WatchHistoryController.offerDelay);
+      expect(asked, 0);
+      expect(offers, isEmpty);
       // Its progress-delay timer, which fake time would otherwise leave
       // pending.
       repository.dispose();
