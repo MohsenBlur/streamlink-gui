@@ -214,6 +214,32 @@ void main() {
       expect(shroud.isLive, isTrue);
     });
 
+    test('a rerun queued before dispose sends nothing after it', () async {
+      twitch.user('shroud');
+      // Not controllerFor: this one is disposed by the test itself.
+      final controller = ChannelsController(
+        api: twitch.service(),
+        settings: () => FakeHelix.settings,
+        favorites: [FakeHelix.channel('shroud')],
+        clock: () => twitch.now,
+      );
+      await controller.refresh(isInitialLoad: true);
+      twitch.requests.clear();
+
+      twitch.holdStreams = Completer<void>();
+      final running = controller.tick();
+      await settle();
+      final rerun = controller.refresh(force: true);
+      controller.dispose();
+      twitch.holdStreams!.complete();
+      twitch.holdStreams = null;
+      await Future.wait([running, rerun]);
+      await settle();
+
+      expect(twitch.to('/helix/streams'), hasLength(1),
+          reason: 'only the pass already out when the screen went');
+    });
+
     test('an initial load is never folded into an ordinary pass', () async {
       twitch.goLive('shroud');
       final favorites = <TwitchChannel>[];
