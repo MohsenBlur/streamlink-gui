@@ -116,6 +116,16 @@ void main() {
       expect(p.dy, 800 - 8 - 700);
     });
 
+    test('a trigger scrolled out of the window takes its popover with it', () {
+      // Clamped, the popover stayed pinned 8px inside the top edge over
+      // whatever had scrolled in, its trigger gone.
+      expect(place(const Rect.fromLTWH(500, -100, 100, 30)),
+          const Offset(260, -64));
+      // Still partly on screen, it is kept inside as before: below a
+      // trigger whose bottom is 1px into the window it would start at 7.
+      expect(place(const Rect.fromLTWH(500, -29, 100, 30)).dy, 8);
+    });
+
     test('it is never larger than the window less its margins', () {
       final c = const PopoverPlacement(
         trigger: Rect.zero,
@@ -523,5 +533,20 @@ void main() {
     await tester.pump();
     final after = tester.getRect(find.byKey(const ValueKey('menu')));
     expect(after.top, moreOrLessEquals(before.top - 50));
+
+    // Scrolled clean off the top (and still inside the list's cache
+    // extent, so still built), the trigger takes the popover with it.
+    scroll.jumpTo(250);
+    await tester.pump();
+    // Out of the viewport, so offstage to a default finder - the popover
+    // too, whose element sits under the trigger's.
+    final trigger = tester
+        .getRect(find.byType(InteractivePopover, skipOffstage: false));
+    expect(trigger.bottom, lessThan(0), reason: 'precondition');
+    expect(
+        tester
+            .getRect(find.byKey(const ValueKey('menu'), skipOffstage: false))
+            .top,
+        moreOrLessEquals(trigger.bottom + 6));
   });
 }

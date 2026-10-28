@@ -237,7 +237,9 @@ class _InteractivePopoverState extends State<InteractivePopover> {
 ///   side it asked for and does fit on the other (a trigger near the bottom
 ///   edge opens upward);
 /// * it slides along each axis until it is inside the window, which is what
-///   keeps a right-aligned popover from opening off the left of a narrow one.
+///   keeps a right-aligned popover from opening off the left of a narrow one
+///   - unless the trigger itself has scrolled out of the window, when it
+///   follows the trigger out instead.
 ///
 /// Public so the geometry can be tested without pumping anything.
 class PopoverPlacement extends SingleChildLayoutDelegate {
@@ -286,6 +288,16 @@ class PopoverPlacement extends SingleChildLayoutDelegate {
       );
       if (fitsVertically(flipped)) position = flipped;
     }
+
+    // A trigger scrolled clean out of the window takes its popover with it.
+    // Held inside the edge instead, the popover hung there over whatever had
+    // scrolled in, attached to nothing. Strict comparisons, so a trigger
+    // touching the edge, or one with no size yet, still counts as on screen.
+    final triggerGone = trigger.bottom < 0 ||
+        trigger.top > size.height ||
+        trigger.right < 0 ||
+        trigger.left > size.width;
+    if (triggerGone) return position;
 
     double inside(double value, double extent, double available) =>
         value.clamp(margin, math.max(margin, available - margin - extent));
