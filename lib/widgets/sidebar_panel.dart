@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
@@ -660,9 +662,11 @@ class SidebarPanelState extends State<SidebarPanel> {
                   padding: const EdgeInsets.symmetric(vertical: NeuSpace.s8),
                   child: Tooltip(
                     message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
-                    child: GestureDetector(
+                    child: _DoubleClickListener(
                     onTap: () => widget.onChannelSelected(ch),
                     onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch) : null,
+                    builder: (onTap) => GestureDetector(
+                    onTap: onTap,
                     child: _buildAvatarBorder(
                       channel: ch,
                       isSelected: isSelected,
@@ -691,6 +695,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         ],
                       ),
                     ),
+                  ),
                   ),
                 ),
               ),
@@ -950,9 +955,11 @@ class SidebarPanelState extends State<SidebarPanel> {
                       margin: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s8),
                       child: Tooltip(
                         message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
-                        child: GestureDetector(
+                        child: _DoubleClickListener(
                           onTap: () => widget.onChannelSelected(ch),
                           onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch) : null,
+                          builder: (onTap) => GestureDetector(
+                          onTap: onTap,
                           child: _buildAvatarBorder(
                             channel: ch,
                             isSelected: isSelected,
@@ -982,6 +989,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                               ],
                             ),
                           ),
+                        ),
                         ),
                       ),
                     ),
@@ -1192,7 +1200,13 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                 // read as a paper sticker on metal, in the most-looked-at
                 // region of the app. Hover and selection still raise the row
                 // through the engine.
-                : null),
+                //
+                // An EMPTY decoration, not null. Null drops the DecoratedBox
+                // from the Container's output, so every hover changed the
+                // shape of the tree and remounted everything below it - the
+                // double-click window and the InkWell's focus with it, which
+                // made the first click of a double on an idle row vanish.
+                : const BoxDecoration()),
         child: NeuContextMenu(
           // The app had no right-click menus at all, so every action lived in
           // a hover-reveal or nowhere. This is where a desktop user already
@@ -1213,13 +1227,14 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               isDestructive: widget.isFavorite,
             ),
           ],
-          child: GestureDetector(
+          child: _DoubleClickListener(
+          onTap: () => widget.onSelected(channel),
           onDoubleTap:
               channel.isLive ? () => widget.onDoubleTapped(channel) : null,
           // See the note on the other ListTile in this file: the splash paints
           // on the nearest Material ancestor, and the row's own decorated
           // Container sits between them.
-          child: Material(
+          builder: (onTap) => Material(
             type: MaterialType.transparency,
             child: ListTile(
             contentPadding: const EdgeInsets.only(left: NeuSpace.s12, right: NeuSpace.s4),
@@ -1278,12 +1293,132 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               mainAxisSize: MainAxisSize.min,
               children: [playSlot, starSlot],
             ),
-            onTap: () => widget.onSelected(channel),
+            onTap: onTap,
           ),
           ),
         ),
         ),
       ),
+    );
+  }
+}
+
+/// A click that selects at once, and a double-click that also plays.
+///
+/// Live rows used to put a `GestureDetector(onDoubleTap:)` around the row's
+/// own tap handler, and that held every single click for the full double-tap
+/// timeout (about 300ms): the double-tap recognizer keeps the gesture arena
+/// open after the first pointer-up to see whether a second press follows, and
+/// the row's tap cannot win until it gives up. So the rows users click most -
+/// live channels - selected a third of a second late, while offline rows (no
+/// double-tap handler) were instant.
+///
+/// This reads raw pointer events instead, and a Listener never joins the
+/// arena, so the row's own tap fires on pointer-up exactly as an offline row's
+/// does. [builder] receives the tap handler to install on that recognizer:
+/// it is [onTap], except that it ignores the second click of a double - that
+/// click already played the channel, and re-selecting a channel selected a
+/// moment ago would only clear and refetch its VOD list.
+class _DoubleClickListener extends StatefulWidget {
+  const _DoubleClickListener({
+    required this.onTap,
+    required this.onDoubleTap,
+    required this.builder,
+  });
+
+  final VoidCallback onTap;
+
+  /// Null for offline channels: every click is then a plain click.
+  final VoidCallback? onDoubleTap;
+
+  final Widget Function(VoidCallback onTap) builder;
+
+  @override
+  State<_DoubleClickListener> createState() => _DoubleClickListenerState();
+}
+
+class _DoubleClickListenerState extends State<_DoubleClickListener> {
+  /// Open from a click's pointer-up for [kDoubleTapTimeout]; a press that
+  /// lands inside it is the second half of a double. The framework's own
+  /// recognizer measures the same interval, first up to second down.
+  Timer? _secondClickWindow;
+  Offset? _firstClickAt;
+
+  int? _pressPointer;
+  Offset? _pressAt;
+  bool _pressIsSecondClick = false;
+
+  /// Set by the pointer-up that completes a double, so the row's tap - which
+  /// fires on that same event, after this Listener - is skipped. Cleared in a
+  /// microtask, so a stray flag can never eat a later keyboard activation.
+  bool _ignoreTap = false;
+
+  @override
+  void dispose() {
+    _secondClickWindow?.cancel();
+    super.dispose();
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    if (event.buttons != kPrimaryButton) {
+      _pressPointer = null;
+      return;
+    }
+    final first = _firstClickAt;
+    _pressIsSecondClick = _secondClickWindow != null &&
+        first != null &&
+        (event.position - first).distance <= kDoubleTapSlop;
+    _secondClickWindow?.cancel();
+    _secondClickWindow = null;
+    _pressPointer = event.pointer;
+    _pressAt = event.position;
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    final at = _pressAt;
+    if (event.pointer != _pressPointer || at == null) return;
+    _pressPointer = null;
+    // A drag that ends on the row is not a click.
+    if ((event.position - at).distance > kTouchSlop) {
+      _firstClickAt = null;
+      return;
+    }
+    if (_pressIsSecondClick) {
+      _firstClickAt = null;
+      final onDoubleTap = widget.onDoubleTap;
+      if (onDoubleTap != null) {
+        _ignoreTap = true;
+        scheduleMicrotask(() => _ignoreTap = false);
+        onDoubleTap();
+      }
+      return;
+    }
+    _firstClickAt = event.position;
+    _secondClickWindow = Timer(kDoubleTapTimeout, () {
+      _secondClickWindow = null;
+      _firstClickAt = null;
+    });
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    if (event.pointer == _pressPointer) _pressPointer = null;
+  }
+
+  void _handleTap() {
+    if (_ignoreTap) {
+      _ignoreTap = false;
+      return;
+    }
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: _onPointerDown,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
+      child: widget.builder(_handleTap),
     );
   }
 }
