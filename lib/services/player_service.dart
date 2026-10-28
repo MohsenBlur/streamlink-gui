@@ -215,15 +215,57 @@ class PlayerService {
   /// restarting a VOD twice does not march up the port range.
   static const Duration _portCooldown = Duration(seconds: 20);
 
-  int getNextAvailablePlayerPort() {
+  /// Ports just handed out, and when.
+  ///
+  /// The probe below awaits, so two launches at once could otherwise both be
+  /// given the same free port before either had recorded it. A claim lasts
+  /// until the port is recorded, or a few seconds if the launch never gets
+  /// that far.
+  final Map<int, DateTime> _claimedPorts = {};
+  static const Duration _claimHold = Duration(seconds: 5);
+
+  static const int firstPlayerPort = 8089;
+
+  Future<int> getNextAvailablePlayerPort() async {
     final now = DateTime.now();
     _coolingPorts.removeWhere((_, at) => now.difference(at) > _portCooldown);
-    int port = 8089;
-    while (activePlayerPorts.containsValue(port) ||
-        _coolingPorts.containsKey(port)) {
-      port++;
+    _claimedPorts.removeWhere((_, at) => now.difference(at) > _claimHold);
+    for (var port = firstPlayerPort; port <= 65535; port++) {
+      if (activePlayerPorts.containsValue(port) ||
+          _coolingPorts.containsKey(port) ||
+          _claimedPorts.containsKey(port)) {
+        continue;
+      }
+      _claimedPorts[port] = now;
+      // The maps above only know this app's own players. Anything else on the
+      // port - a dev server on 8089 is common - meant the player could not
+      // bind its interface, and the tracker then polled the foreign server
+      // for the whole session: no progress saved, one suppressed log line.
+      if (await _isLoopbackPortFree(port)) return port;
+      _claimedPorts.remove(port);
     }
-    return port;
+    return firstPlayerPort; // every port taken; let the launch report it
+  }
+
+  static Future<bool> _isLoopbackPortFree(int port) async {
+    try {
+      final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      await probe.close();
+      return true;
+    } on SocketException {
+      return false;
+    }
+  }
+
+  void _recordPlayerPort(String vodId, int port) {
+    activePlayerPorts[vodId] = port;
+    _claimedPorts.remove(port);
+  }
+
+  /// Frees [vodId]'s port, though not for immediate reuse: see _coolingPorts.
+  void _releasePlayerPort(String vodId) {
+    final port = activePlayerPorts.remove(vodId);
+    if (port != null) _coolingPorts[port] = DateTime.now();
   }
 
   String? findVlcPath() {
@@ -872,7 +914,7 @@ class PlayerService {
         watchedThreshold: settings.watchedThreshold,
       );
 
-      final port = getNextAvailablePlayerPort();
+      final port = await getNextAvailablePlayerPort();
       final title = 'Local: ${vod.title}';
 
       final String effectivePlayerType = resolveEffectivePlayerType(settings);
@@ -901,7 +943,7 @@ class PlayerService {
       playingVodIds.add(vod.id);
       // Recorded so retention never deletes the file being watched.
       playingVodFilePaths[vod.id] = file.path;
-      activePlayerPorts[vod.id] = port;
+      _recordPlayerPort(vod.id, port);
 
       onPlayerStarted?.call(key, title);
       log(key, '[System] Initializing local player for VOD ${vod.id}...');
@@ -950,7 +992,10 @@ class PlayerService {
         playingVodIds.remove(vod.id);
         playingVodFilePaths.remove(vod.id);
         activePlayerProcesses.remove(vod.id);
-        activePlayerPorts.remove(vod.id);
+        // Cooled like the streamed path's: replaying a file right after
+        // closing one used to land on the port the dying player (or its mpv
+        // bridge) still held.
+        _releasePlayerPort(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
         onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
@@ -990,7 +1035,7 @@ class PlayerService {
           ? settings.twitchClientId.trim()
           : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
-      final port = getNextAvailablePlayerPort();
+      final port = await getNextAvailablePlayerPort();
       final title = 'VOD: ${vod.title}';
 
       final cmd = buildVodStreamlinkArgs(
@@ -1019,7 +1064,7 @@ class PlayerService {
       final args = cmd.args;
 
       playingVodIds.add(vod.id);
-      activePlayerPorts[vod.id] = port;
+      _recordPlayerPort(vod.id, port);
       activePlayerDurations[vod.id] = vod.duration;
 
       if (isRestart) {
@@ -1088,8 +1133,7 @@ class PlayerService {
         log(key, '[System] Streamlink process for VOD ${vod.id} exited with code $exitCode');
         playingVodIds.remove(vod.id);
         activePlayerProcesses.remove(vod.id);
-        final releasedPort = activePlayerPorts.remove(vod.id);
-        if (releasedPort != null) _coolingPorts[releasedPort] = DateTime.now();
+        _releasePlayerPort(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
         // A premature-EOF verdict parked a resume position here before
