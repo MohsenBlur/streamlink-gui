@@ -25,7 +25,13 @@
   opens where the copied config says, which is wherever the real app last
   was. Captures never bring the window to the foreground unless -Focus is
   passed; the two clicks into the channel and Library screens activate it,
-  as any click would.
+  as any click would. A -Position from which any size in the matrix would
+  reach onto a second monitor is refused before anything launches.
+
+  Nor does the launch's show: the build is started with SW_SHOWNOACTIVATE
+  (shoot.ps1 -NoActivate, and what it cannot cover), so its first show
+  leaves the user's window active. -NormalLaunch starts it as a user would
+  instead.
 
 .EXAMPLE
   # A second monitor left of the primary, 2160 physical px wide at 150%. The
@@ -42,11 +48,13 @@ param(
     [string]$Accent,
     [switch]$KeepOpen,
     # "x,y", physical virtual-desktop pixels: where the window opens and is
-    # shot (see .DESCRIPTION). Each size grows right and down from here, and
-    # past a monitor's edge onto whatever is next to it (see the example).
+    # shot (see .DESCRIPTION). Each size grows right and down from here; one
+    # that would reach onto another monitor is refused (see the example).
     [string]$Position,
     # Bring the window to the foreground for each capture (shoot.ps1 -Focus).
-    [switch]$Focus
+    [switch]$Focus,
+    # Launch with a normal, activating show rather than SW_SHOWNOACTIVATE.
+    [switch]$NormalLaunch
 )
 
 # A Debug build is NOT a substitute for a Release one when reviewing the UI.
@@ -87,6 +95,11 @@ $repo = Split-Path -Parent $PSScriptRoot
 # absolute -Exe was joined onto the repo too. One full path for everything.
 $exeFull = Resolve-ShootExe $Exe $repo
 Assert-ReleaseBuild $exeFull
+
+# Every size this will open or shoot at, before the first launch: the
+# config's placeholder the build opens at, then each capture's.
+Assert-PlacementOnOneMonitor $Position (@($PlacementPlaceholder) +
+    @($SIZES | ForEach-Object { @{ Width = $_.w; Height = $_.h } }))
 
 New-Item -ItemType Directory -Path (Join-Path $repo "shots\$Phase") -Force | Out-Null
 
@@ -142,6 +155,7 @@ foreach ($dark in $themes) {
             $shotArgs.Remove('ExpectExe')
             $shotArgs.LaunchExe = $exeFull
             $shotArgs.SettleMs = 3500     # first frame + channel load
+            if (-not $NormalLaunch) { $shotArgs.NoActivate = $true }
             $first = $false
         }
         & (Join-Path $PSScriptRoot 'shoot.ps1') @shotArgs @placeArgs

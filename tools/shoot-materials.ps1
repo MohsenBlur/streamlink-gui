@@ -13,9 +13,11 @@
   Without that, the material written into the staged file was never read and
   every shot showed whatever material %APPDATA% held.
 
-  -Position and -Focus mean what they do in shoot-matrix.ps1: where the
-  window opens and is shot, and whether captures take the foreground (by
-  default they do not).
+  -Position, -Focus and -NormalLaunch mean what they do in shoot-matrix.ps1:
+  where the window opens and is shot (refused up front when the window would
+  reach onto a second monitor), whether captures take the foreground, and
+  whether each launch does. By default neither does: this launches once per
+  shot, and each launch is started with SW_SHOWNOACTIVATE.
 
 .EXAMPLE
   ./tools/shoot-materials.ps1 -OutDir shots/baseline-v18
@@ -33,7 +35,8 @@ param(
     [int]$Height = 1000,
     # "x,y", physical virtual-desktop pixels (see shoot-matrix.ps1).
     [string]$Position,
-    [switch]$Focus
+    [switch]$Focus,
+    [switch]$NormalLaunch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,11 +45,15 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $exe = Resolve-ShootExe 'build\windows\x64\runner\Release\streamlink_gui.exe' $root
 
+# The size the build opens at, and the size it is shot at, before launching.
+Assert-PlacementOnOneMonitor $Position @($PlacementPlaceholder, @{ Width = $Width; Height = $Height })
+
 New-Item -ItemType Directory -Force (Join-Path $root $OutDir) | Out-Null
 
 $placeArgs = @{}
 if ($Position) { $placeArgs.Position = $Position }
 if ($Focus) { $placeArgs.Focus = $true }
+if (-not $NormalLaunch) { $placeArgs.NoActivate = $true }
 
 foreach ($m in $Materials) {
     foreach ($dark in @($true, $false)) {
