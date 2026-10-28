@@ -136,6 +136,11 @@ class TwitchApiService {
       } catch (_) {
         body = null;
       }
+      // The verdict about to be published describes this exact pair, so a
+      // later Helix 200 sent with a different one is new evidence, not a
+      // repeat of something the probe already accounted for.
+      twitchAuth.noteHelixProbeCredential(helixCredentialFingerprint(
+          token, _effectiveClientId(configuredClientId)));
       return statusFromValidation(
         statusCode: response.statusCode,
         body: body,
@@ -165,11 +170,24 @@ class TwitchApiService {
   /// on a 401 was the only one anybody noticed - `fetchChannelStats` silently
   /// converged on marking channels Offline, so a dead token looked like four
   /// offline streamers. A new Helix call added later is covered for free.
-  Future<http.Response> _get(Uri url, {Map<String, String>? headers}) async {
+  ///
+  /// [requiredScopes] names the scopes the endpoint itself needs: a 200 from
+  /// it is the only Helix evidence that the token holds them.
+  Future<http.Response> _get(
+    Uri url, {
+    Map<String, String>? headers,
+    Set<String> requiredScopes = const <String>{},
+  }) async {
     final isHelix = url.host == 'api.twitch.tv';
     try {
       final res = await http.get(url, headers: headers).timeout(_requestTimeout);
-      if (isHelix) twitchAuth.recordHelixResponse(res.statusCode);
+      if (isHelix) {
+        twitchAuth.recordHelixResponse(
+          res.statusCode,
+          credential: _credentialOf(headers),
+          endpointScopes: requiredScopes,
+        );
+      }
       return res;
     } catch (e) {
       if (isHelix) twitchAuth.recordHelixTransportError();
@@ -187,6 +205,33 @@ class TwitchApiService {
       cleanToken = cleanToken.substring(6);
     }
     return cleanToken;
+  }
+
+  /// Twitch's own web client, used whenever no Client ID is configured.
+  static const String _publicClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+  /// The Client-Id every Helix request is actually sent with.
+  static String _effectiveClientId(String configured) {
+    final trimmed = configured.trim();
+    return trimmed.isNotEmpty ? trimmed : _publicClientId;
+  }
+
+  Map<String, String> _helixHeaders(String token, AppSettings settings) => {
+        'Client-Id': _effectiveClientId(settings.twitchClientId),
+        'Authorization': 'Bearer $token',
+      };
+
+  /// Which token + Client ID pair a Helix request was sent with, for the auth
+  /// status to tell repeated evidence from new evidence.
+  static int? _credentialOf(Map<String, String>? headers) {
+    final authorization = headers?['Authorization'];
+    final clientId = headers?['Client-Id'];
+    if (authorization == null || clientId == null) return null;
+    const bearer = 'Bearer ';
+    final token = authorization.startsWith(bearer)
+        ? authorization.substring(bearer.length)
+        : authorization;
+    return helixCredentialFingerprint(token, clientId);
   }
 
   String _calculateUptime(String startedAtStr) {
@@ -261,17 +306,11 @@ class TwitchApiService {
 
     final username = channel.username;
     final token = _getRawOauthToken(settings.twitchOauthToken);
-    final clientId = settings.twitchClientId.trim().isNotEmpty
-        ? settings.twitchClientId.trim()
-        : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
     try {
       if (token.isNotEmpty) {
         // Authenticated: Use Helix API
-        final headers = {
-          'Client-Id': clientId,
-          'Authorization': 'Bearer $token',
-        };
+        final headers = _helixHeaders(token, settings);
 
         // 1. Resolve ID & Profile Avatar if not cached
         if (channel.id == null || channel.id!.isEmpty || channel.avatarUrl == null || channel.avatarUrl!.isEmpty) {
@@ -446,14 +485,7 @@ class TwitchApiService {
       throw Exception('OAuth token is empty');
     }
 
-    final clientId = settings.twitchClientId.trim().isNotEmpty
-        ? settings.twitchClientId.trim()
-        : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-
-    final headers = {
-      'Client-Id': clientId,
-      'Authorization': 'Bearer $token',
-    };
+    final headers = _helixHeaders(token, settings);
 
     final userRes = await _get(
       Uri.parse('https://api.twitch.tv/helix/users'),
@@ -489,7 +521,8 @@ class TwitchApiService {
         url.write('&after=${Uri.encodeQueryComponent(cursor)}');
       }
 
-      final followsRes = await _get(Uri.parse(url.toString()), headers: headers);
+      final followsRes = await _get(Uri.parse(url.toString()),
+          headers: headers, requiredScopes: kRequiredHelixScopes);
       if (followsRes.statusCode != 200) {
         // Keep whatever was already collected rather than losing every page to
         // a failure on the last one.
@@ -543,14 +576,7 @@ class TwitchApiService {
       throw Exception('OAuth token is empty');
     }
 
-    final clientId = settings.twitchClientId.trim().isNotEmpty
-        ? settings.twitchClientId.trim()
-        : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-
-    final headers = {
-      'Client-Id': clientId,
-      'Authorization': 'Bearer $token',
-    };
+    final headers = _helixHeaders(token, settings);
 
     // Resolve channel ID via Helix if missing (instead of falling back directly to DecAPI)
     if (channel.id == null || channel.id!.isEmpty) {

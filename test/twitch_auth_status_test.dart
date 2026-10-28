@@ -157,6 +157,89 @@ void main() {
     });
   });
 
+  group('a 200 proves only what the request exercised', () {
+    // The flap: a token without user:read:follows got a 200 from the
+    // unscoped favourites poll every minute, which read as "recovered", fired
+    // a refresh whose followed-list call 401'd, and the probe flagged the
+    // scope again - re-raising a banner the user had already dismissed.
+    const missingScope = TwitchAuthStatus(
+      state: TwitchAuthState.invalid,
+      fault: TwitchAuthFault.missingScope,
+      login: 'mohsenblur',
+      scopes: <String>[],
+    );
+    const mismatch = TwitchAuthStatus(
+      state: TwitchAuthState.invalid,
+      fault: TwitchAuthFault.clientIdMismatch,
+      tokenClientId: 'other-client',
+    );
+
+    test('an unscoped 200 does not heal a missing scope', () {
+      expect(statusFromHelix(missingScope, statusCode: 200, now: now),
+          missingScope);
+    });
+
+    test('a 200 from an endpoint needing the scope does heal it', () {
+      final s = statusFromHelix(missingScope,
+          statusCode: 200, now: now, endpointScopes: kRequiredHelixScopes);
+      expect(s.state, TwitchAuthState.valid);
+      expect(s.login, 'mohsenblur');
+    });
+
+    test('no Helix 200 heals a Client ID mismatch for the same pair', () {
+      expect(statusFromHelix(mismatch, statusCode: 200, now: now), mismatch);
+      expect(
+          statusFromHelix(mismatch,
+              statusCode: 200, now: now, endpointScopes: kRequiredHelixScopes),
+          mismatch);
+    });
+
+    test('a 200 for a different credential pair replaces any diagnosis', () {
+      // A pasted token or a corrected Client ID is new evidence. Its login is
+      // unknown, so the old account's name must not carry over.
+      for (final before in [missingScope, mismatch]) {
+        final s = statusFromHelix(before,
+            statusCode: 200, now: now, credentialsChanged: true);
+        expect(s.state, TwitchAuthState.valid);
+        expect(s.fault, TwitchAuthFault.none);
+        expect(s.login, isNull);
+        expect(s.tokenClientId, isNull);
+      }
+    });
+
+    test('a changed pair also drops a valid status\'s stale login', () {
+      const before = TwitchAuthStatus(
+          state: TwitchAuthState.valid, login: 'previous_account');
+      final s = statusFromHelix(before,
+          statusCode: 200, now: now, credentialsChanged: true);
+      expect(connectionLabel(s), 'Connected');
+    });
+
+    test('a revoked diagnosis is still healed by any 200', () {
+      const before = TwitchAuthStatus(
+          state: TwitchAuthState.invalid,
+          fault: TwitchAuthFault.revoked,
+          login: 'mohsenblur');
+      final s = statusFromHelix(before, statusCode: 200, now: now);
+      expect(s.state, TwitchAuthState.valid);
+      expect(s.login, 'mohsenblur');
+    });
+
+    test('a scoped 401 confirms a missing scope instead of saying revoked', () {
+      // Between probes the followed-list 401 used to overwrite the specific
+      // diagnosis with "expired or revoked", which sends the user through a
+      // reconnect that does not ask for the missing permission.
+      final s = statusFromHelix(missingScope,
+          statusCode: 401, now: now, endpointScopes: kRequiredHelixScopes);
+      expect(s.fault, TwitchAuthFault.missingScope);
+    });
+
+    test('an unscoped 401 still means the token itself was refused', () {
+      final s = statusFromHelix(missingScope, statusCode: 401, now: now);
+      expect(s.fault, TwitchAuthFault.revoked);
+    });
+  });
+
   group('transport failures never accuse the token', () {
     test('a thrown error is unreachable, never invalid', () {
       const before = TwitchAuthStatus(

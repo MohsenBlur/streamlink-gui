@@ -24,11 +24,34 @@ class TwitchAuth {
   final ValueNotifier<TwitchAuthStatus> browser =
       ValueNotifier<TwitchAuthStatus>(TwitchAuthStatus.absent);
 
+  /// Fingerprint of the token + Client ID pair the [helix] evidence was last
+  /// gathered with. Never the token itself.
+  ///
+  /// Kept so a Helix 200 can tell "the same credentials succeeded at something
+  /// that does not need the missing permission" (no news) from "different
+  /// credentials succeeded" (a new answer). Settings saves a pasted token
+  /// without resetting the status, so without this a fault diagnosed for the
+  /// old token could only be cleared by reopening Settings.
+  int? _helixCredential;
+
   /// Feed in any Helix response. Cheap and idempotent, so call sites can do it
   /// unconditionally right after the request.
-  void recordHelixResponse(int statusCode) {
-    final next = statusFromHelix(helix.value,
-        statusCode: statusCode, now: DateTime.now());
+  ///
+  /// [credential] identifies the token + Client ID the request was sent with
+  /// (see [helixCredentialFingerprint]); [endpointScopes] are the scopes the
+  /// endpoint itself requires, which is all a 200 from it can prove.
+  void recordHelixResponse(
+    int statusCode, {
+    int? credential,
+    Set<String> endpointScopes = const <String>{},
+  }) {
+    final next = statusFromHelix(
+      helix.value,
+      statusCode: statusCode,
+      now: DateTime.now(),
+      endpointScopes: endpointScopes,
+      credentialsChanged: _noteCredential(credential),
+    );
     if (next != helix.value) helix.value = next;
   }
 
@@ -41,6 +64,12 @@ class TwitchAuth {
   /// A completed `/oauth2/validate` probe of the account token.
   void recordHelixProbe(TwitchAuthStatus status) {
     if (status != helix.value) helix.value = status;
+  }
+
+  /// A probe is about to report on [credential]: whatever it publishes next
+  /// describes that pair, so later Helix responses are compared against it.
+  void noteHelixProbeCredential(int credential) {
+    _helixCredential = credential;
   }
 
   void setHelix(TwitchAuthStatus status) {
@@ -61,13 +90,30 @@ class TwitchAuth {
     ));
   }
 
+  /// True when [credential] differs from the pair the status was last
+  /// established for. The first credential ever seen is not a change: there
+  /// is nothing to contradict yet.
+  bool _noteCredential(int? credential) {
+    if (credential == null) return false;
+    final previous = _helixCredential;
+    _helixCredential = credential;
+    return previous != null && previous != credential;
+  }
+
   /// Visible for tests.
   @visibleForTesting
   void resetForTest() {
     helix.value = TwitchAuthStatus.absent;
     browser.value = TwitchAuthStatus.absent;
+    _helixCredential = null;
   }
 }
+
+/// Identifies a token + Client ID pair without keeping the token.
+///
+/// Only compared within one process, so [Object.hash]'s per-run seed is fine.
+int helixCredentialFingerprint(String token, String clientId) =>
+    Object.hash(token, clientId);
 
 /// The app-wide instance.
 final TwitchAuth twitchAuth = TwitchAuth();

@@ -27,7 +27,8 @@ enum TwitchAuthState {
   /// A check is in flight. Keeps the previous login so the UI does not flicker.
   checking,
 
-  /// Proved good by /oauth2/validate, or by any Helix 200.
+  /// Proved good by /oauth2/validate, or by a Helix 200 that contradicts
+  /// whatever was wrong before (see [statusFromHelix]).
   valid,
 
   /// Proved bad. **The only state that asks the user to reconnect.**
@@ -238,16 +239,44 @@ TwitchAuthStatus statusFromValidation({
 /// This is what closes the hole the bug lived in: every one of the six Helix
 /// calls now reports its verdict, so a 401 anywhere flips the state instead of
 /// being swallowed into an exception string or a channel marked Offline.
+///
+/// A 200 proves exactly what the request exercised and nothing more: that the
+/// token is live, that Twitch accepts it with the Client-Id it was sent with,
+/// and that it holds whatever scopes the endpoint itself requires
+/// ([endpointScopes]). It used to be read as proof of everything, which made a
+/// token missing `user:read:follows` flip between invalid and valid every
+/// minute: helix/streams needs no scope, so the poll's 200 "healed" the
+/// missing permission, the recovery refresh asked for the followed list, that
+/// 401'd, the probe diagnosed the missing scope again - and the banner the user
+/// had dismissed came back each time, between probes saying "revoked".
+///
+/// [credentialsChanged] is true when the request was sent with a different
+/// token or Client ID than the one this status was last established for. A
+/// diagnosis describes one credential pair; evidence about another pair
+/// replaces it rather than amending it, which is what lets a fixed token or a
+/// corrected Client ID clear a fault that an unscoped 200 deliberately cannot.
 TwitchAuthStatus statusFromHelix(
   TwitchAuthStatus current, {
   required int statusCode,
   required DateTime now,
+  Set<String> endpointScopes = const <String>{},
+  bool credentialsChanged = false,
 }) {
   if (statusCode == 200) {
+    if (credentialsChanged) {
+      // Login, minting client and scopes all described the previous pair, so
+      // none of them carries over. "Connected" is true; "Connected as <the
+      // previous account>" would not be.
+      return TwitchAuthStatus(state: TwitchAuthState.valid, checkedAt: now);
+    }
     // A success heals `unverified` and `unreachable` with no extra round trip:
     // the request itself is the proof. The login is left alone — Helix does
     // not tell us who we are here, and a stale name beats no name.
     if (current.state == TwitchAuthState.valid) return current;
+    if (current.state == TwitchAuthState.invalid &&
+        !_successDisprovesFault(current, endpointScopes)) {
+      return current;
+    }
     return current.copyWith(
         state: TwitchAuthState.valid,
         fault: TwitchAuthFault.none,
@@ -256,12 +285,7 @@ TwitchAuthStatus statusFromHelix(
   if (statusCode == 401 || statusCode == 403) {
     return TwitchAuthStatus(
       state: TwitchAuthState.invalid,
-      // Helix cannot distinguish expiry from a Client ID mismatch — both are a
-      // bare 401. A follow-up /validate probe refines this; until then the
-      // wording has to stay true for either.
-      fault: current.fault == TwitchAuthFault.clientIdMismatch
-          ? TwitchAuthFault.clientIdMismatch
-          : TwitchAuthFault.revoked,
+      fault: _faultAfterRejection(current, endpointScopes),
       login: current.login,
       tokenClientId: current.tokenClientId,
       scopes: current.scopes,
@@ -270,6 +294,43 @@ TwitchAuthStatus statusFromHelix(
   }
   // 5xx, 429, anything else: Twitch's problem, not the token's.
   return current;
+}
+
+/// Whether a 200 from an endpoint needing [endpointScopes] contradicts the
+/// fault [current] was diagnosed with, for the same credential pair.
+bool _successDisprovesFault(
+    TwitchAuthStatus current, Set<String> endpointScopes) {
+  switch (current.fault) {
+    case TwitchAuthFault.missingScope:
+      // Only an endpoint that itself needs the missing scope can show the
+      // token has it.
+      return kRequiredHelixScopes
+          .difference({...current.scopes, ...endpointScopes}).isEmpty;
+    case TwitchAuthFault.clientIdMismatch:
+      // Only /validate reports the minting client, so only a probe (or a
+      // change of token or Client ID) can clear this.
+      return false;
+    case TwitchAuthFault.revoked:
+    case TwitchAuthFault.none:
+      return true;
+  }
+}
+
+TwitchAuthFault _faultAfterRejection(
+    TwitchAuthStatus current, Set<String> endpointScopes) {
+  // Helix cannot distinguish expiry from a Client ID mismatch — both are a
+  // bare 401. A follow-up /validate probe refines this; until then the
+  // wording has to stay true for either.
+  if (current.fault == TwitchAuthFault.clientIdMismatch) {
+    return TwitchAuthFault.clientIdMismatch;
+  }
+  // A scoped endpoint refusing a token already known to lack that scope is
+  // the diagnosis confirming itself, not news that the token was revoked.
+  if (current.fault == TwitchAuthFault.missingScope &&
+      endpointScopes.any((s) => !current.scopes.contains(s))) {
+    return TwitchAuthFault.missingScope;
+  }
+  return TwitchAuthFault.revoked;
 }
 
 /// The request threw rather than answering — timeout, DNS, no route.
