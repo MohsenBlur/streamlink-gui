@@ -938,6 +938,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       final updateService = UpdateService();
       Directory? extractDir;
       var updaterStarting = false;
+      var handedOver = false;
       try {
         final zipFile = await updateService.downloadUpdate(info.downloadUrl, (pct) {
           updateDialog(() => progress = pct);
@@ -954,8 +955,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
         updateDialog(() => statusText = 'Closing running downloads and streams...');
 
-        // The restart ends this process from inside applyUpdateAndRestart,
-        // so the window's last geometry is saved now or not at all.
+        // Now, so the save of the resume list below writes it too: if the
+        // updater has to end this process before its own shutdown finishes,
+        // the geometry is already on disk.
         await _captureWindowState();
 
         // Shut down cleanly before the installation is replaced. This path
@@ -984,7 +986,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
         updateDialog(() => statusText = 'Applying update and restarting...');
         updaterStarting = true;
-        await updateService.applyUpdateAndRestart(extractDir);
+        await updateService.startUpdater(extractDir);
+        handedOver = true;
       } catch (e) {
         _isUpdateInProgress = false;
         // stopAll() may already have killed everything before the failure. The
@@ -994,7 +997,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _logNotifier.endAllRunning(-1);
         // The extracted build is ~300 MB that only a sweep a day later would
         // reclaim. Safe to delete while no updater can be copying out of it,
-        // which is every failure before applyUpdateAndRestart began; that
+        // which is every failure before startUpdater began; that
         // method cleans up its own failures before it starts the updater,
         // and after it, a late updater may still need the files.
         final extracted = extractDir;
@@ -1014,7 +1017,27 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               isError: true);
         }
       }
+      if (handedOver) await _exitForUpdate();
     });
+  }
+
+  /// Leaves for the updater, which is now running outside this app's job and
+  /// waits for the process to end before it swaps the files and relaunches.
+  ///
+  /// The same way out as Exit: the saves flushed, the tray icon removed, the
+  /// runner's ordered teardown. This used to be a Dart exit(0) inside the
+  /// update service, which skipped all of it and left a ghost tray icon
+  /// beside the relaunched app until the mouse passed over it.
+  Future<void> _exitForUpdate() async {
+    CrashLog.current?.milestone('[update] updater started; exiting for it');
+    try {
+      await _shutDownAndExit();
+    } catch (e, st) {
+      // Never stay up half shut down: the updater is waiting on this
+      // process, and would end it a few seconds from now regardless.
+      CrashLog.current?.error('update: shutting down', e, st);
+      exit(0);
+    }
   }
 
   /// Snapshots active and queued downloads into settings so they resume after

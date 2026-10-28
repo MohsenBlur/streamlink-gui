@@ -351,7 +351,7 @@ class UpdateService {
   /// caller whose own step failed after [extractAndVerifyZip] returned (the
   /// download queue could not be saved, say).
   ///
-  /// Only ever before [applyUpdateAndRestart] has been called: from then on
+  /// Only ever before [startUpdater] has been called: from then on
   /// the updater may be copying out of it. Does nothing for a directory that
   /// is not inside one of this service's update directories.
   Future<void> discardExtractedUpdate(Directory appRoot) async {
@@ -489,7 +489,21 @@ class UpdateService {
     return appRoot;
   }
 
-  Future<void> applyUpdateAndRestart(Directory sourceDir) async {
+  /// Starts the native updater on the build extracted at [sourceDir], and
+  /// returns once it has confirmed it is running outside this app's job.
+  ///
+  /// The caller must then end this process promptly, through its normal
+  /// shutdown: the updater waits for the app to exit (its mutex, then a
+  /// WM_CLOSE and finally a kill for anything still running from the
+  /// install folder) before it swaps the files and relaunches the app. This
+  /// used to end the process itself with exit(0), which skipped everything
+  /// the app does on the way out - the tray icon stayed behind as a ghost
+  /// until the mouse passed over it, and the runner's ordered teardown of
+  /// the engine, plugins and window never ran.
+  ///
+  /// Throws, with the installation untouched, when the updater cannot be
+  /// found or copied, or never confirms it started.
+  Future<void> startUpdater(Directory sourceDir) async {
     final exeFile = File(Platform.resolvedExecutable);
     final appDir = exeFile.parent.path;
     final exeName = path.basename(exeFile.path);
@@ -574,9 +588,12 @@ class UpdateService {
         'Your current version is unchanged.',
       );
     }
+    // Its job is done; every update used to leave one behind in %TEMP%.
+    try {
+      sentinel.deleteSync();
+    } catch (_) {}
 
-    // 5. Gracefully terminate the main application process.
-    exit(0);
+    // 5. The caller exits, through its own shutdown (see above).
   }
 }
 
