@@ -250,15 +250,27 @@ class FakeStartupService extends StartupService {
   Future<void> sync(bool enabled) async => syncs.add(enabled);
 }
 
-/// An update service with nothing on the network: [available] is what the
-/// release check finds, and the download waits for [download] - so a test
-/// can hold an update in progress for as long as it likes.
+/// An update service with nothing on the network or the disk: [available] is
+/// what the release check finds, the download waits for [download] and the
+/// updater's start for [starting] - so a test can hold an update at either
+/// step for as long as it likes.
 class FakeUpdateService extends UpdateService {
+  FakeUpdateService([this.log]);
+
+  final List<String>? log;
+
   UpdateInfo? available;
 
   /// Completed by the test: with a file to go on, with an error to fail.
   final Completer<File> download = Completer<File>();
   int downloads = 0;
+
+  /// Completed by the test once the updater "is running"; an error fails
+  /// the handover.
+  final Completer<void> starting = Completer<void>();
+
+  /// Extracted builds thrown away after a failure.
+  final List<String> discarded = <String>[];
 
   @override
   Future<UpdateInfo?> checkForUpdates() async => available;
@@ -269,6 +281,25 @@ class FakeUpdateService extends UpdateService {
     void Function(double progress)? onProgress,
   ) {
     downloads++;
+    log?.add('update.download');
     return download.future;
   }
+
+  @override
+  Future<void> verifyChecksum(File zipFile, String checksumUrl,
+      {String? assetName}) async {}
+
+  @override
+  Future<Directory> extractAndVerifyZip(File zipFile) async =>
+      Directory('${zipFile.path}.extracted');
+
+  @override
+  Future<void> startUpdater(Directory sourceDir) {
+    log?.add('update.startUpdater');
+    return starting.future;
+  }
+
+  @override
+  Future<void> discardExtractedUpdate(Directory appRoot) async =>
+      discarded.add(appRoot.path);
 }

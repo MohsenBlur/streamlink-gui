@@ -24,7 +24,6 @@ import 'services/log_store.dart';
 import 'state/activity_state.dart';
 import 'state/settings_repository.dart';
 import 'services/downloads_controller.dart';
-import 'services/session_end.dart';
 import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
 import 'widgets/shell/edge_fade.dart';
@@ -54,6 +53,7 @@ import 'widgets/interactive_popover.dart';
 import 'widgets/shell/route_handle.dart';
 
 import 'services/startup_service.dart';
+import 'state/app_shell_controller.dart';
 import 'state/library_entries.dart';
 import 'utils/window_bounds.dart';
 import 'widgets/library_view.dart';
@@ -281,12 +281,6 @@ Future<void> _prepareWindow(
   }
 }
 
-/// Set while the window is hidden because the user hid it (closed or
-/// minimized to the tray), and cleared when it is shown again; see
-/// _MainScreenState._hideWindow. Read by [_checkWindowAfterFirstFrame], which
-/// must not bring back a window put away on purpose.
-bool _windowHiddenByUser = false;
-
 /// Records what the window looks like once the first frame is up, and puts
 /// right what it can.
 ///
@@ -312,11 +306,12 @@ Future<void> _checkWindowAfterFirstFrame({
         : '; laid out at ${view.physicalSize.width.round()}x'
             '${view.physicalSize.height.round()} @ ${view.devicePixelRatio}';
     milestone('window after first frame: $state$layout');
-    if (!startHidden && _windowHiddenByUser) {
+    if (!startHidden && AppShellController.windowHiddenByUser) {
       milestone('hidden to the tray since; leaving it as it is');
     }
     if (shouldReshowAfterFirstFrame(state,
-        startHidden: startHidden, hiddenByUser: _windowHiddenByUser)) {
+        startHidden: startHidden,
+        hiddenByUser: AppShellController.windowHiddenByUser)) {
       milestone('window or its content is not visible; showing it again');
       await NativeWindow.show();
       milestone('window after re-show: ${await NativeWindow.state()}');
@@ -416,7 +411,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, WindowListener {
+class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   // Services (see AppServices). Late, so they are read from the widget once
   // it is mounted.
   late final AppServices _services = widget.services ?? AppServices();
@@ -451,7 +446,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   bool _isAdding = false;
   
   AppSettings _settings = AppSettings();
-  late final AppTray _systemTray = _services.tray;
   Set<String> get _previouslyLiveFavoriteUsernames => _channelsCtl.liveFavorites;
   
   Timer? _favoritesLiveCheckTimer;
@@ -561,13 +555,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   List<LibraryEntry> _libraryEntries = [];
 
 
-  bool _isUpdatePromptOpen = false;
-  bool _isUpdateInProgress = false;
-
-  /// The runner's second-launch notification ("activate"); see initState.
-  static const MethodChannel _singleInstanceChannel =
-      MethodChannel('streamlink_gui/single_instance');
-
   /// The log viewer's entry for the app itself, beside the per-process ones.
   static const String _appLogKey = 'app';
 
@@ -595,7 +582,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     settings: () => _settings,
     runningChannels: () => _playerService.runningChannels,
     isWatchingVod: () => _isWatchingVod,
-    isUpdateActive: () => _isUpdatePromptOpen || _isUpdateInProgress,
+    isUpdateActive: () => _shell.isUpdateActive,
     playLive: (channel) => _playerService.launchStreamlinkForLive(
       channel.username,
       channel.isLive,
@@ -643,22 +630,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   @override
   void initState() {
     super.initState();
-    _windowVisible = !widget.startHidden;
-    _window.addListener(this);
-    // A second launch hands over to this instance (windows/runner): the
-    // runner has already shown or restored the window, re-shown its content
-    // and taken the foreground by the time this arrives, so nothing here may
-    // hide anything - it only brings Dart's bookkeeping up to date.
-    _singleInstanceChannel.setMethodCallHandler((call) async {
-      if (call.method == 'activate') {
-        await _syncWindowVisible();
-        try {
-          await _window.focus();
-        } catch (_) {}
-      }
-      return null;
-    });
-    _initSystemTray();
+    _shell.attach();
 
     // Created stopped. It used to `..repeat(reverse: true)` here and was
     // only ever touched again by dispose(), so it drove a 60fps rebuild for
@@ -730,7 +702,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           // Only when the window is hidden, which is the auto-play case: a
           // failure the user is watching happen does not need a tray popup
           // on top of the message they can already see.
-          _windowIsHidden().then((hidden) {
+          _shell.isHidden().then((hidden) {
             if (hidden) _notify('Playback failed', label);
           });
         }
@@ -905,21 +877,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _checkDownloadedVods();
     });
 
-    // Windows ending the session (shutdown, restart, sign-out) is given the
-    // chance to save the queue, the progress and the window first.
-    SessionEnd.listen(
-      onEnding: _saveForSessionEnd,
-      onCancelled: _downloads.unfreeze,
-      // Answered, yet not ended: the Restart Manager asking for an installer
-      // (ENDSESSION_CLOSEAPP). Without this the queue stayed frozen for the
-      // rest of the run.
-      onSurvived: () {
-        CrashLog.current?.milestone(
-            '[session] still running after the session end; saving normally');
-        _downloads.unfreeze();
-      },
-    );
-
     _favoritesLiveCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       _onPollTick();
     });
@@ -964,7 +921,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   void _showUpdatePromptDialog(UpdateInfo info) {
-    _isUpdatePromptOpen = true;
+    _shell.updatePromptOpen = true;
     // Not dismissible by clicking away: this is the only place the update is
     // offered, and a stray click outside would silently defer it for a day.
     NeuDialog.show<void>(
@@ -1016,12 +973,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         );
       },
     ).then((_) {
-      _isUpdatePromptOpen = false;
+      _shell.updatePromptOpen = false;
     });
   }
 
   void _performAppUpdate(UpdateInfo info) {
-    _isUpdateInProgress = true;
     double progress = 0.0;
     String statusText = 'Downloading update archive...';
 
@@ -1077,78 +1033,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       },
     );
 
+    // The steps themselves, and the guard on Exit while they run, are the
+    // shell's (AppShellController.applyUpdate); this is what the user sees.
     Future.microtask(() async {
-      final updateService = _services.updates;
-      Directory? extractDir;
-      var updaterStarting = false;
-      var handedOver = false;
       try {
-        final zipFile = await updateService.downloadUpdate(info.downloadUrl, (pct) {
-          updateDialog(() => progress = pct);
+        await _shell.applyUpdate(info, report: ({status, fraction}) {
+          updateDialog(() {
+            if (status != null) statusText = status;
+            if (fraction != null) progress = fraction;
+          });
         });
-
-        updateDialog(() {
-          statusText = 'Verifying download integrity...';
-          progress = 0.0;
-        });
-        await updateService.verifyChecksum(zipFile, info.checksumUrl);
-
-        updateDialog(() => statusText = 'Extracting update files...');
-        extractDir = await updateService.extractAndVerifyZip(zipFile);
-
-        updateDialog(() => statusText = 'Closing running downloads and streams...');
-
-        // Now, so the save of the resume list below writes it too: if the
-        // updater has to end this process before its own shutdown finishes,
-        // the geometry is already on disk.
-        await _captureWindowState();
-
-        // Shut down cleanly before the installation is replaced. This path
-        // previously called exit(0) directly: streamlink/yt-dlp children were
-        // orphaned and kept writing while the updater swapped the very
-        // binaries they were running from, and any in-flight downloads were
-        // lost with no resume record.
-        await _persistUnfinishedDownloadsForRestart();
-        // Same reasoning as the tray exit, without a second modal on top of
-        // the progress dialog: if the resume list did not reach disk, stop
-        // before killing the downloads it was meant to describe. The update
-        // is still there to apply once the disk problem is resolved.
-        final saveFailure = storageWriteFailure.value;
-        if (saveFailure != null) {
-          throw Exception(
-              'could not save the download queue (${saveFailure.path}), so the '
-              'update was not applied. Downloads in progress are untouched.');
-        }
-        // Awaited: stopAll() kills asynchronously, and the children must be
-        // gone before the updater starts replacing the binaries they run
-        // from. The job object and the updater's own sweep would end them
-        // anyway, but not before the swap began. Bounded, because Exit is
-        // refused while an update runs: a stop that never returned would
-        // leave this dialog up with nothing the user could do about it.
-        await _stopAllBounded('update');
-
-        updateDialog(() => statusText = 'Applying update and restarting...');
-        updaterStarting = true;
-        _handingOverToUpdater = true;
-        await updateService.startUpdater(extractDir);
-        handedOver = true;
       } catch (e) {
-        _handingOverToUpdater = false;
-        _isUpdateInProgress = false;
         // stopAll() may already have killed everything before the failure. The
         // app survives this path, so any session still marked running would
         // stay that way for the rest of the session - and eviction only
         // reclaims finished ones.
         _logNotifier.endAllRunning(-1);
-        // The extracted build is ~300 MB that only a sweep a day later would
-        // reclaim. Safe to delete while no updater can be copying out of it,
-        // which is every failure before startUpdater began; that
-        // method cleans up its own failures before it starts the updater,
-        // and after it, a late updater may still need the files.
-        final extracted = extractDir;
-        if (extracted != null && !updaterStarting) {
-          unawaited(updateService.discardExtractedUpdate(extracted));
-        }
         // THIS dialog, not the top route. Navigator.pop(context) popped
         // whatever was on top - a dialog the tray had opened over the
         // progress dialog, say - and left "Updating", which has no buttons
@@ -1162,39 +1062,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               isError: true);
         }
       }
-      if (handedOver) await _exitForUpdate();
     });
-  }
-
-  /// Leaves for the updater, which is now running outside this app's job and
-  /// waits for the process to end before it swaps the files and relaunches.
-  ///
-  /// The same way out as Exit: the saves flushed, the tray icon removed, the
-  /// runner's ordered teardown. This used to be a Dart exit(0) inside the
-  /// update service, which skipped all of it and left a ghost tray icon
-  /// beside the relaunched app until the mouse passed over it.
-  Future<void> _exitForUpdate() async {
-    CrashLog.current?.milestone('[update] updater started; exiting for it');
-    try {
-      await _shutDownAndExit();
-    } catch (e, st) {
-      // Never stay up half shut down: the updater is waiting on this
-      // process, and would end it within half a minute regardless.
-      CrashLog.current?.error('update: shutting down', e, st);
-      exit(0);
-    }
-  }
-
-  /// Makes sure the saved download queue is on disk before the downloads are
-  /// stopped, so they resume after the app restarts. Shared by the tray-exit
-  /// and update paths, which check storageWriteFailure right after.
-  ///
-  /// The queue is saved as it changes now (DownloadsController), so this
-  /// only makes the last change land immediately rather than a second later.
-  /// Stopping the downloads afterwards does not take them off the saved
-  /// queue: only completing, failing or being cancelled does.
-  Future<void> _persistUnfinishedDownloadsForRestart() async {
-    await _settingsRepo.saveNow();
   }
 
   /// The config file's contents, at the moment of writing.
@@ -1205,25 +1073,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     if (unfinished != null) _settings.unfinishedDownloads = unfinished;
     return _storageService.saveConfig(
         _channels, _settings, _localVodsProgress, _downloadedVodsRegistry);
-  }
-
-  /// Windows is ending the session: save what a restart should find.
-  ///
-  /// No dialogs and no stopping anything: the session is going whatever
-  /// happens, and the runner only waits a few seconds. Downloads are ended
-  /// by Windows along with everything else, and report that as failures, so
-  /// the queue is frozen first and resumes at the next launch.
-  Future<void> _saveForSessionEnd() async {
-    final log = CrashLog.current;
-    log?.milestone('[session] Windows is ending the session; saving');
-    _downloads.freeze();
-    try {
-      await _captureWindowState();
-      await _settingsRepo.flushNow();
-      log?.milestone('[session] saved');
-    } catch (e, st) {
-      log?.error('session end: saving', e, st);
-    }
   }
 
   /// Scroll state for the "Continue watching" strip, so its edges can fade.
@@ -1252,8 +1101,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   @override
   void dispose() {
-    _window.removeListener(this);
-    _singleInstanceChannel.setMethodCallHandler(null);
+    _shell.dispose();
     // Detached before the controller goes: the proxy outlives this screen.
     widget.shellPulse?.parent = kAlwaysCompleteAnimation;
     _recentScroll.dispose();
@@ -1265,9 +1113,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _oauthServer?.close();
     _downloadCheckTimer?.cancel();
     _favoritesLiveCheckTimer?.cancel();
-    _windowSaveTimer?.cancel();
     // Channel and VOD refresh wiring (see initState).
-    _cameBackTimer?.cancel();
     _channelsCtl
       ..removeListener(_onRefreshStateChanged)
       ..dispose();
@@ -1275,7 +1121,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       ..removeListener(_onRefreshStateChanged)
       ..dispose();
     // Persistence and downloads: anything still held is written out.
-    SessionEnd.stopListening();
     _downloads.dispose();
     _settingsRepo.dispose();
     storageWriteFailure.removeListener(_onSaveFailureChanged);
@@ -1285,63 +1130,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     super.dispose();
   }
 
-  /// Signature of the last-built tray menu. system_tray 2.0.3 leaks the
-  /// native HMENU on every setContextMenu, so the menu is only rebuilt when
-  /// the live-favorites set actually changes - never per poll.
-  String? _traySignature;
-
-  Future<void> _initSystemTray() async {
-    await _systemTray.init(
-      title: "Twitch Streamlink GUI",
-      iconPath: 'assets/app_icon.ico',
-      toolTip: "Twitch Streamlink GUI",
-    );
-    await _rebuildTrayMenu();
-
-    _systemTray.onEvent((event) {
-      if (event == TrayEvent.click || event == TrayEvent.doubleClick) {
-        _showWindow();
-      } else if (event == TrayEvent.rightClick) {
-        _systemTray.popUpMenu();
-      }
-    });
-  }
-
-  Future<void> _rebuildTrayMenu() async {
-    final liveNames = _settings.trayLiveMenuEnabled
-        ? _channels.where((c) => c.isLive).map((c) => c.username).take(5).toList()
-        : <String>[];
-    final signature = liveNames.join('|');
-    if (signature == _traySignature) return;
-    _traySignature = signature;
-
-    try {
-      await _systemTray.setMenu([
-        for (final name in liveNames)
-          TrayMenuEntry('Watch $name', () => _launchTrayChannel(name)),
-        if (liveNames.isNotEmpty) const TrayMenuEntry.separator(),
-        TrayMenuEntry('Show App', _showWindow),
-        TrayMenuEntry('Hide App', _hideWindow),
-        TrayMenuEntry('Open Library', () async {
-          await _showWindow();
-          _openLibrary();
-        }),
-        const TrayMenuEntry.separator(),
-        TrayMenuEntry('Exit', _handleAppExitRequest),
-      ]);
-      await _systemTray.setToolTip(
-        liveNames.isEmpty
-            ? 'Twitch Streamlink GUI'
-            : 'Twitch Streamlink GUI - ${liveNames.length} favorite${liveNames.length == 1 ? '' : 's'} live',
-      );
-      await _systemTray.setImage(
-        liveNames.isEmpty ? 'assets/app_icon.ico' : 'assets/app_icon_live.ico',
-      );
-    } catch (_) {
-      // A failed tray refresh must never break polling; retry on next change.
-      _traySignature = null;
-    }
-  }
+  // ---- The shell (AppShellController) ------------------------------------
+  // The window, the tray, the way out and the update. These closures are its
+  // view of the screen, read at call time.
+  late final AppShellController _shell = AppShellController(
+    window: _window,
+    tray: _services.tray,
+    notifications: _notifications,
+    updates: _services.updates,
+    repository: _settingsRepo,
+    settings: () => _settings,
+    stopAll: _playerService.stopAll,
+    liveFavorites: () =>
+        _channels.where((c) => c.isLive).map((c) => c.username),
+    startHidden: widget.startHidden,
+    // The window's visibility gates the pulse.
+    onVisibilityChanged: _updatePulse,
+    onCameBack: _onWindowCameBack,
+    confirmExit: _confirmExit,
+    showMessage: (message) => _showSnackBar(message, isError: false),
+    onTrayWatch: _launchTrayChannel,
+    onTrayOpenLibrary: _openLibrary,
+    // Nothing new may start while the exit runs.
+    onExitCommitted: () {
+      _favoritesLiveCheckTimer?.cancel();
+      _downloadCheckTimer?.cancel();
+    },
+    onSessionEnding: _downloads.freeze,
+    onSessionContinues: _downloads.unfreeze,
+  );
+  // ---- end shell -------------------------------------------------------------
 
   /// Resolves the channel by name AT CLICK TIME: menu items can outlive a
   /// poll cycle, and capturing the channel object would launch with stale
@@ -1354,190 +1172,67 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     _launchChannelStream(channel);
   }
 
-  /// Set while an exit request is being answered (its dialogs are open), so a
-  /// second Exit from the tray does not stack a second set on top.
-  bool _exitRequestOpen = false;
+  /// What an Exit asks before it goes (see AppShellController.requestExit):
+  /// whether to pause the downloads that are running, and whether to go
+  /// anyway if their queue could not be saved. True to exit.
+  Future<bool> _confirmExit() async {
+    final hasUnfinished = _playerService.activeDownloadProcesses.isNotEmpty || _playerService.downloadQueue.isNotEmpty;
+    if (!hasUnfinished) return true;
+    if (!mounted) return false;
+    final bool? confirmExit = await NeuDialog.show<bool>(
+      context,
+      dismissible: true,
+      builder: (context) => NeuDialog(
+        title: 'Downloads are still running',
+        icon: Icons.download_for_offline_outlined,
+        content: Text(
+          'Exiting pauses them. They resume the next time you start the app.',
+          style: NeuType.body(themeNotifier.isDarkTheme),
+        ),
+        actions: [
+          NeuDialogAction.secondary(
+              'Keep running', () => Navigator.pop(context, false)),
+          NeuDialogAction.primary(
+              'Exit and save queue', () => Navigator.pop(context, true)),
+        ],
+      ),
+    );
 
-  /// Set once the app has committed to quitting.
-  bool _isExiting = false;
+    if (confirmExit != true) {
+      return false;
+    }
 
-  /// Set from just before the updater is started until the app is exiting
-  /// for it, or the handover has failed.
-  ///
-  /// The updater signals that it is ready and may then close the window,
-  /// while the app only sees the signal at its next poll, up to 50ms later,
-  /// and only then starts exiting. A close landing in between went the
-  /// normal way: hidden to the tray with the "still running" toast, or an
-  /// Exit request refused because an update is running.
-  bool _handingOverToUpdater = false;
+    await _shell.persistQueueForRestart();
 
-  Future<void> _handleAppExitRequest() async {
-    if (_exitRequestOpen || _isExiting) return;
-    _exitRequestOpen = true;
-    try {
-      await _showWindow();
-
-      // The binaries are being replaced underneath the process and the
-      // update restarts the app by itself; quitting now would leave neither
-      // the old version running nor the new one installed. The update's own
-      // failure path re-enables this.
-      if (_isUpdateInProgress) {
-        if (mounted) {
-          _showSnackBar(
-              'An update is being installed. The app restarts by itself '
-              'when it is done.',
-              isError: false);
-        }
-        return;
-      }
-
-      final hasUnfinished = _playerService.activeDownloadProcesses.isNotEmpty || _playerService.downloadQueue.isNotEmpty;
-      if (hasUnfinished) {
-        if (!mounted) return;
-        final bool? confirmExit = await NeuDialog.show<bool>(
-          context,
-          dismissible: true,
-          builder: (context) => NeuDialog(
-            title: 'Downloads are still running',
-            icon: Icons.download_for_offline_outlined,
-            content: Text(
-              'Exiting pauses them. They resume the next time you start the app.',
-              style: NeuType.body(themeNotifier.isDarkTheme),
-            ),
-            actions: [
-              NeuDialogAction.secondary(
-                  'Keep running', () => Navigator.pop(context, false)),
-              NeuDialogAction.primary(
-                  'Exit and save queue', () => Navigator.pop(context, true)),
-            ],
+    // They chose "Exit & Save Queue". If that save did not reach disk,
+    // exiting now loses the queue with no trace - and the banner that would
+    // normally report it goes with the window.
+    if (storageWriteFailure.value != null && mounted) {
+      final bool? exitAnyway = await NeuDialog.show<bool>(
+        context,
+        dismissible: true,
+        builder: (context) => NeuDialog(
+          title: 'Could not save the download queue',
+          icon: Icons.error_outline,
+          tone: DialogTone.destructive,
+          content: Text(
+            'Writing to ${storageWriteFailure.value?.path} failed, so the '
+            'queued downloads will not resume after a restart.'
+            '\n\nThis usually means the folder is full, read-only, or locked '
+            'by another program. Go back to fix it and try again.',
+            style: NeuType.body(themeNotifier.isDarkTheme),
           ),
-        );
-
-        if (confirmExit != true) {
-          return;
-        }
-
-        await _persistUnfinishedDownloadsForRestart();
-
-        // They chose "Exit & Save Queue". If that save did not reach disk,
-        // exiting now loses the queue with no trace - and the banner that would
-        // normally report it goes with the window.
-        if (storageWriteFailure.value != null && mounted) {
-          final bool? exitAnyway = await NeuDialog.show<bool>(
-            context,
-            dismissible: true,
-            builder: (context) => NeuDialog(
-              title: 'Could not save the download queue',
-              icon: Icons.error_outline,
-              tone: DialogTone.destructive,
-              content: Text(
-                'Writing to ${storageWriteFailure.value?.path} failed, so the '
-                'queued downloads will not resume after a restart.'
-                '\n\nThis usually means the folder is full, read-only, or locked '
-                'by another program. Go back to fix it and try again.',
-                style: NeuType.body(themeNotifier.isDarkTheme),
-              ),
-              actions: [
-                NeuDialogAction.secondary(
-                    'Go back', () => Navigator.pop(context, false)),
-                NeuDialogAction.primary(
-                    'Exit anyway', () => Navigator.pop(context, true)),
-              ],
-            ),
-          );
-          if (exitAnyway != true) return;
-        }
-      }
-      // A dialog answered while an update started (from Settings, say) must
-      // not quit underneath it either.
-      if (_isUpdateInProgress) return;
-    } finally {
-      _exitRequestOpen = false;
+          actions: [
+            NeuDialogAction.secondary(
+                'Go back', () => Navigator.pop(context, false)),
+            NeuDialogAction.primary(
+                'Exit anyway', () => Navigator.pop(context, true)),
+          ],
+        ),
+      );
+      if (exitAnyway != true) return false;
     }
-
-    await _shutDownAndExit();
-  }
-
-  /// Everything that has to happen before the process goes, then the exit.
-  ///
-  /// No Dart runs after windowManager.destroy(): the runner tears the engine
-  /// down as soon as its message loop ends. Anything still pending then was
-  /// lost - the debounced window save (a 300ms timer that never fired), a
-  /// progress write still queued, the tray icon left behind until the mouse
-  /// passed over it - and players were killed without being waited for.
-  Future<void> _shutDownAndExit() async {
-    if (_isExiting) return;
-    _isExiting = true;
-    final log = CrashLog.current;
-    log?.milestone('[exit] requested');
-    // A line per step, timed from the request: an exit seen taking 6.9s
-    // (against well under one second usually) left nothing to say which
-    // step it was.
-    final steps = TimedMilestones('exit', log);
-
-    // Nothing new may start while this runs - including the refresh a
-    // window coming back arms. Exit shows the window first (for its
-    // dialogs), so its own show and focus armed one, and it fired in the
-    // middle of the shutdown, which waits up to five seconds on the players.
-    _favoritesLiveCheckTimer?.cancel();
-    _downloadCheckTimer?.cancel();
-    _cameBackTimer?.cancel();
-    _cameBackTimer = null;
-
-    // The window's last geometry, now rather than in 300ms.
-    await _captureWindowState();
-
-    // Players and downloads first, so whatever their stopping reports (a
-    // final watch position, a download's resume state) is already in memory
-    // when the saves below snapshot it.
-    await _stopAllBounded('exit');
-    steps.mark('players stopped');
-
-    // Each save resolves only once its file's writer has drained, earlier
-    // fire-and-forget writes to the same file included - and the config,
-    // progress and recents all go, including a watch position the progress
-    // delay was still holding. A file not yet read at startup is left alone.
-    try {
-      await _settingsRepo.flushNow();
-    } catch (e, st) {
-      log?.error('exit: saving', e, st);
-    }
-    steps.mark('saved');
-
-    _window.removeListener(this);
-    _singleInstanceChannel.setMethodCallHandler(null);
-    SessionEnd.stopListening();
-    try {
-      await _systemTray.destroy();
-    } catch (_) {}
-    steps.mark('tray destroyed');
-
-    log?.milestone('[exit] saved and stopped; closing');
-    await _window.destroy();
-  }
-
-  /// The longest quitting or updating waits for players and downloads to end.
-  static const Duration _stopAllTimeout = Duration(seconds: 5);
-
-  /// [PlayerService.stopAll], awaited but never for longer than
-  /// [_stopAllTimeout].
-  ///
-  /// Awaited so the children are gone before the saves (exit) or the binary
-  /// swap (update). Unbounded, a taskkill that never returned would strand
-  /// the app: the exit guard ignores every later Exit, so the window could
-  /// not be closed, and the update dialog has no way out at all. Going on is
-  /// safe: the runner's kill-on-close job ends whatever is left when this
-  /// process goes, and the updater ends what runs from the install folder
-  /// before it swaps.
-  Future<void> _stopAllBounded(String during) async {
-    try {
-      await _playerService.stopAll().timeout(_stopAllTimeout);
-    } on TimeoutException {
-      CrashLog.current?.milestone('[$during] players still stopping after '
-          '${_stopAllTimeout.inSeconds}s; going on without them');
-    } catch (e, st) {
-      CrashLog.current?.error('$during: stopping players', e, st);
-    }
+    return true;
   }
 
   /// Runs the shared pulse only when something is actually pulsing and the
@@ -1565,7 +1260,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // Gated here rather than in each consumer, so honouring the setting is not
     // something five widgets each have to remember.
     final reducedMotion = mounted && NeuMotion.reduced(context);
-    final shouldRun = somethingLive && _windowVisible && !reducedMotion;
+    final shouldRun = somethingLive && _shell.windowVisible && !reducedMotion;
 
     if (shouldRun && !controller.isAnimating) {
       controller.repeat(reverse: true);
@@ -1575,179 +1270,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       // paused pulse does not leave a badge stuck at 40% opacity.
       controller.value = 1.0;
     }
-  }
-
-  /// Brings the window forward from wherever it is: the tray, minimized, or
-  /// never shown yet because the app started hidden.
-  ///
-  /// Through the runner rather than windowManager.show(), because the
-  /// runner knows how the window was restored: started hidden from a
-  /// maximized session, its first appearance must be maximized, and a plain
-  /// show brought it back at its normal size.
-  Future<void> _showWindow() async {
-    _windowHiddenByUser = false;
-    try {
-      await _window.showNative();
-    } catch (_) {
-      await _window.show();
-      await _window.focus();
-    }
-  }
-
-  /// The user's own hide: close or minimize to the tray, or the tray's Hide
-  /// App. Marked first, so the check after the first frame leaves it hidden.
-  Future<void> _hideWindow() async {
-    _windowHiddenByUser = true;
-    await _window.hide();
-  }
-
-  /// Whether the window is on screen, which gates the pulse.
-  ///
-  /// Written in one place only, [_syncWindowVisible], which reads it back
-  /// from the window itself. It used to be set by hand on the few paths that
-  /// remembered to (tray Show/Hide, minimize, restore), so closing to the
-  /// tray, starting minimized, a toast's click or a second launch each left
-  /// it wrong - a pulse running in the tray, or one frozen on screen.
-  bool _windowVisible = true;
-
-  /// Re-reads [_windowVisible] from the window. Every way of showing or
-  /// hiding it ends in a window event ([onWindowEvent]) or, for a second
-  /// launch, the runner's activate call, and both land here.
-  Future<void> _syncWindowVisible() async {
-    bool visible;
-    try {
-      visible = await _window.isVisible() && !await _window.isMinimized();
-    } catch (_) {
-      return;
-    }
-    if (!mounted || visible == _windowVisible) return;
-    _windowVisible = visible;
-    _updatePulse();
-  }
-
-  @override
-  void onWindowEvent(String eventName) {
-    switch (eventName) {
-      case 'show':
-      case 'hide':
-      case kWindowEventMinimize:
-      case kWindowEventRestore:
-      case kWindowEventMaximize:
-      case kWindowEventUnmaximize:
-        unawaited(_syncWindowVisible());
-    }
-    // Going to the tray is often the last thing a session does before
-    // Windows shuts down around it, so the geometry is captured on the way.
-    if (eventName == 'hide') _saveWindowState();
-    // Coming back into view, what it shows is brought up to date.
-    if (eventName == 'show' || eventName == kWindowEventRestore || eventName == kWindowEventFocus) _onWindowCameBack();
-  }
-
-  Timer? _windowSaveTimer;
-
-  /// Debounced: a drag emits a stream of moves. The write is the
-  /// repository's debounced one too, config only - every move, resize and
-  /// trip to the tray rewrote the progress sidecar as well. Exit and session
-  /// end capture the geometry and flush it themselves.
-  void _saveWindowState() {
-    _windowSaveTimer?.cancel();
-    _windowSaveTimer = Timer(const Duration(milliseconds: 300), () async {
-      _windowSaveTimer = null;
-      if (await _captureWindowState()) {
-        _settingsRepo.requestSave();
-      }
-    });
-  }
-
-  /// Copies the window's current geometry into [_settings]; returns whether
-  /// there was anything to copy.
-  ///
-  /// Physical pixels and the monitor, from the runner. The logical fields
-  /// are kept up to date in the meaning older builds gave them (divided by
-  /// the window's own scale), so a downgrade still finds the window.
-  Future<bool> _captureWindowState() async {
-    _windowSaveTimer?.cancel();
-    _windowSaveTimer = null;
-    try {
-      final state = await _window.state();
-      // Minimized, there is nothing new to say: the normal bounds are what
-      // they were, and "maximized" is not readable until it is restored.
-      if (state == null || state.minimized) return false;
-      final s = state.scale;
-      _settings.windowPlacement = SavedWindowPlacement.fromState(state);
-      _settings.windowX = state.bounds.left / s;
-      _settings.windowY = state.bounds.top / s;
-      _settings.windowWidth = state.bounds.width / s;
-      _settings.windowHeight = state.bounds.height / s;
-      _settings.isWindowMaximized = state.maximized;
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  @override
-  void onWindowResized() {
-    _saveWindowState();
-  }
-
-  @override
-  void onWindowMoved() {
-    _saveWindowState();
-  }
-
-  @override
-  void onWindowMaximize() {
-    _saveWindowState();
-  }
-
-  @override
-  void onWindowUnmaximize() {
-    _saveWindowState();
-  }
-
-  @override
-  void onWindowClose() async {
-    final isPreventClose = await _window.isPreventClose();
-    if (!isPreventClose) return;
-    // Already quitting, for Exit or for an update, or handing over to the
-    // updater (see _handingOverToUpdater). The updater closes the window of
-    // an app that has not exited by the end of its wait, or at once when it
-    // cannot wait on this process (an updater from before --wait-pid, a pid
-    // it could not open); hiding to the tray, with its one-time "still
-    // running" toast, would be the wrong answer to any of them.
-    // A user's own close in the handover's few seconds is lost with it.
-    if (_isExiting || _handingOverToUpdater) return;
-    if (_settings.closeAction == 'exit') {
-      await _handleAppExitRequest();
-      return;
-    }
-    await _hideWindow();
-    _maybeShowTrayNotice();
-  }
-
-  @override
-  void onWindowMinimize() async {
-    // Default is the Windows convention (taskbar); 'tray' preserves the old
-    // behavior for users who want it.
-    if (_settings.minimizeAction == 'tray') {
-      await _hideWindow();
-    }
-  }
-
-  /// One-time heads-up that closing the window left the app running.
-  Future<void> _maybeShowTrayNotice() async {
-    if (_settings.trayNoticeShown) return;
-    _settings.trayNoticeShown = true;
-    await _saveChannels();
-    try {
-      await _notifications.show(AppNotification(
-        title: 'Still running in the tray',
-        body:
-            'Twitch Streamlink GUI keeps monitoring your favorites. Right-click the tray icon and choose Exit to quit for real. You can change the close behavior in Settings.',
-        silent: true,
-      ));
-    } catch (_) {}
   }
 
   /// Brings the downloaded badges and the registry in step with the disk.
@@ -2290,9 +1812,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     clock: _services.clock,
   );
 
-  /// Debounces the window's show, restore and focus events.
-  Timer? _cameBackTimer;
-
   bool get _hasAccountToken => _settings.twitchOauthToken.trim().isNotEmpty;
 
   /// Either controller changed something on screen. Each notifies once per
@@ -2313,7 +1832,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // The open channel's VODs, every few minutes while they can be seen -
     // with any token Helix reads videos for, which is not only a usable one
     // (see backgroundVodRefreshAllowed).
-    if (_windowVisible && backgroundVodRefreshAllowed(twitchAuth.helix.value)) {
+    if (_shell.windowVisible &&
+        backgroundVodRefreshAllowed(twitchAuth.helix.value)) {
       unawaited(_refreshSelectedVods(
           maxAge: VodBrowserController.visibleRefreshInterval));
     }
@@ -2331,22 +1851,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   }
 
   /// The window came back into view: shown from the tray, restored, or
-  /// focused. What it shows is fetched again if it is old - the channels
-  /// when the last pass is over 30s old, the open VOD list when it is over a
-  /// minute old. Nothing did this, so a grid left in the tray overnight came
-  /// back showing last night. Debounced: one restore fires several of these,
-  /// and alt-tabbing fires them constantly.
+  /// focused (debounced, and never while exiting: AppShellController). What
+  /// it shows is fetched again if it is old - the channels when the last pass
+  /// is over 30s old, the open VOD list when it is over a minute old.
   void _onWindowCameBack() {
-    _cameBackTimer?.cancel();
-    _cameBackTimer = Timer(const Duration(milliseconds: 300), () {
-      _cameBackTimer = null;
-      if (!mounted || !_startupComplete || _isExiting) return;
-      unawaited(_channelsCtl.refreshIfOlderThan(const Duration(seconds: 30)));
-      if (backgroundVodRefreshAllowed(twitchAuth.helix.value)) {
-        unawaited(
-            _refreshSelectedVods(maxAge: VodBrowserController.staleAfter));
-      }
-    });
+    if (!mounted || !_startupComplete) return;
+    unawaited(_channelsCtl.refreshIfOlderThan(const Duration(seconds: 30)));
+    if (backgroundVodRefreshAllowed(twitchAuth.helix.value)) {
+      unawaited(_refreshSelectedVods(maxAge: VodBrowserController.staleAfter));
+    }
   }
 
   /// One refresh of every channel's live state, for the callers that want a
@@ -2394,7 +1907,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
 
     unawaited(_vodBrowser.prefetch(_channels));
-    _rebuildTrayMenu();
+    _shell.rebuildTrayMenu();
   }
 
   /// The went-live toasts for one pass, one after another, over the pass's
@@ -2414,7 +1927,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           title: '${channel.username} is now LIVE!',
           body: 'Playing $gameText\n$titleText',
           onClick: () async {
-            await _showWindow();
+            await _shell.showWindow();
             if (!mounted) return;
             _selectChannel(channel);
 
@@ -2443,7 +1956,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final name = channel.username.toLowerCase().trim();
     final index = _channels.indexWhere((c) => c.username == name);
     if (index == -1) return;
-    if (_windowVisible &&
+    if (_shell.windowVisible &&
         !_showLibraryView &&
         _selectedChannel?.username == name) {
       return;
@@ -2461,7 +1974,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         title: 'New VOD from $name',
         body: more > 0 ? '${vods.first.title}\n+$more more' : vods.first.title,
         onClick: () async {
-          await _showWindow();
+          await _shell.showWindow();
           if (!mounted) return;
           final index = _channels.indexWhere((c) => c.username == name);
           if (index != -1) _selectChannel(_channels[index]);
@@ -2816,20 +2329,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
-  /// Whether the window is somewhere the user can actually read a SnackBar.
-  ///
-  /// The app's normal state is minimised to the tray, where an in-app message
-  /// is shown to nobody - and auto-play and auto-download run precisely then.
-  Future<bool> _windowIsHidden() async {
-    try {
-      if (!await _window.isVisible()) return true;
-      return await _window.isMinimized();
-    } catch (_) {
-      // Unknown: prefer the OS notification over silence.
-      return true;
-    }
-  }
-
   /// Raises an OS notification, ignoring a platform that refuses.
   Future<void> _notify(String title, String body, {bool silent = false}) async {
     try {
@@ -3070,10 +2569,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         if (startupChanged) {
           _services.startup.sync(_settings.launchAtStartup);
         }
-        // The tray menu preference may have flipped; the signature gate makes
-        // this a no-op otherwise.
-        _traySignature = null;
-        _rebuildTrayMenu();
+        // The tray menu preference may have flipped.
+        _shell.rebuildTrayMenu(force: true);
 
         if (_settings.twitchOauthToken.trim().isNotEmpty) {
           _loadFollowedChannels();
@@ -3090,7 +2587,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     ).then((_) {
       final info = _pendingUpdateInfo;
       _pendingUpdateInfo = null;
-      if (info != null && mounted && !_isUpdatePromptOpen && !_isUpdateInProgress) {
+      if (info != null && mounted && !_shell.isUpdateActive) {
         _showUpdatePromptDialog(info);
       }
     });

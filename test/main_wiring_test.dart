@@ -4,11 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Pins how main.dart wires the pieces whose rules are tested elsewhere.
 ///
-/// A source scan, like external_link_test, because no test pumps MainScreen:
-/// it would need window_manager, the tray, notifications and storage faked.
-/// Each rule below is a call the screen makes or no longer makes, so it
-/// reads the method it belongs to, and fails if that call goes back to how
-/// it was.
+/// What is left here is what the pumped screen (main_screen_test) cannot
+/// see: main()'s startup, which runs before any screen, and wiring whose
+/// effect needs a collaborator no fake stands in for. Each rule below is a
+/// call the screen makes or no longer makes, so it reads the method it
+/// belongs to, and fails if that call goes back to how it was. The rest moved
+/// to behaviour: the shell's (app_shell_controller_test) and the screen's.
 void main() {
   // Line endings as git stores them, whatever the checkout turned them into.
   final src =
@@ -49,19 +50,6 @@ void main() {
     expect(bodyOf('void _showSnackBar('), contains('if (!mounted) return;'));
   });
 
-  test('frequent saves go through the debounced, config-only write', () {
-    // Every VOD fetch and every window move wrote the config and the
-    // progress sidecar at once, each fsync'd.
-    for (final method in [
-      'Future<void> _applyVodOutcome(',
-      'void _saveWindowState(',
-    ]) {
-      final body = bodyOf(method);
-      expect(body, contains('_settingsRepo.requestSave()'), reason: method);
-      expect(body, isNot(contains('_saveChannels()')), reason: method);
-    }
-  });
-
   test('the recently-watched list is written only through the repository',
       () {
     // Removing a VOD from the history wrote it straight to the storage
@@ -73,25 +61,12 @@ void main() {
         contains('_settingsRepo.saveNow(recents: true)'));
   });
 
-  test('the exit says how long the saves and the tray took', () {
-    final body = bodyOf('Future<void> _shutDownAndExit()');
-    final saved = body.indexOf("steps.mark('saved')");
-    final tray = body.indexOf('_systemTray.destroy()');
-    final destroyed = body.indexOf("steps.mark('tray destroyed')");
-    expect(saved, isNonNegative);
-    expect(destroyed, isNonNegative);
-    expect(saved < tray && tray < destroyed, isTrue,
-        reason: 'saved before the tray teardown, then after it');
-  });
-
   test('a window hidden to the tray is not shown again by the startup check',
       () {
-    expect(bodyOf('Future<void> _hideWindow()'),
-        contains('_windowHiddenByUser = true'));
-    expect(bodyOf('Future<void> _showWindow()'),
-        contains('_windowHiddenByUser = false'));
+    // The shell marks the window (app_shell_controller_test); the check after
+    // the first frame, which runs before any screen exists, has to read it.
     expect(bodyOf('Future<void> _checkWindowAfterFirstFrame('),
-        contains('hiddenByUser: _windowHiddenByUser'));
+        contains('hiddenByUser: AppShellController.windowHiddenByUser'));
   });
 
   test('a VOD auto-download announces is left out of the New VOD toast', () {
@@ -99,14 +74,16 @@ void main() {
         contains('_automation.newVodsToAnnounce('));
   });
 
-  test('a session end the process outlives lets go of the download queue',
+  test('a session end freezes the download queue, and letting go thaws it',
       () {
-    final at = src.indexOf('SessionEnd.listen(');
+    // The shell calls these at the right moments - a process that outlives
+    // the session end included (app_shell_controller_test); they have to be
+    // the queue's.
+    final at = src.indexOf('AppShellController(');
     expect(at, isNonNegative);
     final call = bracketed(src.indexOf('(', at), '(', ')');
-    expect(call, contains('onSurvived:'));
-    expect(call.substring(call.indexOf('onSurvived:')),
-        contains('_downloads.unfreeze()'));
+    expect(call, contains('onSessionEnding: _downloads.freeze'));
+    expect(call, contains('onSessionContinues: _downloads.unfreeze'));
   });
 
   test("the surface engine's status says which switch forced Canvas", () {

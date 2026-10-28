@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:streamlink_gui/models/app_settings.dart';
+import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/desktop_shell.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/services/update_service.dart';
+import 'package:streamlink_gui/state/app_shell_controller.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
@@ -87,6 +91,26 @@ void main() {
       expect(find.text('Fresh broadcast'), findsOneWidget);
       expect(find.text('Older broadcast'), findsOneWidget,
           reason: 'merged into the list, not swapped for it');
+
+      await h.close(tester);
+    });
+
+    testWidgets('what a fetch brings is saved by the debounced, config-only '
+        'write', (tester) async {
+      // Every selection and refresh wrote the config and the progress
+      // sidecar at once, each fsync'd.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.addVideo('alpha', title: 'Older broadcast');
+      await h.launch(tester, favorites: ['alpha']);
+      final config = h.storage.configWrites;
+      final progress = h.storage.progressWrites;
+
+      await openChannel(tester, h, 'alpha');
+      expect(h.storage.configWrites, config, reason: 'not at once');
+      await h.advance(tester, const Duration(seconds: 2));
+      expect(h.storage.configWrites, config + 1);
+      expect(h.storage.progressWrites, progress);
 
       await h.close(tester);
     });
@@ -185,6 +209,32 @@ void main() {
 
       await h.close(tester);
     });
+  });
+
+  testWidgets('the live pulse runs only while the window is on screen',
+      (tester) async {
+    // Its visibility was set by hand on the few paths that remembered to, so
+    // closing to the tray left a pulse running there - at 60fps, for as long
+    // as a favourite stayed live.
+    final h = ScreenHarness();
+    h.helix.user('alpha');
+    h.helix.goLive('alpha');
+    await h.launch(tester, favorites: ['alpha']);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.transientCallbackCount, greaterThan(0),
+        reason: 'a favourite is live and the window is up');
+
+    h.window.userCloses();
+    await h.settle(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.transientCallbackCount, 0);
+
+    h.tray.fire(TrayEvent.click);
+    await h.settle(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.transientCallbackCount, greaterThan(0));
+
+    await h.close(tester);
   });
 
   testWidgets('a rate-limited poll leaves live channels live', (tester) async {
@@ -352,6 +402,58 @@ void main() {
       h.tray.choose('Exit');
       await h.settle(tester);
       expect(h.window.calls['destroy'], 1);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'with downloads queued it asks first, and saves their queue before '
+        'stopping them', (tester) async {
+      final h = ScreenHarness();
+      await h.launch(tester);
+      final folder = Directory.systemTemp.createTempSync('screen_downloads_');
+      addTearDown(() {
+        try {
+          folder.deleteSync(recursive: true);
+        } catch (_) {}
+      });
+      h.player.queueVodDownload(
+        TwitchVideo(
+          id: 'v77',
+          title: 'A long VOD',
+          duration: '1h0m0s',
+          thumbnailUrl: '',
+          viewCount: '0',
+          publishedAt: DateTime(2026),
+        ),
+        'alpha',
+        AppSettings(vodDownloadFolder: folder.path),
+      );
+      await h.settle(tester);
+
+      h.tray.choose('Exit');
+      await h.settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Downloads are still running'), findsOneWidget);
+      await tester.tap(find.text('Keep running'));
+      await h.settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(h.window.destroyed, isFalse);
+      expect(h.log, isNot(contains('player.stopAll')));
+
+      h.log.clear();
+      h.tray.choose('Exit');
+      await h.settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Exit and save queue'));
+      // The download is a running yt-dlp now, which the stop waits on.
+      await tester.pump(AppShellController.stopAllTimeout);
+      await h.settle(tester);
+      expect(h.window.destroyed, isTrue);
+      expect(h.log.indexOf('save.config'),
+          lessThan(h.log.indexOf('player.stopAll')),
+          reason: 'the queue they resume from is on disk before they stop');
+      expect(h.storage.savedSettings?.unfinishedDownloads, hasLength(1));
 
       await h.close(tester);
     });
