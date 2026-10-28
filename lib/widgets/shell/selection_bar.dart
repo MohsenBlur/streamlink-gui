@@ -4,7 +4,6 @@ import '../../theme/neu_theme.dart';
 import '../../theme/theme_notifier.dart';
 import '../neumorphic/neu_button.dart';
 import '../neumorphic/neu_icon_action.dart';
-import '../neumorphic/neu_progress.dart';
 import '../interactive_popover.dart';
 
 /// One bulk action offered while a selection is active.
@@ -46,8 +45,6 @@ class SelectionBar extends StatelessWidget {
     required this.onClear,
     required this.onExit,
     required this.actions,
-    this.busy = false,
-    this.busyLabel,
   }) : super(key: key);
 
   final int selectedCount;
@@ -58,8 +55,6 @@ class SelectionBar extends StatelessWidget {
   final VoidCallback onExit;
 
   final List<SelectionAction> actions;
-  final bool busy;
-  final String? busyLabel;
 
   Color _foreground(SelectionTone tone, bool isDark) => switch (tone) {
         SelectionTone.neutral => NeuTheme.text(isDark),
@@ -96,10 +91,9 @@ class SelectionBar extends StatelessWidget {
             ),
             const SizedBox(width: NeuSpace.s12),
             // The rest keeps its two ends at the bar's two edges, as the
-            // Spacer between them did, but the count and the label on the
-            // right can now give way: busy, at the 380px minimum, the bar ran
-            // 63px past its edge. The count's side, which needs more, gets
-            // two parts in three of what is left.
+            // Spacer between them did, but the count and the Actions label
+            // can now give way. The count's side, which needs more, gets two
+            // parts in three of what is left.
             Expanded(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -127,28 +121,7 @@ class SelectionBar extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (busy)
-                    Flexible(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(width: NeuSpace.s8),
-                          const NeuProgressRing(
-                              size: NeuProgressRingSize.xs,
-                              semanticLabel: 'Working'),
-                          const SizedBox(width: NeuSpace.s8),
-                          Flexible(
-                            child: Text(
-                              busyLabel ?? 'Working...',
-                              style: NeuType.caption(isDark),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else if (full)
+                  if (full)
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

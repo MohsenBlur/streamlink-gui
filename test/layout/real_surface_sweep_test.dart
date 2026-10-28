@@ -277,9 +277,8 @@ void main() {
 
   /// An open channel with a full first page, one VOD downloading with
   /// yt-dlp's status line, one downloaded and one playing; the browser-token
-  /// warning up, or the selection bar in place of the toolbar - [busy] with
-  /// a bulk pass, whose label is the widest thing that bar shows.
-  Widget dashboard({required bool live, bool selecting = false, bool busy = false}) {
+  /// warning up, or the selection bar in place of the toolbar.
+  Widget dashboard({required bool live, bool selecting = false}) {
     final open = channel(isLive: live);
     browser.open(open, fetch: false);
     browser.vods.addAll(vods());
@@ -291,7 +290,6 @@ void main() {
       isPlaying: false,
       isMultiSelectMode: selecting,
       selectedVodIds: selecting ? {'v0', 'v1'} : <String>{},
-      isBulkUpdating: busy,
       isWebTokenExpired: !selecting,
       selectedGamesFilter: {'Just Chatting'},
       vodSearchController: vodSearch,
@@ -459,17 +457,6 @@ void main() {
             (tester) async {
           await sweep(tester, size, m,
               () => framed(size, dashboard(live: false, selecting: true)),
-              framed: true);
-        });
-
-        testWidgets('an offline channel, marking a selection — $label',
-            (tester) async {
-          await sweep(
-              tester,
-              size,
-              m,
-              () => framed(
-                  size, dashboard(live: false, selecting: true, busy: true)),
               framed: true);
         });
 

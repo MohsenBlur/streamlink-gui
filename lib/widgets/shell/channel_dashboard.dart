@@ -36,7 +36,6 @@ class ChannelDashboard extends StatelessWidget {
     required this.isPlaying,
     required this.isMultiSelectMode,
     required this.selectedVodIds,
-    required this.isBulkUpdating,
     required this.isWebTokenExpired,
     required this.selectedGamesFilter,
     required this.vodSearchController,
@@ -82,9 +81,6 @@ class ChannelDashboard extends StatelessWidget {
 
   final bool isMultiSelectMode;
   final Set<String> selectedVodIds;
-
-  /// A bulk watched/unwatched pass is running.
-  final bool isBulkUpdating;
 
   /// Twitch refused the browser token on the last fetch the user asked for.
   final bool isWebTokenExpired;
@@ -179,8 +175,6 @@ class ChannelDashboard extends StatelessWidget {
                   if (isMultiSelectMode)
                     SelectionBar(
                       selectedCount: selectedVodIds.length,
-                      busy: isBulkUpdating,
-                      busyLabel: 'Syncing with Twitch...',
                       onExit: onExitSelection,
                       onClear: onClearSelection,
                       onSelectAllVisible: onSelectAllVisible,

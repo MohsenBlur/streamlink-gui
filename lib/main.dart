@@ -307,7 +307,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   bool _isWebTokenExpired = false;
   bool _isMultiSelectMode = false;
   final Set<String> _selectedVodIds = {};
-  bool _isBulkUpdatingVods = false;
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
 
@@ -1362,9 +1361,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       return;
     }
 
-    setState(() {
-      _isBulkUpdatingVods = true;
-    });
     // The selection's order, and only what the grid still shows.
     final successCount = _history.mark([
       for (final id in _selectedVodIds)
@@ -1372,7 +1368,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     ], watched: markAsWatched);
 
     setState(() {
-      _isBulkUpdatingVods = false;
       _isMultiSelectMode = false;
       _selectedVodIds.clear();
     });
@@ -1750,7 +1745,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       isPlaying: _playerService.runningChannels.contains(channel.username),
       isMultiSelectMode: _isMultiSelectMode,
       selectedVodIds: _selectedVodIds,
-      isBulkUpdating: _isBulkUpdatingVods,
       isWebTokenExpired: _isWebTokenExpired,
       selectedGamesFilter: _selectedGamesFilter,
       vodSearchController: _vodSearchController,
