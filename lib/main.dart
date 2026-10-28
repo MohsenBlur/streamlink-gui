@@ -26,6 +26,7 @@ import 'theme/material/app_material.dart';
 import 'theme/type_probe.dart';
 import 'widgets/shell/app_dialogs.dart';
 import 'widgets/shell/app_frame.dart';
+import 'widgets/shell/app_snackbar.dart';
 import 'widgets/shell/channel_dashboard.dart';
 import 'widgets/shell/home_view.dart';
 import 'widgets/shell/status_banners.dart';
@@ -1958,37 +1959,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   Future<void> _openExternalLink(String url) async {
     try {
-      if (!Platform.isWindows) {
+      if (!_services.launcher.isSupported) {
         _showSnackBar('Unsupported platform for launching external link', isError: true);
         return;
       }
-
-      // Launched via Explorer, NOT `cmd /c start`.
-      //
-      // The app now runs inside a job object with KILL_ON_JOB_CLOSE so its
-      // helper processes cannot outlive it. Anything the app spawns inherits
-      // that job - so a browser started through cmd became a job member and was
-      // killed the moment the app closed. Explorer is already running outside
-      // our job, so handing the URL to it launches the browser out of reach.
-      //
-      // THE TRAILING SPACE IS LOAD-BEARING. Do not "clean it up".
-      //
-      // explorer.exe does not parse its command line with the standard argv
-      // rules - handed a bare URL containing `&` it splits it and passes a
-      // fragment to the shell. The Twitch sign-in URL ends in
-      // `scope=user:read:follows`, so Windows was asked to open a `user:`
-      // protocol and answered with "Get an app to open this 'user' link"
-      // instead of opening a browser. Every link with a query string was
-      // affected; the OAuth one just happened to end in something that looks
-      // like a URL scheme.
-      //
-      // Dart quotes an argument only when it contains a space, tab or quote,
-      // and a URL contains none of those, so it arrived unquoted. Appending a
-      // space forces the quoting, and a quoted URL is what explorer accepts
-      // whole. Measured against a local listener: bare delivers nothing,
-      // quoted delivers the full query string, and explorer trims the space.
-      await Process.start('explorer.exe', ['$url '],
-          mode: ProcessStartMode.detached);
+      // Through Explorer, never `cmd /c start`, and quoted: see
+      // ExplorerLauncher.openUrl.
+      await _services.launcher.openUrl(url);
     } catch (e) {
       _showSnackBar('Failed to open link: $e', isError: true);
     }
@@ -2008,36 +1985,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // gone by then: ScaffoldMessenger.of a dead context throws. One check
     // here rather than one after every await.
     if (!mounted) return;
-    // Errors use the fixed danger red (white text); info follows the accent.
-    //
-    // Replace rather than queue: ScaffoldMessenger plays queued snackbars one
-    // after another, so a burst of messages read as one that would not go
-    // away. Only the newest is worth showing.
-    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          message,
-          // w600: w500 is not a real weight in Segoe UI, so this snackbar
-          // has always rendered at w400. A notification should stand out.
-          style: TextStyle(
-            color: isError
-                ? NeuTheme.onAccent(NeuTheme.danger)
-                : themeNotifier.onPrimaryColor,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        backgroundColor: isError ? NeuTheme.danger : themeNotifier.primaryColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(NeuRadius.r8)),
-        margin: const EdgeInsets.all(NeuSpace.s12),
-        // Long enough to read and act on, short enough to get out of the way.
-        duration: Duration(seconds: action != null ? 8 : 3),
-        showCloseIcon: true,
-        closeIconColor: isError ? Colors.white : themeNotifier.onPrimaryColor,
-        action: action,
-      ),
-    );
+    showAppSnackBar(context, message, isError: isError, action: action);
   }
 
   /// "View log" for a failure message, deep-linking to that session.
@@ -2487,15 +2435,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     return _playerService.downloadChannelNames[vodId] ?? 'VOD';
   }
 
-  /// Opens Explorer with [filePath] selected. Launched detached via
-  /// explorer.exe so the shell window is not inside our kill-on-close job.
+  /// Opens Explorer with [filePath] selected (AppLauncher.reveal).
   Future<void> _revealInExplorer(String filePath) async {
     try {
-      await Process.start(
-        'explorer.exe',
-        ['/select,${filePath.replaceAll('/', r'\')}'],
-        mode: ProcessStartMode.detached,
-      );
+      await _services.launcher.reveal(filePath);
     } catch (e) {
       _showSnackBar('Could not open folder: $e', isError: true);
     }

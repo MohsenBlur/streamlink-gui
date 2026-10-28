@@ -242,6 +242,21 @@ class FakeNotifications implements AppNotifications {
       shown.add(notification);
 }
 
+/// Records what would have gone to explorer.exe.
+class FakeShellLauncher implements AppLauncher {
+  final List<String> urls = <String>[];
+  final List<String> revealed = <String>[];
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  Future<void> openUrl(String url) async => urls.add(url);
+
+  @override
+  Future<void> reveal(String filePath) async => revealed.add(filePath);
+}
+
 /// Records the Run-key writes instead of running reg.exe.
 class FakeStartupService extends StartupService {
   final List<bool> syncs = <bool>[];

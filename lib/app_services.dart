@@ -22,6 +22,7 @@ class AppServices {
     this.notifications = const PluginNotifications(),
     StartupService? startup,
     UpdateService? updates,
+    this.launcher = const ExplorerLauncher(),
     this.clock = DateTime.now,
   })  : storage = storage ?? StorageService(),
         api = api ?? TwitchApiService(),
@@ -42,6 +43,9 @@ class AppServices {
 
   /// The GitHub release check and the update apply.
   final UpdateService updates;
+
+  /// Links to the browser, files to Explorer.
+  final AppLauncher launcher;
 
   /// What the refresh controllers read the time from, so "how old is this
   /// list" agrees with a test's fake Twitch.

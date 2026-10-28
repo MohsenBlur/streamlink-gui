@@ -213,6 +213,22 @@ void main() {
       await h.close(tester);
     });
 
+    testWidgets("the header's links go to the shell, not to a child of the "
+        'app', (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      await h.launch(tester, favorites: ['alpha']);
+      await openChannel(tester, h, 'alpha');
+
+      await tester.tap(find.byTooltip('Open Twitch channel'));
+      await tester.tap(find.byTooltip('Open Twitch chat popout'));
+      await h.settle(tester);
+      expect(h.shell.urls,
+          ['https://twitch.tv/alpha', 'https://twitch.tv/alpha/chat']);
+
+      await h.close(tester);
+    });
+
     testWidgets(
         'selection mode: pick VODs by clicking them, mark them watched, and '
         'leave', (tester) async {

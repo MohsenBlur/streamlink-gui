@@ -43,6 +43,7 @@ class ScreenHarness {
   final FakeNotifications notifications = FakeNotifications();
   final FakeStartupService startup = FakeStartupService();
   final FakeUpdateService updates = FakeUpdateService();
+  final FakeShellLauncher shell = FakeShellLauncher();
   final FakeLauncher launcher = FakeLauncher();
   late final FakeTaskkill taskkill = FakeTaskkill(launcher);
   late final TwitchApiService api = helix.service(auth: twitchAuth);
@@ -143,6 +144,7 @@ class ScreenHarness {
         notifications: notifications,
         startup: startup,
         updates: updates,
+        launcher: shell,
         clock: () => helix.now,
       ),
     ));
