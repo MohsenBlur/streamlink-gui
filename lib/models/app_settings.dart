@@ -123,7 +123,7 @@ class AppSettings {
   ///
   /// A `String`, not the enum, and validated where it is used rather than
   /// where it is read. `StorageService.saveConfig` rebuilds the whole file
-  /// with no merge and `_saveWindowState` fires on every resize, so an older
+  /// with no merge and `saveWindowState` fires on every resize, so an older
   /// build does not *ignore* a key it does not know - it deletes it within
   /// seconds. Storing the raw string and resolving via `AppMaterial.fromKey`
   /// means a v1.7.0 build meeting a v1.8.0 config falls back for the session

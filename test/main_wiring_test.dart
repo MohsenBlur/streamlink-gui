@@ -65,7 +65,12 @@ void main() {
       () {
     // The shell marks the window (app_shell_controller_test); the check after
     // the first frame, which runs before any screen exists, has to read it.
-    expect(bodyOf('Future<void> _checkWindowAfterFirstFrame('),
+    final startup = File('lib/app_startup.dart')
+        .readAsStringSync()
+        .replaceAll('\r\n', '\n');
+    final at = startup.indexOf('Future<void> checkWindowAfterFirstFrame(');
+    expect(at, isNonNegative);
+    expect(startup.substring(at, startup.indexOf('\n}\n', at)),
         contains('hiddenByUser: AppShellController.windowHiddenByUser'));
   });
 

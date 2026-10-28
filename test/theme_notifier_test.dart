@@ -1,7 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:streamlink_gui/main.dart';
+import 'package:streamlink_gui/app_startup.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 
