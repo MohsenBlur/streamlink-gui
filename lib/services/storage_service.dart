@@ -348,6 +348,54 @@ class StorageService {
   Future<Map<String, dynamic>?> loadConfig() async {
     final file = _getStorageFile();
     sweepTempFiles(file);
+    final config = await _readConfig(file);
+    // After the read, so a copy it has just quarantined is sealed too.
+    await _sealQuarantinedCopies(file);
+    return config;
+  }
+
+  /// Seals the plaintext tokens in the config's quarantined copies; see
+  /// [ConfigSecrets.sealTokensInText].
+  ///
+  /// Every copy, not only the newest three the pruning keeps: builds from
+  /// before the pruning never removed any. Each is rewritten through a temp
+  /// file and a rename, and byte for byte apart from the tokens - as UTF-8
+  /// when it is valid UTF-8, and otherwise byte by byte, since the damage
+  /// that got it quarantined need not be. Nothing to do where nothing can
+  /// seal: the config itself then holds the tokens in plaintext too.
+  Future<void> _sealQuarantinedCopies(File file) async {
+    if (_secrets.cipher == null) return;
+    try {
+      final prefix = '${p.basename(file.path)}.corrupt-';
+      final dir = file.parent;
+      if (!await dir.exists()) return;
+      final copies = await dir
+          .list()
+          .where((e) => e is File && p.basename(e.path).startsWith(prefix))
+          .cast<File>()
+          .toList();
+      for (final copy in copies) {
+        try {
+          final bytes = await copy.readAsBytes();
+          Encoding encoding = utf8;
+          String text;
+          try {
+            text = utf8.decode(bytes);
+          } on FormatException {
+            encoding = latin1;
+            text = latin1.decode(bytes);
+          }
+          final sealed = _secrets.sealTokensInText(text);
+          if (sealed == null) continue;
+          final temp = File('${copy.path}.sealing');
+          await temp.writeAsBytes(encoding.encode(sealed), flush: true);
+          await temp.rename(copy.path);
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>?> _readConfig(File file) async {
     Map<String, dynamic>? config;
     try {
       if (!await file.exists()) return null;
@@ -408,6 +456,17 @@ class StorageService {
     // updater's backup copied them into %TEMP% (and, during an elevated update,
     // into another user's profile). Portable installs are already served by the
     // portable.txt branch in getStorageFile.
+    //
+    // Nothing writes that mirror any more, but one an older build left behind
+    // stays, plaintext tokens and all, and is not scrubbed from here. Under
+    // Program Files only an elevated process can change it, and the app
+    // never runs elevated now; that is also how such a mirror got there, as
+    // the updater used to relaunch the app with its administrator token. The
+    // updater, which is sometimes elevated, deliberately leaves any
+    // channels_config.json in the install folder alone, since in a portable
+    // copy that name is the real config. The mirror is only ever read for
+    // the one-time migration in getStorageFile, into an AppData folder that
+    // has no config yet.
   }
 
   Future<List<Map<String, dynamic>>> loadRecentWatchedVods() async {
