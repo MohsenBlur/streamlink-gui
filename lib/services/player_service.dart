@@ -485,26 +485,79 @@ class PlayerService {
     return id == vodId || id == 'v$vodId';
   }
 
-  void removeVodFromArchive(String vodId) {
-    if (downloadArchiveFilePath == null) return;
-    final file = File(downloadArchiveFilePath!);
-    if (!file.existsSync()) return;
-    
+  /// Every archive rewrite this service has started, in order; see
+  /// [removeVodFromArchive].
+  Future<void> _archiveWrites = Future<void>.value();
+
+  /// Takes [vodId] out of yt-dlp's download archive, so its next download is
+  /// not skipped as one already done.
+  ///
+  /// Asynchronous, and one rewrite at a time. This used to read and rewrite
+  /// the whole file synchronously on the UI isolate, once per VOD in a
+  /// multi-delete and once per entry a downloaded-file scan strips. Run
+  /// side by side, two rewrites would each start from the same read, and the
+  /// second would put back the line the first had just taken out.
+  ///
+  /// yt-dlp is the archive's other writer. It reads the file as it starts
+  /// and appends a line as each download completes, both under a lock on the
+  /// whole file (LockFileEx on Windows, over the same range Dart's lock
+  /// takes). The rewrite holds that lock too, so neither ever reads the
+  /// other's half-done work, and a line yt-dlp appends just before it is
+  /// read back in rather than written over. The file is rewritten in place
+  /// rather than replaced by a rename, which would swap it out from under
+  /// that lock; a crash mid-write leaves at worst a repeated or broken line,
+  /// which matches no download.
+  ///
+  /// Never throws.
+  Future<void> removeVodFromArchive(String vodId) {
+    final archivePath = downloadArchiveFilePath?.trim() ?? '';
+    if (archivePath.isEmpty) return Future<void>.value();
+    final rewrite =
+        _archiveWrites.then((_) => _removeArchiveLines(archivePath, vodId));
+    _archiveWrites = rewrite;
+    return rewrite;
+  }
+
+  static Future<void> _removeArchiveLines(String archivePath, String vodId) async {
+    final file = File(archivePath);
+    RandomAccessFile? archive;
+    var locked = false;
     try {
-      final lines = file.readAsLinesSync();
-      final newLines = <String>[];
-      bool changed = false;
-      for (final line in lines) {
+      if (!await file.exists()) return;
+      // Read and write, without the truncation FileMode.write does on open:
+      // nothing may change before the lock is held.
+      archive = await file.open(mode: FileMode.append);
+      await archive.lock(FileLock.blockingExclusive);
+      locked = true;
+      await archive.setPosition(0);
+      final text = utf8.decode(await archive.read(await archive.length()),
+          allowMalformed: true);
+      final kept = <String>[];
+      var changed = false;
+      for (final line in const LineSplitter().convert(text)) {
         if (isArchiveLineFor(line, vodId)) {
           changed = true;
           continue;
         }
-        newLines.add(line);
+        kept.add(line);
       }
-      if (changed) {
-        file.writeAsStringSync(newLines.join('\n') + (newLines.isNotEmpty ? '\n' : ''), flush: true);
-      }
-    } catch (_) {}
+      if (!changed) return;
+      final bytes = utf8.encode(kept.isEmpty ? '' : '${kept.join('\n')}\n');
+      await archive.setPosition(0);
+      await archive.writeFrom(bytes);
+      await archive.truncate(bytes.length);
+      await archive.flush();
+    } catch (_) {
+    } finally {
+      // Unlocked explicitly: Windows releases a closed handle's locks only
+      // when it gets round to it, and yt-dlp waits on this one.
+      try {
+        if (locked) await archive?.unlock();
+      } catch (_) {}
+      try {
+        await archive?.close();
+      } catch (_) {}
+    }
   }
 
   void deleteTemporaryDownloadFiles(String vodId, String channelName, String downloadFolder) {
@@ -595,6 +648,11 @@ class PlayerService {
     bool needsFfmpegFallback = false;
 
     try {
+      // A VOD deleted and then downloaded again must be out of the archive
+      // before yt-dlp reads it, or yt-dlp skips it as already done and exits
+      // 0 with no file. Bounded, so an archive some other program keeps
+      // locked cannot hold every download at "Starting...".
+      await _archiveWrites.timeout(const Duration(seconds: 5), onTimeout: () {});
       final proc = await _startProcess(
         _getExecutablePath('yt-dlp'),
         args,
@@ -911,7 +969,7 @@ class PlayerService {
     downloadTaskFastDownloadOverrides.remove(vodId);
     _cleanupDownloadState(vodId);
     onDownloadCancelled?.call(vodId);
-    removeVodFromArchive(vodId);
+    unawaited(removeVodFromArchive(vodId));
 
     // Remove the partial output. Anchored matching only: this used to delete
     // anything whose path merely contained " - <vodId>", so cancelling a short
@@ -964,7 +1022,7 @@ class PlayerService {
           // the archive made a later re-download exit 0 immediately without
           // producing a file, which surfaced as a bogus "Download completed".
           if (match != null) {
-            removeVodFromArchive(match.group(1)!);
+            unawaited(removeVodFromArchive(match.group(1)!));
           }
         } catch (_) {}
       }
