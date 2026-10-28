@@ -13,8 +13,20 @@ import '../utils/vod_playback_monitor.dart';
 import '../models/twitch_video.dart';
 import 'twitch_api_service.dart';
 
+/// Starts a child process; `Process.start`, in production.
+typedef ProcessStarter = Future<Process> Function(
+    String executable, List<String> arguments,
+    {Map<String, String>? environment});
+
 class PlayerService {
+  /// [startProcess] stands in for every child this service launches -
+  /// streamlink, yt-dlp, the players and the mpv bridge - so tests can drive
+  /// the real launch, exit and retry handling without running any of them.
+  PlayerService({ProcessStarter? startProcess})
+      : _startProcess = startProcess ?? Process.start;
+
   final TwitchApiService _apiService = TwitchApiService();
+  final ProcessStarter _startProcess;
 
   String _getExecutablePath(String name) {
     final exeName = Platform.isWindows ? '$name.exe' : name;
@@ -380,17 +392,36 @@ class PlayerService {
   }
 
   Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool isRetryWithFfmpeg = false, bool? overrideDisablePostProcessing}) async {
-    final downloadFolder = settings.vodDownloadFolder.trim();
-    if (downloadFolder.isEmpty) {
-      throw Exception('Download folder is empty');
-    }
-
-    final outputDir = Directory('$downloadFolder/$channelName');
-    if (!outputDir.existsSync()) {
-      outputDir.createSync(recursive: true);
-    }
-
     final vodId = vod.id;
+    final key = logKeyForDownload(vodId);
+    final title = 'Download: ${vod.title}';
+
+    // Reported like any other failure, not thrown. These used to throw
+    // straight out of the queue drain, which then never reset
+    // isQueueProcessing: one unplugged external drive, or a channel folder the
+    // user may not create, left every later download - manual or automatic -
+    // showing "Queued" until the app restarted.
+    final Directory outputDir;
+    try {
+      final downloadFolder = settings.vodDownloadFolder.trim();
+      if (downloadFolder.isEmpty) {
+        throw const FileSystemException('No download folder is set');
+      }
+      outputDir = Directory('$downloadFolder/$channelName');
+      if (!outputDir.existsSync()) {
+        outputDir.createSync(recursive: true);
+      }
+    } catch (e) {
+      // A session of its own, so the failure snackbar's View log has the
+      // reason to show.
+      onPlayerStarted?.call(key, title);
+      log(key, '[System Error] Could not prepare the download folder: $e');
+      _cleanupDownloadState(vodId);
+      onDownloadEnded?.call(vodId, -1);
+      onDownloadFailed?.call(vodId, vod.title, -1);
+      return;
+    }
+
     downloadChannelNames[vodId] = channelName;
     downloadTitles[vodId] = vod.title;
     activeDownloadsProgress[vodId] = 0.0;
@@ -429,8 +460,6 @@ class PlayerService {
       url
     ]);
 
-    final key = logKeyForDownload(vodId);
-    final title = 'Download: ${vod.title}';
     onPlayerStarted?.call(key, title);
 
     log(key, '[System] Initializing VOD Download for: ${vod.title}');
@@ -439,19 +468,29 @@ class PlayerService {
     bool needsFfmpegFallback = false;
 
     try {
-      final proc = await Process.start(
+      final proc = await _startProcess(
         _getExecutablePath('yt-dlp'),
         args,
         environment: _getEnvironmentWithBin(),
-        runInShell: false,
       );
 
       activeDownloadProcesses[vodId] = proc;
 
-      proc.stdout.transform(const Utf8Decoder(allowMalformed: true)).listen((line) {
+      // Line by line, not pipe read by pipe read. One read can hold several
+      // progress updates (yt-dlp separates them with a bare \r, which
+      // LineSplitter honours), half of one, or a progress update glued to the
+      // next message. The percentage used to be the first `NN%` anywhere in
+      // the read, so a VOD titled "My 100% run" briefly reported 100% from its
+      // Destination line; and the fragment error split across two reads never
+      // triggered the ffmpeg fallback below.
+      proc.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
         final trimmed = line.trim();
+        if (trimmed.isEmpty) return;
         log(key, trimmed);
-        if (line.contains('Initialization fragment found after media fragments')) {
+        if (trimmed.contains('Initialization fragment found after media fragments')) {
           needsFfmpegFallback = true;
         }
 
@@ -466,9 +505,11 @@ class PlayerService {
           return;
         }
 
-        // Robust regex matching both integer & decimal percentage output
-        final pctMatch = RegExp(r'(\d+(?:\.\d+)?)%').firstMatch(line);
-        final speedMatch = RegExp(r'at\s+(\S+)').firstMatch(line);
+        // Integer and decimal percentages, but only on yt-dlp's own progress
+        // lines.
+        final pctMatch = _ytDlpProgressPattern.firstMatch(trimmed);
+        final speedMatch =
+            pctMatch == null ? null : _ytDlpSpeedPattern.firstMatch(trimmed);
 
         double? pct;
         String? speed;
@@ -495,7 +536,10 @@ class PlayerService {
         }
       });
 
-      proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((line) {
+      proc.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
         final trimmed = line.trim();
         if (trimmed.isEmpty) return;
 
@@ -549,7 +593,14 @@ class PlayerService {
         if (!isRetryWithFfmpeg && needsFfmpegFallback && !_shuttingDown) {
           log(key, '[System Warning] HLS fragment error detected. Automatically retrying download using ffmpeg downloader...');
           deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
+          _downloadsAwaitingRetry.add(vodId);
           await Future.delayed(const Duration(seconds: 1));
+          // Cancelled during the gap (or the app is stopping): the user was
+          // told "Download cancelled" and its files are already gone.
+          if (!_downloadsAwaitingRetry.remove(vodId) || _shuttingDown) {
+            log(key, '[System] Retry abandoned: the download was cancelled.');
+            return;
+          }
           await startVodDownload(
             vod,
             channelName,
@@ -571,6 +622,20 @@ class PlayerService {
       onDownloadFailed?.call(vodId, vod.title, -1);
     }
   }
+
+  /// `[download]  45.3% of ~1.23GiB at 2.34MiB/s ETA 05:12` - anchored, so a
+  /// percentage elsewhere in a line (a title, a URL) is never progress.
+  static final RegExp _ytDlpProgressPattern =
+      RegExp(r'^\[download\]\s+(\d+(?:\.\d+)?)%');
+  static final RegExp _ytDlpSpeedPattern = RegExp(r'\bat\s+(\S+)');
+
+  /// Downloads sitting in the one-second gap before their ffmpeg retry.
+  ///
+  /// In that gap the failed yt-dlp has exited and its state is cleaned up, but
+  /// the VOD is still in the queue, so the Downloads panel lists it as queued
+  /// with a cancel button - and cancelling did nothing about the retry, which
+  /// started a second later, after the cancel had deleted its partial files.
+  final Set<String> _downloadsAwaitingRetry = {};
 
   void _cleanupDownloadState(String vodId) {
     activeDownloadProcesses.remove(vodId);
@@ -620,20 +685,32 @@ class PlayerService {
     if (isQueueProcessing) return;
     isQueueProcessing = true;
 
-    while (downloadQueue.isNotEmpty && !_shuttingDown) {
-      final vodId = downloadQueue.first;
-      final vod = queuedDownloadTasks[vodId];
-      final chName = downloadChannelNames[vodId] ?? channelName;
-      final overridePostProc = downloadTaskFastDownloadOverrides[vodId];
-      if (vod != null) {
-        await startVodDownload(vod, chName, settings, overrideDisablePostProcessing: overridePostProc);
+    // Nothing may leave this loop with the flag still set: every later
+    // download would return at the guard above and sit at "Queued" for good.
+    // startVodDownload reports its own failures; this is the backstop for
+    // anything it did not anticipate.
+    try {
+      while (downloadQueue.isNotEmpty && !_shuttingDown) {
+        final vodId = downloadQueue.first;
+        final vod = queuedDownloadTasks[vodId];
+        final chName = downloadChannelNames[vodId] ?? channelName;
+        final overridePostProc = downloadTaskFastDownloadOverrides[vodId];
+        try {
+          if (vod != null) {
+            await startVodDownload(vod, chName, settings, overrideDisablePostProcessing: overridePostProc);
+          }
+        } catch (e) {
+          log(logKeyForDownload(vodId),
+              '[System Error] The download stopped unexpectedly: $e');
+          _cleanupDownloadState(vodId);
+        }
+        downloadQueue.remove(vodId);
+        queuedDownloadTasks.remove(vodId);
+        downloadTaskFastDownloadOverrides.remove(vodId);
       }
-      downloadQueue.remove(vodId);
-      queuedDownloadTasks.remove(vodId);
-      downloadTaskFastDownloadOverrides.remove(vodId);
+    } finally {
+      isQueueProcessing = false;
     }
-
-    isQueueProcessing = false;
   }
 
   Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder) async {
@@ -658,6 +735,10 @@ class PlayerService {
         }
       } catch (_) {}
     }
+
+    // A download between its failed first run and its ffmpeg retry has no
+    // process, but must not be restarted after this.
+    _downloadsAwaitingRetry.remove(vodId);
 
     downloadQueue.remove(vodId);
     queuedDownloadTasks.remove(vodId);
@@ -789,11 +870,7 @@ class PlayerService {
       log(key, '[System] Seek time offset: ${finalSeek}s');
       log(key, '[System] Running local file command: $exe ${args.join(" ")}');
 
-      final proc = await Process.start(
-        exe,
-        args,
-        runInShell: false,
-      );
+      final proc = await _startProcess(exe, args);
 
       activePlayerProcesses[vod.id] = proc;
 
@@ -925,11 +1002,10 @@ class PlayerService {
       }
       log(key, '[System] Arguments: ${argsForLog(args)}');
 
-      final proc = await Process.start(
+      final proc = await _startProcess(
         _getExecutablePath('streamlink'),
         args,
         environment: _getEnvironmentWithBin(),
-        runInShell: false,
       );
 
       activePlayerProcesses[vod.id] = proc;
@@ -1049,11 +1125,10 @@ class PlayerService {
     log(key, '[System] Arguments: ${argsForLog(args)}');
 
     try {
-      final proc = await Process.start(
+      final proc = await _startProcess(
         _getExecutablePath('streamlink'),
         args,
         environment: _getEnvironmentWithBin(),
-        runInShell: false,
       );
 
       activePlayerProcesses[key] = proc;
@@ -1418,6 +1493,7 @@ class PlayerService {
         pipeName: mpvPipeName(vodId),
         token: token,
         onOutput: (line) => log(vodId, '[mpv bridge] $line'),
+        start: _startProcess,
       );
       _winIpcBridges[vodId] = proc;
       _winIpcBridgeTokens[vodId] = token;
@@ -1458,9 +1534,10 @@ class PlayerService {
     required String pipeName,
     required String token,
     required void Function(String line) onOutput,
+    ProcessStarter start = Process.start,
   }) async {
     final script = buildMpvBridgeScript(port: port, pipeName: pipeName);
-    final proc = await Process.start(
+    final proc = await start(
       'powershell',
       [
         // A profile that prints anything would land in the very pipe this
@@ -1471,7 +1548,6 @@ class PlayerService {
         '-EncodedCommand', encodePowerShellCommand(script),
       ],
       environment: {mpvBridgeTokenVariable: token},
-      runInShell: false,
     );
     for (final output in [proc.stdout, proc.stderr]) {
       output
@@ -1714,6 +1790,7 @@ class PlayerService {
     downloadQueue.clear();
     queuedDownloadTasks.clear();
     downloadTaskFastDownloadOverrides.clear();
+    _downloadsAwaitingRetry.clear();
 
     // A killed yt-dlp exits non-zero exactly like a failed one, so quitting or
     // updating with downloads running reported "Download failed" for each -
