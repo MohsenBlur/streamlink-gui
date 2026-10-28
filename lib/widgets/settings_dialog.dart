@@ -252,18 +252,30 @@ class SettingsDialog {
                             const SizedBox(height: NeuSpace.s8),
                             DropdownButtonFormField<String>(
                               initialValue: tempQuality,
+                              // Expanded, so the field bounds its items and a
+                              // narrow window ellipsizes them. Unexpanded, the
+                              // widest item sets the width and overflows the
+                              // field instead. The arrow is the decoration's
+                              // suffix either way, so nothing moves.
+                              isExpanded: true,
                               decoration: const InputDecoration(
                                 contentPadding: EdgeInsets.symmetric(horizontal: NeuSpace.s12),
                               ),
-                              items: const [
-                                DropdownMenuItem(value: 'best', child: Text('Best Available')),
-                                DropdownMenuItem(value: '1080p60', child: Text('1080p60 (Source)')),
-                                DropdownMenuItem(value: '1080p', child: Text('1080p')),
-                                DropdownMenuItem(value: '720p60', child: Text('720p60')),
-                                DropdownMenuItem(value: '720p', child: Text('720p')),
-                                DropdownMenuItem(value: '480p', child: Text('480p')),
-                                DropdownMenuItem(value: '360p', child: Text('360p')),
-                                DropdownMenuItem(value: 'worst', child: Text('Worst Available')),
+                              items: [
+                                for (final (value, label) in const [
+                                  ('best', 'Best Available'),
+                                  ('1080p60', '1080p60 (Source)'),
+                                  ('1080p', '1080p'),
+                                  ('720p60', '720p60'),
+                                  ('720p', '720p'),
+                                  ('480p', '480p'),
+                                  ('360p', '360p'),
+                                  ('worst', 'Worst Available'),
+                                ])
+                                  DropdownMenuItem(
+                                    value: value,
+                                    child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  ),
                               ],
                               onChanged: (val) {
                                 if (val != null) {
@@ -274,23 +286,30 @@ class SettingsDialog {
                               },
                             ),
                             const SizedBox(height: NeuSpace.s16),
+                            // Label-and-control rows keep the label in an
+                            // Expanded, so a narrow window wraps the words
+                            // instead of pushing the control past the edge,
+                            // where it was clipped and could not be reached.
+                            // This one overflowed at the 380px minimum window.
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Low Latency Streams', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
-                                    const SizedBox(height: NeuSpace.s4),
-                                    // Streamlink's own help warns this can
-                                    // cause buffering, so the trade-off
-                                    // belongs on the switch, not in a wiki.
-                                    Text(
-                                      'Cuts delay on live streams. May buffer more.',
-                                      style: NeuType.caption(themeNotifier.isDarkTheme),
-                                    ),
-                                  ],
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Low Latency Streams', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
+                                      const SizedBox(height: NeuSpace.s4),
+                                      // Streamlink's own help warns this can
+                                      // cause buffering, so the trade-off
+                                      // belongs on the switch, not in a wiki.
+                                      Text(
+                                        'Cuts delay on live streams. May buffer more.',
+                                        style: NeuType.caption(themeNotifier.isDarkTheme),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempLowLatency,
                                   activeColor: themeNotifier.primaryColor,
@@ -361,6 +380,11 @@ class SettingsDialog {
                             const SizedBox(height: NeuSpace.s8),
                             DropdownButtonFormField<String>(
                               initialValue: tempPlayerType,
+                              // Expanded for the quality field's reason. Each
+                              // name is Flexible so the status plate keeps its
+                              // room and the name ellipsizes; the plate is the
+                              // part that answers the question.
+                              isExpanded: true,
                               decoration: const InputDecoration(
                                 contentPadding: EdgeInsets.symmetric(horizontal: NeuSpace.s12),
                               ),
@@ -370,7 +394,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Default System Player'),
+                                      Flexible(child: Text('Default System Player', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: NeuSpace.s8),
                                       Text('(Available)', style: NeuType.plate(themeNotifier.isDarkTheme, color: NeuTheme.liveText(themeNotifier.isDarkTheme))),
                                     ],
@@ -381,7 +405,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('VLC Media Player'),
+                                      Flexible(child: Text('VLC Media Player', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['vlc'] == true ? '(Detected)' : '(Not Found)',
@@ -395,7 +419,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('MPV Player'),
+                                      Flexible(child: Text('MPV Player', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['mpv'] == true ? '(Detected)' : '(Not Found)',
@@ -409,7 +433,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('MPC-HC Player'),
+                                      Flexible(child: Text('MPC-HC Player', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['mpc-hc'] == true ? '(Detected)' : '(Not Found)',
@@ -423,7 +447,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Custom Executable Path'),
+                                      Flexible(child: Text('Custom Executable Path', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       if (playerPathController.text.trim().isNotEmpty) ...[
                                         const SizedBox(width: NeuSpace.s8),
                                         Text(
@@ -496,11 +520,13 @@ class SettingsDialog {
                                           : NeuTheme.dangerText(themeNotifier.isDarkTheme),
                                     ),
                                     const SizedBox(width: NeuSpace.s6),
-                                    Text(
-                                      customPathValid() ? 'Executable found' : 'File not found at this path',
-                                      style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: customPathValid()
-                                            ? NeuTheme.liveText(themeNotifier.isDarkTheme)
-                                            : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                    Expanded(
+                                      child: Text(
+                                        customPathValid() ? 'Executable found' : 'File not found at this path',
+                                        style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: customPathValid()
+                                              ? NeuTheme.liveText(themeNotifier.isDarkTheme)
+                                              : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -853,8 +879,15 @@ class SettingsDialog {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  // A Wrap, not a Row: in a narrow window the button
+                                  // drops under the status instead of squeezing it to
+                                  // nothing. On one line, spaceBetween keeps the old
+                                  // status-left, button-right arrangement.
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: NeuSpace.s8,
+                                    runSpacing: NeuSpace.s8,
                                     children: [
                                       // The indicator used to be
                                       // `twitchOauthToken.isNotEmpty`, which
@@ -863,39 +896,37 @@ class SettingsDialog {
                                       // shows what Twitch last said about the
                                       // ACCOUNT token, and says which token
                                       // that is.
-                                      Flexible(
-                                        child: ValueListenableBuilder<TwitchAuthStatus>(
-                                          valueListenable: twitchAuth.helix,
-                                          builder: (context, status, _) {
-                                            final ok = status.isUsable;
-                                            final bad = status.needsReconnect;
-                                            final ink = ok
-                                                ? NeuTheme.liveText(themeNotifier.isDarkTheme)
-                                                : (bad
-                                                    ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
-                                                    : NeuTheme.warningText(themeNotifier.isDarkTheme));
-                                            return Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                  ok
-                                                      ? Icons.check_circle
-                                                      : (bad ? Icons.link_off : Icons.help_outline),
-                                                  color: ink,
-                                                  size: 16,
+                                      ValueListenableBuilder<TwitchAuthStatus>(
+                                        valueListenable: twitchAuth.helix,
+                                        builder: (context, status, _) {
+                                          final ok = status.isUsable;
+                                          final bad = status.needsReconnect;
+                                          final ink = ok
+                                              ? NeuTheme.liveText(themeNotifier.isDarkTheme)
+                                              : (bad
+                                                  ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
+                                                  : NeuTheme.warningText(themeNotifier.isDarkTheme));
+                                          return Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                ok
+                                                    ? Icons.check_circle
+                                                    : (bad ? Icons.link_off : Icons.help_outline),
+                                                color: ink,
+                                                size: 16,
+                                              ),
+                                              const SizedBox(width: NeuSpace.s8),
+                                              Flexible(
+                                                child: Text(
+                                                  connectionLabel(status),
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: NeuType.label(themeNotifier.isDarkTheme, color: ink),
                                                 ),
-                                                const SizedBox(width: NeuSpace.s8),
-                                                Flexible(
-                                                  child: Text(
-                                                    connectionLabel(status),
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: NeuType.label(themeNotifier.isDarkTheme, color: ink),
-                                                  ),
-                                                ),
-                                              ],
-                                            );
-                                          },
-                                        ),
+                                              ),
+                                            ],
+                                          );
+                                        },
                                       ),
                                       ElevatedButton.icon(
                                         style: ElevatedButton.styleFrom(
@@ -988,9 +1019,14 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s12),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Account token \u2014 followed channels, VOD lists, ad-free', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                // The longest label in the dialog: below about
+                                // 555px it pushed "Get Token Manually" out of
+                                // reach.
+                                Expanded(
+                                  child: Text('Account token \u2014 followed channels, VOD lists, ad-free', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                ),
+                                const SizedBox(width: NeuSpace.s8),
                                 TextButton(
                                   style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                                   onPressed: () => openExternalLink('https://twitchapps.com/tmi/'),
@@ -1090,9 +1126,11 @@ class SettingsDialog {
                             ],
                             const SizedBox(height: NeuSpace.s12),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Browser token \u2014 watch-progress sync only', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                Expanded(
+                                  child: Text('Browser token \u2014 watch-progress sync only', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                ),
+                                const SizedBox(width: NeuSpace.s8),
                                 IconButton(
                                   icon: const Icon(Icons.help_outline, size: 16),
                                   color: themeNotifier.accentInk,
@@ -1206,41 +1244,71 @@ class SettingsDialog {
                           children: [
                             Text('Window & Tray', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            // A Wrap and an intrinsically sized dropdown, not
+                            // the Expanded label the switch rows use. A
+                            // dropdown is as wide as its longest choice, so
+                            // beside an Expanded label it still overflows once
+                            // that choice outgrows the row. Here it keeps its
+                            // natural width while there is room, drops to its
+                            // own line when there is not, and ellipsizes only
+                            // when a whole line is too short for it.
+                            Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: NeuSpace.s8,
                               children: [
                                 Text('Close button', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
-                                DropdownButton<String>(
-                                  value: tempCloseAction,
-                                  underline: const SizedBox.shrink(),
-                                  style: NeuType.bodySm(themeNotifier.isDarkTheme),
-                                  dropdownColor: themeNotifier.surfaceColor,
-                                  items: const [
-                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
-                                    DropdownMenuItem(value: 'exit', child: Text('Exit the app')),
-                                  ],
-                                  onChanged: (val) {
-                                    if (val != null) setDialogState(() => tempCloseAction = val);
-                                  },
+                                IntrinsicWidth(
+                                  child: DropdownButton<String>(
+                                    value: tempCloseAction,
+                                    isExpanded: true,
+                                    underline: const SizedBox.shrink(),
+                                    style: NeuType.bodySm(themeNotifier.isDarkTheme),
+                                    dropdownColor: themeNotifier.surfaceColor,
+                                    items: [
+                                      for (final (value, label) in const [
+                                        ('tray', 'Minimize to tray'),
+                                        ('exit', 'Exit the app'),
+                                      ])
+                                        DropdownMenuItem(
+                                          value: value,
+                                          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        ),
+                                    ],
+                                    onChanged: (val) {
+                                      if (val != null) setDialogState(() => tempCloseAction = val);
+                                    },
+                                  ),
                                 ),
                               ],
                             ),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: NeuSpace.s8,
                               children: [
                                 Text('Minimize button', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
-                                DropdownButton<String>(
-                                  value: tempMinimizeAction,
-                                  underline: const SizedBox.shrink(),
-                                  style: NeuType.bodySm(themeNotifier.isDarkTheme),
-                                  dropdownColor: themeNotifier.surfaceColor,
-                                  items: const [
-                                    DropdownMenuItem(value: 'taskbar', child: Text('Minimize to taskbar')),
-                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
-                                  ],
-                                  onChanged: (val) {
-                                    if (val != null) setDialogState(() => tempMinimizeAction = val);
-                                  },
+                                IntrinsicWidth(
+                                  child: DropdownButton<String>(
+                                    value: tempMinimizeAction,
+                                    isExpanded: true,
+                                    underline: const SizedBox.shrink(),
+                                    style: NeuType.bodySm(themeNotifier.isDarkTheme),
+                                    dropdownColor: themeNotifier.surfaceColor,
+                                    items: [
+                                      for (final (value, label) in const [
+                                        ('taskbar', 'Minimize to taskbar'),
+                                        ('tray', 'Minimize to tray'),
+                                      ])
+                                        DropdownMenuItem(
+                                          value: value,
+                                          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        ),
+                                    ],
+                                    onChanged: (val) {
+                                      if (val != null) setDialogState(() => tempMinimizeAction = val);
+                                    },
+                                  ),
                                 ),
                               ],
                             ),
@@ -1266,9 +1334,9 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Start minimized to tray', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                Expanded(child: Text('Start minimized to tray', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempStartMinimized,
                                   activeColor: themeNotifier.primaryColor,
@@ -1302,9 +1370,9 @@ class SettingsDialog {
                             Text('Notifications', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s8),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Favorite channel goes live', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                Expanded(child: Text('Favorite channel goes live', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempNotifyWentLive,
                                   activeColor: themeNotifier.primaryColor,
@@ -1314,9 +1382,9 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Auto-play starts a stream', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                Expanded(child: Text('Auto-play starts a stream', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempNotifyAutoPlay,
                                   activeColor: themeNotifier.primaryColor,
@@ -1326,9 +1394,9 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Auto-download starts', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                Expanded(child: Text('Auto-download starts', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempNotifyAutoDownloadStart,
                                   activeColor: themeNotifier.primaryColor,
@@ -1338,13 +1406,14 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 // Not "Download completes": it governs the
-                                // failure notification too, and none of these
-                                // rows can wrap, so the label has to be both
-                                // true and no longer than its siblings.
-                                Text('Download completes or fails', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                // failure notification too. These rows wrap
+                                // now rather than overflow, but a label that
+                                // breaks where its siblings do not still
+                                // reads as the odd one out, so it stays short.
+                                Expanded(child: Text('Download completes or fails', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempNotifyDownloadComplete,
                                   activeColor: themeNotifier.primaryColor,
