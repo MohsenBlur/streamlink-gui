@@ -12,7 +12,6 @@ import 'neumorphic/neu_badge.dart';
 import 'neumorphic/neu_led_indicator.dart';
 import 'shell/app_layout.dart';
 import 'shell/motion.dart';
-import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -80,16 +79,13 @@ class _DashboardHeaderState extends State<DashboardHeader> {
 
     final List<Widget> content;
     if (playing) {
+      // A still glyph, not a spinner. "The player is open" is a state that
+      // lasts the whole viewing session, and an indeterminate ring here
+      // repainted every frame for hours - re-recording the header around it
+      // while the GPU was busy decoding the stream - and announced itself to
+      // screen readers as "Refreshing", which it never was.
       content = [
-        SizedBox(
-          width: compact ? 10 : 12,
-          height: compact ? 10 : 12,
-          child: NeuProgressRing(
-            size: NeuProgressRingSize.xs,
-            color: subtext,
-            semanticLabel: 'Refreshing',
-          ),
-        ),
+        Icon(Icons.ondemand_video, size: compact ? 12 : 14, color: subtext),
         SizedBox(width: compact ? 4 : 6),
         Text('OPEN', style: NeuType.plate(isDark, color: subtext)),
       ];
