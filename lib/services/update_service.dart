@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as path;
 
+import 'storage_service.dart';
+
 class UpdateInfo {
   final String version;
   final String releaseNotes;
@@ -501,19 +503,32 @@ class UpdateService {
   /// WM_CLOSE the moment the updater ran and terminated 2.5s later, however
   /// far its own shutdown had got. An updater from before the flag ignores
   /// it, and one given no flag waits on the mutex as before.
+  ///
+  /// [dropConfigMirror] asks the updater to delete the channels_config.json
+  /// an older build mirrored into the install folder, plaintext tokens and
+  /// all, which this app cannot delete itself under Program Files (see
+  /// [StorageService.dropStaleConfigMirror]). Only for a copy whose config
+  /// lives in AppData: in a portable copy that file is the config, which is
+  /// why the updater also refuses whenever the folder holds a portable.txt.
+  /// An updater from before the flag ignores it.
   static List<String> updaterArguments({
     required String targetPath,
     required String sourcePath,
     required String exeName,
     required String readyFile,
     required int appPid,
+    bool dropConfigMirror = false,
   }) =>
       [
         // Positional: an updater of any age reads these three by place.
         targetPath, sourcePath, exeName,
         '--ready-file', readyFile,
         '--wait-pid', '$appPid',
+        if (dropConfigMirror) dropConfigMirrorFlag,
       ];
+
+  /// See [updaterArguments]; windows/runner/win32_updater/main.cpp reads it.
+  static const String dropConfigMirrorFlag = '--drop-config-mirror';
 
   /// Starts the native updater on the build extracted at [sourceDir], and
   /// returns once it has confirmed it is running outside this app's job.
@@ -594,6 +609,7 @@ class UpdateService {
         exeName: exeName,
         readyFile: sentinel.path,
         appPid: pid,
+        dropConfigMirror: StorageService().configLivesInAppData(),
       ),
       mode: ProcessStartMode.detached,
     );

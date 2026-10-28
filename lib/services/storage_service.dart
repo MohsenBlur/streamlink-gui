@@ -209,26 +209,9 @@ class StorageService {
         return exeFile;
       }
 
-      String? appDataDir;
-      if (Platform.isWindows) {
-        appDataDir = Platform.environment['APPDATA'] ?? Platform.environment['LOCALAPPDATA'];
-      } else if (Platform.isMacOS) {
-        final home = Platform.environment['HOME'];
-        if (home != null) {
-          appDataDir = p.join(home, 'Library', 'Application Support');
-        }
-      } else if (Platform.isLinux) {
-        appDataDir = Platform.environment['XDG_CONFIG_HOME'];
-        if (appDataDir == null || appDataDir.isEmpty) {
-          final home = Platform.environment['HOME'];
-          if (home != null) {
-            appDataDir = p.join(home, '.config');
-          }
-        }
-      }
-
-      if (appDataDir != null && appDataDir.isNotEmpty) {
-        final configDir = Directory(p.join(appDataDir, 'TwitchStreamlinkGUI'));
+      final appDataPath = _appDataConfigDirectory();
+      if (appDataPath != null) {
+        final configDir = Directory(appDataPath);
         final appDataFile = File(p.join(configDir.path, filename));
 
         if (!appDataFile.existsSync()) {
@@ -251,8 +234,104 @@ class StorageService {
     }
   }
 
+  /// The app's folder in the per-user config location (AppData on Windows),
+  /// or null where the environment names none. Resolving it creates nothing.
+  static String? _appDataConfigDirectory() {
+    String? appDataDir;
+    if (Platform.isWindows) {
+      appDataDir = Platform.environment['APPDATA'] ?? Platform.environment['LOCALAPPDATA'];
+    } else if (Platform.isMacOS) {
+      final home = Platform.environment['HOME'];
+      if (home != null) {
+        appDataDir = p.join(home, 'Library', 'Application Support');
+      }
+    } else if (Platform.isLinux) {
+      appDataDir = Platform.environment['XDG_CONFIG_HOME'];
+      if (appDataDir == null || appDataDir.isEmpty) {
+        final home = Platform.environment['HOME'];
+        if (home != null) {
+          appDataDir = p.join(home, '.config');
+        }
+      }
+    }
+    if (appDataDir == null || appDataDir.isEmpty) return null;
+    return p.join(appDataDir, 'TwitchStreamlinkGUI');
+  }
+
+  static const String _configFileName = 'channels_config.json';
+
   File _getStorageFile() {
-    return getStorageFile('channels_config.json');
+    return getStorageFile(_configFileName);
+  }
+
+  /// The folder [dropStaleConfigMirror] looks in for the mirror. Used by
+  /// tests, which run from the test runner's own folder; leave null in the
+  /// app, where it is the executable's.
+  @visibleForTesting
+  static String? exeDirectoryOverride;
+
+  /// Whether this copy keeps its config in AppData, and has one there.
+  ///
+  /// What makes a `channels_config.json` beside the executable a stale
+  /// mirror rather than the config: in a portable copy (portable.txt) that
+  /// file IS the config, and with no config in AppData yet it is what
+  /// [getStorageFile]'s one-time migration still has to read. Unlike
+  /// [getStorageFile] this creates and migrates nothing, so the updater can
+  /// ask it at any time.
+  bool configLivesInAppData() => _staleMirrorPath() != null;
+
+  /// Where a stale mirror would be, beside the exe; null whenever
+  /// [configLivesInAppData] is false.
+  File? _staleMirrorPath() {
+    try {
+      final exeDir = exeDirectoryOverride ??
+          (_isTestRunner ? null : File(Platform.resolvedExecutable).parent.path);
+      if (exeDir == null) return null;
+      if (File(p.join(exeDir, 'portable.txt')).existsSync()) return null;
+      final configDir = storageDirectoryOverride ?? _appDataConfigDirectory();
+      if (configDir == null) return null;
+      final config = File(p.join(configDir, _configFileName));
+      final mirror = File(p.join(exeDir, _configFileName));
+      // With no AppData folder getStorageFile keeps the config beside the
+      // exe, and the "mirror" is then the config itself.
+      if (p.equals(p.absolute(config.path), p.absolute(mirror.path))) {
+        return null;
+      }
+      if (!config.existsSync()) return null;
+      return mirror;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Deletes the copy of the config an older build mirrored beside the
+  /// executable, and returns a line saying what it did, for the startup log;
+  /// null when there was nothing to do.
+  ///
+  /// Those builds wrote the whole config there on every save, the OAuth and
+  /// browser tokens in plaintext, even for an installed copy (see the NOTE in
+  /// [saveConfig]), and nothing reads it again once the config is in AppData.
+  /// Call this only once the config has loaded from AppData: one that would
+  /// not load is quarantined, and the next launch's migration then recovers
+  /// from this copy. A portable copy's config is never touched.
+  ///
+  /// It can only delete where this process may write - a per-user install,
+  /// not Program Files, where the updater's elevated step removes it instead
+  /// (`--drop-config-mirror`, see `UpdateService.updaterArguments`).
+  String? dropStaleConfigMirror() {
+    final mirror = _staleMirrorPath();
+    if (mirror == null) return null;
+    try {
+      if (!mirror.existsSync()) return null;
+      mirror.deleteSync();
+      return 'stale config mirror beside the exe removed: ${mirror.path}';
+    } on FileSystemException catch (e) {
+      final why = e.osError?.message.trim() ?? e.message;
+      return 'stale config mirror beside the exe kept, as it cannot be deleted '
+          'from here ($why); the next update removes it';
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Whether a config file is present, regardless of whether it can be parsed.
@@ -457,16 +536,24 @@ class StorageService {
     // into another user's profile). Portable installs are already served by the
     // portable.txt branch in getStorageFile.
     //
-    // Nothing writes that mirror any more, but one an older build left behind
-    // stays, plaintext tokens and all, and is not scrubbed from here. Under
-    // Program Files only an elevated process can change it, and the app
-    // never runs elevated now; that is also how such a mirror got there, as
-    // the updater used to relaunch the app with its administrator token. The
-    // updater, which is sometimes elevated, deliberately leaves any
-    // channels_config.json in the install folder alone, since in a portable
-    // copy that name is the real config. The mirror is only ever read for
-    // the one-time migration in getStorageFile, into an AppData folder that
-    // has no config yet.
+    // Nothing writes that mirror any more, and one an older build left
+    // behind, plaintext tokens and all, is removed in two places - never in a
+    // portable copy, where that name is the real config, and never while
+    // AppData has no config, since the one-time migration in getStorageFile
+    // still reads it then:
+    //
+    // * At startup, once the config has loaded from AppData
+    //   (dropStaleConfigMirror). That reaches a per-user install only: under
+    //   Program Files only an elevated process can change the file, and the
+    //   app never runs elevated now - which is also how such a mirror got
+    //   there, as the updater used to relaunch the app with its
+    //   administrator token.
+    // * By the updater, in the step that writes the install folder (its
+    //   elevated child under Program Files), when the app passes
+    //   --drop-config-mirror - which it does only on the same conditions -
+    //   and no portable.txt is in that folder. Otherwise the updater still
+    //   never replaces or deletes a channels_config.json there, and one from
+    //   before the flag ignores it.
   }
 
   Future<List<Map<String, dynamic>>> loadRecentWatchedVods() async {
