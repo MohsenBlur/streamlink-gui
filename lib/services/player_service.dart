@@ -678,6 +678,13 @@ class PlayerService {
         if (trimmed.contains('Initialization fragment found after media fragments')) {
           needsFfmpegFallback = true;
         }
+        // Cancelled and queued again: a yt-dlp still talking on its way out
+        // (taskkill returns before its target is gone) would overwrite the new
+        // entry's "Queued". Only then: one a cancel could not stop at all,
+        // because it was still starting, shows its progress again, and so
+        // can be cancelled again.
+        final owner = _downloadStateOwners[vodId];
+        if (owner != null && owner != claim) return;
 
         if (trimmed.startsWith('[Metadata]') ||
             trimmed.startsWith('[EmbedThumbnail]') ||
@@ -838,9 +845,14 @@ class PlayerService {
       _downloadStateOwners[vodId] = ++_lastDownloadStateOwner;
 
   /// With [onlyFor], only while that claim (see [_claimDownloadState]) still
-  /// owns the state.
+  /// owns the state, or nothing does. A cancel releases the state without
+  /// claiming it, and the cancelled run must still clear what it records
+  /// after that: a yt-dlp the cancel could not stop because it was still
+  /// starting, which used to stay on record as running and refuse every
+  /// later queueing of the VOD.
   void _cleanupDownloadState(String vodId, {int? onlyFor}) {
-    if (onlyFor != null && _downloadStateOwners[vodId] != onlyFor) return;
+    final owner = _downloadStateOwners[vodId];
+    if (onlyFor != null && owner != null && owner != onlyFor) return;
     _downloadStateOwners.remove(vodId);
     activeDownloadProcesses.remove(vodId);
     activeDownloadsProgress.remove(vodId);
