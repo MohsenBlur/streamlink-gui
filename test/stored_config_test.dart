@@ -54,6 +54,13 @@ void main() {
     expect(stored.registry, {'v1': r'D:\VODs\a.mp4', '3': 'x.mp4'});
   });
 
+  test('the download history keeps every usable time', () {
+    final stored = StoredConfig.parse({
+      'download_history': {'1': 1000, '2': 2000.5, '3': '3000', '4': 'soon'},
+    });
+    expect(stored.downloadHistory, {'1': 1000, '2': 2000, '3': 3000});
+  });
+
   test('a part the file does not have is null, so memory stands', () {
     final stored = StoredConfig.parse({'channels': 'nope'});
     expect(stored.channels, isEmpty);
@@ -62,5 +69,7 @@ void main() {
     expect(stored.settingsError, isNull);
     expect(stored.localProgress, isNull);
     expect(stored.registry, isNull);
+    expect(stored.downloadHistory, isNull,
+        reason: 'a config from before it existed, which seeds it');
   });
 }

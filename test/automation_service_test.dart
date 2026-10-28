@@ -7,6 +7,7 @@ import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/automation_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart'
     show VodsFetchResult;
+import 'package:streamlink_gui/state/download_history.dart';
 import 'package:streamlink_gui/state/vod_browser_controller.dart';
 
 import 'support/fake_helix.dart';
@@ -59,6 +60,7 @@ class Rig {
   final Map<String, List<TwitchVideo>> vodsByChannel = {};
   final Set<String> failingChannels = {};
   final Set<String> handled = {};
+  final DownloadHistory history = DownloadHistory();
 
   /// When set, every VOD fetch waits on it.
   Completer<void>? fetchGate;
@@ -96,6 +98,7 @@ class Rig {
     },
     localProgress: () => const {},
     isVodHandled: handled.contains,
+    wasDownloaded: history.contains,
     queueDownload: (v, c, {overrideDisablePostProcessing}) => queued.add(
         (vod: v.id, channel: c.username, fast: overrideDisablePostProcessing)),
     showNotification: (title, body) async {
@@ -252,6 +255,78 @@ void main() {
       rig.vodsByChannel['a'] = [vod('v2', daysAgo: 1), vod('v1', daysAgo: 2)];
       await rig.service.runPass();
       expect(rig.queued.map((q) => q.vod), ['v2']);
+    });
+
+    group('a VOD downloaded once', () {
+      // Deleting a download takes its archive line out too, so nothing but
+      // the download history remembers it once its file is gone.
+      final at = DateTime(2026, 1, 30);
+
+      /// Each download the pass queued completes, as the screen records it:
+      /// on disk (handled) and in the history. Then retention keeps the
+      /// newest [keep] on disk, and the scan forgets the rest.
+      void downloadsComplete(Rig rig, List<String> onDisk, int done,
+          {required int keep}) {
+        for (final q in rig.queued.skip(done)) {
+          onDisk.add(q.vod);
+          rig.handled.add(q.vod);
+          rig.history.record(q.vod, at);
+        }
+        while (onDisk.length > keep) {
+          rig.handled.remove(onDisk.removeAt(0));
+        }
+      }
+
+      test('is not fetched again when retention keeps fewer than the window',
+          () async {
+        // Three VODs in the window, two kept on disk: retention deleted the
+        // oldest, the pass found it missing and fetched it again, and
+        // retention deleted the next - every pass.
+        final rig = Rig();
+        rig.favorites
+            .add(channel('a', autoPlay: false, autoDownload: true, keep: 3));
+        rig.vodsByChannel['a'] = [
+          vod('v3', daysAgo: 1),
+          vod('v2', daysAgo: 2),
+          vod('v1', daysAgo: 3),
+        ];
+        final onDisk = <String>[];
+        for (var pass = 0; pass < 5; pass++) {
+          final done = rig.queued.length;
+          await rig.service.runPass();
+          downloadsComplete(rig, onDisk, done, keep: 2);
+        }
+        expect(rig.queued.map((q) => q.vod), ['v1', 'v2', 'v3'],
+            reason: 'each once, over five passes');
+      });
+
+      test('is not fetched again after the user deletes it', () async {
+        // Unwatched and still inside its window, it came straight back.
+        final rig = Rig();
+        rig.favorites
+            .add(channel('a', autoPlay: false, autoDownload: true, keep: 2));
+        rig.vodsByChannel['a'] = [vod('v2', daysAgo: 1), vod('v1', daysAgo: 2)];
+        final onDisk = <String>[];
+        await rig.service.runPass();
+        downloadsComplete(rig, onDisk, 0, keep: 2);
+        expect(rig.queued.map((q) => q.vod), ['v1', 'v2']);
+
+        rig.handled.remove('v1');
+        await rig.service.runPass();
+        await rig.service.runPass();
+        expect(rig.queued.map((q) => q.vod), ['v1', 'v2']);
+      });
+
+      test('still holds its place in the window', () async {
+        // Counted as kept, as when it was on disk: the window does not move
+        // on to a newer VOD because an older one was deleted.
+        final rig = Rig()..history.record('v1', at);
+        rig.favorites
+            .add(channel('a', autoPlay: false, autoDownload: true, keep: 1));
+        rig.vodsByChannel['a'] = [vod('v2', daysAgo: 1), vod('v1', daysAgo: 2)];
+        await rig.service.runPass();
+        expect(rig.queued, isEmpty);
+      });
     });
 
     test('does nothing, not even a fetch, without a download folder', () async {
@@ -428,6 +503,7 @@ void main() {
         fetchVods: (_) async => VodsFetchResult(vods: const []),
         localProgress: () => const {},
         isVodHandled: (_) => false,
+        wasDownloaded: (_) => false,
         queueDownload: (v, c, {overrideDisablePostProcessing}) {},
         showNotification: (_, _) async {},
         log: (_) {},

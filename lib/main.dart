@@ -20,6 +20,7 @@ import 'services/player_service.dart';
 import 'services/update_service.dart';
 import 'services/log_store.dart';
 import 'state/activity_state.dart';
+import 'state/download_history.dart';
 import 'state/settings_repository.dart';
 import 'services/downloads_controller.dart';
 import 'theme/material/app_material.dart';
@@ -327,6 +328,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   WatchProgressStore _progressStore = WatchProgressStore();
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
+
+  /// Every VOD ever downloaded, file or no file, so auto-download never
+  /// fetches one twice (DownloadHistory); saved with the registry.
+  final DownloadHistory _downloadHistory = DownloadHistory();
   final Map<String, TwitchVideo> _activePlayingVideos = {};
   List<TwitchVideo> _recentWatchedVods = [];
 
@@ -446,6 +451,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _playerService.activeDownloadTasks.containsKey(vodId) ||
         _playerService.activeDownloadProcesses.containsKey(vodId) ||
         _playerService.downloadQueue.contains(vodId),
+    wasDownloaded: _downloadHistory.contains,
     queueDownload: (vod, channel, {overrideDisablePostProcessing}) =>
         _playerService.queueVodDownload(
       vod,
@@ -668,6 +674,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _playerService.onDownloadCompleted = (vodId, title, filePath) {
       _downloads.forget(vodId);
       if (mounted) {
+        // With no file too: yt-dlp exits 0 without one for a VOD its archive
+        // says it already downloaded.
+        _downloadHistory.record(vodId, _services.clock());
         setState(() {
           if (filePath.isNotEmpty) {
             _downloadedVodsRegistry[vodId] = filePath;
@@ -797,7 +806,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     final unfinished = _downloads.persisted;
     if (unfinished != null) _settings.unfinishedDownloads = unfinished;
     return _storageService.saveConfig(
-        _channels, _settings, _localVodsProgress, _downloadedVodsRegistry);
+        _channels, _settings, _localVodsProgress, _downloadedVodsRegistry,
+        downloadHistory: _downloadHistory.toJson());
   }
 
   /// Scroll state for the "Continue watching" strip, so its edges can fade.
@@ -990,6 +1000,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       _downloadedVodsRegistry
           .removeWhere((vodId, _) => outcome.prune.contains(vodId));
       _downloadedVodsRegistry.addAll(outcome.additions);
+      // A file found on disk was downloaded, by this app or another build.
+      _downloadHistory.addAll(outcome.additions.keys, _services.clock());
       _settingsRepo.requestSave();
       // The Library was built from the registry before this scan came back.
       if (_showLibraryView) _refreshLibraryEntries();
@@ -1047,6 +1059,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   /// Whether the first load has consumed [MainScreen.startup].
   bool _startupConfigUsed = false;
+
+  /// The rest of the download history's seed (see [_loadChannels]): the VODs
+  /// yt-dlp's archive records. Builds before the history never took a line
+  /// out of the archive, so it lists every VOD they downloaded, deleted ones
+  /// too.
+  Future<void> _seedDownloadHistoryFromArchive() async {
+    final ids = await _playerService.readArchivedVodIds();
+    if (!mounted) return;
+    if (_downloadHistory.addAll(ids, _services.clock())) {
+      _settingsRepo.requestSave();
+    }
+  }
 
   Future<void> _loadChannels() async {
     setState(() => _isGlobalLoading = true);
@@ -1125,6 +1149,15 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         }
         final registry = stored.registry;
         if (registry != null) _downloadedVodsRegistry = registry;
+        // A config from before the download history starts it from what the
+        // registry holds, and from yt-dlp's archive once that is read - every
+        // VOD downloaded so far, so the upgrade does not fetch each again the
+        // next time retention or the user deletes it.
+        _downloadHistory.restore(stored.downloadHistory,
+            seed: _downloadedVodsRegistry.keys, now: _services.clock());
+        if (stored.downloadHistory == null) {
+          unawaited(_seedDownloadHistoryFromArchive());
+        }
       }
 
       _channels.clear();
@@ -2646,7 +2679,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   void _queueVodDownload(TwitchVideo vod, String channelName) {
     _ensureDownloadFolderConfigured(() {
-      _playerService.queueVodDownload(vod, channelName, _settings);
+      _playerService.queueVodDownload(vod, channelName, _settings,
+          byHand: true);
       setState(() {});
     });
   }
@@ -2710,7 +2744,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _ensureDownloadFolderConfigured(() {
       final channelName = _selectedChannel?.username ?? 'VOD';
       if (selectedVods.length == 1) {
-        _playerService.queueVodDownload(selectedVods.first, channelName, _settings);
+        _playerService.queueVodDownload(
+            selectedVods.first, channelName, _settings,
+            byHand: true);
         setState(() {
           _isMultiSelectMode = false;
           _selectedVodIds.clear();
@@ -2740,7 +2776,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
     _showSnackBar('Queueing ${sortedVods.length} downloads...', isError: false);
     for (final vod in sortedVods) {
-      _playerService.queueVodDownload(vod, channelName, _settings);
+      _playerService.queueVodDownload(vod, channelName, _settings,
+          byHand: true);
     }
     setState(() {});
   }

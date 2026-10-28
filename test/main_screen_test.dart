@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:streamlink_gui/models/app_settings.dart';
+import 'package:streamlink_gui/models/twitch_channel.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/desktop_shell.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
@@ -15,6 +18,7 @@ import 'package:streamlink_gui/state/vod_cache.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 
+import 'support/fake_process.dart';
 import 'support/main_screen_harness.dart';
 
 /// The main screen itself, pumped whole over fakes (see [ScreenHarness]).
@@ -721,6 +725,198 @@ void main() {
       expect(banner(), findsOneWidget);
 
       storageWriteFailure.value = null;
+      await h.close(tester);
+    });
+  });
+
+  group('auto-download', () {
+    // Over the real player service, with yt-dlp faked and a real download
+    // folder: retention and the downloaded-file scan work on the disk.
+    //
+    // The scan runs on an isolate, so these let real time pass for it
+    // (runAsync) - and with it the title bar's window_manager query, which
+    // the other tests never let land and which no plugin answers here.
+    const windowManager = MethodChannel('window_manager');
+    late Directory folder;
+    setUp(() {
+      folder = Directory.systemTemp.createTempSync('streamlink_gui_vods_');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(windowManager,
+              (call) async => call.method == 'isMaximized' ? false : null);
+    });
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(windowManager, null);
+      try {
+        folder.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    TwitchChannel autoDownloading(String name, {required int keep}) =>
+        TwitchChannel(
+            username: name, autoDownloadVods: true, maxVodKeepCount: keep);
+
+    AppSettings downloadingTo({int retention = 0}) =>
+        ScreenHarness.defaultSettings()
+          ..vodDownloadFolder = folder.path
+          ..maxDownloadsToKeep = retention;
+
+    List<FakeProcess> ytDlpFor(ScreenHarness h, String vodId) => [
+          for (final run in h.launcher.launched)
+            if (run.arguments.last == 'https://twitch.tv/videos/$vodId') run,
+        ];
+
+    File fileOf(String vodId) =>
+        File(p.join(folder.path, 'alpha', 'VOD $vodId - $vodId.mp4'));
+
+    /// [vodId]'s yt-dlp writes its file and exits 0.
+    Future<void> finishDownload(
+        WidgetTester tester, ScreenHarness h, String vodId,
+        {DateTime? modified}) async {
+      final file = fileOf(vodId)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('video');
+      if (modified != null) file.setLastModifiedSync(modified);
+      unawaited(ytDlpFor(h, vodId).single.exit(0));
+      // A fake process ends on a zero-length timer, which only a pump that
+      // moves the clock fires.
+      await h.advance(tester, const Duration(milliseconds: 50),
+          step: const Duration(milliseconds: 10));
+    }
+
+    /// Runs the clock until the saved registry no longer holds [vodId] - but
+    /// still holds [kept], when given: the ten-second tick's downloaded-file
+    /// scan runs on an isolate, so real time has to pass for it as well, and
+    /// what it changes is saved a second later.
+    Future<void> untilScanForgets(
+        WidgetTester tester, ScreenHarness h, String vodId,
+        {String? kept}) async {
+      bool forgotten() {
+        final saved = h.storage.config!['downloaded_vods'] as Map;
+        return !saved.containsKey(vodId) &&
+            (kept == null || saved.containsKey(kept));
+      }
+
+      for (var i = 0; i < 50 && !forgotten(); i++) {
+        await h.advance(tester, const Duration(seconds: 1));
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await h.settle(tester);
+      }
+      expect(forgotten(), isTrue, reason: 'the scan found its file gone');
+    }
+
+    testWidgets(
+        'a VOD retention deleted from its window is not downloaded again',
+        (tester) async {
+      // Two in the window, one kept on disk. Retention deleted the older,
+      // the scan took it out of the registry, and the next pass fetched it
+      // again for retention to delete the newer - every pass.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final older = h.helix.addVideo('alpha',
+          publishedAt: h.helix.now.subtract(const Duration(days: 2)));
+      final newer = h.helix.addVideo('alpha',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 2)],
+          settings: downloadingTo(retention: 1));
+
+      expect(ytDlpFor(h, older), hasLength(1), reason: 'oldest first');
+      await finishDownload(tester, h, older,
+          modified: h.helix.now.subtract(const Duration(hours: 1)));
+      expect(ytDlpFor(h, newer), hasLength(1));
+      await finishDownload(tester, h, newer);
+      expect(fileOf(older).existsSync(), isFalse, reason: 'retention');
+      expect(fileOf(newer).existsSync(), isTrue);
+
+      await untilScanForgets(tester, h, older, kept: newer);
+      // Passes a minute apart: each used to queue it again.
+      await h.advance(tester, const Duration(minutes: 3));
+      expect(ytDlpFor(h, older), hasLength(1));
+      expect(ytDlpFor(h, newer), hasLength(1));
+      expect(h.storage.config!['download_history'],
+          allOf(contains(older), contains(newer)));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'a VOD downloaded before the upgrade is not fetched again once it '
+        'is gone', (tester) async {
+      // A config from before the download history: only the registry knows
+      // the VOD, whose file was deleted while the app was closed.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final vod = h.helix.addVideo('alpha',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      Directory(p.join(folder.path, 'alpha')).createSync(recursive: true);
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo(),
+          config: {
+            'downloaded_vods': {vod: fileOf(vod).path},
+          });
+      expect(h.launcher.launched, isEmpty, reason: 'the registry has it');
+
+      await untilScanForgets(tester, h, vod);
+      await h.advance(tester, const Duration(minutes: 2));
+      expect(h.launcher.launched, isEmpty,
+          reason: 'seeded from the registry, the history still has it');
+      expect(h.storage.config!['download_history'], contains(vod));
+
+      await h.close(tester);
+    });
+
+    testWidgets('Download by hand still fetches a VOD the pass leaves alone',
+        (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final vod = h.helix.addVideo('alpha',
+          title: 'Deleted earlier',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo(),
+          config: {
+            'download_history': {vod: h.helix.now.millisecondsSinceEpoch},
+          });
+      await h.advance(tester, const Duration(minutes: 1));
+      expect(h.launcher.launched, isEmpty, reason: 'downloaded once');
+
+      // What a build before the archive id match left behind, which made
+      // yt-dlp skip the download as done and exit 0 with no file.
+      final archive = h.storage.getStorageFile('yt_dlp_archive.txt')
+        ..writeAsStringSync('twitchvod $vod\ntwitchvod v99\n');
+
+      await openChannel(tester, h, 'alpha');
+      await tester.tap(find.text('Deleted earlier').first,
+          buttons: kSecondaryMouseButton);
+      // The menu grows open; until it has, its items are clipped away.
+      await h.advance(tester, const Duration(milliseconds: 500),
+          step: const Duration(milliseconds: 100));
+      await tester.tap(find.text('Download'));
+      await h.settle(tester);
+      // The rewrite is real file I/O, a step at a time, under a lock that
+      // keeps a read out until it is done.
+      List<String>? lines() {
+        try {
+          return archive.readAsLinesSync();
+        } on FileSystemException {
+          return null;
+        }
+      }
+
+      for (var i = 0; i < 40 && (lines()?.length ?? 2) > 1; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await h.settle(tester);
+      }
+      expect(lines(), ['twitchvod v99']);
+      await h.advance(tester, const Duration(seconds: 6));
+
+      expect(ytDlpFor(h, vod), hasLength(1));
+
       await h.close(tester);
     });
   });

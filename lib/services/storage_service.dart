@@ -435,18 +435,22 @@ class StorageService {
         .write(json.encode({...config, 'settings': sealedSettings}));
   }
 
+  /// [downloadHistory] is every VOD ever downloaded (DownloadHistory), left
+  /// out when null.
   Future<void> saveConfig(
     List<TwitchChannel> channels,
     AppSettings settings,
     Map<String, int> localProgress,
-    Map<String, String> downloadedVods,
-  ) async {
+    Map<String, String> downloadedVods, {
+    Map<String, int>? downloadHistory,
+  }) async {
     final file = _getStorageFile();
     final config = {
       'channels': channels.map((c) => c.toJson()).toList(),
       'settings': _secrets.sealForDisk(settings.toJson()),
       'local_vods_progress': localProgress,
       'downloaded_vods': downloadedVods,
+      'download_history': ?downloadHistory,
     };
     await _writerFor(file).write(json.encode(config));
 

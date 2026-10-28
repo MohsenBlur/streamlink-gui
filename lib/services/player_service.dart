@@ -485,6 +485,33 @@ class PlayerService {
     return id == vodId || id == 'v$vodId';
   }
 
+  /// The Twitch VOD ids yt-dlp's archive [text] records, in the order it
+  /// recorded them: its `twitchvod v<id>` lines, as [isArchiveLineFor]
+  /// reads them.
+  static List<String> archivedVodIds(String text) {
+    final ids = <String>[];
+    for (final line in const LineSplitter().convert(text)) {
+      final parts = line.trim().split(RegExp(r'\s+'));
+      if (parts.length < 2 || parts.first.toLowerCase() != 'twitchvod') continue;
+      final match = RegExp(r'^v?(\d+)$').firstMatch(parts.last);
+      if (match != null) ids.add(match.group(1)!);
+    }
+    return ids;
+  }
+
+  /// [archivedVodIds] of the archive on disk; empty when there is none or it
+  /// cannot be read. Never throws.
+  Future<List<String>> readArchivedVodIds() async {
+    final archivePath = downloadArchiveFilePath?.trim() ?? '';
+    if (archivePath.isEmpty) return const <String>[];
+    try {
+      final bytes = await File(archivePath).readAsBytes();
+      return archivedVodIds(utf8.decode(bytes, allowMalformed: true));
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
   /// Every archive rewrite this service has started, in order; see
   /// [removeVodFromArchive].
   Future<void> _archiveWrites = Future<void>.value();
@@ -925,7 +952,15 @@ class PlayerService {
 
   final Map<String, bool> downloadTaskFastDownloadOverrides = {};
 
-  void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool? overrideDisablePostProcessing}) {
+  /// [byHand] for a download the user asked for, which yt-dlp's archive is
+  /// no reason to skip: its line there, if any, is taken out before yt-dlp
+  /// starts. Builds before the archive matched Twitch's ids never took one
+  /// out, so a VOD deleted under them - and one yt-dlp ever skipped as done
+  /// without a file - came back from Download as "completed", with no file.
+  /// Not for the auto-download pass, which must not fetch such a VOD again,
+  /// nor for the resume at launch.
+  void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings,
+      {bool? overrideDisablePostProcessing, bool byHand = false}) {
     // Queueing a download means we are not shutting down after all.
     //
     // stopAll() latches _shuttingDown, and it is not only called on exit: the
@@ -942,6 +977,9 @@ class PlayerService {
     if (overrideDisablePostProcessing != null) {
       downloadTaskFastDownloadOverrides[vodId] = overrideDisablePostProcessing;
     }
+    // startVodDownload waits for the archive's rewrites before yt-dlp reads
+    // it, this one included.
+    if (byHand) unawaited(removeVodFromArchive(vodId));
 
     _claimDownloadState(vodId);
     downloadChannelNames[vodId] = channelName;

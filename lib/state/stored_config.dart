@@ -19,6 +19,7 @@ class StoredConfig {
     required this.settingsError,
     required this.localProgress,
     required this.registry,
+    required this.downloadHistory,
   });
 
   /// The favourites that could be read, in order.
@@ -38,6 +39,11 @@ class StoredConfig {
 
   /// Downloaded VOD id to file path; null when the file has no such map.
   final Map<String, String>? registry;
+
+  /// Every VOD ever downloaded, id to when it first was (DownloadHistory);
+  /// null when the file has no such map - one written before it existed,
+  /// whose downloads the registry has to stand in for.
+  final Map<String, int>? downloadHistory;
 
   factory StoredConfig.parse(Map<String, dynamic> config) {
     final channels = <TwitchChannel>[];
@@ -71,18 +77,9 @@ class StoredConfig {
       }
     }
 
-    Map<String, int>? progress;
-    final localProgressJson = config['local_vods_progress'];
-    if (localProgressJson is Map) {
-      // Skip unusable entries rather than letting one bad value (`v as int`
-      // on a double or string) abort the entire config load.
-      progress = <String, int>{};
-      localProgressJson.forEach((k, v) {
-        final position =
-            v is int ? v : (v is num ? v.toInt() : int.tryParse('$v'));
-        if (position != null) progress![k.toString()] = position;
-      });
-    }
+    // Skip unusable entries rather than letting one bad value (`v as int`
+    // on a double or string) abort the entire config load.
+    final progress = _intsOf(config['local_vods_progress']);
 
     Map<String, String>? registry;
     final downloadedVodsJson = config['downloaded_vods'];
@@ -100,6 +97,19 @@ class StoredConfig {
       settingsError: settingsError,
       localProgress: progress,
       registry: registry,
+      downloadHistory: _intsOf(config['download_history']),
     );
+  }
+
+  /// A map of whole numbers, keeping every usable value; null when [json]
+  /// is not a map at all.
+  static Map<String, int>? _intsOf(Object? json) {
+    if (json is! Map) return null;
+    final ints = <String, int>{};
+    json.forEach((k, v) {
+      final value = v is int ? v : (v is num ? v.toInt() : int.tryParse('$v'));
+      if (value != null) ints[k.toString()] = value;
+    });
+    return ints;
   }
 }

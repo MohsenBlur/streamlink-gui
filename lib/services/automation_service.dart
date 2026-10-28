@@ -27,6 +27,7 @@ class AutomationService {
     required this.fetchVods,
     required this.localProgress,
     required this.isVodHandled,
+    required this.wasDownloaded,
     required this.queueDownload,
     required this.showNotification,
     this.onVodsFetched,
@@ -61,6 +62,13 @@ class AutomationService {
 
   /// Whether a VOD is already downloaded, downloading or queued.
   final bool Function(String vodId) isVodHandled;
+
+  /// Whether the app ever downloaded a VOD, though its file may be gone
+  /// (DownloadHistory). The pass never fetches one of those again: a file
+  /// retention or the user deleted came back on the next pass, and with
+  /// retention below the windows, in a loop. A download queued by hand is
+  /// not asked.
+  final bool Function(String vodId) wasDownloaded;
 
   final void Function(TwitchVideo vod, TwitchChannel channel,
       {bool? overrideDisablePostProcessing}) queueDownload;
@@ -219,7 +227,7 @@ class AutomationService {
           vods: result.vods,
           localProgress: localProgress(),
           settings: settings(),
-          isAlreadyHandled: isVodHandled,
+          isAlreadyHandled: (id) => isVodHandled(id) || wasDownloaded(id),
         );
 
         for (final vod in selected) {
