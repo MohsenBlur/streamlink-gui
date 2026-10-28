@@ -930,8 +930,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         // Awaited: stopAll() kills asynchronously, and the children must be
         // gone before the updater starts replacing the binaries they run
         // from. The job object and the updater's own sweep would end them
-        // anyway, but not before the swap began.
-        await _playerService.stopAll();
+        // anyway, but not before the swap began. Bounded, because Exit is
+        // refused while an update runs: a stop that never returned would
+        // leave this dialog up with nothing the user could do about it.
+        await _stopAllBounded('update');
 
         updateDialog(() => statusText = 'Applying update and restarting...');
         updaterStarting = true;
@@ -1236,11 +1238,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // Players and downloads first, so whatever their stopping reports (a
     // final watch position, a download's resume state) is already in memory
     // when the saves below snapshot it.
-    try {
-      await _playerService.stopAll();
-    } catch (e, st) {
-      log?.error('exit: stopping players', e, st);
-    }
+    await _stopAllBounded('exit');
 
     // Each save resolves only once its file's writer has drained, earlier
     // fire-and-forget writes to the same file included.
@@ -1260,6 +1258,30 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
     log?.milestone('[exit] saved and stopped; closing');
     await windowManager.destroy();
+  }
+
+  /// The longest quitting or updating waits for players and downloads to end.
+  static const Duration _stopAllTimeout = Duration(seconds: 5);
+
+  /// [PlayerService.stopAll], awaited but never for longer than
+  /// [_stopAllTimeout].
+  ///
+  /// Awaited so the children are gone before the saves (exit) or the binary
+  /// swap (update). Unbounded, a taskkill that never returned would strand
+  /// the app: the exit guard ignores every later Exit, so the window could
+  /// not be closed, and the update dialog has no way out at all. Going on is
+  /// safe: the runner's kill-on-close job ends whatever is left when this
+  /// process goes, and the updater ends what runs from the install folder
+  /// before it swaps.
+  Future<void> _stopAllBounded(String during) async {
+    try {
+      await _playerService.stopAll().timeout(_stopAllTimeout);
+    } on TimeoutException {
+      CrashLog.current?.milestone('[$during] players still stopping after '
+          '${_stopAllTimeout.inSeconds}s; going on without them');
+    } catch (e, st) {
+      CrashLog.current?.error('$during: stopping players', e, st);
+    }
   }
 
   /// Runs the shared pulse only when something is actually pulsing and the
