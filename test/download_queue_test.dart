@@ -214,4 +214,15 @@ void main() {
     expect(service.activeDownloadTasks, isEmpty);
     expect(service.isQueueProcessing, isFalse);
   });
+
+  test('a download it already has is not announced as queued', () async {
+    final settings = AppSettings(vodDownloadFolder: temp.path);
+    final queued = <String>[];
+    service.onDownloadQueued = (vod, channel) => queued.add('$channel/${vod.id}');
+    service.queueVodDownload(vod('1'), 'chan', settings);
+    service.queueVodDownload(vod('2'), 'other', settings);
+    service.queueVodDownload(vod('1'), 'chan', settings);
+    await pumpEventQueue();
+    expect(queued, ['chan/1', 'other/2']);
+  });
 }

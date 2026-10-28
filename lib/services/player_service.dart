@@ -184,6 +184,15 @@ class PlayerService {
   void Function(String vodId, String title, String filePath)? onDownloadCompleted;
   void Function(String vodId, String title, int exitCode)? onDownloadFailed;
 
+  /// Fires when [queueVodDownload] accepts a download - not for one it turns
+  /// away because it is already queued or running.
+  ///
+  /// The queue is queued into from several places (the grid, multi-select,
+  /// the Library, the auto-download pass, the resume at launch), so this is
+  /// the one place that sees every addition - which is what keeping the saved
+  /// queue current needs.
+  void Function(TwitchVideo vod, String channelName)? onDownloadQueued;
+
   /// Fires once per download process, whatever the outcome.
   ///
   /// Downloads announce their start through [onPlayerStarted] like players do,
@@ -197,23 +206,20 @@ class PlayerService {
   /// callers do not report a deliberate stop as a failure.
   void Function(String key, int exitCode, bool userInitiated)? onPlayerStopped;
   void Function(String key, String line)? onPlayerLog;
-  /// [sessionAgeMs] lets the store tell a failed resume from a deliberate
-  /// seek: a large backwards jump seconds into a session is a player that
-  /// came up in the wrong place, not a user rewatching.
-  void Function(String vodId, int position, double progress, int sessionAgeMs)?
-      onWatchProgressUpdated;
 
   /// Records a corroborated watch position and answers whether it was kept.
   ///
   /// The local store refuses a position that looks like a failed resume - far
   /// behind the furthest point, early in a session - and answering false
   /// keeps that position off Twitch too. The tracker used to push every
-  /// position regardless, through [onWatchProgressUpdated], which cannot say
-  /// no: a player that came up near 0 on a VOD stored at 2h30m was refused
-  /// locally and still overwrote the remote resume point every two seconds,
-  /// where other devices and Twitch's own UI read it.
+  /// position regardless, through a void callback that could not say no: a
+  /// player that came up near 0 on a VOD stored at 2h30m was refused locally
+  /// and still overwrote the remote resume point every two seconds, where
+  /// other devices and Twitch's own UI read it.
   ///
-  /// Used in place of [onWatchProgressUpdated] when set.
+  /// [sessionAgeMs] lets the store tell a failed resume from a deliberate
+  /// seek: a large backwards jump seconds into a session is a player that
+  /// came up in the wrong place, not a user rewatching.
   bool Function(String vodId, int position, double progress, int sessionAgeMs)?
       recordWatchProgress;
 
@@ -383,7 +389,11 @@ class PlayerService {
   /// file. Several deletion paths used to test `path.contains(' - $vodId')`,
   /// which would happily match `Title - 123456789.mp4` while deleting id
   /// `12345`.
-  static RegExp _vodFinalFilePattern(String vodId) =>
+  ///
+  /// Public because the downloaded-file scan (DownloadsController) matches a
+  /// whole folder listing against it off the UI isolate, and must agree with
+  /// every path here about which file is a VOD's.
+  static RegExp vodFinalFilePattern(String vodId) =>
       // The negative lookahead keeps a bare `Title - 12345.ytdl` from being
       // treated as a finished download just because `ytdl` is alphanumeric.
       RegExp(
@@ -411,7 +421,7 @@ class PlayerService {
   List<File> findDownloadedVodFiles(String vodId, String channelName, String downloadFolder) {
     final dir = _channelDirectory(channelName, downloadFolder);
     if (dir == null) return const [];
-    final pattern = _vodFinalFilePattern(vodId);
+    final pattern = vodFinalFilePattern(vodId);
     try {
       return dir.listSync().whereType<File>().where((f) => pattern.hasMatch(f.path)).toList();
     } catch (_) {
@@ -773,6 +783,7 @@ class PlayerService {
     _queueTickets[vodId] = ++_lastQueueTicket;
     activeDownloadTasks[vodId] = 'Queued';
     onDownloadProgress?.call(vodId, 0.0, 'Queued');
+    onDownloadQueued?.call(vod, channelName);
 
     _processDownloadQueue(settings, channelName);
   }
@@ -1619,14 +1630,11 @@ class PlayerService {
     final progress = totalSeconds > 0 ? position / totalSeconds : 0.0;
     final sessionAgeMs =
         DateTime.now().millisecondsSinceEpoch - sessionStartedMs;
-    final record = recordWatchProgress;
-    final bool kept;
-    if (record != null) {
-      kept = record(vod.id, position, progress, sessionAgeMs);
-    } else {
-      onWatchProgressUpdated?.call(vod.id, position, progress, sessionAgeMs);
-      kept = true; // this sink cannot refuse
-    }
+    // With nothing recording locally there is no verdict to honour, and the
+    // push goes ahead as it always did.
+    final kept =
+        recordWatchProgress?.call(vod.id, position, progress, sessionAgeMs) ??
+            true;
 
     // 2. Sync to Twitch in the background if token exists - and only what the
     // local store kept.

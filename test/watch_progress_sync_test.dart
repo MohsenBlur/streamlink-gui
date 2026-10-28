@@ -94,12 +94,12 @@ void main() {
     expect(api.pushed, everyElement(isIn(recorded.skip(2))));
   });
 
-  test('a sink that cannot refuse keeps every position syncing', () async {
-    // onWatchProgressUpdated is the older, void sink; until the app moves to
-    // recordWatchProgress, its behaviour must not change.
+  test('every position the local store keeps is synced', () async {
     final recorded = <int>[];
-    service.onWatchProgressUpdated =
-        (id, position, progress, ageMs) => recorded.add(position);
+    service.recordWatchProgress = (id, position, progress, ageMs) {
+      recorded.add(position);
+      return true;
+    };
 
     await play(() => recorded.length >= 3);
 
