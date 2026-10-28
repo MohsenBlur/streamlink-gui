@@ -97,11 +97,13 @@ void main() {
       expect(line, contains('next update'));
     }, skip: !Platform.isWindows);
 
-    test('main() deletes it only after the config loaded', () {
+    test('startup deletes it only after the config loaded', () {
       // A config that would not load is quarantined, and the next launch's
       // migration recovers from the mirror: it must outlive that launch.
-      final src = File('lib/main.dart').readAsStringSync().replaceAll('\r\n', '\n');
-      final start = src.indexOf('Future<void> _startApp(');
+      final src = File('lib/app_startup.dart')
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      final start = src.indexOf('Future<void> startApp(');
       expect(start, isNonNegative);
       final body = src.substring(start, src.indexOf('\n}\n', start));
       final call = body.indexOf('storage.dropStaleConfigMirror()');

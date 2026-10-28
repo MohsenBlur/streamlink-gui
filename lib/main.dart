@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:local_notifier/local_notifier.dart';
 
 import 'app_services.dart';
 import 'app_startup.dart';
@@ -24,7 +22,6 @@ import 'state/download_history.dart';
 import 'state/settings_repository.dart';
 import 'state/settings_save.dart';
 import 'services/downloads_controller.dart';
-import 'theme/type_probe.dart';
 import 'widgets/shell/announcements.dart';
 import 'widgets/shell/app_dialogs.dart';
 import 'widgets/shell/app_frame.dart';
@@ -45,7 +42,6 @@ import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
 import 'widgets/settings_dialog.dart';
 
-import 'services/startup_service.dart';
 import 'state/account_controller.dart';
 import 'state/app_shell_controller.dart';
 import 'state/library_controller.dart';
@@ -67,7 +63,9 @@ Future<void> main(List<String> args) async {
   // here simply ended startup - with the window never shown - and left nothing
   // behind to say why.
   await runZonedGuarded<Future<void>>(
-    () => _startApp(args),
+    () => startApp(args,
+        app: (startup, startHidden) => TwitchStreamlinkApp(
+            startup: startup, startHidden: startHidden)),
     (error, stack) {
       final log = CrashLog.current;
       if (log != null) {
@@ -77,103 +75,6 @@ Future<void> main(List<String> args) async {
       }
     },
   );
-}
-
-Future<void> _startApp(List<String> args) async {
-  final launch = Stopwatch()..start();
-  WidgetsFlutterBinding.ensureInitialized();
-
-  final storage = StorageService();
-  // Beside the config, so portable mode keeps it beside the exe too.
-  final crashLog = CrashLog(storage.getStorageFile(CrashLog.fileName));
-  CrashLog.install(crashLog);
-  // Startup milestones. Each one is a line in crash.log, so a launch that
-  // never shows its window still says how far it got.
-  void milestone(String message) =>
-      crashLog.milestone('[startup +${launch.elapsedMilliseconds}ms] $message');
-  milestone('launch v${UpdateService.currentVersion}, pid $pid'
-      '${args.isEmpty ? '' : ', args $args'}');
-
-  // One read and one parse of the config for the whole startup. main() used
-  // to read and decrypt it here and _loadChannels read and decrypted it all
-  // again a moment later; the snapshot now goes down to the first load.
-  //
-  // Nothing before runApp may throw: the window is only ever shown by the
-  // first frame, so an exception here is an app that never appears. A load
-  // that fails outright leaves the snapshot out, and the first load reads
-  // the file again itself - never an empty snapshot that the next autosave
-  // would write over a config that is still on disk.
-  StartupConfig? startup;
-  try {
-    startup = await storage.loadStartupConfig();
-    milestone(startup.isFirstRun
-        ? 'config: none, first run'
-        : (startup.data == null
-            ? 'config: unreadable, quarantined; using defaults'
-            : 'config: loaded'));
-    // The plaintext copy an older build left beside the exe. Only after a
-    // load: a config that would not load is quarantined, and the next
-    // launch's migration recovers from that copy.
-    if (startup.data != null) {
-      final mirror = storage.dropStaleConfigMirror();
-      if (mirror != null) milestone(mirror);
-    }
-  } catch (e, st) {
-    crashLog.error('config', e, st);
-  }
-  final settings = startup?.parseSettings() ?? AppSettings();
-
-  // The material engine's fragment program, before the first frame so the
-  // first paint is already lit. Milliseconds; degrades to the Canvas engine
-  // on failure rather than to a blank window. Settings' "Simple rendering"
-  // and --canvas-engine skip the shader outright - the switch for a machine
-  // where it renders, but slowly or wrongly, which no self-test can see.
-  final canvasReason = args.contains('--canvas-engine')
-      ? '--canvas-engine flag'
-      : (settings.canvasEngine ? 'Simple rendering setting' : null);
-  await LitSurfaceProgram.load(
-      forceCanvas: canvasReason != null, forceCanvasReason: canvasReason);
-  milestone('surface engine: ${LitSurfaceProgram.status}');
-
-  // The typography gate. Off unless asked for, and it cannot be a unit test:
-  // `flutter test` has no system fonts and CI is ubuntu, so an assertion about
-  // Bahnschrift there would measure the fallback against itself and pass.
-  if (TypeProbe.enabled) {
-    await TypeProbe.run();
-  }
-  try {
-    await localNotifier.setup(
-      appName: 'Twitch Streamlink GUI',
-      shortcutPolicy: ShortcutPolicy.requireCreate,
-    );
-  } catch (e, st) {
-    // Toasts are a nicety; a failure here must not stop the window appearing.
-    crashLog.error('notifications', e, st);
-  }
-
-  // Autostart launches pass --start-minimized; the manual-launch preference
-  // does the same thing without the flag.
-  final bool startMinimized =
-      args.contains('--start-minimized') || settings.startMinimized;
-
-  // Re-writing the Run value at every launch silently heals a moved install.
-  if (settings.launchAtStartup) {
-    StartupService().sync(true);
-  }
-
-  await prepareWindow(settings,
-      startHidden: startMinimized, milestone: milestone, log: crashLog);
-
-  seedStoredLook(settings);
-
-  runApp(TwitchStreamlinkApp(startup: startup, startHidden: startMinimized));
-  milestone('runApp');
-
-  unawaited(WidgetsBinding.instance.waitUntilFirstFrameRasterized.then((_) {
-    milestone('first frame rasterized');
-    return checkWindowAfterFirstFrame(
-        startHidden: startMinimized, milestone: milestone);
-  }));
 }
 
 class TwitchStreamlinkApp extends StatefulWidget {

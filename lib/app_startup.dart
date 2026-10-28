@@ -1,20 +1,29 @@
+import 'dart:async';
+import 'dart:io' show pid;
+
 import 'package:flutter/material.dart';
+import 'package:local_notifier/local_notifier.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'models/app_settings.dart';
 import 'services/crash_log.dart';
 import 'services/file_dialogs.dart';
 import 'services/native_window.dart';
+import 'services/startup_service.dart';
+import 'services/storage_service.dart';
+import 'services/update_service.dart';
 import 'state/app_shell_controller.dart';
 import 'theme/material/app_material.dart';
+import 'theme/material/lit_surface.dart';
 import 'theme/neu_theme.dart';
 import 'theme/theme_notifier.dart';
+import 'theme/type_probe.dart';
 import 'utils/color_utils.dart';
 import 'utils/window_bounds.dart';
 
-/// What main() does to the window and the look before and just after the
-/// first frame, outside any screen: seeding the stored look, the frame style
-/// and placement, and the check once the first frame is up.
+/// What main() does before and just after the first frame, outside any
+/// screen: the startup itself ([startApp]), seeding the stored look, the
+/// frame style and placement, and the check once the first frame is up.
 
 /// Seeds the look from the settings main() already parsed, BEFORE the first
 /// frame.
@@ -192,3 +201,110 @@ Future<void> checkWindowAfterFirstFrame({
   }
 }
 
+/// Everything main() does before and around runApp, inside its guarded
+/// zone: the crash log and the startup milestones, the one read of the
+/// config, the surface engine, toasts, the Run key, the window and the
+/// look - then [app], the app itself, built from the config read and
+/// whether the window starts hidden.
+///
+/// Here rather than in main.dart, which holds the app; [app] is how it is
+/// handed over without this file importing that one.
+Future<void> startApp(
+  List<String> args, {
+  required Widget Function(StartupConfig? startup, bool startHidden) app,
+}) async {
+  final launch = Stopwatch()..start();
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final storage = StorageService();
+  // Beside the config, so portable mode keeps it beside the exe too.
+  final crashLog = CrashLog(storage.getStorageFile(CrashLog.fileName));
+  CrashLog.install(crashLog);
+  // Startup milestones. Each one is a line in crash.log, so a launch that
+  // never shows its window still says how far it got.
+  void milestone(String message) =>
+      crashLog.milestone('[startup +${launch.elapsedMilliseconds}ms] $message');
+  milestone('launch v${UpdateService.currentVersion}, pid $pid'
+      '${args.isEmpty ? '' : ', args $args'}');
+
+  // One read and one parse of the config for the whole startup. main() used
+  // to read and decrypt it here and _loadChannels read and decrypted it all
+  // again a moment later; the snapshot now goes down to the first load.
+  //
+  // Nothing before runApp may throw: the window is only ever shown by the
+  // first frame, so an exception here is an app that never appears. A load
+  // that fails outright leaves the snapshot out, and the first load reads
+  // the file again itself - never an empty snapshot that the next autosave
+  // would write over a config that is still on disk.
+  StartupConfig? startup;
+  try {
+    startup = await storage.loadStartupConfig();
+    milestone(startup.isFirstRun
+        ? 'config: none, first run'
+        : (startup.data == null
+            ? 'config: unreadable, quarantined; using defaults'
+            : 'config: loaded'));
+    // The plaintext copy an older build left beside the exe. Only after a
+    // load: a config that would not load is quarantined, and the next
+    // launch's migration recovers from that copy.
+    if (startup.data != null) {
+      final mirror = storage.dropStaleConfigMirror();
+      if (mirror != null) milestone(mirror);
+    }
+  } catch (e, st) {
+    crashLog.error('config', e, st);
+  }
+  final settings = startup?.parseSettings() ?? AppSettings();
+
+  // The material engine's fragment program, before the first frame so the
+  // first paint is already lit. Milliseconds; degrades to the Canvas engine
+  // on failure rather than to a blank window. Settings' "Simple rendering"
+  // and --canvas-engine skip the shader outright - the switch for a machine
+  // where it renders, but slowly or wrongly, which no self-test can see.
+  final canvasReason = args.contains('--canvas-engine')
+      ? '--canvas-engine flag'
+      : (settings.canvasEngine ? 'Simple rendering setting' : null);
+  await LitSurfaceProgram.load(
+      forceCanvas: canvasReason != null, forceCanvasReason: canvasReason);
+  milestone('surface engine: ${LitSurfaceProgram.status}');
+
+  // The typography gate. Off unless asked for, and it cannot be a unit test:
+  // `flutter test` has no system fonts and CI is ubuntu, so an assertion about
+  // Bahnschrift there would measure the fallback against itself and pass.
+  if (TypeProbe.enabled) {
+    await TypeProbe.run();
+  }
+  try {
+    await localNotifier.setup(
+      appName: 'Twitch Streamlink GUI',
+      shortcutPolicy: ShortcutPolicy.requireCreate,
+    );
+  } catch (e, st) {
+    // Toasts are a nicety; a failure here must not stop the window appearing.
+    crashLog.error('notifications', e, st);
+  }
+
+  // Autostart launches pass --start-minimized; the manual-launch preference
+  // does the same thing without the flag.
+  final bool startMinimized =
+      args.contains('--start-minimized') || settings.startMinimized;
+
+  // Re-writing the Run value at every launch silently heals a moved install.
+  if (settings.launchAtStartup) {
+    StartupService().sync(true);
+  }
+
+  await prepareWindow(settings,
+      startHidden: startMinimized, milestone: milestone, log: crashLog);
+
+  seedStoredLook(settings);
+
+  runApp(app(startup, startMinimized));
+  milestone('runApp');
+
+  unawaited(WidgetsBinding.instance.waitUntilFirstFrameRasterized.then((_) {
+    milestone('first frame rasterized');
+    return checkWindowAfterFirstFrame(
+        startHidden: startMinimized, milestone: milestone);
+  }));
+}
