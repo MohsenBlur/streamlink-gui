@@ -378,6 +378,36 @@ void main() {
       expect(json.decode(configFile().readAsStringSync())['settings']['twitch_oauth_token'],
           sealedElsewhere);
     });
+
+    test('when sealing fails, load leaves a plaintext config alone and save keeps the token',
+        () async {
+      // DPAPI refusing must neither rewrite the file on every load for nothing
+      // nor drop the account on the next save: plaintext is what every
+      // earlier build stored.
+      configFile().writeAsStringSync(json.encode({
+        'channels': <Object>[],
+        'settings':
+            AppSettings(twitchOauthToken: account, twitchWebOauthToken: browser).toJson(),
+      }));
+      final before = configFile().readAsBytesSync();
+
+      StorageService.secretCipher = FakeCipher(refuseToSeal: true);
+      final loaded = await storage.loadConfig();
+
+      expect(loaded!['settings']['twitch_oauth_token'], account);
+      expect(configFile().readAsBytesSync(), before,
+          reason: 'nothing to migrate when nothing can be sealed');
+
+      await storage.saveConfig(
+        const [],
+        AppSettings.fromJson(loaded['settings']),
+        <String, int>{},
+        <String, String>{},
+      );
+      final onDisk = json.decode(configFile().readAsStringSync())['settings'];
+      expect(onDisk['twitch_oauth_token'], account);
+      expect(onDisk['twitch_web_oauth_token'], browser);
+    });
   });
 
   group('loadStartupConfig', () {

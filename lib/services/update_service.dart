@@ -115,9 +115,12 @@ class UpdateService {
     // self-updating would replace the developer's working tree with a release.
     if (isDevBuild) return null;
 
-    // The startup check is the one moment no update can be running, so it
-    // reclaims what earlier attempts left behind. Not awaited: deleting a few
-    // hundred MB must not delay the prompt.
+    // Reclaims what earlier attempts left behind. This runs on the startup
+    // check and on a manual check from Settings, so it can overlap an update
+    // in this process - whose directories the sweep skips - but never one a
+    // previous run's updater could still be copying from, which is far
+    // younger than the age limit. Not awaited: deleting a few hundred MB must
+    // not delay the prompt.
     unawaited(sweepStaleUpdateDirs());
 
     try {
