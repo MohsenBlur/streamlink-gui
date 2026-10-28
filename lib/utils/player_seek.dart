@@ -124,6 +124,19 @@ String? seekRequestPathByPercent(
 String mpvSeekCommand(int targetSeconds) =>
     '{"command":["seek",$targetSeconds,"absolute"]}\n';
 
+/// Whether [replies] holds mpv's whole answer to [mpvSeekCommand].
+///
+/// mpv's own socket stays open after it answers, unlike the Windows bridge,
+/// so the exchange has to recognise the answer to stop waiting for more: a
+/// complete line with an "error" member, which events never carry - the
+/// test the bridge itself applies before relaying a line.
+bool mpvSeekAnswered(String replies) {
+  final lines = replies.split('\n');
+  // The last piece has no newline yet, so it may be half a reply.
+  return lines.take(lines.length - 1).any(
+      (line) => line.contains('"error":') && !line.startsWith('{"event"'));
+}
+
 /// Tracks whether a session has landed where it was told to.
 ///
 /// Deliberately a small value type with no IO: the decision of "is this landing

@@ -1579,8 +1579,7 @@ class PlayerService {
             replies = token == null
                 ? ''
                 : await exchangeWithMpv(
-                    () => Socket.connect('127.0.0.1', port,
-                        timeout: const Duration(seconds: 2)),
+                    () => _connectToMpv(vod.id, port),
                     commands: mpvStatusCommands(),
                     bridgeToken: token,
                     // Wait for ALL THREE replies. The old code destroyed the
@@ -1591,11 +1590,7 @@ class PlayerService {
           } else {
             // macOS/Linux Unix domain socket connection
             replies = await exchangeWithMpv(
-                () => Socket.connect(
-                    InternetAddress(mpvIpcPath(vod.id, false),
-                        type: InternetAddressType.unix),
-                    0,
-                    timeout: const Duration(seconds: 2)),
+                () => _connectToMpv(vod.id, port),
                 commands: mpvStatusCommands(),
                 isComplete: mpvRepliesComplete);
           }
@@ -1832,6 +1827,31 @@ class PlayerService {
     return proc;
   }
 
+  /// Where a playing mpv's JSON IPC is reached, for the session [ipcName].
+  ///
+  /// On Windows, the session's loopback bridge on [port], which relays to
+  /// mpv's named pipe; elsewhere, mpv's own unix socket - the one
+  /// `--input-ipc-server` names at launch (buildPlayerArgs). The progress
+  /// tracker and the seek both connect through this. The seek used to dial
+  /// 127.0.0.1:[port] everywhere, where off Windows nothing listens, so it
+  /// could never reach mpv there.
+  static ({Object host, int port}) mpvIpcEndpoint(String ipcName, int port,
+          {required bool isWindows}) =>
+      isWindows
+          ? (host: '127.0.0.1', port: port)
+          : (
+              host: InternetAddress(mpvIpcPath(ipcName, false),
+                  type: InternetAddressType.unix),
+              port: 0,
+            );
+
+  Future<Socket> _connectToMpv(String ipcName, int port) {
+    final endpoint =
+        mpvIpcEndpoint(ipcName, port, isWindows: Platform.isWindows);
+    return Socket.connect(endpoint.host, endpoint.port,
+        timeout: const Duration(seconds: 2));
+  }
+
   /// One request/reply round trip over mpv's JSON IPC.
   ///
   /// With [bridgeToken] the far end is the Windows bridge, which wants the
@@ -1977,10 +1997,10 @@ class PlayerService {
         // answers every command with an "error" member; only "success" is
         // a seek that happened, and no answer at all is none.
         final replies = await exchangeWithMpv(
-          () => Socket.connect('127.0.0.1', port,
-              timeout: const Duration(seconds: 2)),
+          () => _connectToMpv(logKey, port),
           commands: [mpvSeekCommand(target)],
           bridgeToken: token,
+          isComplete: mpvSeekAnswered,
           timeout: const Duration(seconds: 2),
         );
         if (!replies.contains('"error":"success"')) {
