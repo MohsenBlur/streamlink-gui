@@ -130,6 +130,16 @@ void main() {
       return (h, id);
     }
 
+    /// The VODs the config's saved download queue lists: what the next
+    /// launch queues again (DownloadsController).
+    List<Object?> savedQueue(ScreenHarness h) {
+      final settings = h.storage.config!['settings'] as Map;
+      return [
+        for (final entry in settings['unfinished_downloads'] as List)
+          ((entry as Map)['vod'] as Map)['id'],
+      ];
+    }
+
     testWidgets("reports its progress on its card and in the pill",
         (tester) async {
       final (h, id) = await queued(tester);
@@ -145,9 +155,12 @@ void main() {
     });
 
     testWidgets(
-        'that completes is registered and saved, and said, with a toast',
-        (tester) async {
+        'that completes is registered and saved, and said, with a toast, and '
+        'leaves the saved queue', (tester) async {
       final (h, id) = await queued(tester);
+      await h.advance(tester, const Duration(seconds: 2));
+      expect(savedQueue(h), [id],
+          reason: 'precondition: saved while it runs, so a crash keeps it');
       final file = File(p.join(folder.path, 'alpha', 'Big VOD - $id.mp4'))
         ..createSync(recursive: true)
         ..writeAsStringSync('video');
@@ -162,13 +175,18 @@ void main() {
       await h.advance(tester, const Duration(seconds: 2));
       expect((h.storage.config!['downloaded_vods'] as Map)[id], file.path);
       expect(h.storage.config!['download_history'], contains(id));
+      expect(savedQueue(h), isEmpty,
+          reason: 'the next launch would download it again');
 
       await h.close(tester);
     });
 
-    testWidgets('that fails says so, with its log, and with a toast',
-        (tester) async {
+    testWidgets(
+        'that fails says so, with its log, and with a toast, and leaves the '
+        'saved queue', (tester) async {
       final (h, id) = await queued(tester);
+      await h.advance(tester, const Duration(seconds: 2));
+      expect(savedQueue(h), [id], reason: 'precondition: saved while it runs');
       unawaited(h.launcher.launched.single.exit(1));
       await h.advance(tester, const Duration(milliseconds: 50),
           step: const Duration(milliseconds: 10));
@@ -178,6 +196,9 @@ void main() {
       expect(find.text('View log'), findsOneWidget);
       expect(h.notifications.titles, ['VOD Download Failed']);
       expect(card(tester, 'Big VOD').downloadStatus, isNull);
+      await h.advance(tester, const Duration(seconds: 2));
+      expect(savedQueue(h), isEmpty,
+          reason: 'a failure is not retried at every launch');
 
       await h.close(tester);
     });

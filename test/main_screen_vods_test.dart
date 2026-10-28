@@ -270,22 +270,37 @@ void main() {
       await h.close(tester);
     });
 
-    testWidgets("a queued download is cancelled from its card's menu",
-        (tester) async {
+    testWidgets(
+        "a queued download is cancelled from its card's menu, and leaves the "
+        'saved queue', (tester) async {
       final h = ScreenHarness();
       h.helix.user('alpha');
       final id = h.helix.addVideo('alpha', title: 'Changed my mind');
       await h.launch(tester, favorites: ['alpha'], settings: withFolder());
       await h.openChannel(tester, 'alpha');
+      // The VODs the next launch would queue again (DownloadsController).
+      List<Object?> savedQueue() {
+        final settings = h.storage.config!['settings'] as Map;
+        return [
+          for (final entry in settings['unfinished_downloads'] as List)
+            ((entry as Map)['vod'] as Map)['id'],
+        ];
+      }
 
       await fromMenu(tester, h, 'Changed my mind', 'Download');
       expect(h.player.downloadQueue, [id]);
       expect(card(tester, 'Changed my mind').downloadStatus, isNotNull);
+      await h.advance(tester, const Duration(seconds: 2));
+      expect(savedQueue(), [id], reason: 'saved, so a crash does not lose it');
 
       await fromMenu(tester, h, 'Changed my mind', 'Cancel download');
       expect(find.text('Download cancelled.'), findsOneWidget);
       expect(h.player.downloadQueue, isEmpty);
       expect(card(tester, 'Changed my mind').downloadStatus, isNull);
+      await h.advance(tester, const Duration(seconds: 2));
+      expect(savedQueue(), isEmpty,
+          reason: 'a cancelled download is not started again at the next '
+              'launch');
 
       await h.close(tester);
     });
