@@ -35,6 +35,19 @@ void main() {
     return bracketed(src.indexOf('{', end), '{', '}');
   }
 
+  test('frequent saves go through the debounced, config-only write', () {
+    // Every VOD fetch and every window move wrote the config and the
+    // progress sidecar at once, each fsync'd.
+    for (final method in [
+      'Future<void> _applyVodOutcome(',
+      'void _saveWindowState(',
+    ]) {
+      final body = bodyOf(method);
+      expect(body, contains('_settingsRepo.requestSave()'), reason: method);
+      expect(body, isNot(contains('_saveChannels()')), reason: method);
+    }
+  });
+
   test('a VOD auto-download announces is left out of the New VOD toast', () {
     expect(bodyOf('void _onNewVods('),
         contains('_automation.newVodsToAnnounce('));

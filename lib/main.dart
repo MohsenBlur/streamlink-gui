@@ -809,7 +809,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         _progressStatuses.remove(vodId);
         _publishActivity();
         _checkDownloadedVods();
-        _saveChannels();
+        // With the queue change forget() asked for: downloads finish in
+        // bursts (a backlog resumed at launch), one write for the burst.
+        _settingsRepo.requestSave();
         if (_showLibraryView) _refreshLibraryEntries();
         _showSnackBar('Download completed: $title', isError: false);
         if (_settings.notifyDownloadComplete) {
@@ -1565,13 +1567,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   Timer? _windowSaveTimer;
 
-  /// Debounced: a drag emits a stream of moves.
+  /// Debounced: a drag emits a stream of moves. The write is the
+  /// repository's debounced one too, config only - every move, resize and
+  /// trip to the tray rewrote the progress sidecar as well. Exit and session
+  /// end capture the geometry and flush it themselves.
   void _saveWindowState() {
     _windowSaveTimer?.cancel();
     _windowSaveTimer = Timer(const Duration(milliseconds: 300), () async {
       _windowSaveTimer = null;
       if (await _captureWindowState()) {
-        await _saveChannels();
+        _settingsRepo.requestSave();
       }
     });
   }
@@ -2489,7 +2494,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       return;
     }
     _checkDownloadedVods();
-    await _saveChannels();
+    // Debounced, config only: this follows every fetch - each selection,
+    // each refresh, the cadence while the grid is on screen - and wrote the
+    // config and the progress sidecar at once, each fsync'd, every time.
+    // What a fetch changes (the merged positions, a resolved channel id)
+    // can wait a second; exit and session end flush it regardless.
+    _settingsRepo.requestSave();
   }
 
   /// The open channel's full refresh, follower count included.
@@ -3078,7 +3088,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           _sidebarTab = tabIdx;
           _settings.activeSidebarTab = tabIdx;
         });
-        _saveChannels();
+        // A tab click is no reason to write the config at once; a run of
+        // them is one debounced write.
+        _settingsRepo.requestSave();
         if (tabIdx == 1 && _followedChannels.isEmpty && !_isLoadingFollowed) {
           _loadFollowedChannels();
         }
