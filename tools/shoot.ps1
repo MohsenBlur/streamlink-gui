@@ -43,7 +43,10 @@
   launches it with SW_SHOWNOACTIVATE instead, for scripts that launch many
   times (shoot-matrix.ps1 and shoot-materials.ps1 do by default). That keeps
   the show from activating the window; a moment of activation as the runner
-  creates it can remain (shoot-common.ps1, Start-AppNoActivate).
+  creates it can remain (shoot-common.ps1, Start-AppNoActivate). A config
+  that opens the window maximized most likely defeats it, so the launch
+  warns about one; shoot-common.ps1's Set-IsolatedConfig -NoActivate stages
+  the window unmaximized.
 
   -Position is refused, before the window is moved, when the window it would
   produce - its size scaled to the DPI of the monitor it lands on - would
@@ -412,6 +415,11 @@ if (-not $hwnd -and $LaunchExe) {
             "(shoot-common.ps1 Set-IsolatedConfig), and retry.")
     }
     if ($NoActivate) {
+        if (Test-StagedOpensMaximized $targetExe) {
+            Write-Warning ("The config beside $targetExe opens the window maximized, and a maximized " +
+                'first show most likely activates it despite -NoActivate. Stage it with ' +
+                'Set-IsolatedConfig -NoActivate (shoot-common.ps1) to keep the launch in the background.')
+        }
         Write-Host "Launching $targetExe without activating it ..." -ForegroundColor Gray
         $launched = Start-AppNoActivate $targetExe
     } else {
