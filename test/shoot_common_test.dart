@@ -228,4 +228,31 @@ void main() {
         appData: root.path);
     expect(out.split(','), AppSettings.secretJsonKeys);
   }, skip: !Platform.isWindows);
+
+  test('shoot.ps1 -ClickAt posts its click unless -RealInput', () {
+    // A source check: the click needs a running app. The real click took the
+    // foreground from the user's window and moved their cursor on every
+    // channel and Library capture of the matrix; tools/click.ps1 already
+    // posted its clicks to the view instead.
+    final script =
+        File('tools/shoot.ps1').readAsStringSync().replaceAll('\r\n', '\n');
+    String block(String opening) {
+      final start = script.indexOf(opening);
+      expect(start, isNonNegative, reason: opening);
+      return script.substring(start, script.indexOf('\n}\n', start));
+    }
+
+    final posted = block(r'if ($ClickAt -and -not $RealInput) {');
+    for (final message in ['WM_MOUSEMOVE', 'WM_LBUTTONDOWN', 'WM_LBUTTONUP']) {
+      expect(posted, contains('PostMouse(\$view, \$$message'));
+    }
+    for (final call in ['ClickAbsolute', 'SetCursorPos', 'SetWindowPos', 'SetForegroundWindow']) {
+      expect(posted, isNot(contains(call)), reason: '$call activates or moves something');
+    }
+
+    final real = block(r'if ($ClickAt -and $RealInput) {');
+    expect(real, contains('ClickAbsolute('));
+    expect('ClickAbsolute('.allMatches(script), hasLength(2),
+        reason: 'its definition, and the one call behind -RealInput');
+  });
 }
