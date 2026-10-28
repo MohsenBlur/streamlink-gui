@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
+import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
 import 'package:streamlink_gui/widgets/settings_dialog.dart';
@@ -44,6 +45,7 @@ class _HeldApi extends TwitchApiService {
 }
 
 const _accountTokenHint = 'oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+const _clientIdHint = 'Twitch Client ID';
 const _portHint = 'e.g. 65432';
 
 const _validSaved = TwitchAuthStatus(
@@ -74,9 +76,14 @@ void main() {
   late List<String> events;
   late List<AppSettings> saves;
 
+  /// When set, onSave does not complete until the test completes it. Created
+  /// in the test body, for the zone reason given in openSettings.
+  Completer<void>? saveGate;
+
   setUp(() {
     events = <String>[];
     saves = <AppSettings>[];
+    saveGate = null;
     twitchAuth.resetForTest();
   });
   tearDown(twitchAuth.resetForTest);
@@ -107,6 +114,7 @@ void main() {
               onSave: (s) {
                 saves.add(s);
                 events.add('save');
+                return saveGate?.future;
               },
               openExternalLink: (_) {},
               onClearWatchHistory: () {},
@@ -293,5 +301,90 @@ void main() {
             reason: 'a field rebuilt against a disposed controller');
       });
     }
+  });
+
+  group('Connect Account saves first', () {
+    // Connect used to leave the dialog without saving. The sign-in reads the
+    // settings the app HOLDS, so a Client ID or port typed a few lines below
+    // the button was ignored: the flow bound the old port for the old client,
+    // Twitch rejected the redirect, and every other staged edit was lost.
+    testWidgets('a typed Client ID and port reach the sign-in', (tester) async {
+      await openSettings(tester, _savedSettings());
+      await showTab(tester, 'Twitch');
+      await tester.enterText(_field(_clientIdHint), 'my_own_client');
+      await tester.enterText(_field(_portHint), '8080');
+      await tapVisible(tester, find.text('Connect Account'));
+      await _settle(tester);
+
+      expect(events, ['save', 'connect'],
+          reason: 'the save has to land before the sign-in reads the settings');
+      expect(saves.single.twitchClientId, 'my_own_client');
+      expect(saves.single.localServerPort, 8080);
+    });
+
+    testWidgets('the sign-in waits for the save to finish', (tester) async {
+      // Not merely called first: awaited. A save that has not landed is a
+      // sign-in racing the settings it reads.
+      saveGate = Completer<void>();
+      await openSettings(tester, _savedSettings());
+      await showTab(tester, 'Twitch');
+      await tester.enterText(_field(_clientIdHint), 'my_own_client');
+      await tapVisible(tester, find.text('Connect Account'));
+      await _settle(tester);
+      expect(events, ['save']);
+
+      saveGate!.complete();
+      await _settle(tester);
+      expect(events, ['save', 'connect']);
+    });
+
+    testWidgets('with nothing staged it signs in without rewriting the config',
+        (tester) async {
+      // Saving an unchanged config is not free: main.dart rewrites the file,
+      // reloads the followed list and shows its own "saved" snackbar over the
+      // sign-in one. The default settings matter here: their accent hex is
+      // stored in a shorter form than the dialog writes, so a comparison
+      // against the stored settings would call this an edit.
+      await openSettings(tester, AppSettings());
+      await showTab(tester, 'Twitch');
+      await tapVisible(tester, find.text('Connect Account'));
+      await _settle(tester);
+
+      expect(events, ['connect']);
+      expect(saves, isEmpty);
+    });
+
+    testWidgets('an invalid port disables it along with Save', (tester) async {
+      await openSettings(tester, _savedSettings());
+      await showTab(tester, 'Twitch');
+      await tester.enterText(_field(_portHint), 'not a port');
+      await tester.pump();
+
+      final connect = tester.widget<ButtonStyleButton>(find.ancestor(
+          of: find.text('Connect Account'),
+          matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)));
+      expect(connect.onPressed, isNull,
+          reason: 'it would save nothing and listen on a port that is not one');
+    });
+
+    testWidgets('a previewed material is saved, not reverted', (tester) async {
+      // Connect used to restore the live Appearance edits, which was right for
+      // an exit that discarded everything else. An exit that saves has to
+      // keep them, or the session and the config disagree the other way.
+      final entry = themeNotifier.material;
+      addTearDown(() => themeNotifier.setMaterial(entry));
+      final other = MaterialSpec.available.firstWhere((m) => m.id != entry);
+
+      await openSettings(tester, _savedSettings());
+      await showTab(tester, 'Appearance');
+      await tapVisible(tester, find.text(other.name));
+      expect(themeNotifier.material, other.id, reason: 'precondition');
+      await showTab(tester, 'Twitch');
+      await tapVisible(tester, find.text('Connect Account'));
+      await _settle(tester);
+
+      expect(saves.single.material, other.id.key);
+      expect(themeNotifier.material, other.id);
+    });
   });
 }

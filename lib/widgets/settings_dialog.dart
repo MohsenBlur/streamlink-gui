@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -85,7 +87,11 @@ class SettingsDialog {
     /// go stale because it never consulted anything.
     required Future<void> Function() onRevalidateHelix,
     required VoidCallback onConnectAccount,
-    required void Function(AppSettings) onSave,
+
+    /// Persists the staged settings. Save does not wait for it. Connect
+    /// Account does: the OAuth flow reads the settings the app holds, so it
+    /// must not start until the typed Client ID and port are the ones held.
+    required FutureOr<void> Function(AppSettings) onSave,
     required void Function(String) openExternalLink,
     required VoidCallback onClearWatchHistory,
     required VoidCallback onOpenLogs,
@@ -199,6 +205,76 @@ class SettingsDialog {
       // forgetting a choice rather than as Cancel working.
       themeNotifier.setMaterial(originalMaterial);
     }
+
+    // Save and Connect Account both persist exactly this, so it is built in
+    // one place. Connect used to leave without saving at all.
+    bool stagedIsValid() => portError == null && maxDownloadsError == null;
+
+    AppSettings stagedSettings() {
+      // copyWith, not a fresh AppSettings: constructing a new
+      // instance from only the fields this dialog knows about
+      // silently reset every other persisted field to its
+      // default, so saving wiped the theme mode, window
+      // geometry, the VOD watch exclusion threshold and the
+      // auto-play preemption toggle.
+      return settings.copyWith(
+        defaultQuality: tempQuality,
+        twitchLowLatency: tempLowLatency,
+        playerType: tempPlayerType,
+        watchedThreshold: tempWatchedThreshold,
+        twitchOauthToken: tokenController.text.trim(),
+        twitchTokenClientId:
+            tokenController.text.trim() == settings.twitchOauthToken
+                ? settings.twitchTokenClientId
+                : '',
+        twitchWebOauthToken: webTokenController.text.trim(),
+        customPlayerPath: playerPathController.text.trim(),
+        customPlayerArgs: playerArgsController.text.trim(),
+        seekableVodStreaming: tempSeekableVodStreaming,
+        twitchClientId: clientIdController.text.trim(),
+        localServerPort: int.tryParse(portController.text.trim()) ?? settings.localServerPort,
+        vodDownloadFolder: downloadFolderController.text.trim(),
+        maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
+        maxRecentlyWatched: tempMaxRecentlyWatched,
+        closeAction: tempCloseAction,
+        minimizeAction: tempMinimizeAction,
+        launchAtStartup: tempLaunchAtStartup,
+        startMinimized: tempStartMinimized,
+        trayLiveMenuEnabled: tempTrayLiveMenu,
+        notifyWentLive: tempNotifyWentLive,
+        notifyAutoPlay: tempNotifyAutoPlay,
+        notifyAutoDownloadStart: tempNotifyAutoDownloadStart,
+        notifyDownloadComplete: tempNotifyDownloadComplete,
+        disableVodPostProcessing: tempDisableVodPostProcessing,
+        customVodArgs: customVodArgsController.text.trim(),
+        // The Styling tab edits these on the notifier directly;
+        // persist what it currently holds so the choice survives
+        // a restart instead of reverting to Dark + default accent.
+        isDarkTheme: themeNotifier.isDarkTheme,
+        lightAccentColorHex: colorToHex(themeNotifier.lightAccentColor),
+        darkAccentColorHex: colorToHex(themeNotifier.darkAccentColor),
+        // Only written when the user actually changed
+        // it. `themeNotifier.material` is the RESOLVED
+        // value, and main.dart deliberately leaves it
+        // at the fallback for a key this build does not
+        // implement - so writing it unconditionally
+        // turns "open Settings, press Save" into
+        // "silently destroy the material a newer build
+        // chose". Every autosave path already got this
+        // right; this was the one that did not.
+        material: themeNotifier.material == originalMaterial
+            ? settings.material
+            : themeNotifier.material.key,
+      );
+    }
+
+    // What the dialog stages before anything is touched. "Were there edits"
+    // compares against this, not against `settings`: the two disagree with no
+    // edit at all, because the stored default accent is '#FF6584' and
+    // colorToHex writes '#FFFF6584', so every unsaved install would compare as
+    // changed.
+    final uneditedJson = jsonEncode(stagedSettings().toJson());
+    bool hasStagedEdits() => jsonEncode(stagedSettings().toJson()) != uneditedJson;
 
     // Not dismissible: the dialog stages every edit and applies theme changes
     // live, so a click on the scrim would discard typed tokens and paths while
@@ -978,26 +1054,45 @@ class SettingsDialog {
                                           minimumSize: Size.zero,
                                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                         ),
-                                        onPressed: () {
-                                          onConnectAccount();
-                                          // Restore before popping: this exits
-                                          // the dialog without saving, so the
-                                          // live theme edits from the
-                                          // Appearance tab have to come back
-                                          // the way Cancel brings them back.
-                                          // Without it the session runs on a
-                                          // material the config does not
-                                          // record and the next launch
-                                          // silently reverts - the exact
-                                          // symptom the restore exists to
-                                          // prevent. Escape and the scrim are
-                                          // both disabled, so this was the
-                                          // only unguarded exit.
-                                          restoreLiveThemeEdits();
-                                          Navigator.pop(context);
-                                        },
-                                        icon: Icon(Icons.login, size: 12, color: NeuTheme.onAccent(themeNotifier.primaryColor)),
-                                        label: Text('Connect Account', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.onAccent(themeNotifier.primaryColor))),
+                                        // Disabled whenever Save is: an invalid
+                                        // port cannot be saved, and the sign-in
+                                        // flow listens on it.
+                                        onPressed: !stagedIsValid()
+                                            ? null
+                                            : () async {
+                                                // Connect is Save, then sign in.
+                                                // It used to leave without
+                                                // saving, so a Client ID or port
+                                                // typed a few lines below was
+                                                // ignored: the flow bound the
+                                                // OLD port for the OLD client,
+                                                // Twitch rejected the redirect,
+                                                // and every other staged edit
+                                                // was lost without a word.
+                                                // Saving also settles the live
+                                                // Appearance edits, which this
+                                                // exit used to restore - every
+                                                // exit still saves or restores.
+                                                //
+                                                // Built before the pop, which
+                                                // disposes the controllers it
+                                                // reads. Skipped when nothing is
+                                                // staged, so a plain Connect
+                                                // does not rewrite the config.
+                                                final staged = stagedSettings();
+                                                final changed = hasStagedEdits();
+                                                Navigator.pop(context);
+                                                if (changed) await onSave(staged);
+                                                onConnectAccount();
+                                              },
+                                        icon: Icon(Icons.login, size: 12,
+                                            color: stagedIsValid()
+                                                ? NeuTheme.onAccent(themeNotifier.primaryColor)
+                                                : NeuTheme.disabledText(themeNotifier.isDarkTheme)),
+                                        label: Text('Connect Account', style: NeuType.captionStrong(themeNotifier.isDarkTheme,
+                                            color: stagedIsValid()
+                                                ? NeuTheme.onAccent(themeNotifier.primaryColor)
+                                                : NeuTheme.disabledText(themeNotifier.isDarkTheme))),
                                       ),
                                     ],
                                   ),
@@ -1655,66 +1750,10 @@ class SettingsDialog {
                   // hand on ElevatedButton.onPressed.
                   NeuDialogAction.primary(
                     'Save changes',
-                    (portError != null || maxDownloadsError != null)
+                    !stagedIsValid()
                         ? null
                         : () {
-                              // copyWith, not a fresh AppSettings: constructing a new
-                              // instance from only the fields this dialog knows about
-                              // silently reset every other persisted field to its
-                              // default, so saving wiped the theme mode, window
-                              // geometry, the VOD watch exclusion threshold and the
-                              // auto-play preemption toggle.
-                              final updated = settings.copyWith(
-                                defaultQuality: tempQuality,
-                                twitchLowLatency: tempLowLatency,
-                                playerType: tempPlayerType,
-                                watchedThreshold: tempWatchedThreshold,
-                                twitchOauthToken: tokenController.text.trim(),
-                                twitchTokenClientId:
-                                    tokenController.text.trim() == settings.twitchOauthToken
-                                        ? settings.twitchTokenClientId
-                                        : '',
-                                twitchWebOauthToken: webTokenController.text.trim(),
-                                customPlayerPath: playerPathController.text.trim(),
-                                customPlayerArgs: playerArgsController.text.trim(),
-                                seekableVodStreaming: tempSeekableVodStreaming,
-                                twitchClientId: clientIdController.text.trim(),
-                                localServerPort: int.tryParse(portController.text.trim()) ?? settings.localServerPort,
-                                vodDownloadFolder: downloadFolderController.text.trim(),
-                                maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
-                                maxRecentlyWatched: tempMaxRecentlyWatched,
-                                closeAction: tempCloseAction,
-                                minimizeAction: tempMinimizeAction,
-                                launchAtStartup: tempLaunchAtStartup,
-                                startMinimized: tempStartMinimized,
-                                trayLiveMenuEnabled: tempTrayLiveMenu,
-                                notifyWentLive: tempNotifyWentLive,
-                                notifyAutoPlay: tempNotifyAutoPlay,
-                                notifyAutoDownloadStart: tempNotifyAutoDownloadStart,
-                                notifyDownloadComplete: tempNotifyDownloadComplete,
-                                disableVodPostProcessing: tempDisableVodPostProcessing,
-                                customVodArgs: customVodArgsController.text.trim(),
-                                // The Styling tab edits these on the notifier directly;
-                                // persist what it currently holds so the choice survives
-                                // a restart instead of reverting to Dark + default accent.
-                                isDarkTheme: themeNotifier.isDarkTheme,
-                                lightAccentColorHex: colorToHex(themeNotifier.lightAccentColor),
-                                darkAccentColorHex: colorToHex(themeNotifier.darkAccentColor),
-                                // Only written when the user actually changed
-                                // it. `themeNotifier.material` is the RESOLVED
-                                // value, and main.dart deliberately leaves it
-                                // at the fallback for a key this build does not
-                                // implement - so writing it unconditionally
-                                // turns "open Settings, press Save" into
-                                // "silently destroy the material a newer build
-                                // chose". Every autosave path already got this
-                                // right; this was the one that did not.
-                                material: themeNotifier.material == originalMaterial
-                                    ? settings.material
-                                    : themeNotifier.material.key,
-                              );
-
-                              onSave(updated);
+                              onSave(stagedSettings());
                               Navigator.pop(context);
                             },
                   ),

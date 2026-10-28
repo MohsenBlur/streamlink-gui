@@ -173,23 +173,33 @@ void main() {
       expect(settingsSource, contains('restoreLiveThemeEdits();'),
           reason: 'Cancel must put the live theme edits back');
 
-      // Connect Account pops without saving, so it needs the restore too. It
-      // was the only unguarded exit.
-      // Comments stripped first. Searching raw source for "the next N
-      // characters after onConnectAccount" is defeated by a long enough
-      // explanatory comment sitting between the call and the restore - which
-      // is exactly what happened when this was written.
+      // Connect Account used to pop without saving, so it carried the restore
+      // too; it was the only unguarded exit. It now saves the staged settings
+      // before signing in - the theme edits among them - so the session and
+      // the config agree without a restore. What it does is asserted by
+      // behaviour in settings_dialog_test ("Connect Account saves first");
+      // this only pins that the save precedes the sign-in.
+      //
+      // Comments stripped first. Searching raw source for "the N characters
+      // around onConnectAccount" is defeated by a long enough explanatory
+      // comment sitting between the calls - which is exactly what happened
+      // when this was first written.
       final code = settingsSource
           .split(String.fromCharCode(10))
           .where((l) => !l.trimLeft().startsWith('//'))
           .join(String.fromCharCode(10));
       final connect = code.indexOf('onConnectAccount();');
       expect(connect, greaterThan(-1));
-      final afterConnect = code.substring(connect, connect + 300);
-      expect(afterConnect, contains('restoreLiveThemeEdits()'),
-          reason: 'Connect Account leaves the dialog without saving and '
-              'without restoring, so the session keeps unpersisted theme '
-              'edits that the next launch will silently revert');
+      // The handler that makes the call, from its own `onPressed:`.
+      final handler =
+          code.substring(code.lastIndexOf('onPressed:', connect), connect);
+      expect(handler, contains('stagedSettings()'),
+          reason: 'Connect Account leaves the dialog without saving, so the '
+              'session keeps unpersisted theme edits that the next launch '
+              'will silently revert');
+      expect(handler, contains('await onSave('),
+          reason: 'the sign-in reads the settings the app holds, so it must '
+              'wait for the save rather than race it');
 
       // And Save, which is safe because it persists rather than restores.
       expect(settingsSource, contains('onSave('),
