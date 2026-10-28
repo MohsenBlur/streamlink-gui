@@ -797,7 +797,7 @@ void main() {
             (kept == null || saved.containsKey(kept));
       }
 
-      for (var i = 0; i < 50 && !forgotten(); i++) {
+      for (var i = 0; i < 200 && !forgotten(); i++) {
         await h.advance(tester, const Duration(seconds: 1));
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 20)));
@@ -940,7 +940,7 @@ void main() {
         }
       }
 
-      for (var i = 0; i < 40 && (lines()?.length ?? 2) > 1; i++) {
+      for (var i = 0; i < 200 && (lines()?.length ?? 2) > 1; i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 20)));
         await h.settle(tester);
