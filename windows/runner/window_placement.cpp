@@ -110,8 +110,14 @@ EncodableMap DescribeWindow(HWND window, HWND content) {
   state[EncodableValue("minimized")] = EncodableValue(minimized);
   state[EncodableValue("visible")] =
       EncodableValue(::IsWindowVisible(window) != FALSE);
+  // The content's OWN flag, not IsWindowVisible: that is false whenever the
+  // frame is hidden, so every report made before the first show (the startup
+  // placement, a window starting in the tray) read "content=false" - the
+  // invisible-window bug's signature - on a healthy window. The flag is what
+  // that bug cleared; with the frame shown, the two agree.
   state[EncodableValue("contentVisible")] = EncodableValue(
-      content != nullptr && ::IsWindowVisible(content) != FALSE);
+      content != nullptr &&
+      (::GetWindowLongPtr(content, GWL_STYLE) & WS_VISIBLE) != 0);
   state[EncodableValue("dpi")] =
       Int(static_cast<LONG>(::GetDpiForWindow(window)));
 

@@ -94,8 +94,10 @@ class WindowState {
   final bool minimized;
   final bool visible;
 
-  /// Whether the engine's content view is visible: false with [visible] true
-  /// is the invisible-window bug, a frame with nothing in it.
+  /// Whether the engine's content view has its own visible flag set: false
+  /// is the invisible-window bug, which shows as a frame with nothing in it.
+  /// The view's own flag rather than whether it is on screen, so the answer
+  /// is meaningful while the frame is still hidden too.
   final bool contentVisible;
   final int dpi;
   final String? monitorName;

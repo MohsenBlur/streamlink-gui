@@ -24,8 +24,9 @@ flutter::EncodableList DescribeMonitors();
 // it returns to from maximized or minimized, and its live rectangle otherwise
 // - plus "maximized", "minimized", "visible", "dpi", the monitor it is on
 // ("monitor" and "monitorLeft"/"Top"/"Width"/"Height"), and whether the
-// hosted |content| is visible ("contentVisible"), the half of the window that
-// went missing in the invisible-window bug.
+// hosted |content| has its own WS_VISIBLE set ("contentVisible"), the flag
+// that went missing in the invisible-window bug. Its own flag, so the answer
+// still means something while the frame is hidden.
 flutter::EncodableMap DescribeWindow(HWND window, HWND content);
 
 // Moves and sizes |window| until its frame is exactly |bounds|.
