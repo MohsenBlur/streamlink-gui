@@ -215,6 +215,26 @@ void main() {
       },
     );
 
+    test('a channel that never loaded is told why, so Add refuses it', () async {
+      // main.dart's _addChannel adds the channel unless errorMessage is set.
+      // Restoring an empty error here would add a name nobody had checked.
+      final twitch = FakeTwitch((_) => jsonResponse({}, status: 429));
+      final api = serviceFor(twitch);
+      final brandNew = TwitchChannel(username: 'newcomer');
+      final loadedBefore = known('regular', '5')
+        ..lastUpdated = clock.subtract(const Duration(minutes: 1));
+
+      expect(await api.fetchChannelStats(brandNew, settings),
+          ChannelRefreshOutcome.rateLimited);
+      expect(brandNew.errorMessage, contains('rate limiting'));
+      expect(brandNew.consecutiveFailures, 0);
+
+      final batch = await api.refreshLiveStatus([loadedBefore], settings);
+      expect(batch.outcomes[loadedBefore], ChannelRefreshOutcome.rateLimited);
+      expect(loadedBefore.errorMessage, isNull,
+          reason: 'a channel with good data keeps showing it, unannotated');
+    });
+
     test('an ordinary error still counts, and three go offline', () async {
       final twitch = FakeTwitch((_) => jsonResponse({}, status: 500));
       final api = serviceFor(twitch);

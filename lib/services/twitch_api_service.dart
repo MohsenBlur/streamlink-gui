@@ -834,10 +834,8 @@ class TwitchApiService {
 
       _recordRefreshed(channel);
       return ChannelRefreshOutcome.updated;
-    } on TwitchRateLimitedException {
-      // Nothing was learned about this channel, so nothing about it changes:
-      // not its live state, not its failure count, not the error it showed.
-      channel.errorMessage = previousError;
+    } on TwitchRateLimitedException catch (e) {
+      _recordRateLimited(channel, previousError, e);
       return ChannelRefreshOutcome.rateLimited;
     } catch (e) {
       _recordFailure(channel, e.toString().replaceFirst('Exception: ', ''));
@@ -952,7 +950,7 @@ class TwitchApiService {
     };
 
     List<dynamic>? users;
-    var rateLimited = false;
+    TwitchRateLimitedException? rateLimited;
     Object? failure;
     try {
       final res = await _get(
@@ -968,8 +966,8 @@ class TwitchApiService {
       users = (json.decode(res.body) as Map<String, dynamic>)['data']
               as List<dynamic>? ??
           const <dynamic>[];
-    } on TwitchRateLimitedException {
-      rateLimited = true;
+    } on TwitchRateLimitedException catch (e) {
+      rateLimited = e;
     } catch (e) {
       failure = e;
     }
@@ -989,7 +987,8 @@ class TwitchApiService {
       final hadId = isValidTwitchUserId(c.id);
       if (users == null) {
         if (hadId) continue;
-        if (rateLimited) {
+        if (rateLimited != null) {
+          _recordRateLimited(c, c.errorMessage, rateLimited);
           outcomes[c] = ChannelRefreshOutcome.rateLimited;
         } else {
           _recordFailure(c, '$failure'.replaceFirst('Exception: ', ''));
@@ -1037,10 +1036,10 @@ class TwitchApiService {
     Map<String, String> headers,
     Map<TwitchChannel, ChannelRefreshOutcome> outcomes,
   ) async {
-    void settle(ChannelRefreshOutcome outcome, [String? failure]) {
+    void settle(ChannelRefreshOutcome outcome, void Function(TwitchChannel) apply) {
       for (final id in ids) {
         for (final c in byId[id]!) {
-          if (failure != null) _recordFailure(c, failure);
+          apply(c);
           outcomes[c] = outcome;
         }
       }
@@ -1065,11 +1064,13 @@ class TwitchApiService {
         final userId = stream['user_id'];
         if (userId is String) live[userId] = stream;
       }
-    } on TwitchRateLimitedException {
-      settle(ChannelRefreshOutcome.rateLimited);
+    } on TwitchRateLimitedException catch (e) {
+      settle(ChannelRefreshOutcome.rateLimited,
+          (c) => _recordRateLimited(c, c.errorMessage, e));
       return;
     } catch (e) {
-      settle(ChannelRefreshOutcome.failed, '$e'.replaceFirst('Exception: ', ''));
+      final message = '$e'.replaceFirst('Exception: ', '');
+      settle(ChannelRefreshOutcome.failed, (c) => _recordFailure(c, message));
       return;
     }
 
@@ -1124,6 +1125,19 @@ class TwitchApiService {
   /// How many consecutive refresh failures before a live channel is treated as
   /// offline rather than temporarily unreachable.
   static const int _failuresBeforeOffline = 3;
+
+  /// Nothing was learned about [channel], so nothing about it changes: not
+  /// its live state, not its failure count, not the error it showed.
+  ///
+  /// Except for a channel that has never loaded, which has nothing to keep.
+  /// Leaving its error empty would make "Add channel" treat a refused lookup
+  /// as success and add a name nobody checked, and show a blank row with no
+  /// reason on it.
+  void _recordRateLimited(TwitchChannel channel, String? previousError,
+      TwitchRateLimitedException error) {
+    channel.errorMessage = previousError ??
+        (channel.lastUpdated == null ? describeTwitchError(error) : null);
+  }
 
   void _recordRefreshed(TwitchChannel channel) {
     channel.errorMessage = null;
