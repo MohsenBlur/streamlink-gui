@@ -28,13 +28,20 @@ class PlayerService {
   /// streamlink, yt-dlp, the players and the mpv bridge - and [runProcess]
   /// for taskkill, so tests can drive the real launch, exit, retry and stop
   /// handling without running or killing anything.
-  PlayerService({ProcessStarter? startProcess, ProcessRunner? runProcess})
-      : _startProcess = startProcess ?? Process.start,
+  ///
+  /// [progressPollInterval] is how often a playing VOD's player is asked
+  /// where it is; tests shorten it to drive the tracker in milliseconds.
+  PlayerService({
+    ProcessStarter? startProcess,
+    ProcessRunner? runProcess,
+    this.progressPollInterval = const Duration(seconds: 2),
+  })  : _startProcess = startProcess ?? Process.start,
         _runProcess = runProcess ?? Process.run;
 
   final TwitchApiService _apiService = TwitchApiService();
   final ProcessStarter _startProcess;
   final ProcessRunner _runProcess;
+  final Duration progressPollInterval;
 
   /// Ends [procs] and everything they started, with one taskkill.
   ///
@@ -1305,7 +1312,7 @@ class PlayerService {
               // closing it here preserves the close-at-end behaviour every
               // release before keep-open had. Marked user-initiated so the
               // teardown is snackbar-free.
-              unawaited(killProcess(vod.id));
+              unawaited(_forceKill(vod.id, markUserInitiated: true));
             }
         }
       }
@@ -1452,7 +1459,7 @@ class PlayerService {
       handleEvents(result.events);
     }
 
-    timer = Timer.periodic(const Duration(seconds: 2), (t) async {
+    timer = Timer.periodic(progressPollInterval, (t) async {
       // One tick at a time. Every branch of tick() awaits - up to a 2s HTTP
       // timeout, or a socket connect plus a 300ms settle - so on a slow or
       // unresponsive player the ticks overlapped, interleaved their writes to
@@ -1773,10 +1780,21 @@ class PlayerService {
         if (!activePlayerProcesses.containsKey(key)) return;
       }
     }
-    await killProcess(key, markUserInitiated: markUserInitiated);
+    await _forceKill(key, markUserInitiated: markUserInitiated);
   }
 
-  Future<void> killProcess(String key, {bool markUserInitiated = true}) async {
+  /// Stops [key] because the user asked to.
+  Future<void> killProcess(String key) async {
+    // A Stop outranks a self-heal bounce in flight. The heal parks a resume
+    // position in _pendingVodRestarts and then gives the player up to 2.4s to
+    // close gracefully; a Stop inside that wait looked exactly like the heal's
+    // own kill, so the exit handler relaunched the stream the user had just
+    // stopped.
+    _pendingVodRestarts.remove(key);
+    await _forceKill(key, markUserInitiated: true);
+  }
+
+  Future<void> _forceKill(String key, {required bool markUserInitiated}) async {
     // Download tabs never route here: cancelling a download must go through
     // cancelVodDownload so the _cancelledDownloads marker and partial-file
     // cleanup happen. A raw taskkill on yt-dlp would leave both dangling.
