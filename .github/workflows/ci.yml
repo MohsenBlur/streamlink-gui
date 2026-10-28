@@ -41,7 +41,12 @@ jobs:
           flutter-version: ${{ steps.sdk.outputs.flutter }}
           cache: true
 
-      - run: flutter pub get
+      # --enforce-lockfile: a plain `pub get` quietly re-resolved whatever the
+      # committed lock disagreed with (the SDK-pinned meta and test_api moved
+      # under 3.44.2), so CI tested versions the lock did not record and every
+      # local analyze left pubspec.lock dirty. Now a drifted lock fails here;
+      # regenerate it with the pinned .flutter-sdk, never the PATH Flutter.
+      - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
       - run: flutter test
 
@@ -70,7 +75,7 @@ jobs:
           flutter-version: ${{ steps.sdk.outputs.flutter }}
           cache: true
 
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
 
       - name: Cache bundled runtime downloads
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
