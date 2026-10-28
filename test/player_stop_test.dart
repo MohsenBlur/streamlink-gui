@@ -212,11 +212,16 @@ void main() {
       launcher.startDelay = const Duration(milliseconds: 400);
       await playUntilTheHealBegins();
       // The graceful close ended the player; the relaunch is now waiting on
-      // its process start, with nothing registered for a Stop to end.
+      // its process start, with nothing registered for a Stop to end. The
+      // relaunch logs its resume in the same step as its last check for a
+      // Stop, just before the start. playingVodIds alone is set before the
+      // port probe, which under a loaded full run can still be binding when
+      // the Stop arrives, so the Stop then landed before the relaunch began.
       await waitFor(
           () =>
               launcher.launched.single.hasExited &&
-              service.playingVodIds.contains(vod.id),
+              (logs[vod.id] ?? const []).any((line) =>
+                  line.contains('Resuming after premature end-of-stream')),
           reason: 'the relaunch to be under way');
 
       await service.killProcess(vod.id);
