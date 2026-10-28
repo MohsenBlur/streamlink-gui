@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_focusable.dart';
@@ -72,31 +73,42 @@ class _InteractivePopoverState extends State<InteractivePopover> {
   Widget _buildOverlay(BuildContext context, OverlayChildLayoutInfo info) {
     final trigger = MatrixUtils.transformRect(
         info.childPaintTransform, Offset.zero & info.childSize);
-    return Stack(
-      children: [
-        // Full-screen barrier to dismiss popover when clicking outside
-        GestureDetector(
-          onTap: _closePopover,
-          behavior: HitTestBehavior.translucent,
-          child: const SizedBox.expand(),
-        ),
-        Positioned.fill(
-          child: CustomSingleChildLayout(
-            delegate: PopoverPlacement(
-              trigger: trigger,
-              targetAnchor: widget.targetAnchor,
-              followerAnchor: widget.followerAnchor,
-              offset: widget.offset,
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: widget.popoverBuilder != null
-                  ? widget.popoverBuilder!(context, _closePopover)
-                  : widget.popover!,
+    // Esc closes the popover from anywhere inside it. The portal builds this
+    // content BELOW the trigger in the widget tree, so its key events now
+    // bubble through the page's own shortcuts - where Esc closes the Library.
+    // The old OverlayEntry sat outside them. Unclaimed here, Esc typed into
+    // the search popover's field closed the Library behind a popover that
+    // stayed open.
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): _closePopover,
+      },
+      child: Stack(
+        children: [
+          // Full-screen barrier to dismiss popover when clicking outside
+          GestureDetector(
+            onTap: _closePopover,
+            behavior: HitTestBehavior.translucent,
+            child: const SizedBox.expand(),
+          ),
+          Positioned.fill(
+            child: CustomSingleChildLayout(
+              delegate: PopoverPlacement(
+                trigger: trigger,
+                targetAnchor: widget.targetAnchor,
+                followerAnchor: widget.followerAnchor,
+                offset: widget.offset,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: widget.popoverBuilder != null
+                    ? widget.popoverBuilder!(context, _closePopover)
+                    : widget.popover!,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

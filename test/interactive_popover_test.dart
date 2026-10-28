@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/state/activity_state.dart';
 import 'package:streamlink_gui/widgets/activity_pill.dart';
@@ -214,6 +215,54 @@ void main() {
       await tester.pump();
       expect(find.byType(ActivityPopover), findsNothing);
     });
+  });
+
+  testWidgets('Esc inside a popover closes it, not the page behind it',
+      (tester) async {
+    // The portal builds the popover below its trigger, so key events from
+    // inside it bubble through the page's shortcuts - main.dart binds Esc
+    // there to close the Library, under a Focus(autofocus) like this one.
+    // Typing into the search popover's field and pressing Esc closed the
+    // Library behind a popover that stayed open.
+    var pageEscapes = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): () =>
+                pageEscapes++,
+          },
+          child: Focus(
+            autofocus: true,
+            child: Center(
+              child: InteractivePopover(
+                popover: const SizedBox(
+                  key: ValueKey('menu'),
+                  width: 200,
+                  child: TextField(),
+                ),
+                child: const SizedBox(width: 60, height: 30),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.byType(InteractivePopover));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('menu')), findsOneWidget);
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    expect(
+        FocusManager.instance.primaryFocus?.context
+            ?.findAncestorWidgetOfExactType<TextField>(),
+        isNotNull,
+        reason: 'the field inside the popover has focus');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('menu')), findsNothing);
+    expect(pageEscapes, 0, reason: 'the page never saw the Esc');
   });
 
   testWidgets('a popover follows a trigger that scrolls', (tester) async {
