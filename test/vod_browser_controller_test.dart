@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/state/channels_controller.dart';
 import 'package:streamlink_gui/state/vod_browser_controller.dart';
 import 'package:streamlink_gui/state/vod_cache.dart';
+import 'package:streamlink_gui/utils/twitch_auth_status.dart';
 
 import 'support/fake_helix.dart';
 
@@ -370,6 +371,42 @@ void main() {
     final ids = idsOf(browser.vods);
     expect(ids.toSet(), hasLength(ids.length));
     expect(browser.vods, hasLength(25));
+  });
+
+  group('which tokens the background refreshes run with', () {
+    test('a token missing the follows scope still keeps the grid current', () async {
+      // helix/videos needs no scope. Gating the cadence and the tray restore
+      // on isUsable left this account's grid exactly as stale as the bug.
+      const missingScope = TwitchAuthStatus(
+        state: TwitchAuthState.invalid,
+        fault: TwitchAuthFault.missingScope,
+      );
+      expect(missingScope.isUsable, isFalse);
+      expect(backgroundVodRefreshAllowed(missingScope), isTrue);
+    });
+
+    test('so does one not yet checked, being checked, or out of reach', () {
+      for (final state in [
+        TwitchAuthState.unverified,
+        TwitchAuthState.checking,
+        TwitchAuthState.unreachable,
+        TwitchAuthState.valid,
+      ]) {
+        expect(backgroundVodRefreshAllowed(TwitchAuthStatus(state: state)), isTrue,
+            reason: '$state');
+      }
+    });
+
+    test('a token Helix refuses, or none at all, is left alone', () {
+      for (final fault in [TwitchAuthFault.revoked, TwitchAuthFault.clientIdMismatch]) {
+        expect(
+            backgroundVodRefreshAllowed(
+                TwitchAuthStatus(state: TwitchAuthState.invalid, fault: fault)),
+            isFalse,
+            reason: '$fault');
+      }
+      expect(backgroundVodRefreshAllowed(TwitchAuthStatus.absent), isFalse);
+    });
   });
 
   test('a disposed browser ignores a fetch that lands afterwards', () async {

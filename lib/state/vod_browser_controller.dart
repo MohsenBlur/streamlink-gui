@@ -35,6 +35,33 @@ class StaleVodList {
   final String reason;
 }
 
+/// Whether the open list's background refreshes (the few-minute cadence,
+/// coming back from the tray) are worth trying with the account token in
+/// [helix].
+///
+/// Not [TwitchAuthStatus.isUsable]. A token missing `user:read:follows` is
+/// `invalid` for good - the followed list needs that scope - yet helix/videos
+/// asks for none and answers it, so gating on isUsable left that account's
+/// grid as stale as before the refreshes existed. Unverified, checking and
+/// unreachable mean "we don't know", and trying is what puts the "couldn't
+/// refresh" note over a list that has gone old. Only a token Helix is known
+/// to refuse (revoked, or minted for another Client ID) is left alone: it
+/// would collect a 401 every few minutes, and fixing it refreshes the list
+/// anyway.
+bool backgroundVodRefreshAllowed(TwitchAuthStatus helix) {
+  switch (helix.state) {
+    case TwitchAuthState.absent:
+      return false;
+    case TwitchAuthState.invalid:
+      return helix.fault == TwitchAuthFault.missingScope;
+    case TwitchAuthState.unverified:
+    case TwitchAuthState.checking:
+    case TwitchAuthState.valid:
+    case TwitchAuthState.unreachable:
+      return true;
+  }
+}
+
 /// The VOD grid's list for the open channel, its "Load more" cursor, the
 /// per-channel cache behind it, and the refreshes that keep it current.
 ///

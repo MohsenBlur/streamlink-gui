@@ -2155,6 +2155,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     // seen yet, and announced every favourite that was already live.
     if (!_startupComplete) return;
     unawaited(_channelsCtl.tick());
+    // The open channel's VODs, every few minutes while they can be seen -
+    // with any token Helix reads videos for, which is not only a usable one
+    // (see backgroundVodRefreshAllowed).
+    if (_windowVisible && backgroundVodRefreshAllowed(twitchAuth.helix.value)) {
+      unawaited(_refreshSelectedVods(
+          maxAge: VodBrowserController.visibleRefreshInterval));
+    }
     // The rest is on a slower clock, and only with a token that works: a
     // rejected one would just collect a 401 a minute until it is fixed, and
     // fixing it refreshes everything anyway (_onAuthStatusChanged).
@@ -2165,11 +2172,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     final open = _selectedChannel;
     if (open != null && _channelsCtl.detailsDue(open)) {
       unawaited(_refreshChannelDetails(open));
-    }
-    // The open channel's VODs, every few minutes while they can be seen.
-    if (_windowVisible) {
-      unawaited(_refreshSelectedVods(
-          maxAge: VodBrowserController.visibleRefreshInterval));
     }
   }
 
@@ -2185,7 +2187,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       _cameBackTimer = null;
       if (!mounted || !_startupComplete) return;
       unawaited(_channelsCtl.refreshIfOlderThan(const Duration(seconds: 30)));
-      if (twitchAuth.helix.value.isUsable) {
+      if (backgroundVodRefreshAllowed(twitchAuth.helix.value)) {
         unawaited(
             _refreshSelectedVods(maxAge: VodBrowserController.staleAfter));
       }
