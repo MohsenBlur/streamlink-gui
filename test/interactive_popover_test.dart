@@ -295,10 +295,13 @@ void main() {
 
   testWidgets('Esc on the trigger closes an open popover, and only then',
       (tester) async {
-    // Enter or Space on a focused trigger opens the popover and leaves focus
+    // Enter or Space on a focused trigger opens the popover with focus still
     // on the trigger, outside the popover, where the overlay's own Esc
     // binding cannot hear it: the page's Esc closed the Library behind a
-    // popover that stayed open.
+    // popover that stayed open. Focus now moves inside once the popover's
+    // first frame is up, so an Esc before that frame is the trigger's alone
+    // to hear - and with a frame pumped first, this test stopped reaching
+    // the trigger's handler at all.
     var pageEscapes = 0;
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -328,11 +331,12 @@ void main() {
             ?.findAncestorWidgetOfExactType<InteractivePopover>(),
         isNotNull,
         reason: 'the trigger has focus');
+    final trigger = FocusManager.instance.primaryFocus;
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
-    expect(find.byKey(const ValueKey('menu')), findsOneWidget);
-
+    // No frame in between.
+    expect(FocusManager.instance.primaryFocus, same(trigger));
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
     await tester.pump();
     expect(find.byKey(const ValueKey('menu')), findsNothing);
     expect(pageEscapes, 0, reason: 'the open popover took the Esc');
