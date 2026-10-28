@@ -218,6 +218,67 @@ void main() {
     });
   });
 
+  group('ConfigSecrets.sealTokensInText, for quarantined copies', () {
+    /// What [sealed] holds, opened the way the next load would.
+    String open(String sealed) {
+      final settings = {'twitch_oauth_token': sealed};
+      ConfigSecrets(FakeCipher()).openFromDisk(settings);
+      return settings['twitch_oauth_token']!;
+    }
+
+    final sealedValue = RegExp('${RegExp.escape(ConfigSecrets.sealedPrefix)}[A-Za-z0-9+/=]+');
+
+    test('seals both tokens and changes nothing else in the text', () {
+      // Unparseable, as every quarantined copy is.
+      final text = '{"channels":[{"username":"alpha"}],"settings":{'
+          '"twitch_oauth_token": "$_account","default_quality":"best",'
+          '"twitch_web_oauth_token":"$_browser", oops';
+
+      final sealed = ConfigSecrets(FakeCipher()).sealTokensInText(text)!;
+
+      expect(sealed, isNot(contains(_account)));
+      expect(sealed, isNot(contains(_browser)));
+      final values = sealedValue.allMatches(sealed).map((m) => m[0]!).toList();
+      expect(values.map(open), [_account, _browser]);
+      expect(sealed.replaceAll(values[0], _account).replaceAll(values[1], _browser),
+          text);
+    });
+
+    test('a token the damage cut off is sealed as far as it goes', () {
+      final text = '{"settings":{"twitch_web_oauth_token":"${_browser.substring(0, 9)}';
+
+      final sealed = ConfigSecrets(FakeCipher()).sealTokensInText(text)!;
+
+      expect(sealed, startsWith('{"settings":{"twitch_web_oauth_token":"dpapi:v1:'));
+      expect(open(sealedValue.firstMatch(sealed)![0]!), _browser.substring(0, 9));
+    });
+
+    test('an escaped token is sealed as the text it stands for', () {
+      final sealed = ConfigSecrets(FakeCipher())
+          .sealTokensInText(r'{"twitch_oauth_token":"oauth:a\/bc"}')!;
+      expect(open(sealedValue.firstMatch(sealed)![0]!), 'oauth:a/bc');
+    });
+
+    test('leaves alone what needs no sealing, or cannot be sealed', () {
+      final alreadySealed = json.encode({
+        'settings': ConfigSecrets(FakeCipher()).sealForDisk(_settingsJson()),
+      });
+      for (final text in [
+        alreadySealed,
+        '{"twitch_oauth_token":"","twitch_web_oauth_token":""}',
+        '{"default_quality":"$_account"}',
+        '',
+      ]) {
+        expect(ConfigSecrets(FakeCipher()).sealTokensInText(text), isNull,
+            reason: text);
+      }
+      final plaintext = '{"twitch_oauth_token":"$_account"}';
+      expect(ConfigSecrets(null).sealTokensInText(plaintext), isNull);
+      expect(ConfigSecrets(FakeCipher(refuseToSeal: true)).sealTokensInText(plaintext),
+          isNull);
+    });
+  });
+
   group('StorageService.platformCipher', () {
     test('seals with DPAPI only on Windows, outside the test runner', () {
       expect(StorageService.platformCipher(isWindows: true, isTestRunner: false),

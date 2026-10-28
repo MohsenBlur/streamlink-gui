@@ -87,16 +87,24 @@ EncodableMap DescribeWindow(HWND window, HWND content) {
   RECT normal{};
   if (minimized || maximized) {
     // The rectangle it restores to. rcNormalPosition is in workspace
-    // coordinates, which are offset from screen coordinates by wherever the
-    // taskbar sits on the window's monitor.
+    // coordinates, which are offset from screen coordinates by the taskbar
+    // (or any appbar) on the top or left of the monitor that rectangle is
+    // on. That is the NORMAL rectangle's monitor, not the window's: a window
+    // maximized or minimized on one monitor can restore to another, and
+    // converting with its current monitor's work area put the restore
+    // rectangle off by the wrong taskbar - or by one that monitor does not
+    // have. The rectangle is still in workspace coordinates when its
+    // monitor is looked up, but those differ from the screen by no more than
+    // a taskbar's thickness, which only a rectangle split almost evenly
+    // between two monitors could notice.
     WINDOWPLACEMENT placement{};
     placement.length = sizeof(placement);
     ::GetWindowPlacement(window, &placement);
     normal = placement.rcNormalPosition;
     MONITORINFO info{};
     info.cbSize = sizeof(info);
-    if (::GetMonitorInfoW(
-            ::MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &info)) {
+    if (::GetMonitorInfoW(::MonitorFromRect(&normal, MONITOR_DEFAULTTONEAREST),
+                          &info)) {
       ::OffsetRect(&normal, info.rcWork.left - info.rcMonitor.left,
                    info.rcWork.top - info.rcMonitor.top);
     }

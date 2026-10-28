@@ -1094,9 +1094,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
         updateDialog(() => statusText = 'Applying update and restarting...');
         updaterStarting = true;
+        _handingOverToUpdater = true;
         await updateService.startUpdater(extractDir);
         handedOver = true;
       } catch (e) {
+        _handingOverToUpdater = false;
         _isUpdateInProgress = false;
         // stopAll() may already have killed everything before the failure. The
         // app survives this path, so any session still marked running would
@@ -1142,7 +1144,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       await _shutDownAndExit();
     } catch (e, st) {
       // Never stay up half shut down: the updater is waiting on this
-      // process, and would end it a few seconds from now regardless.
+      // process, and would end it within half a minute regardless.
       CrashLog.current?.error('update: shutting down', e, st);
       exit(0);
     }
@@ -1331,6 +1333,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
 
   /// Set once the app has committed to quitting.
   bool _isExiting = false;
+
+  /// Set from just before the updater is started until the app is exiting
+  /// for it, or the handover has failed.
+  ///
+  /// The updater signals that it is ready and may then close the window,
+  /// while the app only sees the signal at its next poll, up to 50ms later,
+  /// and only then starts exiting. A close landing in between went the
+  /// normal way: hidden to the tray with the "still running" toast, or an
+  /// Exit request refused because an update is running.
+  bool _handingOverToUpdater = false;
 
   Future<void> _handleAppExitRequest() async {
     if (_exitRequestOpen || _isExiting) return;
@@ -1667,12 +1679,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   void onWindowClose() async {
     final isPreventClose = await windowManager.isPreventClose();
     if (!isPreventClose) return;
-    // Already quitting, for Exit or for an update. The updater closes a
-    // portable copy's window as soon as it is running (the only mutex it
-    // waits on is the installed copy's), and that now lands while this
-    // shutdown is still saving: hiding to the tray, with its one-time
-    // "still running" toast, would be the wrong answer to it.
-    if (_isExiting) return;
+    // Already quitting, for Exit or for an update, or handing over to the
+    // updater (see _handingOverToUpdater). The updater closes the window of
+    // an app that has not exited by the end of its wait, or at once when it
+    // cannot wait on this process (an updater from before --wait-pid, a pid
+    // it could not open); hiding to the tray, with its one-time "still
+    // running" toast, would be the wrong answer to any of them.
+    // A user's own close in the handover's few seconds is lost with it.
+    if (_isExiting || _handingOverToUpdater) return;
     if (_settings.closeAction == 'exit') {
       await _handleAppExitRequest();
       return;

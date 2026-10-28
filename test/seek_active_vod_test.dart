@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/player_service.dart';
+import 'package:streamlink_gui/utils/player_args.dart';
+import 'package:streamlink_gui/utils/player_seek.dart';
 
 import 'support/fake_process.dart';
 
@@ -98,5 +100,76 @@ void main() {
 
   test('a VOD with no player is not sought at all', () async {
     expect(await service.seekActiveVod('nope', 600, settings), isFalse);
+  });
+
+  group('mpv', () {
+    final mpvSettings = AppSettings(
+      playerType: 'custom',
+      customPlayerPath: '/usr/bin/mpv',
+    );
+
+    test('is reached where its launch told it to listen', () {
+      // The progress tracker and the seek both connect through this.
+      String ipcServer({required bool isWindows}) => buildPlayerArgs(
+            kind: PlayerKind.mpv,
+            startSeconds: 0,
+            port: 8123,
+            ipcName: vod.id,
+            isWindows: isWindows,
+          ).singleWhere((a) => a.startsWith('--input-ipc-server=')).split('=').last;
+
+      // Off Windows: mpv's own unix socket, not a TCP port nothing listens on.
+      final unix = PlayerService.mpvIpcEndpoint(vod.id, 8123, isWindows: false);
+      expect(unix.host, isA<InternetAddress>());
+      final address = unix.host as InternetAddress;
+      expect(address.type, InternetAddressType.unix);
+      expect(address.address, ipcServer(isWindows: false));
+      expect(unix.port, 0);
+
+      // On Windows: the bridge relaying to mpv's pipe, on the session port.
+      final windows = PlayerService.mpvIpcEndpoint(vod.id, 8123, isWindows: true);
+      expect(windows.host, '127.0.0.1');
+      expect(windows.port, 8123);
+    });
+
+    test("a seek off Windows goes to mpv's own socket", () async {
+      final socketPath = mpvIpcPath(vod.id, false);
+      final stale = File(socketPath);
+      if (stale.existsSync()) stale.deleteSync();
+      final mpv = await ServerSocket.bind(
+          InternetAddress(socketPath, type: InternetAddressType.unix), 0);
+      addTearDown(() async {
+        await mpv.close();
+        if (stale.existsSync()) stale.deleteSync();
+      });
+      final received = <String>[];
+      mpv.listen((client) {
+        client.listen((data) {
+          received.add(String.fromCharCodes(data));
+          // Answers and stays connected, as mpv does.
+          client.write('{"event":"seek"}\n'
+              '{"data":null,"request_id":0,"error":"success"}\n');
+        });
+      });
+
+      final watch = Stopwatch()..start();
+      expect(await service.seekActiveVod(vod.id, 600, mpvSettings), isTrue);
+      expect(received.join(), mpvSeekCommand(600));
+      expect(watch.elapsed, lessThan(const Duration(seconds: 1)),
+          reason: 'the answer ends the exchange; mpv does not hang up');
+      expect(logs, contains('[System] Jumped to 600s at your request.'));
+    }, skip: Platform.isWindows ? 'Windows reaches mpv through the bridge' : false);
+
+    test('an answer is a whole reply line, never an event or half a line', () {
+      expect(mpvSeekAnswered('{"data":null,"request_id":0,"error":"success"}\n'),
+          isTrue);
+      expect(mpvSeekAnswered('{"event":"seek"}\n{"request_id":0,"error":"succ'),
+          isFalse, reason: 'half a reply: the exchange would read "succ"');
+      expect(
+          mpvSeekAnswered(
+              '{"event":"end-file","reason":"error","file_error":"x"}\n'),
+          isFalse);
+      expect(mpvSeekAnswered(''), isFalse);
+    });
   });
 }

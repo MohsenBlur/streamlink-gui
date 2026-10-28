@@ -215,6 +215,159 @@ void main() {
     expect(service.isQueueProcessing, isFalse);
   });
 
+  group('a running download cancelled and queued again', () {
+    // A taskkill that returns before its target has died, as the real one
+    // can: the cancel finishes, and the old yt-dlp's exit is processed only
+    // after the user has queued the VOD again.
+    late PlayerService lateDeaths;
+    late AppSettings settings;
+    setUp(() {
+      lateDeaths = PlayerService(
+        startProcess: launcher.start,
+        runProcess: (executable, arguments) async =>
+            ProcessResult(0, 0, '', ''),
+      );
+      settings = AppSettings(vodDownloadFolder: temp.path);
+    });
+    tearDown(() => lateDeaths.stopAll());
+
+    test('downloads into its own channel folder', () async {
+      // The drain was started for another channel, so falling back to the
+      // drain's own channelName puts the VOD in the wrong folder.
+      lateDeaths.queueVodDownload(vod('1'), 'alpha', settings);
+      lateDeaths.queueVodDownload(vod('2'), 'beta', settings);
+      await pumpEventQueue();
+      await launcher.launched.single.exit(0);
+      await pumpEventQueue();
+      final cancelledRun = launcher.launched.last;
+      expect(cancelledRun.arguments.last, 'https://twitch.tv/videos/2');
+
+      await lateDeaths.cancelVodDownload('2', 'beta', temp.path);
+      lateDeaths.queueVodDownload(vod('2'), 'beta', settings);
+      await cancelledRun.exit(1);
+      await pumpEventQueue();
+
+      expect(launcher.launched, hasLength(3), reason: 'the re-queue must start');
+      expect(launcher.launched.last.arguments,
+          contains(startsWith('${temp.path}/beta/')),
+          reason: 'the old run\'s exit cleared the channel name, and the '
+              'drain fell back to alpha');
+      expect(lateDeaths.activeDownloadProcesses.keys, ['2']);
+
+      await launcher.launched.last.exit(0);
+      await pumpEventQueue();
+      expect(lateDeaths.downloadQueue, isEmpty);
+      expect(lateDeaths.activeDownloadTasks, isEmpty);
+      expect(lateDeaths.downloadChannelNames, isEmpty);
+    });
+
+    test('still shows as queued after the old run has exited', () async {
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      final cancelledRun = launcher.launched.single;
+
+      await lateDeaths.cancelVodDownload('1', 'chan', temp.path);
+      // Another download ahead of it keeps the re-queue waiting, so what the
+      // old run's exit leaves behind is what the Downloads panel shows.
+      lateDeaths.queueVodDownload(vod('9'), 'other', settings);
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await cancelledRun.exit(1);
+      await pumpEventQueue();
+
+      expect(launcher.launched.last.arguments.last, 'https://twitch.tv/videos/9');
+      expect(lateDeaths.activeDownloadTasks['1'], 'Queued');
+      expect(lateDeaths.downloadChannelNames['1'], 'chan');
+      expect(lateDeaths.downloadTitles['1'], 'Some VOD');
+    });
+
+    test('is not shown with the progress the old run printed on its way out',
+        () async {
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      final cancelledRun = launcher.launched.single;
+
+      await lateDeaths.cancelVodDownload('1', 'chan', temp.path);
+      lateDeaths.queueVodDownload(vod('9'), 'other', settings);
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      // Still running after taskkill returned, so its pipe has more to say.
+      cancelledRun.printOut('[download]  45.0% of ~1.00GiB at 2.00MiB/s ETA 05:12\n');
+      await cancelledRun.exit(1);
+      await pumpEventQueue();
+
+      expect(lateDeaths.activeDownloadTasks['1'], 'Queued');
+      expect(lateDeaths.activeDownloadsProgress['1'], isNull);
+    });
+  });
+
+  group('a running download cancelled and not queued again', () {
+    // The same late death, with nothing claiming the VOD afterwards: what the
+    // old run leaves behind must still go when it exits.
+    late PlayerService lateDeaths;
+    late AppSettings settings;
+    setUp(() {
+      lateDeaths = PlayerService(
+        startProcess: launcher.start,
+        runProcess: (executable, arguments) async =>
+            ProcessResult(0, 0, '', ''),
+      );
+      settings = AppSettings(vodDownloadFolder: temp.path);
+    });
+    tearDown(() => lateDeaths.stopAll());
+
+    test('leaves no progress behind that it printed after the cancel',
+        () async {
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      final cancelledRun = launcher.launched.single;
+
+      await lateDeaths.cancelVodDownload('1', 'chan', temp.path);
+      cancelledRun.printOut('[download]  45.0% of ~1.00GiB at 2.00MiB/s ETA 05:12\n');
+      await cancelledRun.exit(1);
+      await pumpEventQueue();
+
+      expect(lateDeaths.activeDownloadTasks, isEmpty,
+          reason: 'a Downloads row left showing 45% for good');
+      expect(lateDeaths.activeDownloadsProgress, isEmpty);
+    });
+
+    test('can be downloaded again once a yt-dlp it could not stop has exited',
+        () async {
+      // Cancelled before its yt-dlp had started, so the cancel had no process
+      // to end, and the yt-dlp started anyway.
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await lateDeaths.cancelVodDownload('1', 'chan', temp.path);
+      await pumpEventQueue();
+      final straggler = launcher.launched.single;
+      await straggler.exit(1);
+      await pumpEventQueue();
+
+      expect(lateDeaths.activeDownloadProcesses, isEmpty,
+          reason: 'a dead process on record refuses every later queueing');
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      expect(launcher.launched, hasLength(2));
+    });
+  });
+
+  test('a yt-dlp a cancel could not stop stays on show, to be cancelled again',
+      () async {
+    // Cancelled while it was starting: the cancel had no process to end.
+    final settings = AppSettings(vodDownloadFolder: temp.path);
+    service.queueVodDownload(vod('1'), 'chan', settings);
+    await service.cancelVodDownload('1', 'chan', temp.path);
+    await pumpEventQueue();
+    final straggler = launcher.launched.single;
+    straggler.printOut('[download]  45.0% of ~1.00GiB at 2.00MiB/s ETA 05:12\n');
+    await pumpEventQueue();
+
+    expect(service.activeDownloadTasks['1'], startsWith('Downloading: 45.0%'),
+        reason: 'hidden, it would download in the background, out of reach');
+    await service.cancelVodDownload('1', 'chan', temp.path);
+    await pumpEventQueue();
+    expect(straggler.hasExited, isTrue);
+    expect(service.activeDownloadTasks, isEmpty);
+  });
+
   test('a download it already has is not announced as queued', () async {
     final settings = AppSettings(vodDownloadFolder: temp.path);
     final queued = <String>[];

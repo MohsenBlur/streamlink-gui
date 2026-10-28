@@ -408,6 +408,87 @@ void main() {
       expect(onDisk['twitch_oauth_token'], account);
       expect(onDisk['twitch_web_oauth_token'], browser);
     });
+
+    group('in quarantined copies of the config', () {
+      File copy(String stamp) => File('${configFile().path}.corrupt-$stamp');
+
+      /// A config an older build wrote, cut off mid-write.
+      String damagedLegacyConfig() {
+        final full = json.encode({
+          'channels': [
+            {'username': 'alpha'},
+          ],
+          'settings':
+              AppSettings(twitchOauthToken: account, twitchWebOauthToken: browser).toJson(),
+        });
+        return full.substring(0, full.indexOf(browser) + 5);
+      }
+
+      test('are sealed on load, and stay recoverable', () async {
+        // Older builds quarantined plaintext configs, and before the pruning
+        // never removed any: every one is sealed, not only the newest three.
+        final stamps = ['1000', '1001', '1002', '1003'];
+        for (final stamp in stamps) {
+          copy(stamp).writeAsStringSync(damagedLegacyConfig());
+        }
+
+        expect(await storage.loadConfig(), isNull, reason: 'no config itself');
+
+        for (final stamp in stamps) {
+          final text = copy(stamp).readAsStringSync();
+          expect(text, isNot(contains(account)), reason: stamp);
+          expect(text, isNot(contains(browser.substring(0, 5))), reason: stamp);
+          expect(text, startsWith('{"channels":[{"username":"alpha"}],"settings":{'));
+        }
+        expect(tempDir.listSync().where((e) => e.path.endsWith('.sealing')), isEmpty);
+
+        // Repaired by hand and put back, it opens with the token intact.
+        final repaired = copy('1003').readAsStringSync().replaceFirstMapped(
+            RegExp(r'"twitch_web_oauth_token":"[^"]*$'),
+            (_) => '"twitch_web_oauth_token":""}}');
+        configFile().writeAsStringSync(repaired);
+        relaunch();
+        final loaded = await storage.loadConfig();
+        expect(loaded!['settings']['twitch_oauth_token'], account);
+      });
+
+      test('a config quarantined by this load is sealed by it too', () async {
+        configFile().writeAsStringSync(damagedLegacyConfig());
+
+        expect(await storage.loadConfig(), isNull);
+
+        final copies = tempDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.contains('.corrupt-'))
+            .toList();
+        expect(copies, hasLength(1));
+        expect(copies.single.readAsStringSync(), isNot(contains(account)));
+      });
+
+      test('keep every byte that is not a token, even when it is not UTF-8',
+          () async {
+        final text = damagedLegacyConfig();
+        final damaged = [...utf8.encode(text.substring(0, 20)), 0xFF, 0xFE, 0x00,
+            ...utf8.encode(text.substring(20))];
+        copy('1000').writeAsBytesSync(damaged);
+
+        await storage.loadConfig();
+
+        final after = copy('1000').readAsBytesSync();
+        expect(after.sublist(0, 23), damaged.sublist(0, 23));
+        expect(latin1.decode(after), isNot(contains(account)));
+      });
+
+      test('are left alone where nothing can seal', () async {
+        StorageService.secretCipher = null;
+        copy('1000').writeAsStringSync(damagedLegacyConfig());
+
+        await storage.loadConfig();
+
+        expect(copy('1000').readAsStringSync(), damagedLegacyConfig());
+      });
+    });
   });
 
   group('loadStartupConfig', () {

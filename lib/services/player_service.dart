@@ -469,27 +469,95 @@ class PlayerService {
     return deleted;
   }
 
-  void removeVodFromArchive(String vodId) {
-    if (downloadArchiveFilePath == null) return;
-    final file = File(downloadArchiveFilePath!);
-    if (!file.existsSync()) return;
-    
+  /// Whether [line] of yt-dlp's download archive records [vodId].
+  ///
+  /// yt-dlp records a Twitch VOD as `twitchvod v2821242888`: its own id
+  /// carries a `v` the app's ids do not, the same `v` [vodFinalFilePattern]
+  /// allows in file names. This compared the bare id, so it never matched a
+  /// Twitch line and no VOD was ever taken out of the archive: one deleted,
+  /// whether by hand, by a scan that found its file gone or by retention,
+  /// and then downloaded again was skipped as already done, and the run
+  /// exited 0 with no file.
+  static bool isArchiveLineFor(String line, String vodId) {
+    final parts = line.trim().split(RegExp(r'\s+'));
+    if (parts.length < 2) return false;
+    final id = parts.last;
+    return id == vodId || id == 'v$vodId';
+  }
+
+  /// Every archive rewrite this service has started, in order; see
+  /// [removeVodFromArchive].
+  Future<void> _archiveWrites = Future<void>.value();
+
+  /// Takes [vodId] out of yt-dlp's download archive, so its next download is
+  /// not skipped as one already done.
+  ///
+  /// Asynchronous, and one rewrite at a time. This used to read and rewrite
+  /// the whole file synchronously on the UI isolate, once per VOD in a
+  /// multi-delete and once per entry a downloaded-file scan strips. Run
+  /// side by side, two rewrites would each start from the same read, and the
+  /// second would put back the line the first had just taken out.
+  ///
+  /// yt-dlp is the archive's other writer. It reads the file as it starts
+  /// and appends a line as each download completes, both under a lock on the
+  /// whole file (LockFileEx on Windows, over the same range Dart's lock
+  /// takes). The rewrite holds that lock too, so neither ever reads the
+  /// other's half-done work, and a line yt-dlp appends just before it is
+  /// read back in rather than written over. The file is rewritten in place
+  /// rather than replaced by a rename, which would swap it out from under
+  /// that lock; a crash mid-write leaves at worst a repeated or broken line,
+  /// which matches no download.
+  ///
+  /// Never throws.
+  Future<void> removeVodFromArchive(String vodId) {
+    final archivePath = downloadArchiveFilePath?.trim() ?? '';
+    if (archivePath.isEmpty) return Future<void>.value();
+    final rewrite =
+        _archiveWrites.then((_) => _removeArchiveLines(archivePath, vodId));
+    _archiveWrites = rewrite;
+    return rewrite;
+  }
+
+  static Future<void> _removeArchiveLines(String archivePath, String vodId) async {
+    final file = File(archivePath);
+    RandomAccessFile? archive;
+    var locked = false;
     try {
-      final lines = file.readAsLinesSync();
-      final newLines = <String>[];
-      bool changed = false;
-      for (final line in lines) {
-        final parts = line.split(RegExp(r'\s+'));
-        if (parts.length >= 2 && parts.last.trim() == vodId) {
+      if (!await file.exists()) return;
+      // Read and write, without the truncation FileMode.write does on open:
+      // nothing may change before the lock is held.
+      archive = await file.open(mode: FileMode.append);
+      await archive.lock(FileLock.blockingExclusive);
+      locked = true;
+      await archive.setPosition(0);
+      final text = utf8.decode(await archive.read(await archive.length()),
+          allowMalformed: true);
+      final kept = <String>[];
+      var changed = false;
+      for (final line in const LineSplitter().convert(text)) {
+        if (isArchiveLineFor(line, vodId)) {
           changed = true;
           continue;
         }
-        newLines.add(line);
+        kept.add(line);
       }
-      if (changed) {
-        file.writeAsStringSync(newLines.join('\n') + (newLines.isNotEmpty ? '\n' : ''), flush: true);
-      }
-    } catch (_) {}
+      if (!changed) return;
+      final bytes = utf8.encode(kept.isEmpty ? '' : '${kept.join('\n')}\n');
+      await archive.setPosition(0);
+      await archive.writeFrom(bytes);
+      await archive.truncate(bytes.length);
+      await archive.flush();
+    } catch (_) {
+    } finally {
+      // Unlocked explicitly: Windows releases a closed handle's locks only
+      // when it gets round to it, and yt-dlp waits on this one.
+      try {
+        if (locked) await archive?.unlock();
+      } catch (_) {}
+      try {
+        await archive?.close();
+      } catch (_) {}
+    }
   }
 
   void deleteTemporaryDownloadFiles(String vodId, String channelName, String downloadFolder) {
@@ -506,6 +574,7 @@ class PlayerService {
     final vodId = vod.id;
     final key = logKeyForDownload(vodId);
     final title = 'Download: ${vod.title}';
+    final claim = _claimDownloadState(vodId);
 
     // Reported like any other failure, not thrown. These used to throw
     // straight out of the queue drain, which then never reset
@@ -579,6 +648,11 @@ class PlayerService {
     bool needsFfmpegFallback = false;
 
     try {
+      // A VOD deleted and then downloaded again must be out of the archive
+      // before yt-dlp reads it, or yt-dlp skips it as already done and exits
+      // 0 with no file. Bounded, so an archive some other program keeps
+      // locked cannot hold every download at "Starting...".
+      await _archiveWrites.timeout(const Duration(seconds: 5), onTimeout: () {});
       final proc = await _startProcess(
         _getExecutablePath('yt-dlp'),
         args,
@@ -604,6 +678,13 @@ class PlayerService {
         if (trimmed.contains('Initialization fragment found after media fragments')) {
           needsFfmpegFallback = true;
         }
+        // Cancelled and queued again: a yt-dlp still talking on its way out
+        // (taskkill returns before its target is gone) would overwrite the new
+        // entry's "Queued". Only then: one a cancel could not stop at all,
+        // because it was still starting, shows its progress again, and so
+        // can be cancelled again.
+        final owner = _downloadStateOwners[vodId];
+        if (owner != null && owner != claim) return;
 
         if (trimmed.startsWith('[Metadata]') ||
             trimmed.startsWith('[EmbedThumbnail]') ||
@@ -678,7 +759,7 @@ class PlayerService {
       });
 
       final exitCode = await proc.exitCode;
-      _cleanupDownloadState(vodId);
+      _cleanupDownloadState(vodId, onlyFor: claim);
       // Before every branch below, including the cancelled early return and
       // the ffmpeg retry (which begins a fresh session of its own).
       onDownloadEnded?.call(vodId, exitCode);
@@ -728,7 +809,7 @@ class PlayerService {
       }
     } catch (e) {
       log(key, '[System Error] Download failed to start: $e');
-      _cleanupDownloadState(vodId);
+      _cleanupDownloadState(vodId, onlyFor: claim);
       onDownloadEnded?.call(vodId, -1);
       onDownloadFailed?.call(vodId, vod.title, -1);
     }
@@ -748,7 +829,31 @@ class PlayerService {
   /// started a second later, after the cancel had deleted its partial files.
   final Set<String> _downloadsAwaitingRetry = {};
 
-  void _cleanupDownloadState(String vodId) {
+  /// Which queueing or run of a VOD its download state belongs to.
+  ///
+  /// The state is keyed by VOD id, and a download cancelled while it runs
+  /// can be queued again before its yt-dlp's exit is processed (taskkill
+  /// returns before its target is gone). That exit used to clear the new
+  /// entry's "Queued" status, title and channel name; the drain then fell
+  /// back to its own channelName, which is whichever download started it, and
+  /// could save the VOD into another channel's folder. A run now clears the
+  /// state only while no queueing or run has claimed it since.
+  final Map<String, int> _downloadStateOwners = {};
+  int _lastDownloadStateOwner = 0;
+
+  int _claimDownloadState(String vodId) =>
+      _downloadStateOwners[vodId] = ++_lastDownloadStateOwner;
+
+  /// With [onlyFor], only while that claim (see [_claimDownloadState]) still
+  /// owns the state, or nothing does. A cancel releases the state without
+  /// claiming it, and the cancelled run must still clear what it records
+  /// after that: a yt-dlp the cancel could not stop because it was still
+  /// starting, which used to stay on record as running and refuse every
+  /// later queueing of the VOD.
+  void _cleanupDownloadState(String vodId, {int? onlyFor}) {
+    final owner = _downloadStateOwners[vodId];
+    if (onlyFor != null && owner != null && owner != onlyFor) return;
+    _downloadStateOwners.remove(vodId);
     activeDownloadProcesses.remove(vodId);
     activeDownloadsProgress.remove(vodId);
     activeDownloadTasks.remove(vodId);
@@ -776,6 +881,7 @@ class PlayerService {
       downloadTaskFastDownloadOverrides[vodId] = overrideDisablePostProcessing;
     }
 
+    _claimDownloadState(vodId);
     downloadChannelNames[vodId] = channelName;
     downloadTitles[vodId] = vod.title;
     queuedDownloadTasks[vodId] = vod;
@@ -875,7 +981,7 @@ class PlayerService {
     downloadTaskFastDownloadOverrides.remove(vodId);
     _cleanupDownloadState(vodId);
     onDownloadCancelled?.call(vodId);
-    removeVodFromArchive(vodId);
+    unawaited(removeVodFromArchive(vodId));
 
     // Remove the partial output. Anchored matching only: this used to delete
     // anything whose path merely contained " - <vodId>", so cancelling a short
@@ -928,7 +1034,7 @@ class PlayerService {
           // the archive made a later re-download exit 0 immediately without
           // producing a file, which surfaced as a bogus "Download completed".
           if (match != null) {
-            removeVodFromArchive(match.group(1)!);
+            unawaited(removeVodFromArchive(match.group(1)!));
           }
         } catch (_) {}
       }
@@ -1485,8 +1591,7 @@ class PlayerService {
             replies = token == null
                 ? ''
                 : await exchangeWithMpv(
-                    () => Socket.connect('127.0.0.1', port,
-                        timeout: const Duration(seconds: 2)),
+                    () => _connectToMpv(vod.id, port),
                     commands: mpvStatusCommands(),
                     bridgeToken: token,
                     // Wait for ALL THREE replies. The old code destroyed the
@@ -1497,11 +1602,7 @@ class PlayerService {
           } else {
             // macOS/Linux Unix domain socket connection
             replies = await exchangeWithMpv(
-                () => Socket.connect(
-                    InternetAddress(mpvIpcPath(vod.id, false),
-                        type: InternetAddressType.unix),
-                    0,
-                    timeout: const Duration(seconds: 2)),
+                () => _connectToMpv(vod.id, port),
                 commands: mpvStatusCommands(),
                 isComplete: mpvRepliesComplete);
           }
@@ -1738,6 +1839,31 @@ class PlayerService {
     return proc;
   }
 
+  /// Where a playing mpv's JSON IPC is reached, for the session [ipcName].
+  ///
+  /// On Windows, the session's loopback bridge on [port], which relays to
+  /// mpv's named pipe; elsewhere, mpv's own unix socket - the one
+  /// `--input-ipc-server` names at launch (buildPlayerArgs). The progress
+  /// tracker and the seek both connect through this. The seek used to dial
+  /// 127.0.0.1:[port] everywhere, where off Windows nothing listens, so it
+  /// could never reach mpv there.
+  static ({Object host, int port}) mpvIpcEndpoint(String ipcName, int port,
+          {required bool isWindows}) =>
+      isWindows
+          ? (host: '127.0.0.1', port: port)
+          : (
+              host: InternetAddress(mpvIpcPath(ipcName, false),
+                  type: InternetAddressType.unix),
+              port: 0,
+            );
+
+  Future<Socket> _connectToMpv(String ipcName, int port) {
+    final endpoint =
+        mpvIpcEndpoint(ipcName, port, isWindows: Platform.isWindows);
+    return Socket.connect(endpoint.host, endpoint.port,
+        timeout: const Duration(seconds: 2));
+  }
+
   /// One request/reply round trip over mpv's JSON IPC.
   ///
   /// With [bridgeToken] the far end is the Windows bridge, which wants the
@@ -1883,10 +2009,10 @@ class PlayerService {
         // answers every command with an "error" member; only "success" is
         // a seek that happened, and no answer at all is none.
         final replies = await exchangeWithMpv(
-          () => Socket.connect('127.0.0.1', port,
-              timeout: const Duration(seconds: 2)),
+          () => _connectToMpv(logKey, port),
           commands: [mpvSeekCommand(target)],
           bridgeToken: token,
+          isComplete: mpvSeekAnswered,
           timeout: const Duration(seconds: 2),
         );
         if (!replies.contains('"error":"success"')) {

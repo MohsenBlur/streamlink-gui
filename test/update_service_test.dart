@@ -154,6 +154,35 @@ void main() {
     });
   });
 
+  group('UpdateService.updaterArguments', () {
+    List<String> args() => UpdateService.updaterArguments(
+          targetPath: r'D:\Apps\Streamlink GUI',
+          sourcePath: r'C:\Temp\streamlink_gui_update_1\extracted\app',
+          exeName: 'streamlink_gui.exe',
+          readyFile: r'C:\Temp\streamlink_updater_ready_1',
+          appPid: 4242,
+        );
+
+    test('names this process for the updater to wait on', () {
+      // Without it the updater waited only on the installed copy's mutex,
+      // so a portable copy was closed at once and killed 2.5s later.
+      final a = args();
+      final flag = a.indexOf('--wait-pid');
+      expect(flag, greaterThan(2));
+      expect(a[flag + 1], '4242');
+    });
+
+    test('keeps the three positional arguments every updater reads first', () {
+      expect(args().take(3), [
+        r'D:\Apps\Streamlink GUI',
+        r'C:\Temp\streamlink_gui_update_1\extracted\app',
+        'streamlink_gui.exe',
+      ]);
+      final a = args();
+      expect(a[a.indexOf('--ready-file') + 1], r'C:\Temp\streamlink_updater_ready_1');
+    });
+  });
+
   group('update downloads never outlive a failure', () {
     late Directory root;
 
@@ -402,9 +431,16 @@ void main() {
           client: MockClient.streaming((request, _) async =>
               http.StreamedResponse(body.stream, 200, contentLength: 2)),
         );
-        final pending = service.downloadUpdate(_zipUrl, null);
+        // Waits for the download to have taken its first chunk, by which
+        // point its directory exists and is registered. This pumped the event
+        // queue instead, which the real file IO of creating the directory
+        // could outlast under a loaded full-suite run.
+        final firstChunk = Completer<void>();
+        final pending = service.downloadUpdate(_zipUrl, (_) {
+          if (!firstChunk.isCompleted) firstChunk.complete();
+        });
         body.add([1]);
-        await pumpEventQueue();
+        await firstChunk.future;
         expect(updateDirs(), hasLength(1));
 
         await service.sweepStaleUpdateDirs(olderThan: Duration.zero);

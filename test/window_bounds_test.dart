@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -437,6 +438,26 @@ void main() {
               startHidden: false, hiddenByUser: false),
           isFalse,
           reason: 'the runner could not say');
+    });
+  });
+
+  group("the runner's DescribeWindow", () {
+    // The runner's C++ has no tests of its own, and no launch here can show
+    // this: the offset only exists with a taskbar on the top or left edge of
+    // a monitor. So the source is read, as the main.dart checks do.
+    test('converts a restore rectangle with the work area of its own monitor',
+        () {
+      // Not the monitor the window is maximized or minimized on: it can
+      // restore to another, whose taskbar is not the same.
+      final source =
+          File('windows/runner/window_placement.cpp').readAsStringSync();
+      final start = source.indexOf('EncodableMap DescribeWindow(');
+      expect(start, greaterThan(0));
+      final conversion = source.substring(
+          source.indexOf('rcNormalPosition;', start),
+          source.indexOf('GetWindowRect(window, &normal)', start));
+      expect(conversion, contains('MonitorFromRect(&normal'));
+      expect(conversion, isNot(contains('MonitorFromWindow(')));
     });
   });
 }

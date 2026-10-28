@@ -145,14 +145,62 @@ class ConfigSecrets {
     return needsRewrite ? onDisk : null;
   }
 
+  /// [plain] in its at-rest form, or null where it cannot be sealed. Nothing
+  /// is remembered for the next save, unlike [sealForDisk].
+  String? sealText(String plain) {
+    final active = cipher;
+    if (active == null) return null;
+    final bytes = active.seal(Uint8List.fromList(utf8.encode(plain)));
+    return bytes == null ? null : sealedPrefix + base64.encode(bytes);
+  }
+
+  /// [text], a quarantined `.corrupt-*` copy of the config, with each
+  /// plaintext token in it sealed; null when it has none, or none can be.
+  ///
+  /// A copy is a whole config that could not be read back, so it carries
+  /// the tokens too: in plaintext when an older build wrote it, or when it
+  /// was quarantined before its tokens were ever migrated. It cannot be
+  /// parsed - that is why it was quarantined - so this works on the raw
+  /// text, swapping each token key's string value for its sealed form and
+  /// leaving every other character as it was, for whoever recovers the file
+  /// by hand: put back as the config, this build opens the tokens again. A
+  /// value the damage cut off at the end of the text is sealed as far as it
+  /// goes.
+  String? sealTokensInText(String text) {
+    var changed = false;
+    final sealed = text.replaceAllMapped(_tokenInText, (match) {
+      final raw = match[2]!;
+      if (raw.isEmpty || isSealed(raw)) return match[0]!;
+      final value = sealText(_jsonStringOrRaw(raw));
+      if (value == null) return match[0]!;
+      changed = true;
+      return '${match[1]}$value${match[3]}';
+    });
+    return changed ? sealed : null;
+  }
+
+  /// `"<token key>" : "` (group 1), the string's contents (group 2), and its
+  /// closing quote, or the end of a text that stops inside it (group 3).
+  static final RegExp _tokenInText = RegExp(
+    '("(?:${AppSettings.secretJsonKeys.map(RegExp.escape).join('|')})"'
+    r'\s*:\s*")((?:[^"\\]|\\.)*)("|\\?$)',
+  );
+
+  static String _jsonStringOrRaw(String raw) {
+    try {
+      return json.decode('"$raw"') as String;
+    } catch (_) {
+      return raw;
+    }
+  }
+
   String _seal(String key, String plain) {
     final previous = _lastSealed[key];
     if (previous != null && previous.plain == plain) return previous.sealed;
 
-    final active = cipher;
-    if (active == null) return plain;
-    final bytes = active.seal(Uint8List.fromList(utf8.encode(plain)));
-    if (bytes == null) {
+    if (cipher == null) return plain;
+    final sealed = sealText(plain);
+    if (sealed == null) {
       // Kept in plaintext rather than dropped: losing the token on a save is
       // worse than the exposure every earlier build had. Not cached, so the
       // next save tries to seal it again.
@@ -163,7 +211,6 @@ class ConfigSecrets {
       }
       return plain;
     }
-    final sealed = sealedPrefix + base64.encode(bytes);
     _lastSealed[key] = (plain: plain, sealed: sealed);
     return sealed;
   }
