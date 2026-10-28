@@ -84,6 +84,16 @@ void main() {
         reason: 'saved before the tray teardown, then after it');
   });
 
+  test('a window hidden to the tray is not shown again by the startup check',
+      () {
+    expect(bodyOf('Future<void> _hideWindow()'),
+        contains('_windowHiddenByUser = true'));
+    expect(bodyOf('Future<void> _showWindow()'),
+        contains('_windowHiddenByUser = false'));
+    expect(bodyOf('Future<void> _checkWindowAfterFirstFrame('),
+        contains('hiddenByUser: _windowHiddenByUser'));
+  });
+
   test('a VOD auto-download announces is left out of the New VOD toast', () {
     expect(bodyOf('void _onNewVods('),
         contains('_automation.newVodsToAnnounce('));

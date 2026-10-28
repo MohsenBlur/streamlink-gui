@@ -393,4 +393,50 @@ void main() {
       expect(plan.bounds, const Rect.fromLTWH(0, 0, 1024, 560));
     });
   });
+
+  group('the check after the first frame', () {
+    WindowState state({bool visible = true, bool content = true}) =>
+        WindowState(
+          bounds: const Rect.fromLTWH(0, 0, 1280, 720),
+          maximized: false,
+          minimized: false,
+          visible: visible,
+          contentVisible: content,
+          dpi: 96,
+        );
+
+    test('shows again a frame or content view that is not visible', () {
+      for (final s in [state(visible: false), state(content: false)]) {
+        expect(
+            shouldReshowAfterFirstFrame(s,
+                startHidden: false, hiddenByUser: false),
+            isTrue,
+            reason: '$s');
+      }
+      expect(
+          shouldReshowAfterFirstFrame(state(),
+              startHidden: false, hiddenByUser: false),
+          isFalse);
+    });
+
+    test('leaves a window the user put in the tray where it is', () {
+      // Closed to the tray within 1.5s of launching, it popped back.
+      expect(
+          shouldReshowAfterFirstFrame(state(visible: false),
+              startHidden: false, hiddenByUser: true),
+          isFalse);
+    });
+
+    test('leaves a window that started hidden alone', () {
+      expect(
+          shouldReshowAfterFirstFrame(state(visible: false),
+              startHidden: true, hiddenByUser: false),
+          isFalse);
+      expect(
+          shouldReshowAfterFirstFrame(null,
+              startHidden: false, hiddenByUser: false),
+          isFalse,
+          reason: 'the runner could not say');
+    });
+  });
 }

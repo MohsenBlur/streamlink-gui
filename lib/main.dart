@@ -260,6 +260,12 @@ Future<void> _prepareWindow(
   }
 }
 
+/// Set while the window is hidden because the user hid it (closed or
+/// minimized to the tray), and cleared when it is shown again; see
+/// _MainScreenState._hideWindow. Read by [_checkWindowAfterFirstFrame], which
+/// must not bring back a window put away on purpose.
+bool _windowHiddenByUser = false;
+
 /// Records what the window looks like once the first frame is up, and puts
 /// right what it can.
 ///
@@ -285,8 +291,11 @@ Future<void> _checkWindowAfterFirstFrame({
         : '; laid out at ${view.physicalSize.width.round()}x'
             '${view.physicalSize.height.round()} @ ${view.devicePixelRatio}';
     milestone('window after first frame: $state$layout');
-    if (state == null || startHidden) return;
-    if (!state.visible || !state.contentVisible) {
+    if (!startHidden && _windowHiddenByUser) {
+      milestone('hidden to the tray since; leaving it as it is');
+    }
+    if (shouldReshowAfterFirstFrame(state,
+        startHidden: startHidden, hiddenByUser: _windowHiddenByUser)) {
       milestone('window or its content is not visible; showing it again');
       await NativeWindow.show();
       milestone('window after re-show: ${await NativeWindow.state()}');
@@ -1529,6 +1538,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
   /// maximized session, its first appearance must be maximized, and a plain
   /// show brought it back at its normal size.
   Future<void> _showWindow() async {
+    _windowHiddenByUser = false;
     try {
       await NativeWindow.show();
     } catch (_) {
@@ -1537,7 +1547,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     }
   }
 
+  /// The user's own hide: close or minimize to the tray, or the tray's Hide
+  /// App. Marked first, so the check after the first frame leaves it hidden.
   Future<void> _hideWindow() async {
+    _windowHiddenByUser = true;
     await windowManager.hide();
   }
 

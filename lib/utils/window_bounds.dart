@@ -129,6 +129,23 @@ class WindowState {
       '${monitorName == null ? '' : ' on $monitorName'}';
 }
 
+/// Whether the check a moment after the first frame should show the window
+/// again: the frame or its content view is not visible, and nobody meant it
+/// to be hidden.
+///
+/// Not when the app started hidden (Start minimized), and not when the user
+/// has since hidden it on purpose ([hiddenByUser]: closed or minimized to the
+/// tray). The check runs 1.5s after the first frame, and a window closed to
+/// the tray inside that time used to pop straight back.
+bool shouldReshowAfterFirstFrame(
+  WindowState? state, {
+  required bool startHidden,
+  required bool hiddenByUser,
+}) {
+  if (state == null || startHidden || hiddenByUser) return false;
+  return !state.visible || !state.contentVisible;
+}
+
 /// The persisted geometry: where the window was, in physical pixels, and on
 /// which monitor.
 ///
