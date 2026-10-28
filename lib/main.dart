@@ -13,7 +13,7 @@ import 'services/crash_log.dart';
 import 'services/desktop_shell.dart';
 import 'services/storage_service.dart';
 import 'state/twitch_auth_notifier.dart';
-import 'state/watch_progress_store.dart';
+import 'state/watch_history_controller.dart';
 import 'utils/twitch_auth_status.dart';
 import 'services/twitch_api_service.dart';
 import 'services/player_service.dart';
@@ -323,24 +323,26 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   bool _isMultiSelectMode = false;
   final Set<String> _selectedVodIds = {};
   bool _isBulkUpdatingVods = false;
-  /// The flat view every reader already uses, derived from [_progressStore].
-  ///
-  /// Kept so no call site changes, and still written into channels_config.json
-  /// so an older build finds positions where it expects them.
-  Map<String, int> _localVodsProgress = {};
-
-  /// The durable layer underneath it: the furthest point ever reached, a short
-  /// undo trail, and the guard that stops a player which came up in the wrong
-  /// place from writing over a good position.
-  WatchProgressStore _progressStore = WatchProgressStore();
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
 
   /// Every VOD ever downloaded, file or no file, so auto-download never
   /// fetches one twice (DownloadHistory); saved with the registry.
   final DownloadHistory _downloadHistory = DownloadHistory();
-  final Map<String, TwitchVideo> _activePlayingVideos = {};
-  List<TwitchVideo> _recentWatchedVods = [];
+
+  /// Watch positions, the recently-watched list and the VODs playing
+  /// (WatchHistoryController); wired to PlayerService in initState.
+  late final WatchHistoryController _history = WatchHistoryController(
+    storage: _storageService,
+    repository: _settingsRepo,
+    api: _apiService,
+    settings: () => _settings,
+    openVods: () => _channelVods,
+    log: _logNotifier.appendLog,
+    onLoadError: (e, st) =>
+        CrashLog.current?.error('loading watch history', e, st),
+    clock: _services.clock,
+  );
 
   // ---- Persistence and downloads -------------------------------------------
   // When the three files are written (SettingsRepository) and the saved
@@ -352,9 +354,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   late final SettingsRepository _settingsRepo = SettingsRepository(
     writeConfig: _writeConfigFile,
     writeProgress: () =>
-        _storageService.saveWatchProgress(_progressStore.toJson()),
+        _storageService.saveWatchProgress(_history.store.toJson()),
     writeRecents: () => _storageService.saveRecentWatchedVods(
-        _recentWatchedVods.map((v) => v.toJson()).toList()),
+        _history.recents.map((v) => v.toJson()).toList()),
     onError: (e, st) => CrashLog.current?.error('saving', e, st),
   );
 
@@ -364,9 +366,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     onScanned: _applyDownloadScan,
   );
 
-  /// The last whole percent rebuilt for each playing VOD's progress, so a
-  /// watch-position tick repaints only when something on screen would change.
-  final Map<String, int> _watchProgressBuckets = {};
   // ---------------------------------------------------------------------------
 
   /// Set when the user dismisses the save-failure banner, so a persistent
@@ -447,7 +446,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     fetchVods: (channel) => _apiService.fetchVodsForChannel(
       channel: channel,
       settings: _settings,
-      localVodsProgress: _localVodsProgress,
+      localVodsProgress: _history.flat,
       // This pass renders nothing, so the per-VOD game lookup is pure
       // overhead. It runs for every auto-download channel every minute.
       fetchGames: false,
@@ -457,10 +456,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     readWatchProgress: (vods) => _apiService.fetchWatchProgressFor(
       vods: vods,
       settings: _settings,
-      localVodsProgress: _localVodsProgress,
+      localVodsProgress: _history.flat,
     ),
     clock: _services.clock,
-    localProgress: () => _localVodsProgress,
+    localProgress: () => _history.flat,
     isVodHandled: (vodId) =>
         _downloadedVodsRegistry.containsKey(vodId) ||
         _playerService.activeDownloadTasks.containsKey(vodId) ||
@@ -537,18 +536,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     };
 
     _playerService.onPlayerStopped = (key, exitCode, userInitiated) {
-      // Release the "user is watching a VOD" marker.
-      //
-      // This map was written when a VOD started and never cleared anywhere, so
-      // the first VOD played in a session made it permanently non-empty - and
-      // the automation guard that consults it then returned early on every
-      // subsequent pass, silently killing BOTH priority auto-play and VOD
-      // auto-download until the app was restarted.
-      _activePlayingVideos.remove(key);
-      // The position playback stopped at is the one to keep, so it is
-      // written now rather than when the progress delay runs out.
-      _watchProgressBuckets.remove(key);
-      unawaited(_settingsRepo.flushProgress());
+      // Releases the "user is watching a VOD" marker, and writes the position
+      // playback stopped at.
+      _history.playbackStopped(key);
       if (!mounted) return;
       _logNotifier.endSession(key, exitCode);
 
@@ -576,72 +566,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       }
     };
 
-    _playerService.recordWatchProgress =
-        (vodId, position, progress, sessionAgeMs) {
-      // One chokepoint, and it can say no. A relaunched player that came up at
-      // the top of a five-hour VOD used to write its way over the stored
-      // position within seconds - here and on Twitch, where max(local, remote)
-      // cannot undo it. Answering false is what keeps it off Twitch: the
-      // tracker pushes only the positions kept here.
-      final result = _progressStore.record(vodId, position,
-          nowMs: DateTime.now().millisecondsSinceEpoch,
-          sessionAgeMs: sessionAgeMs);
-      if (!result.accepted) {
-        if (result.outcome == ProgressWriteOutcome.rejectedSuspectRegression) {
-          _logNotifier.appendLog(
-              vodId,
-              '[System] Ignored a watch position of ${position}s: it is far behind '
-              'the furthest point reached (${result.entry.best}s) and arrived in the '
-              'first seconds of this session, which is what a failed resume looks '
-              'like.');
-        }
-        return false;
-      }
-      if (mounted) {
-        // Every tick updates the state; only a tick that changes something on
-        // screen rebuilds it. This rebuilt the whole screen - the grid, the
-        // carousel and all - every two seconds for as long as anything
-        // played, while the cards draw progress to a whole percent.
-        var visible = progressTickIsVisible(
-          previousBucket: _watchProgressBuckets[vodId],
-          progress: progress,
-          previousStatus: null,
-          status: null,
-        );
-        _watchProgressBuckets[vodId] = (progress * 100).floor();
-
-        _localVodsProgress[vodId] = position;
-        final idx = _channelVods.indexWhere((v) => v.id == vodId);
-        if (idx != -1) {
-          _channelVods[idx].watchPosition = position;
-          _channelVods[idx].watchProgress = progress;
-        }
-
-        final video = _activePlayingVideos[vodId];
-        if (video != null) {
-          video.watchPosition = position;
-          video.watchProgress = progress;
-
-          // Moving it to the front happens once per session; after that it is
-          // already there, and nothing about the order changes.
-          if (_recentWatchedVods.isEmpty ||
-              !identical(_recentWatchedVods.first, video)) {
-            visible = true;
-            _recentWatchedVods.removeWhere((v) => v.id == vodId);
-            _recentWatchedVods.insert(0, video);
-
-            if (_recentWatchedVods.length > _settings.maxRecentlyWatched) {
-              _recentWatchedVods = _recentWatchedVods.take(_settings.maxRecentlyWatched).toList();
-            }
-          }
-        }
-        if (visible) setState(() {});
-        // Written within the repository's progress delay rather than on every
-        // tick, and at once when the player stops (onPlayerStopped).
-        _settingsRepo.noteProgress(recents: video != null);
-      }
-      return true;
-    };
+    // One chokepoint for every position a player reports, and it can say no
+    // (WatchHistoryController.record); the tracker pushes to Twitch only what
+    // it keeps.
+    _playerService.recordWatchProgress = _history.record;
 
     _playerService.onDownloadProgress = (vodId, progress, status) {
       if (!mounted) return;
@@ -738,6 +666,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _channelsCtl.onPass = _onChannelsPass;
     _vodBrowser.addListener(_onRefreshStateChanged);
     _vodBrowser.onNewVods = _onNewVods;
+    _history.addListener(_onRefreshStateChanged);
 
     storageWriteFailure.addListener(_onSaveFailureChanged);
     twitchAuth.helix.addListener(_onAuthStatusChanged);
@@ -821,7 +750,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     final unfinished = _downloads.persisted;
     if (unfinished != null) _settings.unfinishedDownloads = unfinished;
     return _storageService.saveConfig(
-        _channels, _settings, _localVodsProgress, _downloadedVodsRegistry,
+        _channels, _settings, _history.flat, _downloadedVodsRegistry,
         downloadHistory: _downloadHistory.toJson());
   }
 
@@ -868,6 +797,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       ..removeListener(_onRefreshStateChanged)
       ..dispose();
     _vodBrowser
+      ..removeListener(_onRefreshStateChanged)
+      ..dispose();
+    _history
       ..removeListener(_onRefreshStateChanged)
       ..dispose();
     // Persistence and downloads: anything still held is written out.
@@ -1157,11 +1089,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           }
         }
         final progress = stored.localProgress;
-        if (progress != null) {
-          _localVodsProgress = progress;
-          _progressStore = WatchProgressStore.fromJson(
-              progress.map((k, v) => MapEntry(k, v as dynamic)));
-        }
+        if (progress != null) _history.restoreFlat(progress);
         final registry = stored.registry;
         if (registry != null) _downloadedVodsRegistry = registry;
         // A config from before the download history starts it from what the
@@ -1200,7 +1128,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       // the resume above, the window settling - first rewrote the sidecar
       // from the flat copy, erasing every furthest point and undo trail.
       // Until markHistoryLoaded, no write can reach either file.
-      await _loadWatchHistory();
+      await _history.load();
 
       await _refreshAllChannels(isInitialLoad: true);
       // Ask Twitch whether the token works BEFORE using it. The old gate was
@@ -1220,7 +1148,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       // gate would let the next save replace the sidecar with the flat copy -
       // or with nothing - which is the loss the gate exists to stop.
       _settingsRepo.markConfigLoaded();
-      if (!_settingsRepo.historyLoaded) await _loadWatchHistory();
+      if (!_settingsRepo.historyLoaded) await _history.load();
       // Arms the recovery refresh. Startup already fetches everything, so
       // arming earlier would make the first successful probe refresh it all a
       // second time.
@@ -1229,58 +1157,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// Reads watch_progress.json and the recently-watched list into memory,
-  /// then lets them be written.
-  Future<void> _loadWatchHistory() async {
-    try {
-      // The sidecar is authoritative where it has an entry: it carries the
-      // furthest point and the undo trail, which the flat compatibility copy
-      // in the config cannot express.
-      final sidecar = await _storageService.loadWatchProgress();
-      if (sidecar.isNotEmpty) {
-        final merged = <String, dynamic>{
-          ..._progressStore.toJson(),
-          ...sidecar,
-        };
-        _progressStore = WatchProgressStore.fromJson(merged);
-        _localVodsProgress = _progressStore.toFlatMap();
-      }
-
-      final recents = await _storageService.loadRecentWatchedVods();
-      if (mounted) {
-        setState(() {
-          _recentWatchedVods =
-              recents.map(TwitchVideo.tryFromJson).whereType<TwitchVideo>().toList();
-        });
-      }
-    } catch (e, st) {
-      // Both readers already fall back to empty on a damaged file; this is
-      // for anything else, which must not stop the channels loading after it.
-      CrashLog.current?.error('loading watch history', e, st);
-    } finally {
-      _settingsRepo.markHistoryLoaded();
-    }
-  }
-
-  /// Offers to jump to the furthest point reached, when playback starts behind it.
-  ///
-  /// Deferred rather than immediate: the player needs a moment to come up and
-  /// register its control port before a seek can land, and the message is
-  /// useless before there is something to seek.
+  /// Offers to jump to the furthest point reached, when playback starts
+  /// behind it (WatchHistoryController.offerFurthestPosition says when).
   void _offerFurthestPosition(TwitchVideo vod) {
-    if (_progressStore[vod.id]?.hasRecoverablePosition != true) return;
-
-    Future<void>.delayed(const Duration(seconds: 6), () {
-      if (!mounted) return;
-      if (!_playerService.playingVodIds.contains(vod.id)) return;
-      // Re-read at fire time, not before the wait. The session writes its own
-      // position as soon as it has landed, so by now playback may already be
-      // past the furthest point - in which case there is nothing to offer and
-      // saying otherwise would just be noise.
-      final entry = _progressStore[vod.id];
-      if (entry == null || !entry.hasRecoverablePosition) return;
-      final best = entry.best;
-      final label = _formatClock(best);
+    _history.offerFurthestPosition(vod,
+        stillPlaying: () => _playerService.playingVodIds.contains(vod.id),
+        offer: (best) {
+      final label = WatchHistoryController.clockLabel(best);
       _showSnackBar(
         'You had reached $label in this VOD.',
         isError: false,
@@ -1299,14 +1182,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         ),
       );
     });
-  }
-
-  String _formatClock(int totalSeconds) {
-    final h = totalSeconds ~/ 3600;
-    final m = (totalSeconds % 3600) ~/ 60;
-    final sec = totalSeconds % 60;
-    String two(int v) => v < 10 ? '0$v' : '$v';
-    return h > 0 ? '$h:${two(m)}:${two(sec)}' : '${two(m)}:${two(sec)}';
   }
 
   /// Re-fetches what a rejected token left stale.
@@ -1522,7 +1397,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   late final VodBrowserController _vodBrowser = VodBrowserController(
     api: _apiService,
     settings: () => _settings,
-    localProgress: () => _localVodsProgress,
+    localProgress: () => _history.flat,
     clock: _services.clock,
   );
 
@@ -1800,7 +1675,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   /// True while a VOD is being watched, so auto-play stands down.
   bool get _isWatchingVod =>
-      _playerService.playingVodIds.isNotEmpty || _activePlayingVideos.isNotEmpty;
+      _playerService.playingVodIds.isNotEmpty || _history.isWatching;
 
   /// One favorites automation pass (AutomationService.runPass); a call
   /// while one is still running does nothing.
@@ -1912,11 +1787,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _bulkUpdateSelectedVods(bool markAsWatched) async {
-    // No browser token required. The write that matters is local, and refusing
-    // without a token blocked the whole feature to protect a sync that Twitch
-    // rejects anyway; a token, when present, is used opportunistically.
-    final webToken = _settings.twitchWebOauthToken.trim();
-
     if (_selectedVodIds.isEmpty) {
       _showSnackBar('No VODs selected.', isError: true);
       return;
@@ -1925,41 +1795,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     setState(() {
       _isBulkUpdatingVods = true;
     });
-
-    int successCount = 0;
-
-    for (var videoId in _selectedVodIds) {
-      final vodIndex = _channelVods.indexWhere((v) => v.id == videoId);
-      if (vodIndex == -1) continue;
-
-      final vod = _channelVods[vodIndex];
-      int targetPosition = 0;
-      if (markAsWatched) {
-        targetPosition = _apiService.parseDurationToSeconds(vod.duration);
-      }
-
-      setState(() {
-        _localVodsProgress[videoId] = targetPosition;
-        // An explicit user action, so it may move the furthest point too -
-        // "mark unwatched" has to genuinely mean unwatched.
-        if (targetPosition <= 0) {
-          _progressStore.clear(videoId);
-        } else {
-          _progressStore.record(videoId, targetPosition,
-              nowMs: DateTime.now().millisecondsSinceEpoch,
-              sessionAgeMs: kSessionGraceSeconds * 1000 + 1);
-        }
-        vod.watchPosition = targetPosition;
-        vod.watchProgress = markAsWatched ? 1.0 : 0.0;
-      });
-      successCount++;
-
-      if (webToken.isNotEmpty) {
-        try {
-          _apiService.syncSingleVODProgressDirect(videoId, targetPosition, webToken).catchError((_) {});
-        } catch (_) {}
-      }
-    }
+    // The selection's order, and only what the grid still shows.
+    final successCount = _history.mark([
+      for (final id in _selectedVodIds)
+        ..._channelVods.where((v) => v.id == id).take(1),
+    ], watched: markAsWatched);
 
     setState(() {
       _isBulkUpdatingVods = false;
@@ -1969,24 +1809,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
     if (successCount > 0) {
       await _saveChannels();
-      // Careful with this wording. Local progress is merged as
-      // max(local, remote) on the next fetch, so marking WATCHED sticks - it
-      // only ever raises the position - while marking UNWATCHED sets it to 0
-      // and is silently overwritten by the remote position on the next fetch
-      // whenever a browser token is present. Claiming a clean local update
-      // would just replace one over-claim with another.
-      final revertible = !markAsWatched && webToken.isNotEmpty;
-      _showSnackBar(
-        revertible
-            ? 'Marked $successCount VODs unwatched here. Twitch still has a '
-                'position for them, so this may come back on the next refresh.'
-            // Either way round: an Unwatched with no browser token said it
-            // had marked them watched.
-            : 'Marked $successCount VODs ${markAsWatched ? 'watched' : 'unwatched'} '
-                'here. Twitch does not accept watch history from third-party '
-                'apps, so this stays local.',
-        isError: false,
-      );
+      _showSnackBar(_history.markedMessage(successCount, watched: markAsWatched),
+          isError: false);
     }
   }
 
@@ -2044,7 +1868,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       playingVodIds: _playerService.playingVodIds,
       runningChannels: _playerService.runningChannels,
       vodTitles: {
-        for (final entry in _activePlayingVideos.entries)
+        for (final entry in _history.playing.entries)
           entry.key: entry.value.title,
       },
     );
@@ -2082,34 +1906,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _clearWatchProgress() async {
-    setState(() {
-      _localVodsProgress.clear();
-      _progressStore.clearAll();
-      for (final vod in _channelVods) {
-        // Both fields, not just the percentage: zeroing watchProgress while
-        // leaving watchPosition was an internally inconsistent state, and
-        // _playVod now derives progress FROM position - so a lone position
-        // would resurrect the "progress" this action exists to clear.
-        vod.watchProgress = 0.0;
-        vod.watchPosition = 0;
-      }
-    });
-    await _saveChannels();
-
-    // Best-effort push of the reset to Twitch, else the remote max-merge
-    // restores the old positions on the next fetch and the clear appears
-    // not to have worked. Mirrors _bulkUpdateSelectedVods.
-    String webToken = _settings.twitchWebOauthToken.trim();
-    if (webToken.startsWith('oauth:')) webToken = webToken.substring(6);
-    if (webToken.isNotEmpty) {
-      for (final vod in _channelVods) {
-        try {
-          await _apiService.syncSingleVODProgressDirect(vod.id, 0, webToken);
-        } catch (_) {
-          break; // one failure means the rest will fail the same way
-        }
-      }
-    }
+    await _history.clearAll();
     _showSnackBar('Local watch progress history cleared!', isError: false);
   }
 
@@ -2375,7 +2172,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Widget _buildHome() {
     return HomeView(
       channels: _channels,
-      recentVods: _recentWatchedVods,
+      recentVods: _history.recents,
       runningDownloads: _activity.value.downloading,
       downloadedCount: _downloadedVodsRegistry.length,
       accountLogin: _authenticatedUserLogin,
@@ -2433,8 +2230,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   void _refreshLibraryEntries() {
     final entries = buildLibraryEntries(
       registry: _downloadedVodsRegistry,
-      recents: _recentWatchedVods,
-      localProgress: _localVodsProgress,
+      recents: _history.recents,
+      localProgress: _history.flat,
       channelNames: _playerService.downloadChannelNames,
       downloadRoot: _settings.vodDownloadFolder,
       statFile: (path) {
@@ -2505,15 +2302,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _removeLibraryEntryFromHistory(LibraryEntry entry) async {
-    setState(() {
-      _recentWatchedVods.removeWhere((v) => v.id == entry.vodId);
-      _localVodsProgress.remove(entry.vodId);
-      _progressStore.clear(entry.vodId);
-    });
-    // All three files, through the repository: the list was written here
-    // straight through the storage service, round the gate that keeps it
-    // from being written before it has been read.
-    await _settingsRepo.saveNow(recents: true);
+    // Written through the repository, all three files.
+    await _history.forget(entry.vodId);
     if (!mounted) return;
     _refreshLibraryEntries();
   }
@@ -2640,7 +2430,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       return;
     }
 
-    final localPos = _localVodsProgress[vod.id];
+    final localPos = _history.flat[vod.id];
     if (localPos != null && (vod.watchPosition == null || localPos > vod.watchPosition!)) {
       vod.watchPosition = localPos;
     }
@@ -2655,7 +2445,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       vod.watchProgress = vod.watchPosition! / knownTotalSeconds;
     }
 
-    _activePlayingVideos[vod.id] = vod;
+    _history.startPlaying(vod);
     File? file;
     final registeredPath = _downloadedVodsRegistry[vod.id];
     if (registeredPath != null) {
@@ -2672,7 +2462,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
 
     
-    // _activePlayingVideos is what _isWatchingVod reads, and only
+    // The playing set is what _isWatchingVod reads, and only
     // onPlayerStopped clears it. If a launch fails before the service can
     // arrange that callback, auto-play and auto-download stand down for the
     // rest of the session - the exact failure already documented and fixed
@@ -2688,7 +2478,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _offerFurthestPosition(vod);
 
     launch.catchError((Object e) {
-      _activePlayingVideos.remove(vod.id);
+      _history.launchFailed(vod.id);
       if (mounted) {
         _showSnackBar('Could not start playback: ${describeTwitchError(e)}', isError: true);
       }

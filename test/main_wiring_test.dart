@@ -53,12 +53,20 @@ void main() {
   test('the recently-watched list is written only through the repository',
       () {
     // Removing a VOD from the history wrote it straight to the storage
-    // service, round the gate that holds writes until the list is read.
-    expect('_storageService.saveRecentWatchedVods('.allMatches(src),
-        hasLength(1),
+    // service, round the gate that holds writes until the list is read. The
+    // removal itself is WatchHistoryController.forget now, whose write is
+    // held by that gate (watch_history_controller_test); this is that no
+    // other path in the app writes the list.
+    final writers = [
+      for (final file in Directory('lib').listSync(recursive: true))
+        if (file is File && file.path.endsWith('.dart'))
+          for (final _ in '.saveRecentWatchedVods('
+              .allMatches(file.readAsStringSync()))
+            file.path.replaceAll(r'\', '/'),
+    ];
+    expect(writers, ['lib/main.dart'],
         reason: "only the repository's own writer");
-    expect(bodyOf('Future<void> _removeLibraryEntryFromHistory('),
-        contains('_settingsRepo.saveNow(recents: true)'));
+    expect(src, contains('writeRecents: () => _storageService.saveRecentWatchedVods('));
   });
 
   test('a window hidden to the tray is not shown again by the startup check',
