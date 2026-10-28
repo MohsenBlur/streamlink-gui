@@ -50,6 +50,41 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
+  # The app only ships on Windows, but the suite above runs on ubuntu, where
+  # package:path follows POSIX rules: every test of a `C:\...` path - storage
+  # resolution, portable.txt, the updater's trailing-backslash handling - was
+  # checked under the wrong semantics, and a Windows-only regression passed CI.
+  # A separate job rather than a matrix over analyze-test, so that job's check
+  # name (which branch protection may require) does not change. Analyze is not
+  # repeated: its result does not depend on the host.
+  test-windows:
+    name: Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Read the pinned Flutter version
+        id: sdk
+        shell: bash
+        run: |
+          # tools/flutter-sdk.json is the single source of truth, shared with
+          # setup.ps1 - a version pinned here as well would silently drift.
+          version=$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' tools/flutter-sdk.json | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+          if [ -z "$version" ]; then
+            echo 'Could not read version from tools/flutter-sdk.json' >&2
+            exit 1
+          fi
+          echo "flutter=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.sdk.outputs.flutter }}
+          cache: true
+
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter test
+
   build-bundle:
     name: Build & Verify Bundle
     runs-on: windows-latest
