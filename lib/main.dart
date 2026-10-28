@@ -43,6 +43,7 @@ import 'widgets/settings_dialog.dart';
 import 'services/startup_service.dart';
 import 'state/app_shell_controller.dart';
 import 'state/library_entries.dart';
+import 'state/stored_config.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
 import 'services/oauth_loopback_server.dart';
@@ -1061,29 +1062,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       List<TwitchChannel> loadedChannels = [];
 
       if (config != null) {
-        final channelsJson = config['channels'];
-        int skippedChannels = 0;
-        if (channelsJson is List) {
-          for (final item in channelsJson) {
-            // Per-item parsing: a single malformed entry previously threw out to
-            // the outer catch before any channel was installed, leaving the list
-            // empty - and the next autosave then wrote that empty list to disk.
-            final channel = TwitchChannel.tryFromJson(item);
-            if (channel != null) {
-              loadedChannels.add(channel);
-            } else if (item != null) {
-              skippedChannels++;
-            }
-          }
+        // Each part read on its own, so one that cannot be read does not take
+        // the rest with it (StoredConfig).
+        final stored = StoredConfig.parse(config);
+        loadedChannels = stored.channels;
+        if (stored.skippedChannels > 0) {
+          print('[Config] Skipped ${stored.skippedChannels} unreadable channel entries.');
         }
-        if (skippedChannels > 0) {
-          print('[Config] Skipped $skippedChannels unreadable channel entries.');
+        if (stored.settingsError != null) {
+          print('[Config] Settings unreadable, using defaults: ${stored.settingsError}');
         }
-        final settingsJson = config['settings'];
-        if (settingsJson is Map<String, dynamic>) {
+        final storedSettings = stored.settings;
+        if (storedSettings != null) {
           try {
           setState(() {
-            _settings = AppSettings.fromJson(settingsJson);
+            _settings = storedSettings;
             _sidebarCollapsed = _settings.sidebarCollapsed;
             // The Followed/Live tabs are hidden without a token; restoring a
             // persisted tab index would strand the user on an invisible tab.
@@ -1118,33 +1111,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             );
           });
           } catch (e) {
-            // Keep going with default settings rather than aborting the whole
+            // Keep going with what was read rather than aborting the whole
             // load - the outer catch would abandon the channel list too, and
             // the next autosave would persist the loss.
             print('[Config] Settings unreadable, using defaults: $e');
           }
         }
-        final localProgressJson = config['local_vods_progress'];
-        if (localProgressJson is Map) {
-          // Skip unusable entries rather than letting one bad value (`v as int`
-          // on a double or string) abort the entire config load.
-          final progress = <String, int>{};
-          localProgressJson.forEach((k, v) {
-            final position = v is int ? v : (v is num ? v.toInt() : int.tryParse('$v'));
-            if (position != null) progress[k.toString()] = position;
-          });
+        final progress = stored.localProgress;
+        if (progress != null) {
           _localVodsProgress = progress;
           _progressStore = WatchProgressStore.fromJson(
               progress.map((k, v) => MapEntry(k, v as dynamic)));
         }
-        final downloadedVodsJson = config['downloaded_vods'];
-        if (downloadedVodsJson is Map) {
-          final registry = <String, String>{};
-          downloadedVodsJson.forEach((k, v) {
-            if (v != null) registry[k.toString()] = v.toString();
-          });
-          _downloadedVodsRegistry = registry;
-        }
+        final registry = stored.registry;
+        if (registry != null) _downloadedVodsRegistry = registry;
       }
 
       _channels.clear();
