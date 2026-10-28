@@ -343,6 +343,31 @@ void main() {
       });
     });
 
+    group('discardExtractedUpdate', () {
+      UpdateService service() => UpdateService(tempRoot: root, client: _noNetwork());
+
+      test('takes the whole attempt with it, from the extracted build', () async {
+        // main.dart's own step after extraction failing (the download queue
+        // could not be saved) used to leave ~300 MB for the sweep a day later.
+        final zip = downloaded(_zipOf({for (final f in _completeBuild) f: [1]}));
+        final appRoot = await service().extractAndVerifyZip(zip);
+        expect(updateDirs(), hasLength(1));
+
+        await service().discardExtractedUpdate(appRoot);
+
+        expect(updateDirs(), isEmpty);
+      });
+
+      test('leaves alone a directory that is not one of its own', () async {
+        final elsewhere = Directory(p.join(root.path, 'not_an_update', 'app'))
+          ..createSync(recursive: true);
+
+        await service().discardExtractedUpdate(elsewhere);
+
+        expect(elsewhere.existsSync(), isTrue);
+      });
+    });
+
     group('sweepStaleUpdateDirs', () {
       test('removes old update directories and nothing else', () async {
         final stale = Directory(p.join(root.path, '${UpdateService.updateDirPrefix}old'))

@@ -347,6 +347,26 @@ class UpdateService {
       path.basename(dir.path).startsWith(updateDirPrefix) &&
       path.isWithin(_tempRoot.path, dir.path);
 
+  /// Deletes the update working directory [appRoot] was extracted into, for a
+  /// caller whose own step failed after [extractAndVerifyZip] returned (the
+  /// download queue could not be saved, say).
+  ///
+  /// Only ever before [applyUpdateAndRestart] has been called: from then on
+  /// the updater may be copying out of it. Does nothing for a directory that
+  /// is not inside one of this service's update directories.
+  Future<void> discardExtractedUpdate(Directory appRoot) async {
+    var dir = appRoot.absolute;
+    while (true) {
+      if (_isUpdateDir(dir)) {
+        await _discardUpdateDir(dir);
+        return;
+      }
+      final parent = dir.parent;
+      if (parent.path == dir.path) return;
+      dir = parent;
+    }
+  }
+
   Future<void> _discardUpdateDir(Directory dir) async {
     if (!_isUpdateDir(dir)) return;
     _activeUpdateDirs.remove(dir.path);
@@ -489,13 +509,21 @@ class UpdateService {
       helperExe = File(path.join(targetPath, 'updater.exe'));
     }
 
-    if (!helperExe.existsSync()) {
-      throw Exception('Update helper binary (updater.exe) not found.');
-    }
-
-    // 2. Copy helper binary to %TEMP% to prevent self-locking during directory swap
+    // Until the updater is started nothing else can be using the extracted
+    // build, so a failure up to that point takes its ~300 MB with it rather
+    // than leaving it for the sweep a day later.
     final tempRunner = File(path.join(Directory.systemTemp.path, 'streamlink_updater_runner.exe'));
-    await helperExe.copy(tempRunner.path);
+    try {
+      if (!helperExe.existsSync()) {
+        throw Exception('Update helper binary (updater.exe) not found.');
+      }
+
+      // 2. Copy helper binary to %TEMP% to prevent self-locking during directory swap
+      await helperExe.copy(tempRunner.path);
+    } catch (_) {
+      await discardExtractedUpdate(sourceDir);
+      rethrow;
+    }
 
     // 3. Spawn the native helper.
     //

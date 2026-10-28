@@ -46,6 +46,7 @@ import 'widgets/vods_grid.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/hover_overlay_menu.dart';
 import 'widgets/interactive_popover.dart';
+import 'widgets/shell/route_handle.dart';
 
 import 'services/startup_service.dart';
 import 'state/library_entries.dart';
@@ -806,6 +807,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       if (setter != null) setter(() {});
     }
 
+    // Closed by handle on failure: see the catch below.
+    final progressDialog = RouteHandle();
+
     // No actions and not dismissible: the binaries are being replaced
     // underneath the running process, so there is genuinely no way out until
     // it finishes or fails. dialog_conformance_test pins this.
@@ -813,6 +817,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       context,
       dismissible: false,
       builder: (context) {
+        progressDialog.attach(context);
         return StatefulBuilder(
           builder: (context, setProgressState) {
             setDialogState = setProgressState;
@@ -844,8 +849,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     );
 
     Future.microtask(() async {
+      final updateService = UpdateService();
+      Directory? extractDir;
+      var updaterStarting = false;
       try {
-        final updateService = UpdateService();
         final zipFile = await updateService.downloadUpdate(info.downloadUrl, (pct) {
           updateDialog(() => progress = pct);
         });
@@ -857,9 +864,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         await updateService.verifyChecksum(zipFile, info.checksumUrl);
 
         updateDialog(() => statusText = 'Extracting update files...');
-        final extractDir = await updateService.extractAndVerifyZip(zipFile);
+        extractDir = await updateService.extractAndVerifyZip(zipFile);
 
         updateDialog(() => statusText = 'Closing running downloads and streams...');
+
+        // The restart ends this process from inside applyUpdateAndRestart,
+        // so the window's last geometry is saved now or not at all.
+        await _captureWindowState();
 
         // Shut down cleanly before the installation is replaced. This path
         // previously called exit(0) directly: streamlink/yt-dlp children were
@@ -877,9 +888,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
               'could not save the download queue (${saveFailure.path}), so the '
               'update was not applied. Downloads in progress are untouched.');
         }
-        _playerService.stopAll();
+        // Awaited: stopAll() kills asynchronously, and the children must be
+        // gone before the updater starts replacing the binaries they run
+        // from. The job object and the updater's own sweep would end them
+        // anyway, but not before the swap began.
+        await _playerService.stopAll();
 
         updateDialog(() => statusText = 'Applying update and restarting...');
+        updaterStarting = true;
         await updateService.applyUpdateAndRestart(extractDir);
       } catch (e) {
         _isUpdateInProgress = false;
@@ -888,8 +904,21 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
         // stay that way for the rest of the session - and eviction only
         // reclaims finished ones.
         _logNotifier.endAllRunning(-1);
+        // The extracted build is ~300 MB that only a sweep a day later would
+        // reclaim. Safe to delete while no updater can be copying out of it,
+        // which is every failure before applyUpdateAndRestart began; that
+        // method cleans up its own failures before it starts the updater,
+        // and after it, a late updater may still need the files.
+        final extracted = extractDir;
+        if (extracted != null && !updaterStarting) {
+          unawaited(updateService.discardExtractedUpdate(extracted));
+        }
+        // THIS dialog, not the top route. Navigator.pop(context) popped
+        // whatever was on top - a dialog the tray had opened over the
+        // progress dialog, say - and left "Updating", which has no buttons
+        // and cannot be dismissed, on screen for good.
+        progressDialog.close();
         if (mounted) {
-          Navigator.pop(context);
           // Matches the VOD fetch path: the user reads this, and
           // "Update failed: Exception: ..." is noise.
           _showSnackBar(
@@ -1062,6 +1091,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
     try {
       await _showWindow();
 
+      // The binaries are being replaced underneath the process and the
+      // update restarts the app by itself; quitting now would leave neither
+      // the old version running nor the new one installed. The update's own
+      // failure path re-enables this.
+      if (_isUpdateInProgress) {
+        if (mounted) {
+          _showSnackBar(
+              'An update is being installed. The app restarts by itself '
+              'when it is done.',
+              isError: false);
+        }
+        return;
+      }
+
       final hasUnfinished = _playerService.activeDownloadProcesses.isNotEmpty || _playerService.downloadQueue.isNotEmpty;
       if (hasUnfinished) {
         if (!mounted) return;
@@ -1119,6 +1162,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
           if (exitAnyway != true) return;
         }
       }
+      // A dialog answered while an update started (from Settings, say) must
+      // not quit underneath it either.
+      if (_isUpdateInProgress) return;
     } finally {
       _exitRequestOpen = false;
     }
