@@ -1119,7 +1119,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin, 
       await _shutDownAndExit();
     } catch (e, st) {
       // Never stay up half shut down: the updater is waiting on this
-      // process, and would end it a few seconds from now regardless.
+      // process, and would end it within half a minute regardless.
       CrashLog.current?.error('update: shutting down', e, st);
       exit(0);
     }
