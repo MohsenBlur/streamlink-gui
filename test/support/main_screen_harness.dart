@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:streamlink_gui/app_services.dart';
 import 'package:streamlink_gui/app_startup.dart';
 import 'package:streamlink_gui/main.dart';
@@ -59,8 +62,18 @@ class ScreenHarness {
 
   /// The settings a launch starts from when none are given: an account
   /// token, so the followed list and VOD lists load.
-  static AppSettings defaultSettings() =>
-      AppSettings()..twitchOauthToken = 'oauth:account-token';
+  ///
+  /// And a download folder that does not exist. AppSettings fills an empty
+  /// one in with the user's own Downloads\TwitchVODs - parsing a config
+  /// does too - so the screen's downloaded-file scans looked in the real
+  /// folder of whoever ran the tests. A test that downloads sets its own.
+  static AppSettings defaultSettings() => AppSettings()
+    ..twitchOauthToken = 'oauth:account-token'
+    ..vodDownloadFolder = noDownloadFolder;
+
+  /// Where [defaultSettings] says downloads go: nowhere that exists.
+  static final String noDownloadFolder = p.join(
+      Directory.systemTemp.path, 'streamlink_gui_screen_no_downloads');
 
   /// [defaultSettings] with a player named outright, for the tests that play
   /// a VOD: nothing goes looking for an installed one, and a player of no
@@ -129,6 +142,17 @@ class ScreenHarness {
     // aside here while the test font, which draws every glyph a full em
     // wide, ran the dashboard's 'OFFLINE' 5.6px out of its fixed-width
     // button (it fits on Windows); that label now scales down to fit.
+
+    // The title bar asks window_manager whether the window is maximized.
+    // No plugin answers here; a test that lets real time pass (runAsync)
+    // lets the question land, and it would fail on the missing plugin.
+    const windowManager = MethodChannel('window_manager');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(windowManager,
+        (call) async => call.method == 'isMaximized' ? false : null);
+    addTearDown(
+        () => messenger.setMockMethodCallHandler(windowManager, null));
 
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
