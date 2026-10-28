@@ -286,7 +286,7 @@ void main() {
     });
 
     test('a 200 landing mid-probe does not heal what is being re-checked', () {
-      // _refreshHelixAuth publishes `checking` before the probe. Dropping the
+      // AccountController.probe publishes `checking` before the probe. Dropping the
       // fault there let any poll or VOD-prefetch 200 in flight read as a
       // recovery, whose followed-list 401 forced the next probe - the flap,
       // one probe window at a time.

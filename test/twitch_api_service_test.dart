@@ -218,7 +218,7 @@ void main() {
     );
 
     test('a channel that never loaded is told why, so Add refuses it', () async {
-      // main.dart's _addChannel adds the channel unless errorMessage is set.
+      // ChannelsController.addFavorite adds the channel unless errorMessage is set.
       // Restoring an empty error here would add a name nobody had checked.
       final twitch = FakeTwitch((_) => jsonResponse({}, status: 429));
       final api = serviceFor(twitch);

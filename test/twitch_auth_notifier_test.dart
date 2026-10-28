@@ -70,7 +70,7 @@ void main() {
   });
 
   test('a re-probe window cannot be healed by an unscoped 200', () {
-    // _refreshHelixAuth publishes `checking`, then probes. A poll 200 landing
+    // AccountController.probe publishes `checking`, then probes. A poll 200 landing
     // in between used to produce an unusable -> usable edge: the recovery
     // refresh, the followed-list 401, the next forced probe.
     auth.noteHelixProbeCredential(saved);
