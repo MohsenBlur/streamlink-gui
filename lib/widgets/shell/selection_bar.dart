@@ -8,6 +8,7 @@ import '../../theme/theme_notifier.dart';
 import '../neumorphic/neu_button.dart';
 import '../neumorphic/neu_icon_action.dart';
 import '../interactive_popover.dart';
+import 'app_layout.dart';
 
 /// One bulk action offered while a selection is active.
 class SelectionAction {
@@ -70,20 +71,30 @@ class SelectionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = themeNotifier.isDarkTheme;
 
+    // Grown with Windows' Text size (textGrowthOf). Unscaled, at 125% this
+    // picked the full layout at 1280 wide, its labels outgrew the budget and
+    // the count's side overflowed into the actions.
+    final textGrowth = textGrowthOf(context);
+
     return LayoutBuilder(builder: (context, constraints) {
-      // Measured from the widest label set: the count and the two selection
-      // controls need ~300px, each labelled action ~130.
-      final full = constraints.maxWidth >= 300 + actions.length * 130;
+      // Measured from the widest label set at 100% text: the count and the
+      // two selection controls need ~300px, each labelled action ~130.
+      final full = constraints.maxWidth >=
+          (300 + actions.length * 130) * textGrowth;
 
       final count = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Flexible(
-            child: Text(
-              selectedCount == 0 ? 'Select videos' : '$selectedCount selected',
-              style: NeuType.label(isDark),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            child: _Shrinkable(
+              child: Text(
+                selectedCount == 0
+                    ? 'Select videos'
+                    : '$selectedCount selected',
+                style: NeuType.label(isDark),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
           const SizedBox(width: NeuSpace.s12),
@@ -226,11 +237,13 @@ class SelectionBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Flexible(
-                child: Text(
-                  'Actions',
-                  style: NeuType.captionStrong(isDark),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: _Shrinkable(
+                  child: Text(
+                    'Actions',
+                    style: NeuType.captionStrong(isDark),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
               const SizedBox(width: NeuSpace.s4),
@@ -250,15 +263,51 @@ class SelectionBar extends StatelessWidget {
 /// start, the rest for the end - keeps what it wants, and the other gives
 /// way; only when both want more than their shares is it [startShare] to
 /// the rest.
+///
+/// Neither end is given less than what it cannot do without - [startMin],
+/// [endMin]: its buttons and icons, which do not shrink, where its label
+/// does - while the other end can still give way. A share smaller than that
+/// overflowed the count's All and None at large text sizes, while the
+/// Actions label beside them could still have ellipsized.
 ({double start, double end}) splitTwoEnds(
     double available, double start, double end,
-    {double startShare = 2 / 3}) {
+    {double startShare = 2 / 3, double startMin = 0, double endMin = 0}) {
   if (start + end <= available) return (start: start, end: end);
   final startCap = available * startShare;
-  if (start <= startCap) return (start: start, end: available - start);
   final endCap = available - startCap;
-  if (end <= endCap) return (start: available - end, end: end);
-  return (start: startCap, end: endCap);
+  final double s;
+  if (start <= startCap) {
+    s = start;
+  } else if (end <= endCap) {
+    s = available - end;
+  } else {
+    s = startCap;
+  }
+  if (s < startMin) {
+    final grown = math.max(s, math.min(startMin, available - endMin));
+    return (start: grown, end: available - grown);
+  }
+  if (available - s < endMin) {
+    final shrunk = math.max(math.min(startMin, s), available - endMin);
+    return (start: shrunk, end: available - shrunk);
+  }
+  return (start: s, end: available - s);
+}
+
+/// [child], reporting no minimum width of its own: a label that ellipsizes,
+/// so the row it sits in can tell what it cannot do without (the buttons
+/// beside it) from what can give way (this). A Text's minimum is its
+/// longest word.
+class _Shrinkable extends SingleChildRenderObjectWidget {
+  const _Shrinkable({required Widget super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderShrinkable();
+}
+
+class _RenderShrinkable extends RenderProxyBox {
+  @override
+  double computeMinIntrinsicWidth(double height) => 0;
 }
 
 /// [start] at the row's left edge and [end] at its right, sized by
@@ -309,8 +358,12 @@ class _RenderTwoEnds extends RenderBox
       BoxConstraints constraints) {
     final wantStart = _start.getMaxIntrinsicWidth(double.infinity);
     final wantEnd = _end.getMaxIntrinsicWidth(double.infinity);
+    // Their minimums are what cannot give way: the labels in them are
+    // _Shrinkable, so what is left is buttons, gaps and icons.
     final split = constraints.hasBoundedWidth
-        ? splitTwoEnds(constraints.maxWidth, wantStart, wantEnd)
+        ? splitTwoEnds(constraints.maxWidth, wantStart, wantEnd,
+            startMin: _start.getMinIntrinsicWidth(double.infinity),
+            endMin: _end.getMinIntrinsicWidth(double.infinity))
         : (start: wantStart, end: wantEnd);
     BoxConstraints upTo(double width) =>
         BoxConstraints(maxWidth: width, maxHeight: constraints.maxHeight);
