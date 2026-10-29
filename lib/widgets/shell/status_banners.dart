@@ -19,7 +19,8 @@ class SaveFailureBanner extends StatelessWidget {
     super.key,
     required this.failure,
     required this.onDismiss,
-  }) : unreadable = false;
+  })  : unreadable = false,
+        historyOnly = false;
 
   /// A file that is there but could not be read, so nothing is saved over it
   /// this session (see StorageReadFailure): the same condition seen from the
@@ -29,11 +30,17 @@ class SaveFailureBanner extends StatelessWidget {
     required StorageReadFailure failure,
     required this.onDismiss,
   })  : failure = StorageWriteFailure(failure.path, failure.error, DateTime.now()),
-        unreadable = true;
+        unreadable = true,
+        historyOnly = !failure.isConfig;
 
   final StorageWriteFailure failure;
   final VoidCallback onDismiss;
   final bool unreadable;
+
+  /// The unreadable file is the watch history's, not the config. Said as
+  /// the settings, it told the user every change was being lost while the
+  /// config went on saving: only watch progress was.
+  final bool historyOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -54,9 +61,13 @@ class SaveFailureBanner extends StatelessWidget {
           Expanded(
             child: Text(
               unreadable
-                  ? 'Your saved settings could not be read, so nothing is saved '
-                      'over them until the app restarts. Changes made now will '
-                      'be lost.'
+                  ? (historyOnly
+                      ? 'Your watch history could not be read, so nothing is '
+                          'saved over it until the app restarts. Watch progress '
+                          'made now will be lost.'
+                      : 'Your saved settings could not be read, so nothing is '
+                          'saved over them until the app restarts. Changes made '
+                          'now will be lost.')
                   : 'Your settings could not be saved to disk. Recent changes '
                       'may be lost when the app closes.',
               style: NeuType.label(isDark, color: NeuTheme.dangerText(isDark)),
@@ -65,8 +76,8 @@ class SaveFailureBanner extends StatelessWidget {
           TextButton(
             // Same fix as the reconnect banner: the accent ink vanished into
             // the danger wash.
-            onPressed: () =>
-                showSaveFailureDetail(context, failure, unreadable: unreadable),
+            onPressed: () => showSaveFailureDetail(context, failure,
+                unreadable: unreadable, historyOnly: historyOnly),
             style: TextButton.styleFrom(
               foregroundColor: NeuTheme.dangerText(isDark),
             ),
@@ -162,13 +173,15 @@ class TwitchAuthBanner extends StatelessWidget {
 
 /// The save failure in full: which file, and what the system said.
 void showSaveFailureDetail(BuildContext context, StorageWriteFailure failure,
-    {bool unreadable = false}) {
+    {bool unreadable = false, bool historyOnly = false}) {
   NeuDialog.show<void>(
     context,
     // Read-only detail: clicking away is a fine way to leave it.
     dismissible: true,
     builder: (context) => NeuDialog(
-      title: unreadable ? 'Could not read settings' : 'Could not save settings',
+      title: unreadable
+          ? (historyOnly ? 'Could not read watch history' : 'Could not read settings')
+          : 'Could not save settings',
       icon: Icons.error_outline,
       tone: DialogTone.destructive,
       content: Column(

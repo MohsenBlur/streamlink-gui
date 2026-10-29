@@ -105,6 +105,7 @@ class ScreenHarness {
     List<TwitchVideo> recents = const <TwitchVideo>[],
     Size size = const Size(1400, 900),
     StorageReadFailure? configReadFailure,
+    StorageReadFailure? historyReadFailure,
   }) async {
     final effective = settings ?? defaultSettings();
     final stored = <String, dynamic>{
@@ -121,7 +122,8 @@ class ScreenHarness {
       ..watchProgress = json.decode(json.encode(watchProgress))
           as Map<String, dynamic>
       ..recents = [for (final vod in recents) vod.toJson()]
-      ..configReadFailure = configReadFailure;
+      ..configReadFailure = configReadFailure
+      ..historyReadFailure = historyReadFailure;
     files.forEach(
         (name, text) => storage.getStorageFile(name).writeAsStringSync(text));
 

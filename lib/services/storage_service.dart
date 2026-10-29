@@ -31,6 +31,12 @@ class StorageReadFailure implements Exception {
   final String path;
   final Object error;
 
+  /// Whether the file is the config, which holds everything; otherwise it is
+  /// the watch history's (watch_progress.json or recent_watched_vods.json),
+  /// and only that is kept from being saved while the config saves as ever.
+  bool get isConfig =>
+      p.basename(path).toLowerCase() == StorageService._configFileName;
+
   @override
   String toString() => '$path: $error';
 }

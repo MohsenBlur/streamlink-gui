@@ -606,6 +606,41 @@ void main() {
     });
 
     testWidgets(
+        'with only the watch history unreadable, says that, not the settings, '
+        'and still saves the config', (tester) async {
+      // The banner said "Your saved settings could not be read ... Changes
+      // made now will be lost" whichever file it was, while the config went
+      // on saving.
+      addTearDown(() => storageReadFailure.value = null);
+      final failure =
+          StorageReadFailure('watch_progress.json', 'in use by another program');
+      storageReadFailure.value = failure;
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      await h.launch(tester, favorites: ['alpha'], historyReadFailure: failure);
+      expect(find.textContaining('watch history could not be read'),
+          findsOneWidget);
+      expect(find.textContaining('saved settings'), findsNothing);
+
+      await tester.tap(find.text('Details'));
+      await h.settle(tester);
+      expect(find.text('Could not read watch history'), findsOneWidget);
+      await tester.tap(find.text('Close'));
+      await h.settle(tester);
+
+      h.tray.choose('Exit');
+      await h.settle(tester);
+
+      expect(h.log, contains('window.destroy'), reason: 'it did exit');
+      expect(h.storage.configWrites, greaterThan(0),
+          reason: 'the config was read, so it saves as ever');
+      expect(h.storage.progressWrites, 0,
+          reason: 'what the sidecar holds was never read');
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'captures the window, stops the players, saves, and only then '
         'removes the tray icon and the window', (tester) async {
       final h = ScreenHarness();
