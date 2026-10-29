@@ -40,6 +40,28 @@ class Win32Window {
   // Uses the first-show command (see SetFirstShowCommand).
   bool Show();
 
+  // The first show at launch: Show(), unless the launcher asked for
+  // something else (SetLaunchShowCommand) - minimized, without activation,
+  // or maximized - in which case that, on top of the restored placement.
+  // Ends the start in the background after the show. A window already shown
+  // (by a second launch, before the first frame) gets Show() alone.
+  void ShowAsLaunched();
+
+  // The show command the launcher put in STARTUPINFO, or -1 for none. Call
+  // before Create.
+  //
+  // Windows applies it itself only by swapping it in for the process's first
+  // ShowWindow, and only when that call asks for a plain show (SW_SHOWNORMAL
+  // or SW_SHOW; SW_SHOWMAXIMIZED and SW_RESTORE are left alone, measured).
+  // For a window restored maximized the first show is SW_SHOWMAXIMIZED, so a
+  // shortcut set to run minimized, or a launcher's SW_SHOWNOACTIVATE, got a
+  // maximized, activated window instead. And when the launch stayed hidden,
+  // the swap waited for whatever show came first - a summons from the tray,
+  // say - and would have done the launcher's bidding there instead. So Create
+  // uses the swap up while the window is still hidden, and the first show at
+  // launch applies the command (ShowAsLaunched).
+  void SetLaunchShowCommand(int command) { launch_show_command_ = command; }
+
   // The ShowWindow command the window is first shown with: SW_SHOWNORMAL, or
   // SW_SHOWMAXIMIZED when the restored placement was maximized. Maximizing is
   // part of the show rather than a step after it, so a window restored
@@ -75,6 +97,15 @@ class Win32Window {
     start_in_background_ = in_background;
   }
 
+  // The same hold on the foreground, from now on, for a launch found to start
+  // hidden only once the window exists: the Start minimized setting, which
+  // only the Dart side reads. Whatever activated the window before this call
+  // has taken the foreground already, so it has to come before anything that
+  // can - window_manager's title bar setup first of all. A no-op once the
+  // start is over (EndBackgroundStart), since nothing would let go of the
+  // lock after that.
+  void BeginBackgroundStart();
+
   // Whether the frame has been visible at any point. Tracked from the window's
   // own messages, so a show by any route counts: the first-frame Show(), a
   // plugin's ShowWindow, a second launch.
@@ -85,7 +116,8 @@ class Win32Window {
 
   // Ends a start in the background (SetStartInBackground): the window has
   // been shown, or its first frame has passed with it staying hidden.
-  // Show() calls it; a no-op otherwise.
+  // Show() calls it. Lets go of the lock if it is held, and either way makes
+  // BeginBackgroundStart a no-op for the rest of this window's life.
   void EndBackgroundStart();
 
   // Inserts |content| into the window tree.
@@ -158,10 +190,12 @@ class Win32Window {
   bool quit_on_close_ = false;
 
   int first_show_command_ = SW_SHOWNORMAL;
+  int launch_show_command_ = -1;
   bool has_been_shown_ = false;
 
   bool start_in_background_ = false;
   bool holds_foreground_lock_ = false;
+  bool background_start_over_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

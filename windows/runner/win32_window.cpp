@@ -128,9 +128,11 @@ bool Win32Window::Create(const std::wstring& title,
   const wchar_t* window_class =
       WindowClassRegistrar::GetInstance()->GetWindowClass();
 
-  // Before the window exists: see SetStartInBackground.
-  if (start_in_background_ && !holds_foreground_lock_) {
-    holds_foreground_lock_ = LockSetForegroundWindow(LSFW_LOCK) != FALSE;
+  // Before the window exists: see SetStartInBackground. A new window is a
+  // new start (the Destroy above ended any earlier one).
+  background_start_over_ = false;
+  if (start_in_background_) {
+    BeginBackgroundStart();
   }
 
   const POINT target_point = {static_cast<LONG>(origin.x),
@@ -149,6 +151,12 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
+  // Uses up the launcher's show command now, while the window is hidden and
+  // this changes nothing: Windows hands it to the process's first ShowWindow
+  // instead of that call's own command, whichever call that is. See
+  // SetLaunchShowCommand for why the runner applies it itself.
+  ShowWindow(window, SW_HIDE);
+
   UpdateTheme(window);
 
   return OnCreate();
@@ -159,11 +167,73 @@ bool Win32Window::Show() {
   return ShowWindow(window_handle_, first_show_command_);
 }
 
+void Win32Window::ShowAsLaunched() {
+  // Only for a window not on screen yet. One that is was brought up before
+  // its first frame by a second launch - the user asking for it while this
+  // one was still starting, at a slow login say - and the launcher's command
+  // is out of date: a "Run: Minimized" shortcut's would minimize the window
+  // the user had just summoned. So it gets the plain show, as it always did.
+  if (has_been_shown_) {
+    Show();
+    return;
+  }
+  const bool maximized = first_show_command_ == SW_SHOWMAXIMIZED;
+  switch (launch_show_command_) {
+    case SW_MINIMIZE:
+    case SW_SHOWMINIMIZED:
+    case SW_SHOWMINNOACTIVE: {
+      // Minimized, as asked. A window restored maximized comes back from the
+      // taskbar maximized, which only the placement can say: a minimizing
+      // ShowWindow restores to the normal size. Asking ShowWindow for
+      // SW_SHOWMAXIMIZED instead, as Show() does, is how a "Run: Minimized"
+      // shortcut used to open the window maximized and activated.
+      WINDOWPLACEMENT placement{};
+      placement.length = sizeof(placement);
+      if (maximized && GetWindowPlacement(window_handle_, &placement)) {
+        placement.showCmd = launch_show_command_;
+        placement.flags |= WPF_RESTORETOMAXIMIZED;
+        SetWindowPlacement(window_handle_, &placement);
+      } else {
+        ShowWindow(window_handle_, launch_show_command_);
+      }
+      break;
+    }
+    case SW_SHOWNOACTIVATE:
+    case SW_SHOWNA:
+      // Shown without activation. No show command maximizes without
+      // activating, so a maximized window is shown while the foreground lock
+      // is still held (SetStartInBackground): the activation stays inside
+      // this thread, and the user's app keeps the foreground.
+      ShowWindow(window_handle_,
+                 maximized ? SW_SHOWMAXIMIZED : launch_show_command_);
+      break;
+    case SW_SHOWMAXIMIZED:
+      // "Run: Maximized", which Windows' own substitution used to apply.
+      ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
+      break;
+    default:
+      // No command, or one that means a normal show (SW_SHOWNORMAL,
+      // SW_SHOW, SW_SHOWDEFAULT, SW_RESTORE): the restored placement's.
+      Show();
+      return;
+  }
+  // After the show, not before: a lock let go first would let the show take
+  // the foreground.
+  EndBackgroundStart();
+}
+
+void Win32Window::BeginBackgroundStart() {
+  if (!background_start_over_ && !holds_foreground_lock_) {
+    holds_foreground_lock_ = LockSetForegroundWindow(LSFW_LOCK) != FALSE;
+  }
+}
+
 void Win32Window::EndBackgroundStart() {
   if (holds_foreground_lock_) {
     LockSetForegroundWindow(LSFW_UNLOCK);
     holds_foreground_lock_ = false;
   }
+  background_start_over_ = true;
 }
 
 // static

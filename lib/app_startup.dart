@@ -113,12 +113,27 @@ void applyStoredLook(AppSettings settings) {
 /// which during startup on mixed-DPI monitors is whichever monitor the
 /// window happens to be on; the runner's channel places it in physical
 /// pixels instead, and shows it maximized as part of the show itself.
-Future<void> prepareWindow(
+///
+/// Returns whether the launch stays hidden: [startHidden], or the runner's
+/// own reason to keep it hidden (see NativeWindow.startsHidden).
+Future<bool> prepareWindow(
   AppSettings settings, {
   required bool startHidden,
   required void Function(String) milestone,
   required CrashLog log,
 }) async {
+  // First, ahead of anything below that can activate the window (the title
+  // bar style does): see NativeWindow.startsHidden.
+  var hidden = startHidden;
+  try {
+    hidden = await NativeWindow.startsHidden(hidden: startHidden) ?? hidden;
+    if (hidden && !startHidden) {
+      milestone('starting hidden: the launcher asked for no window');
+    }
+  } catch (e, st) {
+    log.error('window start', e, st);
+  }
+
   try {
     await windowManager.ensureInitialized();
     // No size, position or show in here (see above). The hidden title bar
@@ -151,14 +166,15 @@ Future<void> prepareWindow(
       maximized: settings.isWindowMaximized,
     );
     final placed = await NativeWindow.setInitialPlacement(plan.bounds,
-        maximized: plan.maximized, hidden: startHidden);
-    milestone('placement: $plan${startHidden ? ', starting hidden' : ''}; '
+        maximized: plan.maximized, hidden: hidden);
+    milestone('placement: $plan${hidden ? ', starting hidden' : ''}; '
         'window now $placed');
   } catch (e, st) {
     // The window stays where the runner created it, and the runner still
     // shows it on the first frame.
     log.error('window placement', e, st);
   }
+  return hidden;
 }
 
 /// Records what the window looks like once the first frame is up, and puts
@@ -301,17 +317,20 @@ Future<void> startApp(
     StartupService().sync(true);
   }
 
-  await prepareWindow(settings,
+  // The runner's word on it, which can add a reason of its own (see
+  // prepareWindow): the shell's tray bookkeeping and the check after the
+  // first frame must agree with the window the runner keeps hidden.
+  final startHidden = await prepareWindow(settings,
       startHidden: startMinimized, milestone: milestone, log: crashLog);
 
   seedStoredLook(settings);
 
-  runApp(app(startup, startMinimized));
+  runApp(app(startup, startHidden));
   milestone('runApp');
 
   unawaited(WidgetsBinding.instance.waitUntilFirstFrameRasterized.then((_) {
     milestone('first frame rasterized');
     return checkWindowAfterFirstFrame(
-        startHidden: startMinimized, milestone: milestone);
+        startHidden: startHidden, milestone: milestone);
   }));
 }

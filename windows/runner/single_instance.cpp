@@ -15,14 +15,61 @@ constexpr wchar_t kMutexName[] = L"Local\\TwitchStreamlinkGUIUniqueMutexName";
 // value tools/shoot.ps1 already accepts as "tagged".
 constexpr UINT_PTR kSharedScopeTag = 1;
 
-// The directory holding this executable, lowercased, or empty.
+// |path| as the file system names it, or |path| itself if that cannot be
+// told: junctions, symbolic links, subst and mapped drives and short names
+// resolved to the one real location, and the "\\?\" (or "\\?\UNC\") prefix
+// GetFinalPathNameByHandleW adds taken back off. That is how Dart resolves
+// Platform.resolvedExecutable, whose folder StorageService reads portable.txt
+// and the config from.
+std::wstring FinalPath(const std::wstring& path) {
+  const HANDLE file = ::CreateFileW(
+      path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+  if (file == INVALID_HANDLE_VALUE) {
+    return path;
+  }
+  constexpr DWORD kFlags = FILE_NAME_NORMALIZED | VOLUME_NAME_DOS;
+  std::wstring final_path;
+  const DWORD size = ::GetFinalPathNameByHandleW(file, nullptr, 0, kFlags);
+  if (size > 0) {
+    final_path.resize(size);
+    const DWORD length =
+        ::GetFinalPathNameByHandleW(file, &final_path[0], size, kFlags);
+    final_path.resize(length > 0 && length < size ? length : 0);
+  }
+  ::CloseHandle(file);
+  if (final_path.empty()) {
+    return path;
+  }
+  constexpr wchar_t kUncPrefix[] = L"\\\\?\\UNC\\";
+  constexpr wchar_t kPrefix[] = L"\\\\?\\";
+  if (final_path.rfind(kUncPrefix, 0) == 0) {
+    return L"\\\\" + final_path.substr(ARRAYSIZE(kUncPrefix) - 1);
+  }
+  if (final_path.rfind(kPrefix, 0) == 0) {
+    return final_path.substr(ARRAYSIZE(kPrefix) - 1);
+  }
+  return final_path;
+}
+
+// The directory holding this executable, resolved (FinalPath) and
+// lowercased, or empty.
+//
+// Resolved because the scope is keyed by it. Spelled as GetModuleFileNameW
+// spells it, one portable folder reached two ways - through a junction or a
+// subst drive, as a mapped drive and as its UNC path - was two scopes, and a
+// launch by the other path started a second instance on the same config
+// instead of handing over. Launch at startup set that up on its own: the Run
+// value holds the resolved path (StartupService), the user's shortcut need
+// not. The executable is resolved rather than its folder, so that a link to
+// the exe alone finds portable.txt where Dart finds it too.
 std::wstring ExecutableDirectory() {
   wchar_t path[MAX_PATH * 4];
   const DWORD length = ::GetModuleFileNameW(nullptr, path, ARRAYSIZE(path));
   if (length == 0 || length >= ARRAYSIZE(path)) {
     return std::wstring();
   }
-  std::wstring directory(path, length);
+  std::wstring directory = FinalPath(std::wstring(path, length));
   const size_t slash = directory.find_last_of(L"\\/");
   if (slash == std::wstring::npos) {
     return std::wstring();

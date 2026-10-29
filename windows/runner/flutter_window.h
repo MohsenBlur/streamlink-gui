@@ -18,8 +18,9 @@ class FlutterWindow : public Win32Window {
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
-  // When set (from --start-minimized), the first-frame callback skips Show()
-  // so the app can boot straight to the tray without the window flashing.
+  // When set (from --start-minimized, or a launcher's SW_HIDE), the
+  // first-frame callback skips Show() so the app can boot straight to the
+  // tray without the window flashing.
   void SetStartHidden(bool start_hidden) { start_hidden_ = start_hidden; }
 
  protected:
@@ -41,10 +42,20 @@ class FlutterWindow : public Win32Window {
   // the foreground.
   void BringToFront();
 
-  // Shows the frame for the first time (the first-frame callback, or a later
-  // summons when the app started hidden) and puts it back on the restored
-  // bounds if showing it moved it. See ApplyInitialPlacement.
-  void ShowFirstTime();
+  // Shows the frame for the first time and puts it back on the restored
+  // bounds if showing it moved it (see ApplyInitialPlacement): |as_launched|
+  // from the first-frame callback, the show the launcher's command was for
+  // (Win32Window::ShowAsLaunched); otherwise a later summons when the app
+  // started hidden, which shows it as the placement planned.
+  void ShowFirstTime(bool as_launched);
+
+  // Keeps this launch hidden: the first frame leaves the window hidden, and
+  // until then it is kept from taking the foreground
+  // (Win32Window::BeginBackgroundStart). For the Start minimized setting,
+  // which the Dart side reports first, before anything else touches the
+  // window ("startsHidden" on the window channel). A no-op once the window
+  // has been shown.
+  void StartHidden();
 
   // Handles "setInitialPlacement" on the window channel: moves the still
   // hidden frame to the bounds the Dart side restored, and records how the

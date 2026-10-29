@@ -43,20 +43,25 @@ void AssignSelfToKillOnCloseJob() {
   // lifetime of the process; the OS closes it on exit, which is the trigger.
 }
 
-// Whether whoever started this process asked for its window to be shown
-// without activating it: a show command in STARTUPINFO that leaves the
-// foreground alone (a shortcut set to run minimized, a launcher's
-// SW_SHOWNOACTIVATE). Windows applies that command to the first show, but
-// nothing before it, so the window asks to start in the background too
-// (Win32Window::SetStartInBackground).
-bool LauncherAskedNotToActivate() {
+// The show command whoever started this process asked for in STARTUPINFO (a
+// shortcut set to run minimized or maximized, a launcher's
+// SW_SHOWNOACTIVATE), or -1 if it asked for none. The window's first show
+// at launch applies it (Win32Window::SetLaunchShowCommand).
+int LauncherShowCommand() {
   STARTUPINFOW startup = {};
   startup.cb = sizeof(startup);
   ::GetStartupInfoW(&startup);
   if ((startup.dwFlags & STARTF_USESHOWWINDOW) == 0) {
-    return false;
+    return -1;
   }
-  switch (startup.wShowWindow) {
+  return startup.wShowWindow;
+}
+
+// Whether the launcher's |command| leaves the foreground alone. That command
+// is for the first show, and nothing before it, so the window asks to start
+// in the background too (Win32Window::SetStartInBackground).
+bool LauncherAskedNotToActivate(int command) {
+  switch (command) {
     case SW_HIDE:
     case SW_SHOWNOACTIVATE:
     case SW_MINIMIZE:
@@ -114,6 +119,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       break;
     }
   }
+  // A launcher asking for no window at all (SW_HIDE: a script's hidden
+  // start, Start-Process -WindowStyle Hidden) gets what that means for a
+  // tray app: the same start. Windows only kept the first show hidden, and
+  // the check a moment after the first frame (lib/app_startup.dart), seeing
+  // a window nobody had meant to hide, showed it and took the foreground.
+  // Dart hears of it through the window channel's "startsHidden".
+  const int launch_show_command = LauncherShowCommand();
+  if (launch_show_command == SW_HIDE) {
+    start_hidden = true;
+  }
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
@@ -130,9 +145,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // scaling.
   FlutterWindow window(project);
   window.SetStartHidden(start_hidden);
+  window.SetLaunchShowCommand(launch_show_command);
   // Neither a launch at login (--start-minimized) nor one asked to show
   // without activation may take the foreground while the window is hidden.
-  window.SetStartInBackground(start_hidden || LauncherAskedNotToActivate());
+  window.SetStartInBackground(
+      start_hidden || LauncherAskedNotToActivate(launch_show_command));
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"streamlink_gui", origin, size)) {
