@@ -455,10 +455,10 @@ class StaleVodNote extends StatelessWidget {
 /// The VOD grid's display settings, in the toolbar's popover: game badges,
 /// the text filter, the game filter, card and title size.
 ///
-/// It edits the screen's own state - the settings, the filter set, the
-/// search field - through [update], the screen's setState, exactly as it did
-/// as a method of the screen; the StatefulBuilders inside repaint the
-/// popover, which the screen's rebuild does not reach.
+/// It edits the settings, the filter set and the search field through
+/// [update], VodSelection.update, which repaints the open channel's
+/// dashboard - and this popover with it, since an open popover is built with
+/// its trigger (InteractivePopover).
 class VodDisplayMenu extends StatelessWidget {
   const VodDisplayMenu({
     super.key,
