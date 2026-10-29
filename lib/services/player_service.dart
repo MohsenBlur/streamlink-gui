@@ -285,6 +285,84 @@ class PlayerService {
     _claimedPorts.remove(port);
   }
 
+  /// VLC's HTTP-interface password per playing VOD: new for every launch
+  /// (see buildPlayerArgs), and what the tracker and a seek authenticate
+  /// with.
+  final Map<String, String> _httpPasswords = {};
+
+  static String _newHttpPassword() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 16; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+  }
+
+  String _basicAuthFor(String vodId) =>
+      'Basic ${base64Encode(utf8.encode(':${_httpPasswords[vodId] ?? ''}'))}';
+
+  /// The registry key MPC-HC keeps its settings under, when no .ini beside
+  /// its exe holds them.
+  static const String mpcHcSettingsKey = r'HKCU\Software\MPC-HC\MPC-HC\Settings';
+
+  /// Sets MPC-HC's "allow access from localhost only" before a launch that
+  /// turns its web interface on; returns why it could not, or null.
+  ///
+  /// `/webport` starts that interface for the session, and it has no
+  /// password. With the option off - MPC-HC's default - it listens on every
+  /// interface: anyone on the network the firewall let in could list the
+  /// user's drives, open any file (a UNC path leaks the account's NTLM
+  /// hash), send any command and take snapshots. Set where MPC-HC reads it:
+  /// the .ini beside its exe when there is one, the registry otherwise.
+  Future<String?> _limitMpcHcWebInterface(String exe) async {
+    try {
+      final ini = File(path.setExtension(exe, '.ini'));
+      if (ini.existsSync()) {
+        final bytes = ini.readAsBytesSync();
+        final utf16 = bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE;
+        final text = utf16
+            ? String.fromCharCodes([
+                for (var i = 2; i + 1 < bytes.length; i += 2)
+                  bytes[i] | (bytes[i + 1] << 8),
+              ])
+            : latin1.decode(bytes);
+        final updated =
+            setIniValue(text, 'Settings', 'WebServerLocalhostOnly', '1');
+        if (updated != text) {
+          ini.writeAsBytesSync(utf16
+              ? [
+                  0xFF,
+                  0xFE,
+                  for (final unit in updated.codeUnits) ...[unit & 0xFF, unit >> 8],
+                ]
+              : latin1.encode(updated));
+        }
+        return null;
+      }
+      final result = await _runProcess('reg', [
+        'add',
+        mpcHcSettingsKey,
+        '/v',
+        'WebServerLocalhostOnly',
+        '/t',
+        'REG_DWORD',
+        '/d',
+        '1',
+        '/f',
+      ]);
+      return result.exitCode == 0
+          ? null
+          : 'reg exited with ${result.exitCode}: ${'${result.stderr}'.trim()}';
+    } catch (e) {
+      return '$e';
+    }
+  }
+
+  static String _mpcWebInterfaceOff(String why) =>
+      '[System] MPC-HC\'s web interface stays off for this session, so its '
+      'position is not tracked: it could not be limited to this computer '
+      '($why).';
+
   /// Frees [vodId]'s port, though not for immediate reuse: see _coolingPorts.
   void _releasePlayerPort(String vodId) {
     final port = activePlayerPorts.remove(vodId);
@@ -1224,6 +1302,7 @@ class PlayerService {
       final path = file.path;
       final args = <String>[];
       String exe = '';
+      String? mpcWebOff;
 
       final finalSeek = resumeSeconds(
         watchPosition: vod.watchPosition,
@@ -1245,6 +1324,11 @@ class PlayerService {
         args.addAll(['/c', 'start', '/WAIT', '""', path]);
       } else {
         exe = resolvedExe;
+        if (kind == PlayerKind.mpcHc) {
+          mpcWebOff = await _limitMpcHcWebInterface(resolvedExe);
+        }
+        final httpPassword = _newHttpPassword();
+        _httpPasswords[vod.id] = httpPassword;
         // Local files are passed straight to Process.start, so no shlex quoting
         // here - unlike the streamlink path, which parses --player-args.
         args.addAll(buildPlayerArgs(
@@ -1253,6 +1337,8 @@ class PlayerService {
           port: port,
           ipcName: key,
           isWindows: Platform.isWindows,
+          httpPassword: httpPassword,
+          mpcWebInterface: mpcWebOff == null,
         ));
         args.add(path);
       }
@@ -1264,6 +1350,7 @@ class PlayerService {
       onPlayerStarted?.call(key, title);
       log(key, '[System] Initializing local player for VOD ${vod.id}...');
       log(key, '[System] Seek time offset: ${finalSeek}s');
+      if (mpcWebOff != null) log(key, _mpcWebInterfaceOff(mpcWebOff));
       log(key, '[System] Running local file command: $exe ${args.join(" ")}');
 
       final proc = await _startProcess(exe, args);
@@ -1301,7 +1388,7 @@ class PlayerService {
         }
       }
 
-      _startVODProgressTracker(vod, port, settings);
+      if (mpcWebOff == null) _startVODProgressTracker(vod, port, settings);
 
       proc.exitCode.then((exitCode) {
         log(key, '[System] Local player process exited with code $exitCode');
@@ -1356,6 +1443,11 @@ class PlayerService {
 
       final port = await getNextAvailablePlayerPort();
       final title = 'VOD: ${vod.title}';
+      final mpcWebOff = kind == PlayerKind.mpcHc && playerExe != null
+          ? await _limitMpcHcWebInterface(playerExe)
+          : null;
+      final httpPassword = _newHttpPassword();
+      _httpPasswords[vod.id] = httpPassword;
 
       final cmd = buildVodStreamlinkArgs(
         vodId: vod.id,
@@ -1379,6 +1471,8 @@ class PlayerService {
               watchedThreshold: settings.watchedThreshold,
             ),
         isWindows: Platform.isWindows,
+        httpPassword: httpPassword,
+        mpcWebInterface: mpcWebOff == null,
       );
       final args = cmd.args;
 
@@ -1401,6 +1495,7 @@ class PlayerService {
         log(key, '[System] This player has no known start-position flag, so playback begins at 0. '
             'Drag the seek bar to ${vod.watchPosition}s.');
       }
+      if (mpcWebOff != null) log(key, _mpcWebInterfaceOff(mpcWebOff));
       log(key, '[System] Arguments: ${argsForLog(args)}');
 
       // A Stop that landed while the relaunch was finding a port: see
@@ -1433,7 +1528,8 @@ class PlayerService {
         await _startWindowsIpcBridge(key, port);
       }
 
-      _startVODProgressTracker(vod, port, settings,
+      if (mpcWebOff == null) {
+        _startVODProgressTracker(vod, port, settings,
           channelName: channelName,
           selfHeal: true,
           // Only the passthrough path carries a player-side start flag; under
@@ -1443,6 +1539,7 @@ class PlayerService {
           // ...but under piping every reported position is short by exactly
           // that skip, and must be put back before anything believes it.
           positionOffset: cmd.passthrough ? 0 : cmd.appliedStart);
+      }
 
       // allowMalformed: a single non-UTF-8 byte from the child used to raise
       // a FormatException into the zone, silently killing the listener - and
@@ -1722,11 +1819,10 @@ class PlayerService {
       PlayerStatus? status;
       if (isVlc) {
         try {
-          final auth = 'Basic ' + base64Encode(utf8.encode(':streamlink'));
           final response = await http.get(
             Uri.parse('http://localhost:$port/requests/status.json'),
             headers: {
-              'Authorization': auth,
+              'Authorization': _basicAuthFor(vod.id),
             },
           ).timeout(const Duration(seconds: 2));
 
@@ -2189,8 +2285,8 @@ class PlayerService {
       final uri = Uri.parse('http://127.0.0.1:$port/$path');
       final http.Response response;
       if (channel == SeekChannel.vlcHttp) {
-        final auth = base64Encode(utf8.encode(':streamlink'));
-        response = await http.get(uri, headers: {'Authorization': 'Basic $auth'})
+        response = await http.get(uri,
+                headers: {'Authorization': _basicAuthFor(logKey)})
             .timeout(const Duration(seconds: 2));
       } else {
         response = await http.get(uri).timeout(const Duration(seconds: 2));

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -132,6 +133,21 @@ void main() {
     }
 
     tearDown(() => vlc.close());
+
+    test("the tracker logs in with the session's own VLC password", () async {
+      // The password was the public constant "streamlink", so any program
+      // on the machine could drive VLC: list folders, open any file.
+      vlc = await service.serveVlc();
+      await service.launchStreamlinkForVod(vod, 'chan', vlcSettings());
+      await waitFor(() => vlc.polls >= 1, reason: 'a poll');
+
+      final playerArgs = launcher.launched.single.arguments.join(' ');
+      final password =
+          RegExp(r'--http-password=([0-9a-f]+)').firstMatch(playerArgs)!.group(1)!;
+      expect(password, hasLength(32));
+      expect(vlc.authorizations.last,
+          'Basic ${base64Encode(utf8.encode(':$password'))}');
+    });
 
     test('relaunches the stream when the user does nothing', () async {
       // The control: proves the harness really reaches the heal.

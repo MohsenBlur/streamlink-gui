@@ -65,7 +65,8 @@ void main() {
           startSeconds: 600,
           port: 8089,
           ipcName: '123',
-          isWindows: true);
+          isWindows: true,
+          httpPassword: 'pw');
       expect(args, containsAllInOrder(['/start', '600000']));
       expect(args, containsAllInOrder(['/webport', '8089']));
       expect(args, containsAllInOrder(['/viewpreset', '2']));
@@ -78,7 +79,8 @@ void main() {
             startSeconds: 0,
             port: 8089,
             ipcName: '1',
-            isWindows: true);
+            isWindows: true,
+            httpPassword: 'pw');
         expect(args.join(' '), isNot(contains('start')), reason: '$kind');
       }
     });
@@ -89,7 +91,8 @@ void main() {
           startSeconds: 30,
           port: 9001,
           ipcName: '1',
-          isWindows: true);
+          isWindows: true,
+          httpPassword: 'pw');
       expect(args, contains('--start-time=30'));
       expect(args, contains('--http-port=9001'));
       expect(args, contains('--extraintf=http'));
@@ -102,7 +105,8 @@ void main() {
               startSeconds: 0,
               port: 1,
               ipcName: 'abc',
-              isWindows: true),
+              isWindows: true,
+              httpPassword: 'pw'),
           contains(r'--input-ipc-server=\\.\pipe\mpv-socket-abc'));
       expect(
           buildPlayerArgs(
@@ -110,7 +114,8 @@ void main() {
               startSeconds: 0,
               port: 1,
               ipcName: 'abc',
-              isWindows: false),
+              isWindows: false,
+              httpPassword: 'pw'),
           contains('--input-ipc-server=/tmp/mpv-socket-abc'));
     });
 
@@ -121,8 +126,66 @@ void main() {
               startSeconds: 600,
               port: 1,
               ipcName: '1',
-              isWindows: true),
+              isWindows: true,
+              httpPassword: 'pw'),
           isEmpty);
+    });
+  });
+
+  group("the players' control interfaces", () {
+    test("VLC's HTTP password is the session's own, not a public constant",
+        () {
+      // "streamlink" was in the public source: any program on the machine
+      // could log in and have VLC list folders or open any file.
+      final args = buildPlayerArgs(
+          kind: PlayerKind.vlc,
+          startSeconds: 0,
+          port: 9001,
+          ipcName: '1',
+          isWindows: true,
+          httpPassword: 's3cret');
+      expect(args, contains('--http-password=s3cret'));
+      expect(args.join(' '), isNot(contains('=streamlink')));
+      expect(args, contains('--http-host=127.0.0.1'));
+    });
+
+    test("MPC-HC's web interface can be left off", () {
+      final args = buildPlayerArgs(
+          kind: PlayerKind.mpcHc,
+          startSeconds: 0,
+          port: 8089,
+          ipcName: '1',
+          isWindows: true,
+          httpPassword: 'pw',
+          mpcWebInterface: false);
+      expect(args, isNot(contains('/webport')));
+    });
+  });
+
+  group('setIniValue', () {
+    test('replaces a key where it is, case aside', () {
+      expect(
+          setIniValue('[Settings]\r\nwebserverlocalhostonly=0\r\nOther=1\r\n',
+              'Settings', 'WebServerLocalhostOnly', '1'),
+          '[Settings]\r\nWebServerLocalhostOnly=1\r\nOther=1\r\n');
+    });
+
+    test('adds it at the end of its section, before the next one', () {
+      expect(
+          setIniValue('[settings]\nA=1\n\n[Other]\nB=2\n', 'Settings',
+              'WebServerLocalhostOnly', '1'),
+          '[settings]\nA=1\nWebServerLocalhostOnly=1\n\n[Other]\nB=2\n');
+    });
+
+    test('adds the section when there is none', () {
+      expect(setIniValue('[Other]\nB=2\n', 'Settings', 'K', '1'),
+          '[Other]\nB=2\n\n[Settings]\nK=1\n');
+      expect(setIniValue('', 'Settings', 'K', '1'), '[Settings]\nK=1\n');
+    });
+
+    test('a key of the same name in another section is not it', () {
+      expect(setIniValue('[Other]\nK=0\n[Settings]\n', 'Settings', 'K', '1'),
+          '[Other]\nK=0\n[Settings]\nK=1\n');
     });
   });
 
@@ -133,6 +196,7 @@ void main() {
         port: 1234,
         ipcName: 'v1',
         isWindows: true,
+        httpPassword: 'pw',
         keepOpen: keepOpen);
 
     test('defaults off, so local playback keeps close-at-end', () {
@@ -150,6 +214,7 @@ void main() {
           port: 1234,
           ipcName: 'v1',
           isWindows: true,
+          httpPassword: 'pw',
           keepOpen: true);
       expect(vlc.where((a) => a.contains('keep-open')), isEmpty);
     });

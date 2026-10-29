@@ -15,6 +15,9 @@ class FakeVlc {
   int time = 0;
   int polls = 0;
 
+  /// The Authorization header of each poll, in order.
+  final List<String?> authorizations = <String?>[];
+
   /// Listens on [port], where the service told the player to put its
   /// interface; 0 for any free one (see [OwnPortsPlayerService]).
   static Future<FakeVlc> serve(int port, {int startAt = 100}) async {
@@ -22,6 +25,7 @@ class FakeVlc {
     final vlc = FakeVlc._(server)..time = startAt;
     server.listen((request) {
       vlc.polls++;
+      vlc.authorizations.add(request.headers.value('authorization'));
       request.response
         ..headers.contentType = ContentType.json
         ..write(jsonEncode({'state': vlc.state, 'time': vlc.time}));

@@ -27,6 +27,114 @@ void main() {
     }
   });
 
+  group("MPC-HC's web interface, which has no password", () {
+    // Started by /webport, it listened on every interface unless MPC-HC was
+    // set to allow only this computer - which it is not by default.
+    late Directory temp;
+    late FakeLauncher launcher;
+    late List<List<String>> runs;
+    late int regExitCode;
+    late PlayerService service;
+    final vod = TwitchVideo(
+      id: '7',
+      title: 'A VOD',
+      duration: '1h0m0s',
+      thumbnailUrl: '',
+      viewCount: '0',
+      publishedAt: DateTime(2026),
+    );
+    setUp(() {
+      temp = Directory.systemTemp.createTempSync('streamlink_gui_mpc_');
+      launcher = FakeLauncher();
+      runs = [];
+      regExitCode = 0;
+      final taskkill = FakeTaskkill(launcher);
+      service = PlayerService(
+        startProcess: launcher.start,
+        runProcess: (exe, args) async {
+          if (exe == 'reg') {
+            runs.add([exe, ...args]);
+            return ProcessResult(0, regExitCode, '', 'denied');
+          }
+          return taskkill.run(exe, args);
+        },
+      );
+    });
+    tearDown(() async {
+      await service.stopAll();
+      for (final run in launcher.launched) {
+        await run.exit(-1);
+      }
+      try {
+        temp.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    Future<FakeProcess> play() async {
+      final exe = File('${temp.path}${Platform.pathSeparator}mpc-hc64.exe')
+        ..writeAsStringSync('');
+      final file = File('${temp.path}${Platform.pathSeparator}A VOD - 7.mp4')
+        ..writeAsStringSync('');
+      await service.playDownloadedVod(
+          file,
+          vod,
+          AppSettings(
+            playerType: 'custom',
+            customPlayerPath: exe.path,
+            vodDownloadFolder: temp.path,
+          ));
+      return launcher.launched.single;
+    }
+
+    test('is limited to this computer in the registry before the launch',
+        () async {
+      final player = await play();
+      expect(runs.single, [
+        'reg',
+        'add',
+        PlayerService.mpcHcSettingsKey,
+        '/v',
+        'WebServerLocalhostOnly',
+        '/t',
+        'REG_DWORD',
+        '/d',
+        '1',
+        '/f',
+      ]);
+      expect(player.arguments, contains('/webport'));
+    });
+
+    test('or in the .ini beside its exe, where MPC-HC then keeps settings',
+        () async {
+      final ini = File('${temp.path}${Platform.pathSeparator}mpc-hc64.ini')
+        ..writeAsBytesSync([
+          0xFF, 0xFE,
+          for (final unit in '[Settings]\r\nWebServerLocalhostOnly=0\r\n'.codeUnits)
+            ...[unit & 0xFF, unit >> 8],
+        ]);
+      final player = await play();
+      expect(runs, isEmpty);
+      final bytes = ini.readAsBytesSync();
+      expect(bytes.take(2), [0xFF, 0xFE], reason: 'still UTF-16');
+      expect(
+          String.fromCharCodes([
+            for (var i = 2; i + 1 < bytes.length; i += 2)
+              bytes[i] | (bytes[i + 1] << 8),
+          ]),
+          '[Settings]\r\nWebServerLocalhostOnly=1\r\n');
+      expect(player.arguments, contains('/webport'));
+    });
+
+    test('stays off when it cannot be limited, and says why', () async {
+      regExitCode = 1;
+      final lines = <String>[];
+      service.onPlayerLog = (_, line) => lines.add(line);
+      final player = await play();
+      expect(player.arguments, isNot(contains('/webport')));
+      expect(lines.join('\n'), contains("MPC-HC's web interface stays off"));
+    });
+  });
+
   test('two launches at once are never handed the same port', () async {
     final service = PlayerService();
     final ports = await Future.wait([
