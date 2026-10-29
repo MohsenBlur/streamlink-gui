@@ -429,6 +429,53 @@ void main() {
     await h.close(tester);
   });
 
+  testWidgets("a double-click on Home's live card plays it, though its "
+      'first click has already opened the channel', (tester) async {
+    // The click opens the channel at once, so Home - and the card - are
+    // gone before the second click: it landed on the channel page, and the
+    // double-click that watches the channel did nothing.
+    final h = ScreenHarness();
+    h.helix.user('alpha');
+    h.helix.addVideo('alpha', title: 'Old broadcast');
+    h.helix.goLive('alpha', title: 'Speedrun night');
+    await h.launch(tester, favorites: ['alpha']);
+    await h.advance(tester, const Duration(seconds: 2));
+    final at = tester.getCenter(find.text('Speedrun night').first);
+
+    await tester.tapAt(at, kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(find.byType(ChannelDashboard), findsOneWidget,
+        reason: 'the first click opened it, without waiting');
+    await tester.tapAt(at, kind: PointerDeviceKind.mouse);
+    await h.settle(tester);
+
+    expect(h.player.runningChannels, {'alpha'});
+    expect(find.byType(ChannelDashboard), findsOneWidget);
+
+    await h.close(tester);
+  });
+
+  testWidgets("but a click there once a double-click's time is up is the "
+      "channel page's", (tester) async {
+    final h = ScreenHarness();
+    h.helix.user('alpha');
+    h.helix.addVideo('alpha', title: 'Old broadcast');
+    h.helix.goLive('alpha', title: 'Speedrun night');
+    await h.launch(tester, favorites: ['alpha']);
+    await h.advance(tester, const Duration(seconds: 2));
+    final at = tester.getCenter(find.text('Speedrun night').first);
+
+    await tester.tapAt(at, kind: PointerDeviceKind.mouse);
+    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
+    await tester.tapAt(at, kind: PointerDeviceKind.mouse);
+    await h.settle(tester);
+    expect(h.player.runningChannels, isEmpty,
+        reason: 'nothing is held over the page past the double-click time');
+    expect(find.byType(ChannelDashboard), findsOneWidget);
+
+    await h.close(tester);
+  });
+
   group('the update guard', () {
     testWidgets('an Exit or a close while an update installs is refused, '
         'with the reason, until the update fails', (tester) async {

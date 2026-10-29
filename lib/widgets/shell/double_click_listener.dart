@@ -28,6 +28,7 @@ class DoubleClickListener extends StatefulWidget {
     required this.onTap,
     required this.onDoubleTap,
     required this.builder,
+    this.tapLeaves = false,
   });
 
   final VoidCallback onTap;
@@ -36,6 +37,14 @@ class DoubleClickListener extends StatefulWidget {
   final VoidCallback? onDoubleTap;
 
   final Widget Function(VoidCallback onTap) builder;
+
+  /// Whether [onTap] takes this widget off the screen, as a Home live card's
+  /// does: the click opens the channel, and Home goes. The second click of a
+  /// double then landed on the channel page, and the double-click that
+  /// watches the channel did nothing. With this set, the spot the first click
+  /// landed on is held over whatever replaces the widget, for as long as a
+  /// press there would still be the second half of a double.
+  final bool tapLeaves;
 
   @override
   State<DoubleClickListener> createState() => _DoubleClickListenerState();
@@ -102,6 +111,49 @@ class _DoubleClickListenerState extends State<DoubleClickListener> {
       _secondClickWindow = null;
       _firstClickAt = null;
     });
+    // Before the tap, which runs on this same pointer-up after this Listener
+    // and is what takes the widget away.
+    if (widget.tapLeaves) _holdSecondClick(event.position);
+  }
+
+  /// Holds the spot around [at] in the root overlay for [kDoubleTapTimeout],
+  /// over whatever the tap puts there: a press inside it is the second half
+  /// of the double, and goes to [DoubleClickListener.onDoubleTap] and no
+  /// further. Owned by its own timer, not this state, which the tap is
+  /// about to dispose.
+  void _holdSecondClick(Offset at) {
+    final onDoubleTap = widget.onDoubleTap;
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    final box = overlay?.context.findRenderObject();
+    if (onDoubleTap == null || overlay == null || box is! RenderBox) return;
+    final centre = box.globalToLocal(at);
+
+    var released = false;
+    late final OverlayEntry entry;
+    late final Timer expiry;
+    void release() {
+      if (released) return;
+      released = true;
+      expiry.cancel();
+      entry.remove();
+      entry.dispose();
+    }
+
+    entry = OverlayEntry(
+      builder: (context) => Positioned.fromRect(
+        // The framework's own double-tap reach, as _onPointerDown measures.
+        rect: Rect.fromCircle(center: centre, radius: kDoubleTapSlop),
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (event) {
+            release();
+            if (event.buttons == kPrimaryButton) onDoubleTap();
+          },
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    expiry = Timer(kDoubleTapTimeout, release);
   }
 
   void _onPointerCancel(PointerCancelEvent event) {

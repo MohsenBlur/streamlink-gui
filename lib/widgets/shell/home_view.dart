@@ -174,8 +174,10 @@ class HomeView extends StatelessWidget {
                   // A click opens the channel at once, a double-click also
                   // plays it. GestureDetector(onDoubleTap:) held every single
                   // click for the double-tap timeout, as it did the
-                  // sidebar's live rows (see DoubleClickListener).
+                  // sidebar's live rows (see DoubleClickListener). The click
+                  // takes Home away, so its second click is held for it.
                   child: DoubleClickListener(
+                  tapLeaves: true,
                   onTap: () => onSelectChannel(channel),
                   onDoubleTap: () => onLaunchLive(channel),
                   builder: (onTap) => GestureDetector(
