@@ -46,6 +46,13 @@ class FlutterWindow : public Win32Window {
   // bounds if showing it moved it. See ApplyInitialPlacement.
   void ShowFirstTime();
 
+  // Handles "startHidden" on the window channel, which the Dart side sends
+  // first, before anything else touches the window, when the Start minimized
+  // setting keeps this launch hidden: the first frame leaves the window
+  // hidden, and until then it is kept from taking the foreground
+  // (Win32Window::BeginBackgroundStart). A no-op once it has been shown.
+  void StartHidden();
+
   // Handles "setInitialPlacement" on the window channel: moves the still
   // hidden frame to the bounds the Dart side restored, and records how the
   // first show should present it. Returns the resulting window state.

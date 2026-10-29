@@ -119,6 +119,16 @@ Future<void> prepareWindow(
   required void Function(String) milestone,
   required CrashLog log,
 }) async {
+  // First, ahead of anything below that can activate the window (the title
+  // bar style does): see NativeWindow.startHidden.
+  if (startHidden) {
+    try {
+      await NativeWindow.startHidden();
+    } catch (e, st) {
+      log.error('window start', e, st);
+    }
+  }
+
   try {
     await windowManager.ensureInitialized();
     // No size, position or show in here (see above). The hidden title bar

@@ -26,6 +26,18 @@ abstract final class NativeWindow {
   static Future<WindowState?> state() async =>
       WindowState.fromMap(await _channel.invokeMethod<Object?>('getPlacement'));
 
+  /// Tells the runner that this launch stays hidden (Start minimized), before
+  /// anything else touches the window.
+  ///
+  /// The runner reads --start-minimized itself, before the window exists,
+  /// and from then until the first frame keeps the hidden window from taking
+  /// the foreground. The setting reached it only with the initial placement,
+  /// and that was too late: window_manager's title bar setup had activated
+  /// the hidden frame by then, and on a launch from Explorer or the Start
+  /// menu that took the foreground from the user's app, keyboard included.
+  static Future<void> startHidden() =>
+      _channel.invokeMethod<void>('startHidden');
+
   /// Places the still-hidden window at [bounds] (physical; null leaves it
   /// where it is) and records how the first show presents it: maximized or
   /// not, and whether it stays hidden (Start minimized).

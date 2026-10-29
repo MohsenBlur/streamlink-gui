@@ -77,11 +77,46 @@ void main() {
 
     test('holds the foreground lock from before the window exists', () {
       final create = body(window, 'bool Win32Window::Create(');
-      final lock = create.indexOf('LockSetForegroundWindow(LSFW_LOCK)');
+      final lock = create.indexOf('BeginBackgroundStart();');
       expect(lock, isNonNegative);
       expect(create.lastIndexOf('if (start_in_background_', lock), isNonNegative,
           reason: 'only for such a launch');
       expect(lock, lessThan(create.indexOf('CreateWindow(')));
+      expect(create.indexOf('background_start_over_ = false;'), lessThan(lock),
+          reason: "the Destroy() Create starts with ends the old window's start");
+
+      final begin = body(window, 'void Win32Window::BeginBackgroundStart(');
+      expect(begin, contains('LockSetForegroundWindow(LSFW_LOCK)'));
+      expect(begin, contains('!background_start_over_'),
+          reason: 'never once the start is over: nothing would let go of it');
+      expect(body(window, 'void Win32Window::EndBackgroundStart('),
+          contains('background_start_over_ = true;'));
+    });
+
+    test('or from when Dart says the Start minimized setting keeps it hidden',
+        () {
+      // Only Dart reads the setting. It reached the runner with the initial
+      // placement, after window_manager's title bar setup had activated the
+      // hidden frame, which on a launch from Explorer took the foreground.
+      // Dart now says so before it touches the window (app_startup_test).
+      final flutter = read('windows/runner/flutter_window.cpp');
+      final onCreate = body(flutter, 'bool FlutterWindow::OnCreate(');
+      final handler = onCreate.indexOf('method == "startHidden"');
+      expect(handler, isNonNegative);
+      expect(onCreate.indexOf('StartHidden();', handler),
+          lessThan(onCreate.indexOf('} else if', handler)));
+
+      final start = body(flutter, 'void FlutterWindow::StartHidden(');
+      final notShown = start.indexOf('if (HasBeenShown()) {');
+      expect(notShown, isNonNegative, reason: 'a shown window stays shown');
+      expect(notShown, lessThan(start.indexOf('start_hidden_ = true;')));
+      expect(start.indexOf('start_hidden_ = true;'),
+          lessThan(start.indexOf('BeginBackgroundStart();')));
+
+      final placement = body(flutter, 'FlutterWindow::ApplyInitialPlacement(');
+      expect(placement, contains('StartHidden();'),
+          reason: 'the hidden flag there still counts if the early call failed');
+      expect(placement, isNot(contains('start_hidden_ = true;')));
     });
 
     test('until it is shown, its first frame passes hidden, or it is destroyed', () {

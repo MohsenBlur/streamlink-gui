@@ -75,6 +75,15 @@ class Win32Window {
     start_in_background_ = in_background;
   }
 
+  // The same hold on the foreground, from now on, for a launch found to start
+  // hidden only once the window exists: the Start minimized setting, which
+  // only the Dart side reads. Whatever activated the window before this call
+  // has taken the foreground already, so it has to come before anything that
+  // can - window_manager's title bar setup first of all. A no-op once the
+  // start is over (EndBackgroundStart), since nothing would let go of the
+  // lock after that.
+  void BeginBackgroundStart();
+
   // Whether the frame has been visible at any point. Tracked from the window's
   // own messages, so a show by any route counts: the first-frame Show(), a
   // plugin's ShowWindow, a second launch.
@@ -85,7 +94,8 @@ class Win32Window {
 
   // Ends a start in the background (SetStartInBackground): the window has
   // been shown, or its first frame has passed with it staying hidden.
-  // Show() calls it; a no-op otherwise.
+  // Show() calls it. Lets go of the lock if it is held, and either way makes
+  // BeginBackgroundStart a no-op for the rest of this window's life.
   void EndBackgroundStart();
 
   // Inserts |content| into the window tree.
@@ -162,6 +172,7 @@ class Win32Window {
 
   bool start_in_background_ = false;
   bool holds_foreground_lock_ = false;
+  bool background_start_over_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

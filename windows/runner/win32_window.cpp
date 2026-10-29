@@ -128,9 +128,11 @@ bool Win32Window::Create(const std::wstring& title,
   const wchar_t* window_class =
       WindowClassRegistrar::GetInstance()->GetWindowClass();
 
-  // Before the window exists: see SetStartInBackground.
-  if (start_in_background_ && !holds_foreground_lock_) {
-    holds_foreground_lock_ = LockSetForegroundWindow(LSFW_LOCK) != FALSE;
+  // Before the window exists: see SetStartInBackground. A new window is a
+  // new start (the Destroy above ended any earlier one).
+  background_start_over_ = false;
+  if (start_in_background_) {
+    BeginBackgroundStart();
   }
 
   const POINT target_point = {static_cast<LONG>(origin.x),
@@ -159,11 +161,18 @@ bool Win32Window::Show() {
   return ShowWindow(window_handle_, first_show_command_);
 }
 
+void Win32Window::BeginBackgroundStart() {
+  if (!background_start_over_ && !holds_foreground_lock_) {
+    holds_foreground_lock_ = LockSetForegroundWindow(LSFW_LOCK) != FALSE;
+  }
+}
+
 void Win32Window::EndBackgroundStart() {
   if (holds_foreground_lock_) {
     LockSetForegroundWindow(LSFW_UNLOCK);
     holds_foreground_lock_ = false;
   }
+  background_start_over_ = true;
 }
 
 // static

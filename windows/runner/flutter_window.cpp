@@ -124,6 +124,9 @@ bool FlutterWindow::OnCreate() {
         } else if (method == "getPlacement") {
           result->Success(flutter::EncodableValue(
               window_placement::DescribeWindow(GetHandle(), GetChildContent())));
+        } else if (method == "startHidden") {
+          StartHidden();
+          result->Success();
         } else if (method == "setInitialPlacement") {
           const auto* args =
               std::get_if<flutter::EncodableMap>(call.arguments());
@@ -144,9 +147,9 @@ bool FlutterWindow::OnCreate() {
     ShowChildContentIfHidden();
 
     // --start-minimized (or the Start minimized setting, which the Dart side
-    // passes with the initial placement): stay hidden, so the window only
-    // appears when summoned from the tray (or by a second launch, see
-    // ActivateForSecondInstance).
+    // sends before it sets the window up, see StartHidden): stay hidden, so
+    // the window only appears when summoned from the tray (or by a second
+    // launch, see ActivateForSecondInstance).
     if (!start_hidden_) {
       ShowFirstTime();
     }
@@ -258,6 +261,23 @@ void FlutterWindow::ShowFirstTime() {
   initial_bounds_.reset();
 }
 
+void FlutterWindow::StartHidden() {
+  // Only ever adds hiding, and only to a window not yet on screen:
+  // --start-minimized was already read from the command line, and the setting
+  // means the same thing.
+  if (HasBeenShown()) {
+    return;
+  }
+  start_hidden_ = true;
+  // The launch at login (--start-minimized) has held the foreground lock
+  // since before the window existed. One hidden by the setting is a launch
+  // the user made, from Explorer or the Start menu, so Windows lets it take
+  // the foreground - and window_manager's title bar setup, next in line,
+  // activates the hidden frame: the foreground went to a window nobody could
+  // see, keystrokes included, until the user clicked something.
+  BeginBackgroundStart();
+}
+
 flutter::EncodableValue FlutterWindow::ApplyInitialPlacement(
     const flutter::EncodableMap& args) {
   HWND window = GetHandle();
@@ -291,10 +311,9 @@ flutter::EncodableValue FlutterWindow::ApplyInitialPlacement(
 
   SetFirstShowCommand(maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
   if (!shown) {
-    // Only ever adds hiding: --start-minimized was already read from the
-    // command line, and the setting means the same thing.
+    // Normally StartHidden has run already; this is in case it failed.
     if (hidden) {
-      start_hidden_ = true;
+      StartHidden();
     }
   } else if (maximized) {
     ::ShowWindow(window, SW_MAXIMIZE);
