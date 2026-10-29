@@ -2,13 +2,16 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:streamlink_gui/models/app_settings.dart';
+import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/player_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
 import 'package:streamlink_gui/state/settings_repository.dart';
 import 'package:streamlink_gui/state/watch_history_controller.dart';
 import 'package:streamlink_gui/widgets/shell/vod_actions.dart';
 
+import 'support/fake_process.dart';
 import 'support/memory_storage.dart';
 
 /// VodActions on its own. What each button reaches through the screen is
@@ -47,18 +50,22 @@ void main() {
   });
 
   VodActions actions({required bool Function() mounted,
-          required VoidCallback changed}) =>
+          required VoidCallback changed,
+          PlayerService? player,
+          Map<String, String> registry = const <String, String>{},
+          List<String>? messages}) =>
       VodActions(
         // No callbacks bound: nothing reports the cancel to the screen but
         // the action itself.
-        player: PlayerService(),
+        player: player ?? PlayerService(),
         api: TwitchApiService(),
         history: history,
         settings: () => AppSettings(vodDownloadFolder: folder.path),
-        registry: () => <String, String>{},
+        registry: () => registry,
         context: () => throw StateError('no dialog is asked for'),
         mounted: mounted,
-        showMessage: (_, {required isError, action}) {},
+        showMessage: (message, {required isError, action}) =>
+            messages?.add(message),
         save: () async {},
         rescan: () {},
         changed: changed,
@@ -76,5 +83,72 @@ void main() {
     mounted = false;
     await vods.cancelDownload('v2', 'alpha');
     expect(repaints, 1);
+  });
+
+  group('a VOD already downloaded', () {
+    late FakeLauncher launcher;
+    late PlayerService player;
+    late File finished;
+    setUp(() {
+      launcher = FakeLauncher();
+      player = PlayerService(
+          startProcess: launcher.start, runProcess: FakeTaskkill(launcher).run);
+      finished = File(p.join(folder.path, 'chan', 'T5 - v5.mp4'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('video');
+    });
+    tearDown(() async {
+      await player.stopAll();
+      for (final run in launcher.launched) {
+        await run.exit(-1);
+      }
+    });
+
+    TwitchVideo vod(String id) => TwitchVideo(
+          id: id,
+          title: 'T$id',
+          duration: '1h0m0s',
+          thumbnailUrl: '',
+          viewCount: '0',
+          publishedAt: DateTime(2026),
+        );
+
+    test('keeps its file when a queued download of it again is cancelled',
+        () async {
+      final vods = actions(
+          mounted: () => true,
+          changed: () {},
+          player: player,
+          registry: {'5': finished.path});
+      final settings = AppSettings(vodDownloadFolder: folder.path);
+      player.queueVodDownload(vod('1'), 'chan', settings, byHand: true);
+      player.queueVodDownload(vod('5'), 'chan', settings, byHand: true);
+      await pumpEventQueue();
+      expect(player.downloadQueue, contains('5'));
+
+      await vods.cancelDownload('5', 'chan');
+
+      expect(player.downloadQueue, isNot(contains('5')));
+      expect(finished.existsSync(), isTrue,
+          reason: 'the extra download was called off, not the copy');
+    });
+
+    test('is left out of a selection\'s download, and said so', () async {
+      final messages = <String>[];
+      final vods = actions(
+          mounted: () => true,
+          changed: () {},
+          player: player,
+          registry: {'5': finished.path},
+          messages: messages);
+
+      vods.downloadSelection([vod('5'), vod('6')],
+          channelName: () => 'chan', endSelection: () {});
+      await pumpEventQueue();
+
+      expect(launcher.launched.map((r) => r.arguments.last),
+          ['https://twitch.tv/videos/6']);
+      expect(messages, ['Queued 1 download; 1 already downloaded.']);
+    });
   });
 }

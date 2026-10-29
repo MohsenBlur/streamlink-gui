@@ -104,6 +104,9 @@ class OAuthLoopbackServer {
   final String state;
 
   HttpServer? _server;
+
+  /// The same port on the IPv6 loopback; null where the machine has none.
+  HttpServer? _server6;
   int? _boundPort;
   Timer? _timer;
 
@@ -141,17 +144,44 @@ class OAuthLoopbackServer {
 
   /// Binds the listener and starts the [timeout]. Throws when the port cannot
   /// be bound (another program holds it).
+  ///
+  /// On both loopbacks. Twitch sends the browser to `localhost`, which
+  /// Windows resolves to `::1` first, and browsers try that first: with only
+  /// 127.0.0.1 bound here, any other program - another account's included -
+  /// could listen on `[::1]` at this port without a conflict, receive the
+  /// redirect, and read the access token from the page's fragment. Where
+  /// `[::1]` is taken, the sign-in is refused rather than run half-bound.
   Future<void> start() async {
     if (_server != null || _outcome != null) {
       throw StateError('This sign-in has already been started.');
     }
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+    HttpServer? server6;
+    try {
+      server6 = await HttpServer.bind(InternetAddress.loopbackIPv6, server.port,
+          v6Only: true);
+    } on SocketException catch (e) {
+      if (!_noIpv6Loopback(e)) {
+        try {
+          await server.close(force: true);
+        } catch (_) {}
+        rethrow;
+      }
+    }
     _server = server;
+    _server6 = server6;
     _boundPort = server.port;
     _timer = Timer(timeout,
         () => _end(const OAuthLoopbackResult(OAuthLoopbackOutcome.timedOut)));
     server.listen(_handle, onError: (Object _) {});
+    server6?.listen(_handle, onError: (Object _) {});
   }
+
+  /// Whether [e] says the machine has no IPv6 loopback to bind, rather than
+  /// that something else holds the port there: the address is not
+  /// available, or IPv6 is not supported (Windows, Linux and macOS codes).
+  static bool _noIpv6Loopback(SocketException e) =>
+      const {10047, 10049, 97, 99, 47, 49}.contains(e.osError?.errorCode);
 
   /// Abandons the sign-in: [result] completes as cancelled (unless it already
   /// completed) and the port is released.
@@ -178,11 +208,12 @@ class OAuthLoopbackServer {
   Future<void> _shutDown() => _closing ??= _closeThenPublish();
 
   Future<void> _closeThenPublish() async {
-    final server = _server;
+    final servers = [?_server, ?_server6];
     _server = null;
+    _server6 = null;
     _timer?.cancel();
     _timer = null;
-    if (server != null) {
+    for (final server in servers) {
       try {
         await server.close(force: true);
       } catch (_) {}

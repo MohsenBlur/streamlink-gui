@@ -327,6 +327,7 @@ class DownloadsController {
 
   Future<void>? _scanning;
   bool _scanAgain = false;
+  bool _scanRunning = false;
 
   /// Checks the registry against the disk, off the UI isolate, and reports
   /// the result to `onScanned`.
@@ -341,7 +342,14 @@ class DownloadsController {
       _scanAgain = true;
       return running;
     }
-    return _scanning = _scanLoop();
+    _scanRunning = true;
+    final scan = _scanLoop();
+    // With no download folder the loop awaits nothing, so it has already run
+    // to its end here, its finally included. Kept anyway, the finished scan
+    // was the "one running" every later request joined: no scan ever ran
+    // again that session, folder set or not.
+    if (_scanRunning) _scanning = scan;
+    return scan;
   }
 
   Future<void> _scanLoop() async {
@@ -375,6 +383,7 @@ class DownloadsController {
       } while (_scanAgain && !_disposed);
     } finally {
       _scanning = null;
+      _scanRunning = false;
     }
   }
 

@@ -1049,11 +1049,15 @@ void main() {
       expect(status.state, TwitchAuthState.valid);
     });
 
-    test('the probe stamps the pair it judged', () async {
+    test('a published probe stamps the pair it judged', () async {
       // So the first Helix 200 sent with a different pair afterwards is
-      // recognised as new evidence rather than a repeat.
-      auth.recordHelixProbe(await serviceFor(validate('other'))
-          .validateHelixToken('account-token', 'mine'));
+      // recognised as new evidence rather than a repeat. Stamped where the
+      // verdict is published, not by the probe itself: Settings' Test of an
+      // unsaved token probes too, and keeps its verdict to itself.
+      auth.recordHelixProbe(
+          await serviceFor(validate('other'))
+              .validateHelixToken('account-token', 'mine'),
+          credential: TwitchApiService.helixCredential('account-token', 'mine'));
       expect(auth.helix.value.fault, TwitchAuthFault.clientIdMismatch);
       auth.recordHelixResponse(200,
           credential: helixCredentialFingerprint('account-token', 'mine'));

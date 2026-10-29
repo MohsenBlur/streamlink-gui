@@ -85,6 +85,7 @@ class WindowState {
     required this.dpi,
     this.monitorName,
     this.monitorBounds,
+    this.shown = true,
   });
 
   /// The normal bounds: the live frame, or while maximized or minimized the
@@ -93,6 +94,12 @@ class WindowState {
   final bool maximized;
   final bool minimized;
   final bool visible;
+
+  /// Whether the frame has been on screen yet. One that started hidden (in
+  /// the tray) is not maximized until its first show, however that show
+  /// will present it, so until then [maximized] says nothing about how the
+  /// user left the window.
+  final bool shown;
 
   /// Whether the engine's content view has its own visible flag set: false
   /// is the invisible-window bug, which shows as a frame with nothing in it.
@@ -119,6 +126,7 @@ class WindowState {
       dpi: dpi is int && dpi > 0 ? dpi : 96,
       monitorName: raw['monitor'] is String ? raw['monitor'] as String : null,
       monitorBounds: _rect(raw, 'monitor'),
+      shown: raw['shown'] != false,
     );
   }
 

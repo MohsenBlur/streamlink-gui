@@ -187,7 +187,7 @@ class VodActions {
   /// anyway, and failed with exit code -1 - one by one, for a selection.
   Future<void> ensureDownloadFolder(VoidCallback onConfigured) async {
     final folder = _settings().vodDownloadFolder.trim();
-    final problem = folder.isEmpty ? null : _folderProblem(folder);
+    final problem = folder.isEmpty ? null : folderProblem(folder);
     if (folder.isNotEmpty && problem == null) {
       onConfigured();
       return;
@@ -216,7 +216,7 @@ class VodActions {
   /// Why VODs cannot be saved in [folder] right now, or null when they can
   /// be: it is there, or it could be made - as the download makes it, which
   /// is why this makes it too. Synchronous, as the download's own check is.
-  static String? _folderProblem(String folder) {
+  static String? folderProblem(String folder) {
     try {
       Directory(folder).createSync(recursive: true);
       return null;
@@ -234,9 +234,13 @@ class VodActions {
     });
   }
 
-  /// Cancels [vodId]'s download, queued or running.
+  /// Cancels [vodId]'s download, queued or running. A VOD the registry
+  /// already holds keeps its file: cancelling an extra download of it used
+  /// to delete the copy the user had, with a plain "Download cancelled."
   Future<void> cancelDownload(String vodId, String channelName) async {
-    await _player.cancelVodDownload(vodId, channelName, _settings().vodDownloadFolder);
+    await _player.cancelVodDownload(
+        vodId, channelName, _settings().vodDownloadFolder,
+        keepFinished: _registry().containsKey(vodId));
     if (_mounted()) _changed();
   }
 
@@ -296,22 +300,45 @@ class VodActions {
     required VoidCallback endSelection,
   }) {
     if (selectedVods.isEmpty) return;
+    // "Select all visible" picks downloaded VODs too, and the card offers no
+    // Download for one: queueing it again re-fetched a file the user had,
+    // and cancelling that queued copy then deleted it.
+    final wanted = [
+      for (final vod in selectedVods)
+        if (!_registry().containsKey(vod.id)) vod,
+    ];
+    final skipped = selectedVods.length - wanted.length;
+    if (wanted.isEmpty) {
+      _showMessage(
+          skipped == 1
+              ? 'That VOD is already downloaded.'
+              : 'Those $skipped VODs are already downloaded.',
+          isError: false);
+      endSelection();
+      return;
+    }
 
     ensureDownloadFolder(() {
-      if (selectedVods.length == 1) {
+      if (wanted.length == 1) {
         _player.queueVodDownload(
-            selectedVods.first, channelName(), _settings(),
+            wanted.first, channelName(), _settings(),
             byHand: true);
+        if (skipped > 0) {
+          _showMessage(
+              'Queued 1 download; $skipped already downloaded.',
+              isError: false);
+        }
         endSelection();
       } else {
-        _queueInChosenOrder(selectedVods, channelName);
+        _queueInChosenOrder(wanted, channelName, skipped: skipped);
         endSelection();
       }
     });
   }
 
   Future<void> _queueInChosenOrder(
-      List<TwitchVideo> selectedVods, String Function() channelName) async {
+      List<TwitchVideo> selectedVods, String Function() channelName,
+      {int skipped = 0}) async {
     String? chosenOrder = await chooseDownloadOrder(_context(), selectedVods.length);
 
     if (chosenOrder == null) return;
@@ -324,7 +351,10 @@ class VodActions {
     } else {
       sortedVods.sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
     }
-    _showMessage('Queueing ${sortedVods.length} downloads...', isError: false);
+    _showMessage(
+        'Queueing ${sortedVods.length} downloads...'
+        '${skipped > 0 ? ' ($skipped already downloaded)' : ''}',
+        isError: false);
     for (final vod in sortedVods) {
       _player.queueVodDownload(vod, name, _settings(),
           byHand: true);

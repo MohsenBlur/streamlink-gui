@@ -32,6 +32,7 @@ class AppShellController with WindowListener {
     required SettingsRepository repository,
     required AppSettings Function() settings,
     required Future<void> Function() stopAll,
+    VoidCallback? resumeAfterStop,
     required Iterable<String> Function() liveFavorites,
     required bool startHidden,
     required this.onVisibilityChanged,
@@ -51,6 +52,7 @@ class AppShellController with WindowListener {
         _repository = repository,
         _settings = settings,
         _stopAll = stopAll,
+        _resumeAfterStop = resumeAfterStop,
         _liveFavorites = liveFavorites,
         _singleInstanceChannel = singleInstanceChannel,
         _windowVisible = !startHidden;
@@ -75,6 +77,10 @@ class AppShellController with WindowListener {
   final SettingsRepository _repository;
   final AppSettings Function() _settings;
   final Future<void> Function() _stopAll;
+
+  /// Undoes [_stopAll] for a session that goes on after all
+  /// (PlayerService.resume).
+  final VoidCallback? _resumeAfterStop;
   final Iterable<String> Function() _liveFavorites;
   final MethodChannel _singleInstanceChannel;
 
@@ -299,7 +305,11 @@ class AppShellController with WindowListener {
       settings.windowY = state.bounds.top / s;
       settings.windowWidth = state.bounds.width / s;
       settings.windowHeight = state.bounds.height / s;
-      settings.isWindowMaximized = state.maximized;
+      // A window never on screen yet - started in the tray, and left there
+      // all session - is not maximized until its first show, so it keeps
+      // what the session started with. Its "not maximized" used to be saved
+      // at the session's end, and the next launch came up at normal size.
+      if (state.shown) settings.isWindowMaximized = state.maximized;
       return true;
     } catch (_) {
       return false;
@@ -614,6 +624,7 @@ class AppShellController with WindowListener {
     Directory? extractDir;
     var updaterStarting = false;
     var handedOver = false;
+    var stopped = false;
     try {
       final zipFile = await _updates.downloadUpdate(info.downloadUrl, (pct) {
         report(fraction: pct);
@@ -655,6 +666,7 @@ class AppShellController with WindowListener {
       // refused while an update runs: a stop that never returned would
       // leave this dialog up with nothing the user could do about it.
       await stopAllBounded('update');
+      stopped = true;
 
       report(status: 'Applying update and restarting...');
       updaterStarting = true;
@@ -664,6 +676,8 @@ class AppShellController with WindowListener {
     } catch (_) {
       _handingOverToUpdater = false;
       _isUpdateInProgress = false;
+      // The app carries on, so the players must too (see _resumeAfterStop).
+      if (stopped) _resumeAfterStop?.call();
       // The extracted build is ~300 MB that only a sweep a day later would
       // reclaim. Safe to delete while no updater can be copying out of it,
       // which is every failure before startUpdater began; that

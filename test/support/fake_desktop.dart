@@ -29,6 +29,10 @@ class FakeAppWindow implements AppWindow {
   bool visible = true;
   bool minimized = false;
   bool maximized = false;
+
+  /// Whether the frame has been on screen: false for a window started
+  /// hidden that nothing has shown yet. Any show sets it.
+  bool shown = true;
   bool preventClose = true;
   bool destroyed = false;
 
@@ -111,6 +115,7 @@ class FakeAppWindow implements AppWindow {
   @override
   Future<void> show() async {
     _record('show');
+    shown = true;
     if (!visible) {
       visible = true;
       _emitLater('show');
@@ -142,6 +147,7 @@ class FakeAppWindow implements AppWindow {
   @override
   Future<void> showNative() async {
     _record('showNative');
+    shown = true;
     if (!visible) {
       visible = true;
       _emitLater('show');
@@ -164,6 +170,7 @@ class FakeAppWindow implements AppWindow {
       dpi: 96,
       monitorName: r'\\.\DISPLAY1',
       monitorBounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+      shown: shown,
     );
   }
 }

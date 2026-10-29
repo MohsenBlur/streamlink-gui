@@ -285,6 +285,84 @@ class PlayerService {
     _claimedPorts.remove(port);
   }
 
+  /// VLC's HTTP-interface password per playing VOD: new for every launch
+  /// (see buildPlayerArgs), and what the tracker and a seek authenticate
+  /// with.
+  final Map<String, String> _httpPasswords = {};
+
+  static String _newHttpPassword() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 16; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+  }
+
+  String _basicAuthFor(String vodId) =>
+      'Basic ${base64Encode(utf8.encode(':${_httpPasswords[vodId] ?? ''}'))}';
+
+  /// The registry key MPC-HC keeps its settings under, when no .ini beside
+  /// its exe holds them.
+  static const String mpcHcSettingsKey = r'HKCU\Software\MPC-HC\MPC-HC\Settings';
+
+  /// Sets MPC-HC's "allow access from localhost only" before a launch that
+  /// turns its web interface on; returns why it could not, or null.
+  ///
+  /// `/webport` starts that interface for the session, and it has no
+  /// password. With the option off - MPC-HC's default - it listens on every
+  /// interface: anyone on the network the firewall let in could list the
+  /// user's drives, open any file (a UNC path leaks the account's NTLM
+  /// hash), send any command and take snapshots. Set where MPC-HC reads it:
+  /// the .ini beside its exe when there is one, the registry otherwise.
+  Future<String?> _limitMpcHcWebInterface(String exe) async {
+    try {
+      final ini = File(path.setExtension(exe, '.ini'));
+      if (ini.existsSync()) {
+        final bytes = ini.readAsBytesSync();
+        final utf16 = bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE;
+        final text = utf16
+            ? String.fromCharCodes([
+                for (var i = 2; i + 1 < bytes.length; i += 2)
+                  bytes[i] | (bytes[i + 1] << 8),
+              ])
+            : latin1.decode(bytes);
+        final updated =
+            setIniValue(text, 'Settings', 'WebServerLocalhostOnly', '1');
+        if (updated != text) {
+          ini.writeAsBytesSync(utf16
+              ? [
+                  0xFF,
+                  0xFE,
+                  for (final unit in updated.codeUnits) ...[unit & 0xFF, unit >> 8],
+                ]
+              : latin1.encode(updated));
+        }
+        return null;
+      }
+      final result = await _runProcess('reg', [
+        'add',
+        mpcHcSettingsKey,
+        '/v',
+        'WebServerLocalhostOnly',
+        '/t',
+        'REG_DWORD',
+        '/d',
+        '1',
+        '/f',
+      ]);
+      return result.exitCode == 0
+          ? null
+          : 'reg exited with ${result.exitCode}: ${'${result.stderr}'.trim()}';
+    } catch (e) {
+      return '$e';
+    }
+  }
+
+  static String _mpcWebInterfaceOff(String why) =>
+      '[System] MPC-HC\'s web interface stays off for this session, so its '
+      'position is not tracked: it could not be limited to this computer '
+      '($why).';
+
   /// Frees [vodId]'s port, though not for immediate reuse: see _coolingPorts.
   void _releasePlayerPort(String vodId) {
     final port = activePlayerPorts.remove(vodId);
@@ -620,8 +698,9 @@ class PlayerService {
       }
     } catch (e) {
       // A session of its own, so the failure snackbar's View log has the
-      // reason to show.
-      onPlayerStarted?.call(key, title);
+      // reason to show - or, for the ffmpeg retry, the first run's session,
+      // which goes on (see below).
+      if (!isRetryWithFfmpeg) onPlayerStarted?.call(key, title);
       log(key, '[System Error] Could not prepare the download folder: $e');
       _cleanupDownloadState(vodId);
       onDownloadEnded?.call(vodId, -1);
@@ -667,7 +746,11 @@ class PlayerService {
       url
     ]);
 
-    onPlayerStarted?.call(key, title);
+    // The ffmpeg retry carries on the first run's session, as a heal's
+    // relaunch does (launchStreamlinkForVod). A session of its own dropped
+    // that run's output - the very error that brought the retry on - and a
+    // retry that failed too left View log nothing to say why it switched.
+    if (!isRetryWithFfmpeg) onPlayerStarted?.call(key, title);
 
     log(key, '[System] Initializing VOD Download for: ${vod.title}');
     log(key, '[System] Arguments: yt-dlp ${argsForLog(args)}');
@@ -819,16 +902,23 @@ class PlayerService {
 
       final exitCode = await proc.exitCode;
       _cleanupDownloadState(vodId, onlyFor: claim);
-      // Before every branch below, including the cancelled early return and
-      // the ffmpeg retry (which begins a fresh session of its own).
-      onDownloadEnded?.call(vodId, exitCode);
+      final cancelled = _cancelledDownloads.remove(vodId);
+      final retrying = !cancelled &&
+          exitCode != 0 &&
+          !isRetryWithFfmpeg &&
+          needsFfmpegFallback &&
+          !_shuttingDown;
+      // Before every branch below, including the cancelled early return -
+      // but not the ffmpeg retry, whose run carries on this session and ends
+      // it (or the gap before it does, when the retry is called off).
+      if (!retrying) onDownloadEnded?.call(vodId, exitCode);
 
       // A cancelled download exits non-zero like a failed one. Without this
       // check the ffmpeg fallback below restarted it - after the user cancelled
       // and after its partial files had been deleted - and the restarted run was
       // invisible to the cancel bookkeeping, so it could not be cancelled again.
       // It also reported "Download failed" on top of "Download cancelled".
-      if (_cancelledDownloads.remove(vodId)) {
+      if (cancelled) {
         log(key, '[System] Download cancelled by user.');
         return;
       }
@@ -839,9 +929,10 @@ class PlayerService {
         final downloadedFile = getDownloadedVodFile(vodId, channelName, settings.vodDownloadFolder);
         final filePath = downloadedFile?.path ?? '';
         onDownloadCompleted?.call(vodId, vod.title, filePath);
-        _cleanupOldestDownloads(settings);
+        // The limit in force now, not the one this download started under.
+        _cleanupOldestDownloads(_settingsNow(settings));
       } else {
-        if (!isRetryWithFfmpeg && needsFfmpegFallback && !_shuttingDown) {
+        if (retrying) {
           log(key, '[System Warning] HLS fragment error detected. Automatically retrying download using ffmpeg downloader...');
           deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
           _downloadsAwaitingRetry.add(vodId);
@@ -850,12 +941,13 @@ class PlayerService {
           // told "Download cancelled" and its files are already gone.
           if (!_downloadsAwaitingRetry.remove(vodId) || _shuttingDown) {
             log(key, '[System] Retry abandoned: the download was cancelled.');
+            onDownloadEnded?.call(vodId, exitCode);
             return;
           }
           await startVodDownload(
             vod,
             channelName,
-            settings,
+            _settingsNow(settings),
             isRetryWithFfmpeg: true,
             // Carry the fast-download choice into the retry; it used to be
             // dropped, so the retry silently ran the slow post-processing path.
@@ -969,6 +1061,7 @@ class PlayerService {
     // subsequent download - manual or automatic - would sit in the queue
     // forever, showing "Queued" and never starting.
     _shuttingDown = false;
+    _latestSettings = settings;
     final vodId = vod.id;
     if (queuedDownloadTasks.containsKey(vodId) || activeDownloadProcesses.containsKey(vodId)) {
       return;
@@ -1006,6 +1099,22 @@ class PlayerService {
   final Map<String, int> _queueTickets = {};
   int _lastQueueTicket = 0;
 
+  /// Where the settings in force are read (the screen's), for a download
+  /// queue that outlives the settings it was started with. Unset, the latest
+  /// settings any queueing handed in stand in.
+  ///
+  /// The drain took the settings of the call that started it and used them
+  /// for every download until the queue was empty - hours, for a bulk queue
+  /// or the resume at launch - while a Settings save adopts a new object. So
+  /// a folder changed meanwhile was ignored, as were Fast VOD downloads and
+  /// the custom yt-dlp arguments, and retention kept deleting finished VODs
+  /// at the old limit after the user had raised it or turned it off.
+  AppSettings Function()? currentSettings;
+  AppSettings? _latestSettings;
+
+  AppSettings _settingsNow(AppSettings fallback) =>
+      currentSettings?.call() ?? _latestSettings ?? fallback;
+
   /// Set by [stopAll] so the queue drain stops instead of starting the next
   /// download. Without this, killing the active yt-dlp let the loop below spawn
   /// a fresh one - after the resume list had already been written to disk, and
@@ -1032,7 +1141,9 @@ class PlayerService {
         bool stillOurs() => _queueTickets[vodId] == ticket;
         try {
           if (vod != null) {
-            await startVodDownload(vod, chName, settings, overrideDisablePostProcessing: overridePostProc);
+            // Read for each download as it starts (see currentSettings).
+            await startVodDownload(vod, chName, _settingsNow(settings),
+                overrideDisablePostProcessing: overridePostProc);
           }
         } catch (e) {
           log(logKeyForDownload(vodId),
@@ -1051,8 +1162,27 @@ class PlayerService {
     }
   }
 
-  Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder) async {
+  /// Calls off [vodId]'s download, queued or running, and removes what it
+  /// left. With [keepFinished] - the VOD was already downloaded before this
+  /// download of it was queued - its finished file and archive line stay:
+  /// the cancel is of the extra download, not of the copy the user had.
+  Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder,
+      {bool keepFinished = false}) async {
     final proc = activeDownloadProcesses[vodId];
+
+    // Nothing in flight, nothing to call off. A cancel confirmed after its
+    // download had finished (the Stop dialog can stay up for any length of
+    // time) used to run in full: "Download cancelled." replaced the
+    // completion message, and the VOD's archive line and files went - the
+    // finished file surviving only because the channel had been forgotten
+    // with the download, so the wrong folder was searched.
+    final inFlight = proc != null ||
+        _startingDownloads.contains(vodId) ||
+        _downloadsAwaitingRetry.contains(vodId) ||
+        downloadQueue.contains(vodId) ||
+        queuedDownloadTasks.containsKey(vodId) ||
+        activeDownloadTasks.containsKey(vodId);
+    if (!inFlight) return;
 
     // Only mark when a process actually exists to consume the marker.
     //
@@ -1085,6 +1215,10 @@ class PlayerService {
     downloadTaskFastDownloadOverrides.remove(vodId);
     _cleanupDownloadState(vodId);
     onDownloadCancelled?.call(vodId);
+    if (keepFinished) {
+      deleteTemporaryDownloadFiles(vodId, channelName, downloadFolder);
+      return;
+    }
     unawaited(removeVodFromArchive(vodId));
 
     // Remove the partial output. Anchored matching only: this used to delete
@@ -1093,29 +1227,66 @@ class PlayerService {
     deleteVodFiles(vodId, channelName, downloadFolder);
   }
 
+  /// Whether the app downloaded [vodId] - its registry or its download
+  /// history says so - set by the screen. Retention only deletes the files
+  /// of VODs this says yes to; unset, it deletes nothing.
+  bool Function(String vodId)? isOwnDownload;
+
+  /// The extensions yt-dlp leaves a finished Twitch VOD in.
+  static const Set<String> _videoExtensions = {
+    'mp4', 'mkv', 'webm', 'ts', 'mov', 'flv', 'm4v',
+  };
+
+  /// Deletes the oldest finished downloads beyond the limit, for good.
+  ///
+  /// Only the app's own: files of VODs it downloaded ([isOwnDownload]), with
+  /// a video extension, where it puts them - `<folder>/<channel>/` and no
+  /// deeper, never through a link. It used to walk the whole folder tree,
+  /// links included, and take any file named like ` - 2019.jpg`: with the
+  /// folder set to one that holds the user's own files, the oldest of them
+  /// went first - photos, scans, episodes, a NAS share behind a junction.
   void _cleanupOldestDownloads(AppSettings settings) {
     if (settings.maxDownloadsToKeep <= 0) return;
+    final isOwn = isOwnDownload;
+    if (isOwn == null) return;
     final downloadFolder = settings.vodDownloadFolder.trim();
     if (downloadFolder.isEmpty) return;
 
     final mainDir = Directory(downloadFolder);
     if (!mainDir.existsSync()) return;
 
-    final vodIdInName = RegExp(r' - v?(\d+)\.[A-Za-z0-9]+$', caseSensitive: false);
+    final vodIdInName =
+        RegExp(r' - v?(\d+)\.([A-Za-z0-9]+)$', caseSensitive: false);
 
     try {
       final allFiles = <File>[];
-      final entities = mainDir.listSync(recursive: true);
-      for (final entity in entities) {
-        if (entity is! File) continue;
-        final name = entity.path;
-        // Protect active .part/.ytdl downloads
-        if (!vodIdInName.hasMatch(name) || name.endsWith('.part') || name.endsWith('.ytdl')) {
+      final channelDirs =
+          mainDir.listSync(followLinks: false).whereType<Directory>();
+      for (final channelDir in channelDirs) {
+        final List<FileSystemEntity> entities;
+        try {
+          entities = channelDir.listSync(followLinks: false);
+        } catch (_) {
           continue;
         }
-        // Never delete a file that is open in a player right now.
-        if (playingVodFilePaths.values.any((p) => _isSamePath(p, name))) continue;
-        allFiles.add(entity);
+        for (final entity in entities) {
+          if (entity is! File) continue;
+          final match = vodIdInName.firstMatch(path.basename(entity.path));
+          // .part and .ytdl, a download in progress, have no video extension.
+          // yt-dlp names a Twitch VOD by its own id, the app's with a `v`
+          // before it (see vodFinalFilePattern); either may be the app's.
+          final digits = match?.group(1);
+          if (match == null ||
+              !_videoExtensions.contains(match.group(2)!.toLowerCase()) ||
+              !(isOwn(digits!) || isOwn('v$digits'))) {
+            continue;
+          }
+          // Never delete a file that is open in a player right now.
+          if (playingVodFilePaths.values.any((p) => _isSamePath(p, entity.path))) {
+            continue;
+          }
+          allFiles.add(entity);
+        }
       }
 
       if (allFiles.length <= settings.maxDownloadsToKeep) return;
@@ -1168,6 +1339,7 @@ class PlayerService {
       final path = file.path;
       final args = <String>[];
       String exe = '';
+      String? mpcWebOff;
 
       final finalSeek = resumeSeconds(
         watchPosition: vod.watchPosition,
@@ -1189,6 +1361,11 @@ class PlayerService {
         args.addAll(['/c', 'start', '/WAIT', '""', path]);
       } else {
         exe = resolvedExe;
+        if (kind == PlayerKind.mpcHc) {
+          mpcWebOff = await _limitMpcHcWebInterface(resolvedExe);
+        }
+        final httpPassword = _newHttpPassword();
+        _httpPasswords[vod.id] = httpPassword;
         // Local files are passed straight to Process.start, so no shlex quoting
         // here - unlike the streamlink path, which parses --player-args.
         args.addAll(buildPlayerArgs(
@@ -1197,6 +1374,8 @@ class PlayerService {
           port: port,
           ipcName: key,
           isWindows: Platform.isWindows,
+          httpPassword: httpPassword,
+          mpcWebInterface: mpcWebOff == null,
         ));
         args.add(path);
       }
@@ -1208,6 +1387,7 @@ class PlayerService {
       onPlayerStarted?.call(key, title);
       log(key, '[System] Initializing local player for VOD ${vod.id}...');
       log(key, '[System] Seek time offset: ${finalSeek}s');
+      if (mpcWebOff != null) log(key, _mpcWebInterfaceOff(mpcWebOff));
       log(key, '[System] Running local file command: $exe ${args.join(" ")}');
 
       final proc = await _startProcess(exe, args);
@@ -1245,7 +1425,7 @@ class PlayerService {
         }
       }
 
-      _startVODProgressTracker(vod, port, settings);
+      if (mpcWebOff == null) _startVODProgressTracker(vod, port, settings);
 
       proc.exitCode.then((exitCode) {
         log(key, '[System] Local player process exited with code $exitCode');
@@ -1300,6 +1480,11 @@ class PlayerService {
 
       final port = await getNextAvailablePlayerPort();
       final title = 'VOD: ${vod.title}';
+      final mpcWebOff = kind == PlayerKind.mpcHc && playerExe != null
+          ? await _limitMpcHcWebInterface(playerExe)
+          : null;
+      final httpPassword = _newHttpPassword();
+      _httpPasswords[vod.id] = httpPassword;
 
       final cmd = buildVodStreamlinkArgs(
         vodId: vod.id,
@@ -1323,6 +1508,8 @@ class PlayerService {
               watchedThreshold: settings.watchedThreshold,
             ),
         isWindows: Platform.isWindows,
+        httpPassword: httpPassword,
+        mpcWebInterface: mpcWebOff == null,
       );
       final args = cmd.args;
 
@@ -1345,6 +1532,7 @@ class PlayerService {
         log(key, '[System] This player has no known start-position flag, so playback begins at 0. '
             'Drag the seek bar to ${vod.watchPosition}s.');
       }
+      if (mpcWebOff != null) log(key, _mpcWebInterfaceOff(mpcWebOff));
       log(key, '[System] Arguments: ${argsForLog(args)}');
 
       // A Stop that landed while the relaunch was finding a port: see
@@ -1377,7 +1565,8 @@ class PlayerService {
         await _startWindowsIpcBridge(key, port);
       }
 
-      _startVODProgressTracker(vod, port, settings,
+      if (mpcWebOff == null) {
+        _startVODProgressTracker(vod, port, settings,
           channelName: channelName,
           selfHeal: true,
           // Only the passthrough path carries a player-side start flag; under
@@ -1387,6 +1576,7 @@ class PlayerService {
           // ...but under piping every reported position is short by exactly
           // that skip, and must be put back before anything believes it.
           positionOffset: cmd.passthrough ? 0 : cmd.appliedStart);
+      }
 
       // allowMalformed: a single non-UTF-8 byte from the child used to raise
       // a FormatException into the zone, silently killing the listener - and
@@ -1666,11 +1856,10 @@ class PlayerService {
       PlayerStatus? status;
       if (isVlc) {
         try {
-          final auth = 'Basic ' + base64Encode(utf8.encode(':streamlink'));
           final response = await http.get(
             Uri.parse('http://localhost:$port/requests/status.json'),
             headers: {
-              'Authorization': auth,
+              'Authorization': _basicAuthFor(vod.id),
             },
           ).timeout(const Duration(seconds: 2));
 
@@ -2133,8 +2322,8 @@ class PlayerService {
       final uri = Uri.parse('http://127.0.0.1:$port/$path');
       final http.Response response;
       if (channel == SeekChannel.vlcHttp) {
-        final auth = base64Encode(utf8.encode(':streamlink'));
-        response = await http.get(uri, headers: {'Authorization': 'Basic $auth'})
+        response = await http.get(uri,
+                headers: {'Authorization': _basicAuthFor(logKey)})
             .timeout(const Duration(seconds: 2));
       } else {
         response = await http.get(uri).timeout(const Duration(seconds: 2));
@@ -2227,6 +2416,18 @@ class PlayerService {
         log(key, '[System] Could not end the player process: $e');
       }
     }
+  }
+
+  /// Undoes [stopAll]'s latch: the app is not going after all - an update's
+  /// handover failed after everything had been stopped for it.
+  ///
+  /// Only queueing a download cleared the latch, so a session that went on
+  /// after a failed handover had a streamed VOD's heal kill the player and
+  /// then decline to relaunch it (the exit handler reads the latch as the app
+  /// stopping), and report the kill as a stop the user asked for: the player
+  /// just vanished, until some download happened to be queued.
+  void resume() {
+    _shuttingDown = false;
   }
 
   /// Ends everything this service started.

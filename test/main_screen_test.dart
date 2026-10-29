@@ -176,6 +176,34 @@ void main() {
     });
 
     testWidgets(
+        'left open with the window hidden, its broadcast end is looked at '
+        'again when the first look fails', (tester) async {
+      // The open channel, in the tray: its normal resting state. The look at
+      // the broadcast's end was its only one - the cadence stops while the
+      // window is hidden and the prefetch left it to that cadence - so one
+      // failed request lost its New VOD toast.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.goLive('alpha');
+      await h.launch(tester, favorites: ['alpha']);
+      await openChannel(tester, h, 'alpha');
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+
+      h.helix
+        ..goOffline('alpha')
+        ..failVideos = true;
+      await h.advance(tester, const Duration(seconds: 61));
+      h.helix.failVideos = false;
+      expect(h.notifications.titles, isNot(contains('New VOD from alpha')));
+
+      await h.advance(tester, const Duration(minutes: 3));
+      expect(h.notifications.titles, contains('New VOD from alpha'));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'coming back after a minute away refreshes it once, however many '
         'events the return fires', (tester) async {
       final h = ScreenHarness();
@@ -475,6 +503,31 @@ void main() {
   });
 
   group('exit', () {
+    testWidgets(
+        'with a config that could not be read, saves nothing over it, and '
+        'says so', (tester) async {
+      // Held open by a backup client at launch: the app ran on defaults and
+      // the Exit's save wrote them over every channel, setting and token.
+      addTearDown(() => storageReadFailure.value = null);
+      final failure =
+          StorageReadFailure('channels_config.json', 'in use by another program');
+      storageReadFailure.value = failure;
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      await h.launch(tester, favorites: ['alpha'], configReadFailure: failure);
+      expect(find.textContaining('could not be read'), findsOneWidget);
+
+      h.tray.choose('Exit');
+      await h.settle(tester);
+
+      expect(h.log, contains('window.destroy'), reason: 'it did exit');
+      expect(h.storage.configWrites, 0);
+      expect(h.storage.config!['channels'], hasLength(1),
+          reason: 'what was there is still there');
+
+      await h.close(tester);
+    });
+
     testWidgets(
         'captures the window, stops the players, saves, and only then '
         'removes the tray icon and the window', (tester) async {
@@ -1011,6 +1064,35 @@ void main() {
       expect(saved().containsKey('5150'), isTrue);
       expect(saved().containsKey('9000'), isFalse,
           reason: "the archive's oldest line went instead");
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'with the download folder out of reach, nothing is queued to fail '
+        'every minute', (tester) async {
+      // An unplugged drive: each pass queued the VODs, each failed at once,
+      // and each pass after it did the same - two toasts and a snackbar
+      // per VOD, every minute, for as long as the drive was away.
+      final unplugged = File(p.join(folder.path, 'not a folder'))
+        ..writeAsStringSync('x');
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.addVideo('alpha',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: ScreenHarness.defaultSettings()
+            ..vodDownloadFolder = p.join(unplugged.path, 'VODs'));
+      await h.advance(tester, const Duration(minutes: 3));
+
+      expect(h.notifications.titles, isNot(contains('VOD Download Failed')));
+      expect(h.notifications.titles, isNot(contains('Auto-Downloading VOD')));
+      expect(h.launcher.launched, isEmpty);
+      expect(
+          h.notifications.titles.where((t) => t == 'Auto-Download Paused'),
+          hasLength(1),
+          reason: 'said once, not every minute, and not never');
 
       await h.close(tester);
     });

@@ -19,10 +19,21 @@ class SaveFailureBanner extends StatelessWidget {
     super.key,
     required this.failure,
     required this.onDismiss,
-  });
+  }) : unreadable = false;
+
+  /// A file that is there but could not be read, so nothing is saved over it
+  /// this session (see StorageReadFailure): the same condition seen from the
+  /// other side - changes are not reaching disk.
+  SaveFailureBanner.unreadable({
+    super.key,
+    required StorageReadFailure failure,
+    required this.onDismiss,
+  })  : failure = StorageWriteFailure(failure.path, failure.error, DateTime.now()),
+        unreadable = true;
 
   final StorageWriteFailure failure;
   final VoidCallback onDismiss;
+  final bool unreadable;
 
   @override
   Widget build(BuildContext context) {
@@ -42,15 +53,20 @@ class SaveFailureBanner extends StatelessWidget {
           const SizedBox(width: NeuSpace.s8),
           Expanded(
             child: Text(
-              'Your settings could not be saved to disk. Recent changes may be '
-              'lost when the app closes.',
+              unreadable
+                  ? 'Your saved settings could not be read, so nothing is saved '
+                      'over them until the app restarts. Changes made now will '
+                      'be lost.'
+                  : 'Your settings could not be saved to disk. Recent changes '
+                      'may be lost when the app closes.',
               style: NeuType.label(isDark, color: NeuTheme.dangerText(isDark)),
             ),
           ),
           TextButton(
             // Same fix as the reconnect banner: the accent ink vanished into
             // the danger wash.
-            onPressed: () => showSaveFailureDetail(context, failure),
+            onPressed: () =>
+                showSaveFailureDetail(context, failure, unreadable: unreadable),
             style: TextButton.styleFrom(
               foregroundColor: NeuTheme.dangerText(isDark),
             ),
@@ -145,13 +161,14 @@ class TwitchAuthBanner extends StatelessWidget {
 }
 
 /// The save failure in full: which file, and what the system said.
-void showSaveFailureDetail(BuildContext context, StorageWriteFailure failure) {
+void showSaveFailureDetail(BuildContext context, StorageWriteFailure failure,
+    {bool unreadable = false}) {
   NeuDialog.show<void>(
     context,
     // Read-only detail: clicking away is a fine way to leave it.
     dismissible: true,
     builder: (context) => NeuDialog(
-      title: 'Could not save settings',
+      title: unreadable ? 'Could not read settings' : 'Could not save settings',
       icon: Icons.error_outline,
       tone: DialogTone.destructive,
       content: Column(
@@ -159,9 +176,15 @@ void showSaveFailureDetail(BuildContext context, StorageWriteFailure failure) {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Writing to this file keeps failing. Common causes are a full '
-            'disk, antivirus or backup software holding the file open, or '
-            'the folder no longer being writable.',
+            unreadable
+                ? 'This file is there, but reading it failed when the app '
+                    'started. Common causes are backup or sync software '
+                    'holding it open, or a folder on a drive that was out of '
+                    'reach. Nothing is written over it, so what it holds is '
+                    'safe: restart the app once the file is free.'
+                : 'Writing to this file keeps failing. Common causes are a '
+                    'full disk, antivirus or backup software holding the file '
+                    'open, or the folder no longer being writable.',
             style: NeuType.body(themeNotifier.isDarkTheme),
           ),
           const SizedBox(height: NeuSpace.s12),

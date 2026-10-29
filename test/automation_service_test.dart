@@ -76,6 +76,10 @@ class Rig {
   /// When set, every VOD fetch waits on it.
   Completer<void>? fetchGate;
 
+  /// Why the download folder cannot be used; null when it can.
+  String? folderProblem;
+  int folderChecks = 0;
+
   final List<String> played = [];
   final List<String> stopped = [];
   final List<String> fetched = [];
@@ -125,6 +129,10 @@ class Rig {
       if (notificationsFail) throw Exception('toast failed');
       notifications.add(title);
     },
+    folderProblem: (_) {
+      folderChecks++;
+      return folderProblem;
+    },
     log: log.add,
   );
 }
@@ -165,6 +173,56 @@ void main() {
       alpha.isLive = true;
       await rig.service.runPass();
       expect(rig.played, ['alpha', 'alpha']);
+    });
+
+    test('a broadcast whose refreshes failed for a while is not relaunched '
+        'when they work again', () async {
+      // Three failed refreshes show a live channel offline, though Twitch
+      // never said so. Forgetting its session then launched the same
+      // broadcast again, unasked, the user having closed the player.
+      final rig = Rig();
+      final alpha = channel('alpha', live: true, streamId: '1');
+      rig.favorites.add(alpha);
+      await rig.service.runPass();
+      rig.running.clear();
+
+      alpha
+        ..isLive = false
+        ..streamId = null
+        ..errorMessage = 'timed out';
+      await rig.service.runPass();
+      alpha
+        ..isLive = true
+        ..streamId = '1'
+        ..errorMessage = null;
+      await rig.service.runPass();
+
+      expect(rig.played, ['alpha']);
+      expect(rig.notifications, ['Auto-Playing Live Stream']);
+    });
+
+    test('nor is one keyed by its stream id that Twitch briefly reported '
+        'offline', () async {
+      final rig = Rig();
+      final alpha = channel('alpha', live: true, streamId: '1');
+      rig.favorites.add(alpha);
+      await rig.service.runPass();
+      rig.running.clear();
+
+      alpha
+        ..isLive = false
+        ..streamId = null;
+      await rig.service.runPass();
+      alpha
+        ..isLive = true
+        ..streamId = '1';
+      await rig.service.runPass();
+      expect(rig.played, ['alpha']);
+
+      // Removing the favourite still forgets it.
+      rig.favorites.clear();
+      await rig.service.runPass();
+      expect(rig.service.playedSessions, isEmpty);
     });
 
     test('an already-running stream is remembered, not relaunched after it '
@@ -267,6 +325,85 @@ void main() {
         (vod: 'f2', channel: 'fast', fast: true),
         (vod: 's1', channel: 'slow', fast: null),
       ]);
+    });
+
+    test('a folder that cannot be used queues nothing, and is said once',
+        () async {
+      // An unplugged drive: every VOD the pass queued failed at once, and the
+      // next pass queued them again - two toasts each, every minute. Then
+      // only the log said so, and auto-download stopped without a word.
+      final rig = Rig()..folderProblem = 'The device is not ready.';
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true, keep: 2));
+      rig.vodsByChannel['a'] = [vod('v2', daysAgo: 1), vod('v1', daysAgo: 2)];
+
+      await rig.service.runPass();
+      await rig.service.runPass();
+      expect(rig.queued, isEmpty);
+      expect(rig.notifications, ['Auto-Download Paused']);
+      expect(rig.log.where((l) => l.contains('cannot be used')), hasLength(1));
+      expect(rig.folderChecks, 2, reason: 'once a pass, not once a VOD');
+
+      rig.folderProblem = null;
+      await rig.service.runPass();
+      expect(rig.queued.map((q) => q.vod), ['v1', 'v2']);
+    });
+
+    test('a folder that goes away again is said again; with download toasts '
+        'off, only logged', () async {
+      final rig = Rig()..folderProblem = 'The device is not ready.';
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true));
+      rig.vodsByChannel['a'] = [vod('v1', daysAgo: 1)];
+      await rig.service.runPass();
+
+      rig.folderProblem = null;
+      await rig.service.runPass(); // queued; it fails: in no list afterwards
+      rig.folderProblem = 'The device is not ready.';
+      rig.now = rig.now.add(AutomationService.retryAfterFailure.first);
+      await rig.service.runPass();
+      expect(rig.notifications,
+          ['Auto-Download Paused', 'Auto-Downloading VOD', 'Auto-Download Paused']);
+
+      rig.settings.notifyDownloadComplete = false;
+      rig.folderProblem = null;
+      rig.now = rig.now.add(AutomationService.retryAfterFailure[1]);
+      await rig.service.runPass();
+      rig.folderProblem = 'The device is not ready.';
+      rig.now = rig.now.add(AutomationService.retryAfterFailure[2]);
+      await rig.service.runPass();
+      expect(rig.notifications, hasLength(3));
+      expect(rig.log.where((l) => l.contains('cannot be used')), hasLength(3));
+    });
+
+    test('nothing to queue, nothing to check', () async {
+      final rig = Rig()..handled.add('v1');
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true));
+      rig.vodsByChannel['a'] = [vod('v1', daysAgo: 1)];
+      await rig.service.runPass();
+      expect(rig.folderChecks, 0);
+    });
+
+    test('a VOD whose download failed is tried again later, not every pass, '
+        'and announced once', () async {
+      // A failure is recorded nowhere: the next pass, a minute later, queued
+      // it again, and a download that kept failing did so every minute.
+      final rig = Rig();
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true));
+      rig.vodsByChannel['a'] = [vod('v1', daysAgo: 1)];
+
+      await rig.service.runPass(); // queued; it fails: in no list afterwards
+      rig.now = rig.now.add(const Duration(minutes: 1));
+      await rig.service.runPass();
+      expect(rig.queued.map((q) => q.vod), ['v1']);
+
+      rig.now = rig.now.add(AutomationService.retryAfterFailure.first);
+      await rig.service.runPass();
+      expect(rig.queued.map((q) => q.vod), ['v1', 'v1']);
+      expect(rig.notifications, ['Auto-Downloading VOD'],
+          reason: 'the retry is not news; its failure had a toast of its own');
+
+      rig.now = rig.now.add(AutomationService.retryAfterFailure.first);
+      await rig.service.runPass();
+      expect(rig.queued, hasLength(2), reason: 'backing off');
     });
 
     test('skips VODs already handled', () async {

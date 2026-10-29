@@ -391,12 +391,12 @@ class TwitchApiService {
       } catch (_) {
         body = null;
       }
-      // The verdict about to be published describes this exact pair, so a
-      // later Helix 200 sent with a different one is new evidence, not a
-      // repeat of something the probe already accounted for.
+      // The pair this verdict describes is noted by whoever publishes it
+      // (TwitchAuth.recordHelixProbe), not here: Settings' Test of a typed,
+      // unsaved token comes through here too, and noting its pair made the
+      // next Helix 200 - sent with the saved one - "new credentials", which
+      // healed a fault that 200 does not disprove.
       final sentClientId = _effectiveClientId(configuredClientId);
-      _auth.noteHelixProbeCredential(
-          helixCredentialFingerprint(token, sentClientId));
       return statusFromValidation(
         statusCode: response.statusCode,
         body: body,
@@ -580,6 +580,15 @@ class TwitchApiService {
 
   /// Twitch's own web client, used whenever no Client ID is configured.
   static const String _publicClientId = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+  /// Which pair Helix requests carry for [rawToken] and the configured
+  /// Client ID, for the auth status (see [helixCredentialFingerprint]).
+  static int helixCredential(String rawToken, String configuredClientId) {
+    var token = rawToken.trim();
+    if (token.startsWith('oauth:')) token = token.substring(6);
+    return helixCredentialFingerprint(
+        token, _effectiveClientId(configuredClientId));
+  }
 
   /// The Client-Id every Helix request is actually sent with.
   static String _effectiveClientId(String configured) {

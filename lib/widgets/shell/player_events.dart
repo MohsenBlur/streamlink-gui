@@ -126,6 +126,11 @@ class PlayerEvents {
   /// archive.
   void bind({required String archivePath}) {
     _player.downloadArchiveFilePath = archivePath;
+    // A queue that outlives a Settings save follows it.
+    _player.currentSettings = _settings;
+    // Retention deletes only what the app downloaded.
+    _player.isOwnDownload = (vodId) =>
+        _registry().containsKey(vodId) || _downloadHistory.contains(vodId);
     _player.onPlayerLog = (key, line) {
       // Not once the screen is gone: dispose stops the players, which is
       // asynchronous, and their last lines arrived after the log was

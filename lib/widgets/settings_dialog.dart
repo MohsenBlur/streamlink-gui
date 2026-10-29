@@ -188,6 +188,12 @@ class SettingsDialog {
     bool tempTrayLiveMenu = settings.trayLiveMenuEnabled;
     bool tempCanvasEngine = settings.canvasEngine;
     final tokenController = TextEditingController(text: settings.twitchOauthToken);
+    // The account token the field opened with. A Connect Account that
+    // finishes while the dialog is open writes its token into `settings`
+    // itself, and the untouched field still holds the old one: staging the
+    // field put that back on Save - and, no longer matching, blanked the
+    // Client ID that minted the new one and signed the account out.
+    final openedToken = settings.twitchOauthToken.trim();
     final webTokenController = TextEditingController(text: settings.twitchWebOauthToken);
     final playerPathController = TextEditingController(text: settings.customPlayerPath);
     final playerArgsController = TextEditingController(text: settings.customPlayerArgs);
@@ -291,16 +297,21 @@ class SettingsDialog {
       // default, so saving wiped the theme mode, window
       // geometry, the VOD watch exclusion threshold and the
       // auto-play preemption toggle.
+      //
+      // An account token the user did not edit is the one in force now,
+      // whatever the field still says (see openedToken).
+      final typedToken = tokenController.text.trim();
+      final token =
+          typedToken == openedToken ? settings.twitchOauthToken : typedToken;
       return settings.copyWith(
         defaultQuality: tempQuality,
         twitchLowLatency: tempLowLatency,
         playerType: tempPlayerType,
         watchedThreshold: tempWatchedThreshold,
-        twitchOauthToken: tokenController.text.trim(),
-        twitchTokenClientId:
-            tokenController.text.trim() == settings.twitchOauthToken
-                ? settings.twitchTokenClientId
-                : '',
+        twitchOauthToken: token,
+        twitchTokenClientId: token == settings.twitchOauthToken
+            ? settings.twitchTokenClientId
+            : '',
         twitchWebOauthToken: webTokenController.text.trim(),
         customPlayerPath: playerPathController.text.trim(),
         customPlayerArgs: playerArgsController.text.trim(),
@@ -1357,7 +1368,11 @@ class SettingsDialog {
                                                       '${testedIsSaved ? '' : '. Save to start using it.'}'
                                                   : (connectionDetail(status) ?? connectionLabel(status));
                                             });
-                                            if (testedIsSaved) twitchAuth.recordHelixProbe(status);
+                                            if (testedIsSaved) {
+                                              twitchAuth.recordHelixProbe(status,
+                                                  credential: TwitchApiService.helixCredential(
+                                                      testedToken, testedClientId));
+                                            }
                                           },
                                     child: isTestingAccount
                                         ? SizedBox(

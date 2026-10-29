@@ -116,6 +116,54 @@ void main() {
     });
   });
 
+  group('failing refreshes', () {
+    test('a live channel back after three failed refreshes is not announced '
+        'again', () async {
+      // Three failures in a row drop it offline; the broadcast never ended.
+      // Its return on the same stream id announced it a second time.
+      twitch.goLive('shroud');
+      final shroud = FakeHelix.channel('shroud');
+      final controller = controllerFor([shroud]);
+      await controller.refresh(isInitialLoad: true);
+      final streamId = shroud.streamId;
+
+      twitch.revokedTokens.add('account-token');
+      for (var i = 0; i < 3; i++) {
+        await controller.refresh(force: true);
+        twitch.now = twitch.now.add(const Duration(seconds: 5));
+      }
+      expect(shroud.isLive, isFalse);
+      expect(passes.last.favoritesWentOffline, [shroud]);
+
+      twitch.revokedTokens.clear();
+      await controller.tick();
+
+      expect(shroud.isLive, isTrue);
+      expect(shroud.streamId, streamId);
+      expect(passes.last.favoritesWentLive, isEmpty);
+    });
+
+    test('a new broadcast after the outage is announced', () async {
+      twitch.goLive('shroud');
+      final shroud = FakeHelix.channel('shroud');
+      final controller = controllerFor([shroud]);
+      await controller.refresh(isInitialLoad: true);
+
+      twitch.revokedTokens.add('account-token');
+      for (var i = 0; i < 3; i++) {
+        await controller.refresh(force: true);
+        twitch.now = twitch.now.add(const Duration(minutes: 1));
+      }
+      twitch
+        ..goOffline('shroud')
+        ..goLive('shroud', at: twitch.now)
+        ..revokedTokens.clear();
+      await controller.tick();
+
+      expect(passes.last.favoritesWentLive, [shroud]);
+    });
+  });
+
   group('rate limiting', () {
     test('a rate-limited pass does not flip a live channel offline', () async {
       twitch.goLive('shroud');
@@ -340,6 +388,35 @@ void main() {
       await controller.loadFollowed();
       expect(controller.isFollowedReloadDue, isFalse);
 
+      twitch.now = twitch.now.add(ChannelsController.followedReloadInterval);
+      expect(controller.isFollowedReloadDue, isTrue);
+    });
+
+    test('a first load that failed is tried again, less often each time',
+        () async {
+      // A 500 on the very first load left the followed list empty for the
+      // session: only a list that had loaded was ever fetched again, and a
+      // 5xx leaves the token's status alone, so nothing else reloaded it.
+      twitch.followed.add('a');
+      twitch.failFollowed = true;
+      final controller = controllerFor(const []);
+      await expectLater(controller.loadFollowed(), throwsA(anything));
+      expect(controller.isFollowedReloadDue, isFalse, reason: 'not at once');
+
+      twitch.now = twitch.now.add(ChannelsController.followedRetryDelays[0]);
+      expect(controller.isFollowedReloadDue, isTrue);
+      await expectLater(controller.loadFollowed(), throwsA(anything));
+
+      twitch.now = twitch.now.add(ChannelsController.followedRetryDelays[0]);
+      expect(controller.isFollowedReloadDue, isFalse, reason: 'backing off');
+      twitch.now = twitch.now.add(ChannelsController.followedRetryDelays[1]);
+      expect(controller.isFollowedReloadDue, isTrue);
+
+      twitch.failFollowed = false;
+      await controller.loadFollowed();
+      expect(controller.followed.map((c) => c.username), ['a']);
+      expect(controller.isFollowedReloadDue, isFalse,
+          reason: 'loaded: the ordinary interval again');
       twitch.now = twitch.now.add(ChannelsController.followedReloadInterval);
       expect(controller.isFollowedReloadDue, isTrue);
     });

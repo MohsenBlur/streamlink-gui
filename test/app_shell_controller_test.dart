@@ -53,6 +53,7 @@ class _Rig {
       log.add('player.stopAll');
       await stopGate?.future;
     },
+    resumeAfterStop: () => log.add('player.resume'),
     liveFavorites: () => live,
     startHidden: false,
     onVisibilityChanged: () => visibilityChanges++,
@@ -490,6 +491,9 @@ void main() {
       expect(rig.shell.isUpdateInProgress, isFalse);
       expect(rig.updates.discarded, isEmpty,
           reason: 'a late updater may still be copying out of it');
+      expect(rig.log, containsAllInOrder(['player.stopAll', 'player.resume']),
+          reason: 'the app carries on, and so must its players: a heal '
+              'stopped relaunching streamed VODs after this');
       rig.window.userCloses();
       await tester.pump();
       expect(rig.window.visible, isFalse, reason: 'hidden, as any close');
@@ -534,6 +538,34 @@ void main() {
       expect(rig.log.last, 'downloads.unfreeze',
           reason: 'the Restart Manager only asked; the app carries on');
 
+      await rig.finish(tester);
+    });
+
+    testWidgets(
+        'keeps a maximized window maximized when it never left the tray',
+        (tester) async {
+      // Started at login into the tray from a maximized session and never
+      // opened: the frame is not zoomed until its first show, and saving
+      // that at the session's end brought the next launch up at normal size.
+      final rig = _Rig();
+      rig.settings.isWindowMaximized = true;
+      rig.window
+        ..visible = false
+        ..shown = false;
+      await rig.attach(tester);
+
+      await _fromRunner(tester, 'streamlink_gui/session', 'end');
+      expect(rig.log, contains('save.config'));
+      expect(rig.settings.isWindowMaximized, isTrue);
+      expect(rig.settings.windowWidth, 1400,
+          reason: 'the planned normal bounds are still saved');
+
+      // Once it has been on screen, what it reports is how it was left.
+      await rig.shell.showWindow();
+      await _fromRunner(tester, 'streamlink_gui/session', 'end');
+      expect(rig.settings.isWindowMaximized, isFalse);
+
+      await tester.pump(const Duration(seconds: 31));
       await rig.finish(tester);
     });
 

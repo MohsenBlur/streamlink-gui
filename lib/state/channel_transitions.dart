@@ -13,13 +13,15 @@ class ChannelSnapshot {
     required this.streamId,
     required this.wentLiveTime,
     required this.observed,
+    this.presumedOffline = false,
   });
 
   ChannelSnapshot.of(TwitchChannel channel)
       : isLive = channel.isLive,
         streamId = channel.streamId,
         wentLiveTime = channel.wentLiveTime,
-        observed = channel.lastUpdated != null;
+        observed = channel.lastUpdated != null,
+        presumedOffline = isPresumedOffline(channel);
 
   final bool isLive;
   final String? streamId;
@@ -28,7 +30,18 @@ class ChannelSnapshot {
   /// Whether the channel had ever been refreshed successfully. A channel's
   /// first answer is a baseline, not an edge: it may have been live for hours.
   final bool observed;
+
+  /// Offline only because its refreshes kept failing (see
+  /// [isPresumedOffline]).
+  final bool presumedOffline;
 }
+
+/// Whether [channel] shows offline only because its refreshes kept failing:
+/// the service drops a live channel after several failures in a row, but
+/// Twitch never said its broadcast ended. A refresh that answered clears the
+/// error, so an offline channel still showing one was never answered.
+bool isPresumedOffline(TwitchChannel channel) =>
+    !channel.isLive && channel.errorMessage != null;
 
 /// Snapshots keyed by identity: TwitchChannel has no value equality, and the
 /// favourite and the followed-list object for one streamer are two channels.
@@ -43,6 +56,7 @@ class LiveTransitions {
     required this.wentLive,
     required this.wentOffline,
     required this.announced,
+    this.knownBroadcasts = const {},
   });
 
   /// Channels to announce as live, in list order.
@@ -53,6 +67,10 @@ class LiveTransitions {
 
   /// The clean usernames now known to be live; pass it back next time.
   final Set<String> announced;
+
+  /// The broadcast last known live on each clean username: its stream id, or
+  /// '' when its refresh named none (DecAPI's). Pass it back next time.
+  final Map<String, String> knownBroadcasts;
 }
 
 /// Who just went live, and who just went offline.
@@ -66,36 +84,54 @@ class LiveTransitions {
 ///   live when the app started, which is not news;
 /// - the channel had never been refreshed before this pass ([before] says it
 ///   was not observed): a new follow, or one only just added, may have been
-///   live for hours.
+///   live for hours;
+/// - it is the broadcast [knownBroadcasts] already holds for it: the same
+///   stream id, or - with no id to tell broadcasts apart - one that only
+///   seemed to end because its refreshes kept failing.
 ///
-/// An offline channel leaves the set. Nothing here reads a failed or
-/// rate-limited refresh as offline: the service leaves `isLive` alone for
-/// those (a failing channel only drops after several in a row).
+/// An offline channel leaves the set. Nothing here reads a rate-limited
+/// refresh as offline: the service leaves `isLive` alone for those. A failing
+/// channel does drop, after several failures in a row, but Twitch never said
+/// its broadcast ended. Forgetting that broadcast too announced it again - and
+/// auto-played it again - as soon as requests worked: an outage of three
+/// polls, a refused token signed in again, or a Wi-Fi drop during a few
+/// presses of Refresh.
 LiveTransitions detectLiveTransitions({
   required List<TwitchChannel> channels,
   required Map<TwitchChannel, ChannelSnapshot> before,
   required Set<String> announced,
   required bool isInitialLoad,
+  Map<String, String> knownBroadcasts = const {},
 }) {
   final next = Set<String>.of(announced);
+  final known = Map<String, String>.of(knownBroadcasts);
   final wentLive = <TwitchChannel>[];
   final wentOffline = <TwitchChannel>[];
   for (final channel in channels) {
     final name = channel.username.toLowerCase().trim();
     if (channel.isLive) {
+      final broadcast = channel.streamId ?? '';
+      final seenBefore = known[name] == broadcast;
+      known[name] = broadcast;
       if (next.add(name) &&
           !isInitialLoad &&
+          !seenBefore &&
           (before[channel]?.observed ?? false)) {
         wentLive.add(channel);
       }
-    } else if (next.remove(name)) {
-      wentOffline.add(channel);
+    } else {
+      if (next.remove(name)) wentOffline.add(channel);
+      // A stream id tells the next broadcast apart by itself. Without one,
+      // only Twitch saying the channel is offline (an answer, so no error)
+      // ends the broadcast it knew.
+      if (!isPresumedOffline(channel) && known[name] == '') known.remove(name);
     }
   }
   return LiveTransitions(
     wentLive: wentLive,
     wentOffline: wentOffline,
     announced: next,
+    knownBroadcasts: known,
   );
 }
 
@@ -117,7 +153,10 @@ bool broadcastChanged(ChannelSnapshot? before, TwitchChannel channel) {
 /// far later after the PC woke from sleep into a stream already an hour old.
 /// Only when nothing better exists is the moment the edge was seen the best
 /// estimate: no start time at all, or DecAPI's answer (it has no start time
-/// and no stream id), which leaves whatever an earlier broadcast set.
+/// and no stream id), which leaves whatever an earlier broadcast set - unless
+/// that broadcast only seemed to end ([ChannelSnapshot.presumedOffline]):
+/// with nothing to tell them apart it is still the same one, and a new start
+/// time would make it a new auto-play session, launched again.
 void applyWentLiveFallback(
   Iterable<TwitchChannel> channels,
   Map<TwitchChannel, ChannelSnapshot> before, {
@@ -129,8 +168,9 @@ void applyWentLiveFallback(
     final was = before[channel];
     if (was == null || was.isLive || !channel.isLive) continue;
     final unset = channel.wentLiveTime == null;
-    final leftOver =
-        channel.streamId == null && channel.wentLiveTime == was.wentLiveTime;
+    final leftOver = channel.streamId == null &&
+        channel.wentLiveTime == was.wentLiveTime &&
+        !was.presumedOffline;
     if (unset || leftOver) channel.wentLiveTime = now;
   }
 }

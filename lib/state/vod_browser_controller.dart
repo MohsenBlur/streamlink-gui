@@ -99,6 +99,24 @@ class VodBrowserController extends ChangeNotifier {
   /// Favourites prefetched in the background, so opening one is instant.
   static const int prefetchLimit = 10;
 
+  /// How long after a broadcast ends its channel's list is read again, look
+  /// after look, while the VOD of that broadcast is not in it yet: the look
+  /// at the end failed, or Twitch had not listed it. One look at the end
+  /// used to be all there was - for the open channel while the window was
+  /// hidden, and for favourites past [prefetchLimit] - so a single failed
+  /// request there lost its "New VOD" toast for good.
+  static const List<Duration> endedBroadcastLooks = <Duration>[
+    Duration(minutes: 2),
+    Duration(minutes: 5),
+    Duration(minutes: 10),
+    Duration(minutes: 20),
+    Duration(minutes: 40),
+  ];
+
+  /// After this long an ended broadcast's VOD is no longer looked for: its
+  /// channel may keep no archive at all.
+  static const Duration endedBroadcastLookout = Duration(hours: 2);
+
   final TwitchApiService _api;
   final AppSettings Function() _settings;
   final Map<String, int> Function() _localProgress;
@@ -218,6 +236,7 @@ class VodBrowserController extends ChangeNotifier {
     DateTime? endedBroadcastStart,
   }) {
     if (_channel == null) return Future<VodFetchOutcome?>.value();
+    _lookOutFor(_channel!, endedBroadcastStart);
     final running = _firstPage;
     if (running != null &&
         _firstPageInFlight == _firstPageRequest &&
@@ -394,6 +413,82 @@ class VodBrowserController extends ChangeNotifier {
   /// Clean usernames whose list [checkForNewVods] is fetching right now.
   final Set<String> _checking = <String>{};
 
+  /// Broadcasts that ended and whose VOD their channel's list has not shown
+  /// yet, by clean username (see [endedBroadcastLooks]).
+  final Map<String, _EndedBroadcast> _endedBroadcasts =
+      <String, _EndedBroadcast>{};
+
+  /// Starts the look for the VOD of a broadcast that started at [start] and
+  /// has ended on [channel].
+  void _lookOutFor(TwitchChannel channel, DateTime? start) {
+    if (start == null) return;
+    final now = _now();
+    final key = _key(channel.username);
+    final current = _endedBroadcasts[key];
+    // The earliest start is kept, as a fetch's own ask keeps it (see
+    // _FirstPageAsk.lookFor): every VOD from it on is news.
+    final from = current != null && current.start.isBefore(start)
+        ? current.start
+        : start;
+    _endedBroadcasts[key] = _EndedBroadcast(
+      channel: channel,
+      start: from,
+      nextLookAt: now.add(endedBroadcastLooks.first),
+      giveUpAt: now.add(endedBroadcastLookout),
+    );
+  }
+
+  /// Whether [channel]'s list is on its way already: a stream-end check, or
+  /// the first page of the channel this holds (the window hidden, the open
+  /// channel is prefetched too, and its broadcast's end fetches it as well).
+  bool _beingRead(TwitchChannel channel) =>
+      _checking.contains(_key(channel.username)) ||
+      (_firstPage != null &&
+          _firstPageSession == _session &&
+          isShowing(channel));
+
+  /// Reads the list again of each channel whose ended broadcast's VOD is
+  /// still missing and is due another look: every such channel, favourites
+  /// past [prefetchLimit] included. [refreshed] is left to the screen's own
+  /// refreshes.
+  Future<void> _lookAgainForEndedBroadcasts(TwitchChannel? refreshed) async {
+    final now = _now();
+    for (final entry in _endedBroadcasts.entries.toList()) {
+      if (_disposed || _api.helixRateLimitedUntil != null) return;
+      final ended = entry.value;
+      // Found, or begun again, by a fetch this loop waited for.
+      if (!identical(_endedBroadcasts[entry.key], ended)) continue;
+      if (!now.isBefore(ended.giveUpAt)) {
+        _endedBroadcasts.remove(entry.key);
+        continue;
+      }
+      final channel = ended.channel;
+      // Back on the broadcast that only seemed to end (see below): it never
+      // did, so there is no VOD of it to look for.
+      if (channel.isLive && channel.wentLiveTime == ended.start) {
+        _endedBroadcasts.remove(entry.key);
+        continue;
+      }
+      // Only presumed offline - its refreshes kept failing, and Twitch never
+      // said the broadcast ended (isPresumedOffline) - the look waits, its
+      // turn kept. Taken now, it failed like the refreshes, spending looks an
+      // outage of an hour or so used up before the VOD could be found; or it
+      // got through and took the broadcast still running for its finished
+      // VOD, a "New VOD" toast for a stream still live.
+      if (isPresumedOffline(channel)) continue;
+      if (now.isBefore(ended.nextLookAt)) continue;
+      if (refreshed != null && _sameChannel(refreshed, channel)) continue;
+      if (_beingRead(channel)) continue;
+      ended.looks++;
+      if (ended.looks < endedBroadcastLooks.length) {
+        ended.nextLookAt = now.add(endedBroadcastLooks[ended.looks]);
+      } else {
+        _endedBroadcasts.remove(entry.key);
+      }
+      await _readForNewVods(channel, ended.start);
+    }
+  }
+
   /// Fetches the lists of up to [prefetchLimit] of [channels] that have
   /// nothing cached, only something older than [VodCache.ttl], or a list
   /// from before their broadcast last started or ended. One pass at a time,
@@ -418,11 +513,12 @@ class VodBrowserController extends ChangeNotifier {
     _prefetching = true;
     try {
       final refreshed = open != null && isShowing(open) ? open : null;
+      await _lookAgainForEndedBroadcasts(refreshed);
       for (final channel in channels.take(prefetchLimit).toList()) {
         if (_disposed || _api.helixRateLimitedUntil != null) return;
         final key = _key(channel.username);
         if (refreshed != null && _sameChannel(refreshed, channel)) continue;
-        if (_checking.contains(key)) continue;
+        if (_beingRead(channel)) continue;
         if (cache.isFresh(channel.username) &&
             !broadcastChanged(_listedAs[key], channel)) {
           continue;
@@ -450,11 +546,22 @@ class VodBrowserController extends ChangeNotifier {
 
   /// Looks for the VOD of a broadcast that just ended on [channel], which is
   /// not the open one (that one is [refresh]ed). Cheap: no game lookups.
+  /// Looked for again later while it is not found (see
+  /// [endedBroadcastLooks]).
   Future<void> checkForNewVods(
     TwitchChannel channel, {
     DateTime? endedBroadcastStart,
   }) async {
     if (_settings().twitchOauthToken.trim().isEmpty) return;
+    _lookOutFor(channel, endedBroadcastStart);
+    // An end only presumed - three refreshes failed - may be a broadcast
+    // still running: looked at once Twitch says (_lookAgainForEndedBroadcasts).
+    if (endedBroadcastStart != null && isPresumedOffline(channel)) return;
+    await _readForNewVods(channel, endedBroadcastStart);
+  }
+
+  Future<void> _readForNewVods(
+      TwitchChannel channel, DateTime? endedBroadcastStart) async {
     final key = _key(channel.username);
     final startedAt = _now();
     final listedAs = ChannelSnapshot.of(channel);
@@ -523,15 +630,30 @@ class VodBrowserController extends ChangeNotifier {
         fetchedAt: fetchedAt,
       );
     }
-    _listedAs[_key(channel.username)] = listedAs;
+    final key = _key(channel.username);
+    _listedAs[key] = listedAs;
 
+    // A list that has not shown an ended broadcast's VOD yet is still looking
+    // for it, whoever fetched it: on a channel's first list, that is what
+    // keeps the VOD from passing for part of the baseline.
+    final ended = _endedBroadcasts[key];
+    var since = endedBroadcastStart;
+    if (ended != null && (since == null || ended.start.isBefore(since))) {
+      since = ended.start;
+    }
     final appeared = _detector.observe(
       channel.username,
       result.vods,
       isLive: channel.isLive,
       liveSince: channel.wentLiveTime,
-      endedBroadcastStart: endedBroadcastStart,
+      endedBroadcastStart: since,
     );
+    if (ended != null &&
+        identical(_endedBroadcasts[key], ended) &&
+        NewVodDetector.holdsFinishedSince(result.vods, ended.start,
+            isLive: channel.isLive, liveSince: channel.wentLiveTime)) {
+      _endedBroadcasts.remove(key);
+    }
     if (appeared.isNotEmpty) {
       try {
         onNewVods?.call(channel, appeared, result.vods);
@@ -594,6 +716,24 @@ class VodBrowserController extends ChangeNotifier {
     onNewVods = null;
     super.dispose();
   }
+}
+
+/// A broadcast that ended, whose VOD is being looked for.
+class _EndedBroadcast {
+  _EndedBroadcast({
+    required this.channel,
+    required this.start,
+    required this.nextLookAt,
+    required this.giveUpAt,
+  });
+
+  final TwitchChannel channel;
+  final DateTime start;
+  DateTime nextLookAt;
+  final DateTime giveUpAt;
+
+  /// Looks taken since the one at the end.
+  int looks = 0;
 }
 
 /// One first-page fetch's instructions for when its answer lands. Mutable,

@@ -116,6 +116,7 @@ void main() {
             port: 8123,
             ipcName: vod.id,
             isWindows: isWindows,
+            httpPassword: 'pw',
           ).singleWhere((a) => a.startsWith('--input-ipc-server=')).split('=').last;
 
       // Off Windows: mpv's own unix socket, not a TCP port nothing listens on.

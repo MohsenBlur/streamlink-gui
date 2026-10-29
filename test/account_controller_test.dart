@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/state/account_controller.dart';
@@ -83,6 +85,51 @@ void main() {
     calls.clear();
     twitchAuth.setHelix(valid.copyWith(login: 'viewer'));
     expect(calls, isEmpty, reason: 'still usable is not a recovery');
+  });
+
+  test("Settings' Test of an unsaved token does not heal the saved one's "
+      'missing scope', () async {
+    // The Test went through the app's own service, which noted the TYPED
+    // pair as the one the next verdict described. The next poll's 200, sent
+    // with the saved token, then read as new credentials and healed a fault
+    // no 200 disproves - and the dismissed banner came back after it.
+    helix.tokenScopes['account-token'] = <String>[];
+    helix.goLive('shroud');
+    final api = helix.service(auth: twitchAuth);
+    final poll = ChannelsController(
+      api: api,
+      settings: () => settings,
+      favorites: [FakeHelix.channel('shroud')],
+      clock: () => helix.now,
+    );
+    addTearDown(poll.dispose);
+
+    await account.probe(force: true);
+    expect(twitchAuth.helix.value.fault, TwitchAuthFault.missingScope);
+    await poll.refresh(force: true);
+    expect(twitchAuth.helix.value.fault, TwitchAuthFault.missingScope);
+
+    final typed = await api.validateHelixToken('oauth:typed-not-saved', '');
+    expect(typed.isUsable, isTrue, reason: 'precondition: kept local');
+    await poll.refresh(force: true);
+
+    expect(twitchAuth.helix.value.fault, TwitchAuthFault.missingScope);
+  });
+
+  test("a probe of a token replaced while it was out is not published",
+      () async {
+    helix.revokedTokens.add('account-token');
+    helix.holdValidate = Completer<void>();
+    final probing = account.probe(force: true);
+    await settle();
+
+    settings.twitchOauthToken = 'oauth:replacement';
+    helix.holdValidate!.complete();
+    helix.holdValidate = null;
+    await probing;
+
+    expect(twitchAuth.helix.value.fault, isNot(TwitchAuthFault.revoked),
+        reason: "the old token's verdict says nothing about the new one");
   });
 
   test('stops listening when it goes', () async {

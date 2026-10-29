@@ -303,8 +303,18 @@ class AccountController extends ChangeNotifier {
     }
 
     _auth.setHelix(statusChecking(current));
-    final status = await _api.validateHelixToken(token, settings.twitchClientId);
-    _auth.recordHelixProbe(status);
+    // Read now: a sign-in writes the settings in place.
+    final clientId = settings.twitchClientId.trim();
+    final status = await _api.validateHelixToken(token, clientId);
+    // Replaced while the probe was out, the pair it describes is not the one
+    // requests carry any more - and whatever replaced it probes its own.
+    final saved = _settings();
+    if (saved.twitchOauthToken.trim() != token ||
+        saved.twitchClientId.trim() != clientId) {
+      return;
+    }
+    _auth.recordHelixProbe(status,
+        credential: TwitchApiService.helixCredential(token, clientId));
     if (_mounted()) _notify();
   }
 

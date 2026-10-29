@@ -121,6 +121,110 @@ void main() {
       expect(t.announced, {'a'});
     });
 
+    test('a broadcast that only seemed to end is not announced again', () {
+      // Three failed refreshes drop a live channel offline, though Twitch
+      // never said its broadcast ended. When requests work again on the same
+      // stream id, it is the broadcast already announced: announcing it again
+      // was a duplicate toast and, through auto-play, a relaunch.
+      final a = ch('a', live: true, streamId: 's1');
+      final seen = detectLiveTransitions(
+          channels: [a],
+          before: snapshotChannels([a]),
+          announced: {},
+          isInitialLoad: true);
+
+      var before = snapshotChannels([a]);
+      a
+        ..isLive = false
+        ..streamId = null
+        ..errorMessage = 'timed out';
+      final dropped = detectLiveTransitions(
+          channels: [a],
+          before: before,
+          announced: seen.announced,
+          isInitialLoad: false,
+          knownBroadcasts: seen.knownBroadcasts);
+      expect(dropped.wentOffline, [a]);
+
+      before = snapshotChannels([a]);
+      a
+        ..isLive = true
+        ..streamId = 's1'
+        ..errorMessage = null;
+      final back = detectLiveTransitions(
+          channels: [a],
+          before: before,
+          announced: dropped.announced,
+          isInitialLoad: false,
+          knownBroadcasts: dropped.knownBroadcasts);
+
+      expect(back.wentLive, isEmpty);
+      expect(back.announced, {'a'});
+
+      // A new stream id is a new broadcast, however its predecessor ended.
+      before = snapshotChannels([a]);
+      a
+        ..isLive = false
+        ..streamId = null;
+      final ended = detectLiveTransitions(
+          channels: [a],
+          before: before,
+          announced: back.announced,
+          isInitialLoad: false,
+          knownBroadcasts: back.knownBroadcasts);
+      before = snapshotChannels([a]);
+      a
+        ..isLive = true
+        ..streamId = 's2';
+      final next = detectLiveTransitions(
+          channels: [a],
+          before: before,
+          announced: ended.announced,
+          isInitialLoad: false,
+          knownBroadcasts: ended.knownBroadcasts);
+      expect(next.wentLive, [a]);
+    });
+
+    test('with no stream id, only a reported offline ends the broadcast', () {
+      // DecAPI names no stream id, so nothing tells a broadcast that came
+      // back after failing refreshes from a new one; Twitch saying the
+      // channel is offline does.
+      LiveTransitions step(TwitchChannel a, LiveTransitions last,
+          void Function() change) {
+        final before = snapshotChannels([a]);
+        change();
+        return detectLiveTransitions(
+            channels: [a],
+            before: before,
+            announced: last.announced,
+            isInitialLoad: false,
+            knownBroadcasts: last.knownBroadcasts);
+      }
+
+      final a = ch('a', live: true)..streamId = null;
+      var t = detectLiveTransitions(
+          channels: [a],
+          before: snapshotChannels([a]),
+          announced: {},
+          isInitialLoad: true);
+
+      t = step(a, t, () {
+        a
+          ..isLive = false
+          ..errorMessage = 'DecAPI uptime returned status 503';
+      });
+      t = step(a, t, () {
+        a
+          ..isLive = true
+          ..errorMessage = null;
+      });
+      expect(t.wentLive, isEmpty, reason: 'presumed offline, so the same broadcast');
+
+      t = step(a, t, () => a.isLive = false); // Twitch: offline
+      t = step(a, t, () => a.isLive = true);
+      expect(t.wentLive, [a], reason: 'a reported end, so a new broadcast');
+    });
+
     test('the set passed in is not modified', () {
       final a = ch('a');
       final before = snapshotChannels([a]);
@@ -193,6 +297,24 @@ void main() {
       applyWentLiveFallback([a], before, isInitialLoad: false, now: t0);
 
       expect(a.wentLiveTime, t0);
+    });
+
+    test('a broadcast back from a presumed offline keeps its start time', () {
+      // With no stream id the start time is the auto-play session's key: a
+      // new one relaunched the stream the user had closed.
+      final earlier = t0.subtract(const Duration(minutes: 40));
+      final a = ch('a')
+        ..streamId = null
+        ..wentLiveTime = earlier
+        ..errorMessage = 'timed out';
+      final before = snapshotChannels([a]);
+      a
+        ..isLive = true
+        ..errorMessage = null;
+
+      applyWentLiveFallback([a], before, isInitialLoad: false, now: t0);
+
+      expect(a.wentLiveTime, earlier);
     });
 
     test('the first pass and channels still live are left alone', () {

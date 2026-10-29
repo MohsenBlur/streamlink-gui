@@ -25,6 +25,7 @@ VodStreamCommand build({
     seekableStreaming: seekable,
     resume: resume,
     isWindows: true,
+    httpPassword: 'pw',
   );
 }
 

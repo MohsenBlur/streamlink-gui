@@ -381,6 +381,28 @@ void main() {
       expect(outcome!.registryChanged, isFalse);
     });
 
+    test('a folder set after a scan with none is scanned', () async {
+      // The scan with no folder awaited nothing, so it finished before its
+      // future was kept - and every later rescan joined that finished one.
+      var root = '';
+      var scans = 0;
+      final downloads = DownloadsController(
+        onQueueChanged: () {},
+        readScanInput: () => DownloadScanInput(
+            downloadRoot: root, channelName: '', vodIds: const [], registry: const {}, inFlight: const {}),
+        onScanned: (_) {},
+        runScan: (_) async {
+          scans++;
+          return null;
+        },
+      );
+      await downloads.rescan();
+      root = r'C:\somewhere';
+      await downloads.rescan();
+      await downloads.rescan();
+      expect(scans, 2);
+    });
+
     test('a scan that fails changes nothing', () async {
       var reported = false;
       final downloads = DownloadsController(

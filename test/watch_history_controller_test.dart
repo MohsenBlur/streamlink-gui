@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
+import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
 import 'package:streamlink_gui/state/settings_repository.dart';
 import 'package:streamlink_gui/state/watch_history_controller.dart';
@@ -66,6 +67,25 @@ void main() {
     expect(history.store['2']!.position, 30, reason: 'only in the config');
     expect(history.flat, {'1': 600, '2': 30});
     expect(repository.historyLoaded, isTrue);
+  });
+
+  test('a sidecar that is there but cannot be read is not written over',
+      () async {
+    // Held open by a backup client at launch, it read as "nothing", the gate
+    // opened, and the next save rewrote it from the flat copy: every
+    // furthest point and undo trail, gone for good.
+    history.restoreFlat({'1': 600});
+    storage.historyReadFailure =
+        StorageReadFailure('watch_progress.json', 'in use');
+    await history.load();
+    expect(repository.historyLoaded, isFalse);
+
+    await repository.flushNow();
+    expect(storage.progressWrites, 0);
+
+    storage.historyReadFailure = null;
+    await history.load();
+    expect(repository.historyLoaded, isTrue, reason: 'read at last');
   });
 
   test('reading it tells what shows it, with the recents in', () async {

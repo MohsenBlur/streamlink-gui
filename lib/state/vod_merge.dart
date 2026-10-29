@@ -228,6 +228,25 @@ class NewVodDetector {
     return fresh;
   }
 
+  /// Whether [firstPage], fetched while the channel was as [isLive] and
+  /// [liveSince] say, holds a finished VOD of a broadcast that started at
+  /// [start]: what a look for that broadcast's VOD is waiting to see.
+  static bool holdsFinishedSince(
+    List<TwitchVideo> firstPage,
+    DateTime start, {
+    required bool isLive,
+    DateTime? liveSince,
+  }) {
+    final since = start.subtract(archiveSlack);
+    for (var i = 0; i < firstPage.length; i++) {
+      if (!firstPage[i].publishedAt.isBefore(since) &&
+          !_inProgress(firstPage, i, isLive: isLive, liveSince: liveSince)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// Whether anything has been observed for [username].
   bool knows(String username) => _seen.containsKey(username.trim().toLowerCase());
 

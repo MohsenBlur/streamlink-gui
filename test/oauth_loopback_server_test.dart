@@ -52,6 +52,47 @@ void main() {
     }
   }
 
+  group('the IPv6 loopback', () {
+    // Twitch redirects to localhost, which resolves to ::1 first, and
+    // browsers try that first. Only 127.0.0.1 was bound, so a program
+    // listening on [::1] at the port got the redirect - and the token in it.
+    late bool hasIpv6;
+    setUpAll(() async {
+      try {
+        final probe = await HttpServer.bind(InternetAddress.loopbackIPv6, 0);
+        await probe.close(force: true);
+        hasIpv6 = true;
+      } on SocketException {
+        hasIpv6 = false;
+      }
+    });
+
+    test('a program already on it at the port refuses the sign-in', () async {
+      if (!hasIpv6) return markTestSkipped('no IPv6 loopback here');
+      final squatter =
+          await HttpServer.bind(InternetAddress.loopbackIPv6, 0, v6Only: true);
+      addTearDown(() => squatter.close(force: true));
+      final server = OAuthLoopbackServer(
+          port: squatter.port, clientId: 'myclient', state: 'abc123state');
+
+      await expectLater(server.start(), throwsA(isA<SocketException>()));
+      expect(await accepts(squatter.port), isFalse,
+          reason: 'not left half-bound on 127.0.0.1');
+    });
+
+    test('is listened on too, and the redirect there signs in', () async {
+      if (!hasIpv6) return markTestSkipped('no IPv6 loopback here');
+      final server = await started();
+      final request = await client.getUrl(Uri.parse(
+          'http://[::1]:${server.boundPort}/token?state=abc123state&access_token=tok'));
+      final response = await request.close();
+      expect(await response.transform(utf8.decoder).join(), 'OK');
+      final result = await server.result;
+      expect(result.outcome, OAuthLoopbackOutcome.token);
+      expect(result.accessToken, 'tok');
+    });
+  });
+
   test('the authorize URL carries the state, the client and the bound port',
       () async {
     final server = await started();
