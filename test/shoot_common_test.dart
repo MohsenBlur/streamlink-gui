@@ -126,8 +126,9 @@ void main() {
     }, skip: !Platform.isWindows);
 
     test('-NoActivate stages a window that is not maximized', () async {
-      // A maximized first show is one SW_SHOWNOACTIVATE most likely does not
-      // replace, so a launch meant to stay in the background would not.
+      // Windows does not swap SW_SHOWNOACTIVATE in for a maximized first
+      // show, so in a build from before the runner applied it itself, a
+      // launch meant to stay in the background would not.
       final config = realConfig();
       (config['settings'] as Map<String, Object?>)['is_window_maximized'] = true;
       File(p.join(appData.path, 'channels_config.json'))

@@ -48,8 +48,9 @@
   times (shoot-matrix.ps1 and shoot-materials.ps1 do by default). That keeps
   the show from activating the window, and the runner keeps the hidden
   window from taking the foreground before it (shoot-common.ps1,
-  Start-AppNoActivate). A config that opens the window maximized most
-  likely defeats it, so the launch warns about one; shoot-common.ps1's
+  Start-AppNoActivate). A config that opens the window maximized defeats it
+  in builds from before the runner applied the launcher's show command
+  itself, so the launch warns about one; shoot-common.ps1's
   Set-IsolatedConfig -NoActivate stages the window unmaximized.
 
   -Position is refused, before the window is moved, when the window it would
@@ -435,9 +436,10 @@ if (-not $hwnd -and $LaunchExe) {
     }
     if ($NoActivate) {
         if (Test-StagedOpensMaximized $targetExe) {
-            Write-Warning ("The config beside $targetExe opens the window maximized, and a maximized " +
-                'first show most likely activates it despite -NoActivate. Stage it with ' +
-                'Set-IsolatedConfig -NoActivate (shoot-common.ps1) to keep the launch in the background.')
+            Write-Warning ("The config beside $targetExe opens the window maximized, and a build from " +
+                "before the runner applied the launcher's show command itself activates a maximized " +
+                'first show despite -NoActivate. Stage it with Set-IsolatedConfig -NoActivate ' +
+                '(shoot-common.ps1) to keep the launch in the background.')
         }
         Write-Host "Launching $targetExe without activating it ..." -ForegroundColor Gray
         $launched = Start-AppNoActivate $targetExe

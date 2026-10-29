@@ -18,11 +18,38 @@ void main() {
   const windowManager = MethodChannel('window_manager');
 
   late List<String> calls;
+  late List<Object?> placements;
+  late List<String> milestones;
   late Directory dir;
   late CrashLog log;
 
+  /// The runner's side: what it answers to startsHidden, given what Dart
+  /// said; it throws instead when [answer] does.
+  void runnerAnswers(bool? Function(bool hidden) answer) {
+    messenger.setMockMethodCallHandler(runner, (call) async {
+      calls.add('runner.${call.method}');
+      switch (call.method) {
+        case 'startsHidden':
+          return answer((call.arguments as Map)['hidden'] as bool);
+        case 'getMonitors':
+          return <Object?>[];
+        case 'setInitialPlacement':
+          placements.add((call.arguments as Map)['hidden']);
+      }
+      return null;
+    });
+  }
+
+  Future<bool> prepare({required bool startHidden}) => prepareWindow(
+      AppSettings(startMinimized: startHidden),
+      startHidden: startHidden,
+      milestone: milestones.add,
+      log: log);
+
   setUp(() {
     calls = [];
+    placements = [];
+    milestones = [];
     messenger.setMockMethodCallHandler(windowManager, (call) async {
       calls.add('window_manager.${call.method}');
       switch (call.method) {
@@ -35,10 +62,8 @@ void main() {
       }
       return null;
     });
-    messenger.setMockMethodCallHandler(runner, (call) async {
-      calls.add('runner.${call.method}');
-      return call.method == 'getMonitors' ? <Object?>[] : null;
-    });
+    // A runner that keeps the launch hidden exactly when Dart says so.
+    runnerAnswers((hidden) => hidden);
     dir = Directory.systemTemp.createTempSync('app_startup_test');
     log = CrashLog(File(p.join(dir.path, 'crash.log')));
   });
@@ -57,41 +82,61 @@ void main() {
     // about it. For the Start minimized setting that used to be the initial
     // placement, after window_manager's title bar setup had activated the
     // hidden frame - which took the foreground from the user's own app.
-    await prepareWindow(AppSettings(startMinimized: true),
-        startHidden: true, milestone: (_) {}, log: log);
+    expect(await prepare(startHidden: true), isTrue);
 
-    expect(calls.first, 'runner.startHidden');
+    expect(calls.first, 'runner.startsHidden');
     expect(calls, contains('window_manager.setTitleBarStyle'),
         reason: 'the call that activates the hidden frame still runs, after');
-    expect(calls.where((call) => call == 'runner.startHidden'), hasLength(1));
+    expect(calls.where((call) => call == 'runner.startsHidden'), hasLength(1));
+    expect(placements, [true]);
   });
 
-  test('a launch that shows its window does not', () async {
-    await prepareWindow(AppSettings(),
-        startHidden: false, milestone: (_) {}, log: log);
+  test('a launch that shows its window says so, first, too', () async {
+    expect(await prepare(startHidden: false), isFalse);
 
-    expect(calls, isNot(contains('runner.startHidden')));
-    expect(calls, contains('runner.setInitialPlacement'));
+    expect(calls.first, 'runner.startsHidden');
+    expect(placements, [false]);
   });
 
-  test('a runner without the call still gets the window set up', () async {
-    messenger.setMockMethodCallHandler(runner, (call) async {
-      calls.add('runner.${call.method}');
-      if (call.method == 'startHidden') {
-        throw PlatformException(code: 'unavailable');
-      }
-      return call.method == 'getMonitors' ? <Object?>[] : null;
-    });
+  test("the runner's answer wins: a launcher's SW_HIDE keeps it hidden",
+      () async {
+    // Only the runner sees STARTUPINFO. Windows kept just the first show
+    // hidden, and the check after the first frame - told the window should
+    // be up - showed it and took the foreground.
+    runnerAnswers((_) => true);
+
+    expect(await prepare(startHidden: false), isTrue,
+        reason: 'what startApp hands the shell and the first-frame check');
+    expect(placements, [true]);
+    expect(milestones,
+        contains('starting hidden: the launcher asked for no window'));
+  });
+
+  test('a runner that cannot answer still gets the window set up', () async {
+    runnerAnswers((_) => throw PlatformException(code: 'unavailable'));
     // The log echoes to the console in debug builds; the file is what counts.
     final echo = debugPrint;
     debugPrint = (String? message, {int? wrapWidth}) {};
     addTearDown(() => debugPrint = echo);
 
-    await prepareWindow(AppSettings(startMinimized: true),
-        startHidden: true, milestone: (_) {}, log: log);
+    expect(await prepare(startHidden: true), isTrue,
+        reason: "the app's own reason still stands");
 
     expect(calls, contains('window_manager.setTitleBarStyle'));
-    expect(calls, contains('runner.setInitialPlacement'));
+    expect(placements, [true]);
     expect(log.file.readAsStringSync(), contains('ERROR [window start]'));
+  });
+
+  test("startApp goes by prepareWindow's answer", () {
+    // startApp itself needs the whole app around it; this is its wiring.
+    final source = File('lib/app_startup.dart')
+        .readAsStringSync()
+        .replaceAll('\r\n', '\n');
+    final start = source.indexOf('Future<void> startApp(');
+    expect(start, isNonNegative);
+    final body = source.substring(start, source.indexOf('\n}\n', start));
+    expect(body, contains('final startHidden = await prepareWindow('));
+    expect(body, contains('runApp(app(startup, startHidden));'));
+    expect(body, contains('startHidden: startHidden, milestone: milestone'));
   });
 }

@@ -26,8 +26,9 @@ abstract final class NativeWindow {
   static Future<WindowState?> state() async =>
       WindowState.fromMap(await _channel.invokeMethod<Object?>('getPlacement'));
 
-  /// Tells the runner that this launch stays hidden (Start minimized), before
-  /// anything else touches the window.
+  /// Tells the runner whether the app keeps this launch hidden ([hidden]:
+  /// Start minimized), before anything else touches the window, and returns
+  /// whether the launch stays hidden. Null when the runner cannot say.
   ///
   /// The runner reads --start-minimized itself, before the window exists,
   /// and from then until the first frame keeps the hidden window from taking
@@ -35,8 +36,12 @@ abstract final class NativeWindow {
   /// and that was too late: window_manager's title bar setup had activated
   /// the hidden frame by then, and on a launch from Explorer or the Start
   /// menu that took the foreground from the user's app, keyboard included.
-  static Future<void> startHidden() =>
-      _channel.invokeMethod<void>('startHidden');
+  ///
+  /// The answer is the runner's, and can be yes when [hidden] is no: it also
+  /// keeps a launch hidden whose launcher asked for no window at all
+  /// (STARTUPINFO's SW_HIDE), which nothing on this side can see.
+  static Future<bool?> startsHidden({required bool hidden}) =>
+      _channel.invokeMethod<bool>('startsHidden', {'hidden': hidden});
 
   /// Places the still-hidden window at [bounds] (physical; null leaves it
   /// where it is) and records how the first show presents it: maximized or

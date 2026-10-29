@@ -87,12 +87,13 @@ function Get-SecretSettingKeys {
 # instead of their app.
 #
 # -NoActivate stages a window that is not maximized, for a launch with
-# Start-AppNoActivate. Windows hands the launcher's SW_SHOWNOACTIVATE to the
-# runner's first show in place of a plain SW_SHOWNORMAL, which is what that
-# launch relies on. A placement saved maximized makes the first show
-# SW_SHOWMAXIMIZED instead, which it most likely does not replace (not
-# measured here: it would take a launch that may steal the foreground), so
-# the window would come up maximized and active.
+# Start-AppNoActivate. The runner applies the launcher's SW_SHOWNOACTIVATE to
+# its first show itself now (Win32Window::SetLaunchShowCommand), maximized
+# included. A build from before that left it to Windows, which swaps the
+# launcher's command in only for a plain first show: a placement saved
+# maximized made that first show SW_SHOWMAXIMIZED, which Windows leaves
+# alone (measured), and the window came up maximized and active. Staged
+# unmaximized, such a build stays in the background too.
 function Set-IsolatedConfig([string]$exePath, [hashtable]$settings, [switch]$NoActivate) {
     $relDir = Split-Path -Parent $exePath
     $marker = Join-Path $relDir 'portable.txt'
@@ -210,9 +211,9 @@ public class ShootCommonV1 {
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
 
     // Starts `exe` in `dir` with STARTF_USESHOWWINDOW and SW_SHOWNOACTIVATE,
-    // and returns its process id. Windows applies a launcher's show command to
-    // the process's first ShowWindow, so the runner's first show - a plain
-    // SW_SHOWNORMAL - comes up without activating the window.
+    // and returns its process id. The runner applies a launcher's show
+    // command to its first show, so the window comes up without activating
+    // (see Set-IsolatedConfig -NoActivate for builds from before that).
     public static int StartNoActivate(string exe, string dir) {
         var si = new STARTUPINFO();
         si.cb = Marshal.SizeOf(typeof(STARTUPINFO));
@@ -253,8 +254,9 @@ function Start-AppNoActivate([string]$exePath) {
 }
 
 # Whether the config a portable $exePath reads beside itself would open its
-# window maximized - the first show Start-AppNoActivate most likely cannot
-# keep from activating (see Set-IsolatedConfig -NoActivate). $false when it
+# window maximized - the first show Start-AppNoActivate could not keep from
+# activating in builds from before the runner applied the launcher's command
+# itself (see Set-IsolatedConfig -NoActivate). $false when it
 # is not portable, has no config there, or the config cannot be read: the
 # question is only asked to warn.
 function Test-StagedOpensMaximized([string]$exePath) {

@@ -40,6 +40,27 @@ class Win32Window {
   // Uses the first-show command (see SetFirstShowCommand).
   bool Show();
 
+  // The first show at launch: Show(), unless the launcher asked for
+  // something else (SetLaunchShowCommand) - minimized, without activation,
+  // or maximized - in which case that, on top of the restored placement.
+  // Ends the start in the background after the show.
+  void ShowAsLaunched();
+
+  // The show command the launcher put in STARTUPINFO, or -1 for none. Call
+  // before Create.
+  //
+  // Windows applies it itself only by swapping it in for the process's first
+  // ShowWindow, and only when that call asks for a plain show (SW_SHOWNORMAL
+  // or SW_SHOW; SW_SHOWMAXIMIZED and SW_RESTORE are left alone, measured).
+  // For a window restored maximized the first show is SW_SHOWMAXIMIZED, so a
+  // shortcut set to run minimized, or a launcher's SW_SHOWNOACTIVATE, got a
+  // maximized, activated window instead. And when the launch stayed hidden,
+  // the swap waited for whatever show came first - a summons from the tray,
+  // say - and would have done the launcher's bidding there instead. So Create
+  // uses the swap up while the window is still hidden, and the first show at
+  // launch applies the command (ShowAsLaunched).
+  void SetLaunchShowCommand(int command) { launch_show_command_ = command; }
+
   // The ShowWindow command the window is first shown with: SW_SHOWNORMAL, or
   // SW_SHOWMAXIMIZED when the restored placement was maximized. Maximizing is
   // part of the show rather than a step after it, so a window restored
@@ -168,6 +189,7 @@ class Win32Window {
   bool quit_on_close_ = false;
 
   int first_show_command_ = SW_SHOWNORMAL;
+  int launch_show_command_ = -1;
   bool has_been_shown_ = false;
 
   bool start_in_background_ = false;
