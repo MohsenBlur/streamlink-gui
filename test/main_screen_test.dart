@@ -13,9 +13,11 @@ import 'package:streamlink_gui/services/desktop_shell.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/services/update_service.dart';
 import 'package:streamlink_gui/state/app_shell_controller.dart';
+import 'package:streamlink_gui/state/download_history.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/state/vod_cache.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
+import 'package:streamlink_gui/widgets/shell/channel_dashboard.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 
 import 'support/fake_process.dart';
@@ -614,6 +616,76 @@ void main() {
     await h.close(tester);
   });
 
+  group("a toast's click", () {
+    /// The toast titled [title], clicked.
+    Future<void> click(
+        WidgetTester tester, ScreenHarness h, String title) async {
+      final toast = h.notifications.shown.lastWhere((n) => n.title == title);
+      await toast.onClick!();
+      await h.settle(tester);
+    }
+
+    String? openChannelName(WidgetTester tester) {
+      final dashboard = find.byType(ChannelDashboard);
+      if (dashboard.evaluate().isEmpty) return null;
+      return tester.widget<ChannelDashboard>(dashboard).channel.username;
+    }
+
+    testWidgets(
+        'on a went-live toast brings the window back, opens the channel and '
+        'starts its stream', (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.user('beta');
+      await h.launch(tester, favorites: ['alpha', 'beta']);
+      await openChannel(tester, h, 'beta');
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+      expect(h.window.visible, isFalse);
+
+      h.helix.goLive('alpha', title: 'Speedrun night');
+      await h.advance(tester, const Duration(seconds: 61));
+      expect(h.notifications.titles, contains('alpha is now LIVE!'));
+      expect(h.player.runningChannels, isEmpty,
+          reason: 'precondition: a toast only says so');
+
+      await click(tester, h, 'alpha is now LIVE!');
+      expect(h.window.visible, isTrue);
+      expect(openChannelName(tester), 'alpha');
+      expect(h.player.runningChannels, ['alpha']);
+      expect(h.launcher.launched.single.arguments.join(' '), contains('alpha'));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'on a New VOD toast brings the window back and opens the channel, '
+        'with the VOD in its grid', (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.goLive('alpha');
+      await h.launch(tester, favorites: ['alpha']);
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+
+      // The broadcast ends off screen, and leaves its VOD.
+      h.helix.goOffline('alpha');
+      h.helix.addVideo('alpha', title: 'Last night, recorded');
+      await h.advance(tester, const Duration(seconds: 61));
+      expect(h.notifications.titles, contains('New VOD from alpha'));
+      expect(openChannelName(tester), isNull);
+
+      await click(tester, h, 'New VOD from alpha');
+      expect(h.window.visible, isTrue);
+      expect(openChannelName(tester), 'alpha');
+      expect(find.text('Last night, recorded'), findsOneWidget);
+      expect(h.player.runningChannels, isEmpty,
+          reason: 'a VOD is not played for the asking');
+
+      await h.close(tester);
+    });
+  });
+
   testWidgets('Esc leaves the Library for where you were; Ctrl+F finds the '
       'sidebar search', (tester) async {
     final h = ScreenHarness();
@@ -906,6 +978,68 @@ void main() {
     });
 
     testWidgets(
+        "past the history's cap, the registry's VODs outrank the archive's",
+        (tester) async {
+      // The registry is seeded as the config loads, the archive once it has
+      // been read, a moment later - and stamped later, the archive's lines
+      // outranked the registry's VODs, which went first past the cap.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final archive = StringBuffer();
+      for (var i = 0; i < DownloadHistory.maxEntries; i++) {
+        archive.writeln('twitchvod v${9000 + i}');
+      }
+      Directory(p.join(folder.path, 'alpha')).createSync(recursive: true);
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo(),
+          config: {
+            'downloaded_vods': {'5150': fileOf('5150').path},
+          },
+          files: {'yt_dlp_archive.txt': archive.toString()});
+      Map<dynamic, dynamic> saved() =>
+          h.storage.config!['download_history'] as Map? ?? const {};
+      for (var i = 0; i < 50 && !saved().containsKey('9999'); i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await h.advance(tester, const Duration(seconds: 1));
+      }
+      expect(saved().containsKey('9999'), isTrue,
+          reason: "precondition: the archive's seed is in");
+
+      expect(saved(), hasLength(DownloadHistory.maxEntries));
+      expect(saved().containsKey('5150'), isTrue);
+      expect(saved().containsKey('9000'), isFalse,
+          reason: "the archive's oldest line went instead");
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'a VOD the pass downloads and announces raises no New VOD toast as '
+        'well', (tester) async {
+      // A broadcast ending off screen leaves a VOD inside the auto-download
+      // window: one toast for it, the pass's, not "New VOD" too.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.goLive('alpha', archive: false);
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo());
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+
+      h.helix.goOffline('alpha');
+      final vod = h.helix.addVideo('alpha', title: 'Last night, recorded');
+      await h.advance(tester, const Duration(seconds: 61));
+      expect(ytDlpFor(h, vod), hasLength(1));
+      expect(h.notifications.titles, contains('Auto-Downloading VOD'));
+      expect(h.notifications.titles, isNot(contains('New VOD from alpha')));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'reads watch positions from Twitch only for what it would download',
         (tester) async {
       // One GQL request per VOD on the page, every minute, for every
@@ -986,6 +1120,87 @@ void main() {
       await h.advance(tester, const Duration(seconds: 6));
 
       expect(ytDlpFor(h, vod), hasLength(1));
+
+      await h.close(tester);
+    });
+
+    /// Right-clicks [title]'s card and picks [item] from its menu.
+    Future<void> fromMenu(WidgetTester tester, ScreenHarness h, String title,
+        String item) async {
+      await tester.tap(find.text(title).first,
+          buttons: kSecondaryMouseButton);
+      // The menu grows open; until it has, its items are clipped away.
+      await h.advance(tester, const Duration(milliseconds: 500),
+          step: const Duration(milliseconds: 100));
+      await tester.tap(find.text(item).last);
+      await h.settle(tester);
+    }
+
+    testWidgets(
+        'a VOD whose auto-download the user cancelled is not queued again, '
+        'and Download by hand still fetches it', (tester) async {
+      // The cancel was recorded nowhere, so the next pass, a minute later,
+      // queued the same VOD again.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final vod = h.helix.addVideo('alpha',
+          title: 'Not this one',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo());
+      expect(ytDlpFor(h, vod), hasLength(1),
+          reason: 'precondition: the pass queued it');
+
+      await openChannel(tester, h, 'alpha');
+      await fromMenu(tester, h, 'Not this one', 'Cancel download');
+      // taskkill's yt-dlp ends on a zero-length timer.
+      await h.advance(tester, const Duration(milliseconds: 50),
+          step: const Duration(milliseconds: 10));
+      expect(find.text('Download cancelled.'), findsOneWidget);
+
+      await h.advance(tester, const Duration(minutes: 3));
+      expect(ytDlpFor(h, vod), hasLength(1), reason: 'three passes later');
+      expect(h.storage.config!['download_history'], contains(vod));
+
+      await fromMenu(tester, h, 'Not this one', 'Download');
+      // Queued by hand, it waits for its archive line to be taken out, which
+      // is real file I/O.
+      for (var i = 0; i < 100 && ytDlpFor(h, vod).length < 2; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await h.settle(tester);
+      }
+      expect(ytDlpFor(h, vod), hasLength(2));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'an auto-download an exit stops is not taken for a cancel: it is '
+        'saved to resume', (tester) async {
+      // Only the user's Cancel says no to a VOD. An exit stops every
+      // download without it, and the next launch resumes them.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      final vod = h.helix.addVideo('alpha',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: downloadingTo());
+      expect(ytDlpFor(h, vod), hasLength(1),
+          reason: 'precondition: the pass queued it');
+
+      h.tray.choose('Exit');
+      await h.settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Exit and save queue'));
+      await tester.pump(AppShellController.stopAllTimeout);
+      await h.settle(tester);
+      expect(h.window.destroyed, isTrue);
+
+      expect(h.storage.config!['download_history'], isNot(contains(vod)));
+      expect(h.storage.savedSettings?.unfinishedDownloads, hasLength(1));
 
       await h.close(tester);
     });

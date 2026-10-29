@@ -36,7 +36,6 @@ class ChannelDashboard extends StatelessWidget {
     required this.isPlaying,
     required this.isMultiSelectMode,
     required this.selectedVodIds,
-    required this.isBulkUpdating,
     required this.isWebTokenExpired,
     required this.selectedGamesFilter,
     required this.vodSearchController,
@@ -82,9 +81,6 @@ class ChannelDashboard extends StatelessWidget {
 
   final bool isMultiSelectMode;
   final Set<String> selectedVodIds;
-
-  /// A bulk watched/unwatched pass is running.
-  final bool isBulkUpdating;
 
   /// Twitch refused the browser token on the last fetch the user asked for.
   final bool isWebTokenExpired;
@@ -179,8 +175,6 @@ class ChannelDashboard extends StatelessWidget {
                   if (isMultiSelectMode)
                     SelectionBar(
                       selectedCount: selectedVodIds.length,
-                      busy: isBulkUpdating,
-                      busyLabel: 'Syncing with Twitch...',
                       onExit: onExitSelection,
                       onClear: onClearSelection,
                       onSelectAllVisible: onSelectAllVisible,
@@ -461,10 +455,10 @@ class StaleVodNote extends StatelessWidget {
 /// The VOD grid's display settings, in the toolbar's popover: game badges,
 /// the text filter, the game filter, card and title size.
 ///
-/// It edits the screen's own state - the settings, the filter set, the
-/// search field - through [update], the screen's setState, exactly as it did
-/// as a method of the screen; the StatefulBuilders inside repaint the
-/// popover, which the screen's rebuild does not reach.
+/// It edits the settings, the filter set and the search field through
+/// [update], VodSelection.update, which repaints the open channel's
+/// dashboard - and this popover with it, since an open popover is built with
+/// its trigger (InteractivePopover).
 class VodDisplayMenu extends StatelessWidget {
   const VodDisplayMenu({
     super.key,
@@ -507,12 +501,18 @@ class VodDisplayMenu extends StatelessWidget {
                 return Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
-                        const SizedBox(width: NeuSpace.s6),
-                        Text('Show All Games on Thumbnails', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
-                      ],
+                    // Gives way to the switch: wider than the menu, the
+                    // label ran past its edge (by 95px in the test font).
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(Icons.sports_esports, size: 14, color: NeuTheme.subtext(themeNotifier.isDarkTheme)),
+                          const SizedBox(width: NeuSpace.s6),
+                          Flexible(
+                            child: Text('Show All Games on Thumbnails', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme))),
+                          ),
+                        ],
+                      ),
                     ),
                     NeuSwitch(
                       value: settings.showGamesOnThumbnails,

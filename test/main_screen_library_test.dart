@@ -7,6 +7,7 @@ import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
+import 'package:streamlink_gui/widgets/library_view.dart';
 
 import 'support/main_screen_harness.dart';
 
@@ -166,6 +167,37 @@ void main() {
     await h.settle(tester);
     expect(find.text('Deleted elsewhere'), findsNothing,
         reason: 'a row is only built for a file that is there');
+
+    await h.close(tester);
+  });
+
+  testWidgets(
+      'opening it looks at the disk again: a file put back since the last '
+      'scan is listed without waiting for the next one', (tester) async {
+    final h = ScreenHarness();
+    h.helix.user('alpha');
+    final id = h.helix.addVideo('alpha', title: 'Put back');
+    await h.launch(tester, favorites: ['alpha'], settings: withFolder());
+    await h.openChannel(tester, 'alpha');
+    // The scan the VOD list started finds nothing, on an isolate.
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await h.settle(tester);
+    }
+
+    // Copied back, or downloaded by another build. No time passes from here
+    // on, so the ten-second scan never runs: only opening can find it.
+    downloaded(id, 'Put back');
+    await openLibrary(tester, h);
+    Finder row() => find.descendant(
+        of: find.byType(LibraryView), matching: find.text('Put back'));
+    for (var i = 0; i < 50 && row().evaluate().isEmpty; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await h.settle(tester);
+    }
+    expect(row(), findsOneWidget);
 
     await h.close(tester);
   });

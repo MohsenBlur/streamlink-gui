@@ -79,11 +79,12 @@ class AutomationService {
   /// Whether a VOD is already downloaded, downloading or queued.
   final bool Function(String vodId) isVodHandled;
 
-  /// Whether the app ever downloaded a VOD, though its file may be gone
-  /// (DownloadHistory). The pass never fetches one of those again: a file
-  /// retention or the user deleted came back on the next pass, and with
-  /// retention below the windows, in a loop. A download queued by hand is
-  /// not asked.
+  /// Whether the app ever downloaded a VOD, though its file may be gone, or
+  /// the user cancelled its download (DownloadHistory). The pass never
+  /// fetches one of those again: a file retention or the user deleted came
+  /// back on the next pass, and with retention below the windows, in a
+  /// loop; a cancelled one came back a minute later. A download queued by
+  /// hand is not asked.
   final bool Function(String vodId) wasDownloaded;
 
   final void Function(TwitchVideo vod, TwitchChannel channel,

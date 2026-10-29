@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:local_notifier/local_notifier.dart';
 
 import 'app_services.dart';
 import 'app_startup.dart';
@@ -24,7 +22,7 @@ import 'state/download_history.dart';
 import 'state/settings_repository.dart';
 import 'state/settings_save.dart';
 import 'services/downloads_controller.dart';
-import 'theme/type_probe.dart';
+import 'widgets/shell/announcements.dart';
 import 'widgets/shell/app_dialogs.dart';
 import 'widgets/shell/app_frame.dart';
 import 'widgets/shell/app_snackbar.dart';
@@ -39,11 +37,11 @@ import 'widgets/shell/app_layout.dart';
 import 'widgets/shell/motion.dart';
 import 'state/channels_controller.dart';
 import 'state/vod_browser_controller.dart';
+import 'state/vod_selection.dart';
 import 'widgets/log_viewer_dialog.dart';
 import 'widgets/sidebar_panel.dart';
 import 'widgets/settings_dialog.dart';
 
-import 'services/startup_service.dart';
 import 'state/account_controller.dart';
 import 'state/app_shell_controller.dart';
 import 'state/library_controller.dart';
@@ -65,7 +63,9 @@ Future<void> main(List<String> args) async {
   // here simply ended startup - with the window never shown - and left nothing
   // behind to say why.
   await runZonedGuarded<Future<void>>(
-    () => _startApp(args),
+    () => startApp(args,
+        app: (startup, startHidden) => TwitchStreamlinkApp(
+            startup: startup, startHidden: startHidden)),
     (error, stack) {
       final log = CrashLog.current;
       if (log != null) {
@@ -75,103 +75,6 @@ Future<void> main(List<String> args) async {
       }
     },
   );
-}
-
-Future<void> _startApp(List<String> args) async {
-  final launch = Stopwatch()..start();
-  WidgetsFlutterBinding.ensureInitialized();
-
-  final storage = StorageService();
-  // Beside the config, so portable mode keeps it beside the exe too.
-  final crashLog = CrashLog(storage.getStorageFile(CrashLog.fileName));
-  CrashLog.install(crashLog);
-  // Startup milestones. Each one is a line in crash.log, so a launch that
-  // never shows its window still says how far it got.
-  void milestone(String message) =>
-      crashLog.milestone('[startup +${launch.elapsedMilliseconds}ms] $message');
-  milestone('launch v${UpdateService.currentVersion}, pid $pid'
-      '${args.isEmpty ? '' : ', args $args'}');
-
-  // One read and one parse of the config for the whole startup. main() used
-  // to read and decrypt it here and _loadChannels read and decrypted it all
-  // again a moment later; the snapshot now goes down to the first load.
-  //
-  // Nothing before runApp may throw: the window is only ever shown by the
-  // first frame, so an exception here is an app that never appears. A load
-  // that fails outright leaves the snapshot out, and the first load reads
-  // the file again itself - never an empty snapshot that the next autosave
-  // would write over a config that is still on disk.
-  StartupConfig? startup;
-  try {
-    startup = await storage.loadStartupConfig();
-    milestone(startup.isFirstRun
-        ? 'config: none, first run'
-        : (startup.data == null
-            ? 'config: unreadable, quarantined; using defaults'
-            : 'config: loaded'));
-    // The plaintext copy an older build left beside the exe loses its
-    // tokens. Only after a load: a config that would not load is
-    // quarantined, and the next launch's migration recovers from that copy.
-    if (startup.data != null) {
-      final mirror = storage.scrubStaleConfigMirror();
-      if (mirror != null) milestone(mirror);
-    }
-  } catch (e, st) {
-    crashLog.error('config', e, st);
-  }
-  final settings = startup?.parseSettings() ?? AppSettings();
-
-  // The material engine's fragment program, before the first frame so the
-  // first paint is already lit. Milliseconds; degrades to the Canvas engine
-  // on failure rather than to a blank window. Settings' "Simple rendering"
-  // and --canvas-engine skip the shader outright - the switch for a machine
-  // where it renders, but slowly or wrongly, which no self-test can see.
-  final canvasReason = args.contains('--canvas-engine')
-      ? '--canvas-engine flag'
-      : (settings.canvasEngine ? 'Simple rendering setting' : null);
-  await LitSurfaceProgram.load(
-      forceCanvas: canvasReason != null, forceCanvasReason: canvasReason);
-  milestone('surface engine: ${LitSurfaceProgram.status}');
-
-  // The typography gate. Off unless asked for, and it cannot be a unit test:
-  // `flutter test` has no system fonts and CI is ubuntu, so an assertion about
-  // Bahnschrift there would measure the fallback against itself and pass.
-  if (TypeProbe.enabled) {
-    await TypeProbe.run();
-  }
-  try {
-    await localNotifier.setup(
-      appName: 'Twitch Streamlink GUI',
-      shortcutPolicy: ShortcutPolicy.requireCreate,
-    );
-  } catch (e, st) {
-    // Toasts are a nicety; a failure here must not stop the window appearing.
-    crashLog.error('notifications', e, st);
-  }
-
-  // Autostart launches pass --start-minimized; the manual-launch preference
-  // does the same thing without the flag.
-  final bool startMinimized =
-      args.contains('--start-minimized') || settings.startMinimized;
-
-  // Re-writing the Run value at every launch silently heals a moved install.
-  if (settings.launchAtStartup) {
-    StartupService().sync(true);
-  }
-
-  await prepareWindow(settings,
-      startHidden: startMinimized, milestone: milestone, log: crashLog);
-
-  seedStoredLook(settings);
-
-  runApp(TwitchStreamlinkApp(startup: startup, startHidden: startMinimized));
-  milestone('runApp');
-
-  unawaited(WidgetsBinding.instance.waitUntilFirstFrameRasterized.then((_) {
-    milestone('first frame rasterized');
-    return checkWindowAfterFirstFrame(
-        startHidden: startMinimized, milestone: milestone);
-  }));
 }
 
 class TwitchStreamlinkApp extends StatefulWidget {
@@ -300,19 +203,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   List<TwitchVideo> get _channelVods => _vodBrowser.vods;
   set _vodsError(String? value) => _vodBrowser.error = value;
 
-  final TextEditingController _vodSearchController = TextEditingController();
+  /// The open channel's game filter, search and selection (VodSelection).
+  final VodSelection _selection = VodSelection();
   AnimationController? _pulseController;
   bool _sidebarCollapsed = false;
-  final Set<String> _selectedGamesFilter = {};
   bool _isWebTokenExpired = false;
-  bool _isMultiSelectMode = false;
-  final Set<String> _selectedVodIds = {};
-  bool _isBulkUpdatingVods = false;
   Set<String> _downloadedVodIds = {};
   Map<String, String> _downloadedVodsRegistry = {};
 
-  /// Every VOD ever downloaded, file or no file, so auto-download never
-  /// fetches one twice (DownloadHistory); saved with the registry.
+  /// Every VOD ever downloaded, file or no file, or cancelled by the user,
+  /// so auto-download never fetches one twice (DownloadHistory); saved with
+  /// the registry.
   final DownloadHistory _downloadHistory = DownloadHistory();
 
   /// Watch positions, the recently-watched list and the VODs playing
@@ -577,7 +478,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // shows them (see build); the channels show nearly everywhere.
     _channelsCtl.addListener(_onRefreshStateChanged);
     _channelsCtl.onPass = _onChannelsPass;
-    _vodBrowser.onNewVods = _onNewVods;
+    _vodBrowser.onNewVods = _announcements.newVods;
 
     storageWriteFailure.addListener(_onSaveFailureChanged);
     _account
@@ -697,7 +598,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // Detached before the controller goes: the proxy outlives this screen.
     widget.shellPulse?.parent = kAlwaysCompleteAnimation;
     _recentScroll.dispose();
-    _vodSearchController.dispose();
+    _selection.dispose();
     _pulseController?.dispose();
     _playerService.stopAll();
     _searchController.dispose();
@@ -888,11 +789,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// The rest of the download history's seed (see [_loadChannels]): the VODs
   /// yt-dlp's archive records. Builds before the history never took a line
   /// out of the archive, so it lists every VOD they downloaded, deleted ones
-  /// too.
+  /// too. Beneath what the registry and the disk say, past the cap.
   Future<void> _seedDownloadHistoryFromArchive() async {
     final ids = await _playerService.readArchivedVodIds();
     if (!mounted) return;
-    if (_downloadHistory.addAll(ids, _services.clock())) {
+    if (_downloadHistory.addBeneath(ids, _services.clock())) {
       _settingsRepo.requestSave();
     }
   }
@@ -929,9 +830,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             _sidebarCollapsed = _settings.sidebarCollapsed;
             // The Followed/Live tabs are hidden without a token; restoring a
             // persisted tab index would strand the user on an invisible tab.
-            _sidebarTab = _settings.twitchOauthToken.trim().isEmpty
-                ? 0
-                : _settings.activeSidebarTab;
+            // The saved tab goes back to Favorites with it, as a sign-out
+            // puts it: kept at Followed, adding a token later in the session
+            // opened the next launch on a tab the sidebar had not shown.
+            if (_settings.twitchOauthToken.trim().isEmpty) {
+              _settings.activeSidebarTab = 0;
+            }
+            _sidebarTab = _settings.activeSidebarTab;
             applyStoredLook(_settings);
           });
           } catch (e) {
@@ -1068,6 +973,22 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     showMessage: _showSnackBar,
   );
 
+  /// The went-live and New VOD toasts, and what a click on one does
+  /// (Announcements).
+  late final Announcements _announcements = Announcements(
+    notifications: _notifications,
+    favorites: _channels,
+    automation: _automation,
+    player: _playerService,
+    settings: () => _settings,
+    mounted: () => mounted,
+    windowVisible: () => _shell.windowVisible,
+    libraryOpen: () => _library.isOpen,
+    openChannel: () => _selectedChannel,
+    showWindow: _shell.showWindow,
+    select: _selectChannel,
+  );
+
   late final VodBrowserController _vodBrowser = VodBrowserController(
     api: _apiService,
     settings: () => _settings,
@@ -1147,7 +1068,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
     // Announced first and automation after, as before: an auto-play's own
     // toast follows the went-live toast it is about.
-    unawaited(_announceWentLive(pass).whenComplete(() {
+    unawaited(_announcements.wentLive(pass).whenComplete(() {
       if (mounted) _checkFavoritesAutomation();
     }));
     // Liveness just changed, so the pulse may need to start or stop.
@@ -1175,81 +1096,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _shell.rebuildTrayMenu();
   }
 
-  /// The went-live toasts for one pass, one after another, over the pass's
-  /// own lists. This used to await each toast inside a loop over _channels,
-  /// and starring a channel during that await threw
-  /// ConcurrentModificationError and skipped the rest of the pass.
-  Future<void> _announceWentLive(ChannelsPass pass) async {
-    final channels = <TwitchChannel>[
-      if (_settings.notifyWentLive) ...pass.favoritesWentLive,
-      if (_settings.notifyFollowedWentLive) ...pass.followedWentLive,
-    ];
-    for (final channel in channels) {
-      try {
-        final gameText = channel.game ?? 'Twitch';
-        final titleText = channel.streamTitle ?? 'Streaming Live!';
-        await _notifications.show(AppNotification(
-          title: '${channel.username} is now LIVE!',
-          body: 'Playing $gameText\n$titleText',
-          onClick: () async {
-            await _shell.showWindow();
-            if (!mounted) return;
-            _selectChannel(channel);
-
-            _playerService.launchStreamlinkForLive(
-              channel.username,
-              channel.isLive,
-              channel.streamTitle,
-              channel.game,
-              _settings,
-            );
-          },
-        ));
-      } catch (e) {
-        print('[Favorites Notification] Error displaying desktop toast: $e');
-      }
-    }
-  }
-
-  /// A channel's archive gained a VOD (see VodBrowserController.onNewVods).
-  /// Announced for favourites only, and not for the open channel while the
-  /// window is on screen: the grid shows it arriving. Nor for a VOD the
-  /// auto-download pass takes, which has a toast of its own.
-  void _onNewVods(TwitchChannel channel, List<TwitchVideo> vods,
-      List<TwitchVideo> firstPage) {
-    if (!mounted || !_settings.notifyNewVod || vods.isEmpty) return;
-    final name = channel.username.toLowerCase().trim();
-    final index = _channels.indexWhere((c) => c.username == name);
-    if (index == -1) return;
-    if (_shell.windowVisible &&
-        !_library.isOpen &&
-        _selectedChannel?.username == name) {
-      return;
-    }
-    final news =
-        _automation.newVodsToAnnounce(_channels[index], vods, firstPage);
-    if (news.isEmpty) return;
-    unawaited(_announceNewVods(name, news));
-  }
-
-  Future<void> _announceNewVods(String name, List<TwitchVideo> vods) async {
-    try {
-      final more = vods.length - 1;
-      await _notifications.show(AppNotification(
-        title: 'New VOD from $name',
-        body: more > 0 ? '${vods.first.title}\n+$more more' : vods.first.title,
-        onClick: () async {
-          await _shell.showWindow();
-          if (!mounted) return;
-          final index = _channels.indexWhere((c) => c.username == name);
-          if (index != -1) _selectChannel(_channels[index]);
-        },
-      ));
-    } catch (e) {
-      print('[New VOD Notification] Error displaying desktop toast: $e');
-    }
-  }
-
   /// Selects a channel and loads its VODs.
   ///
   /// The one path for this. It used to be open-coded in three places - the
@@ -1261,11 +1107,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // The object the poll keeps current, whichever row was clicked.
     final target = _channelsCtl.canonical(channel);
     _library.close();
-    setState(() {
-      _selectedChannel = target;
-      _selectedGamesFilter.clear();
-      _selectedVodIds.clear();
-    });
+    setState(() => _selectedChannel = target);
+    _selection.channelChanged();
     // The open channel is part of the pulse's gate (its header breathes
     // while it is live), so selecting one can start or stop it.
     _updatePulse();
@@ -1356,25 +1199,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Future<void> _checkFavoritesAutomation() => _automation.runPass();
 
   Future<void> _bulkUpdateSelectedVods(bool markAsWatched) async {
-    if (_selectedVodIds.isEmpty) {
+    if (_selection.picked.isEmpty) {
       _showSnackBar('No VODs selected.', isError: true);
       return;
     }
 
-    setState(() {
-      _isBulkUpdatingVods = true;
-    });
-    // The selection's order, and only what the grid still shows.
-    final successCount = _history.mark([
-      for (final id in _selectedVodIds)
-        ..._channelVods.where((v) => v.id == id).take(1),
-    ], watched: markAsWatched);
-
-    setState(() {
-      _isBulkUpdatingVods = false;
-      _isMultiSelectMode = false;
-      _selectedVodIds.clear();
-    });
+    final successCount =
+        _history.mark(_selection.pickedOf(_channelVods), watched: markAsWatched);
+    _selection.end();
 
     if (successCount > 0) {
       await _saveChannels();
@@ -1484,6 +1316,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _followedChannels.clear();
         _sidebarTab = 0;
       });
+      // The saved tab too, as a tab click saves it. Left at Followed, a
+      // token added again later opened the next launch on Followed.
+      if (_settings.activeSidebarTab != 0) {
+        _settings.activeSidebarTab = 0;
+        _settingsRepo.requestSave();
+      }
     },
     canvasTurnedOn: () {
       LitSurfaceProgram.disable('Simple rendering turned on in Settings');
@@ -1737,7 +1575,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   /// What the open channel's dashboard shows changes with (see build).
   late final Listenable _dashboardSources =
-      Listenable.merge([_vodBrowser, _history]);
+      Listenable.merge([_vodBrowser, _history, _selection]);
 
   Widget _buildDashboard(TwitchChannel channel) {
     final channelName = _selectedChannel?.username ?? 'VOD';
@@ -1747,18 +1585,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       vodBrowser: _vodBrowser,
       pulseController: _pulseController!,
       isPlaying: _playerService.runningChannels.contains(channel.username),
-      isMultiSelectMode: _isMultiSelectMode,
-      selectedVodIds: _selectedVodIds,
-      isBulkUpdating: _isBulkUpdatingVods,
+      isMultiSelectMode: _selection.isSelecting,
+      selectedVodIds: _selection.picked,
       isWebTokenExpired: _isWebTokenExpired,
-      selectedGamesFilter: _selectedGamesFilter,
-      vodSearchController: _vodSearchController,
+      selectedGamesFilter: _selection.games,
+      vodSearchController: _selection.search,
       displayMenu: VodDisplayMenu(
         settings: _settings,
         vods: _channelVods,
-        selectedGamesFilter: _selectedGamesFilter,
-        vodSearchController: _vodSearchController,
-        update: setState,
+        selectedGamesFilter: _selection.games,
+        vodSearchController: _selection.search,
+        update: _selection.update,
         onSave: _saveChannels,
       ),
       isVodPlaying: (id) => _playerService.playingVodIds.contains(id),
@@ -1781,55 +1618,32 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         unawaited(_refreshSelectedVods(silent: false));
       },
       openExternalLink: _openExternalLink,
-      onEnterSelection: () => setState(() {
-        _isMultiSelectMode = true;
-        _selectedVodIds.clear();
-      }),
-      onExitSelection: _endSelection,
-      onClearSelection: () => setState(() => _selectedVodIds.clear()),
-      onSelectAllVisible: () => setState(() {
-        _selectedVodIds.addAll(_filteredChannelVods().map((v) => v.id));
-      }),
+      onEnterSelection: _selection.enter,
+      onExitSelection: _selection.end,
+      onClearSelection: _selection.clearPicked,
+      onSelectAllVisible: () => _selection.pickAllShown(_channelVods),
       onBulkMark: _bulkUpdateSelectedVods,
       // In the grid's order, as the order dialog lists them.
       onBulkDownload: () => _vods.downloadSelection(
-          _channelVods.where((v) => _selectedVodIds.contains(v.id)).toList(),
+          _selection.pickedInOrderOf(_channelVods),
           channelName: () => _selectedChannel?.username ?? 'VOD',
-          endSelection: _endSelection),
-      // In the selection's order, and only what the grid still shows: a
-      // selection can outlive a refresh.
-      onBulkDelete: () => _vods.deleteSelection([
-        for (final id in _selectedVodIds)
-          ..._channelVods.where((v) => v.id == id).take(1),
-      ], channelName: _selectedChannel?.username ?? '', endSelection: _endSelection),
+          endSelection: _selection.end),
+      onBulkDelete: () => _vods.deleteSelection(
+          _selection.pickedOf(_channelVods),
+          channelName: _selectedChannel?.username ?? '',
+          endSelection: _selection.end),
       onRefreshVods: () => _refreshSelectedVods(silent: false),
       onUpdateToken: _showSettingsDialog,
       onDismissWebTokenWarning: () => setState(() {
         _isWebTokenExpired = false;
       }),
-      onGameFilterSelected: (game) {
-        setState(() {
-          if (_selectedGamesFilter.contains(game)) {
-            _selectedGamesFilter.remove(game);
-          } else {
-            _selectedGamesFilter.add(game);
-          }
-        });
-      },
-      onClearGameFilter: () => setState(() => _selectedGamesFilter.clear()),
+      onGameFilterSelected: _selection.toggleGame,
+      onClearGameFilter: _selection.clearGames,
       onPlayVod: (vod) => _vods.play(vod, channelName),
       onDownloadVod: (vod) => _vods.download(vod, channelName),
       onDeleteDownload: (id) => _vods.deleteDownload(id, channelName),
       onCancelDownload: (id) => _vods.cancelDownload(id, channelName),
-      onVodSelectedChange: (id, isSelected) {
-        setState(() {
-          if (isSelected) {
-            _selectedVodIds.add(id);
-          } else {
-            _selectedVodIds.remove(id);
-          }
-        });
-      },
+      onVodSelectedChange: _selection.pick,
       onOpenFolder: (vod) {
         final path = _downloadedVodsRegistry[vod.id];
         if (path != null) _revealInExplorer(path);
@@ -1837,31 +1651,4 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       onLoadMore: () => _fetchVodsForChannel(channel, loadMore: true),
     );
   }
-
-  /// Leaves selection mode, with nothing selected.
-  void _endSelection() {
-    if (!mounted) return;
-    setState(() {
-      _isMultiSelectMode = false;
-      _selectedVodIds.clear();
-    });
-  }
-
-  /// The VODs the grid is currently showing, i.e. what "All" selects.
-  ///
-  /// Was inline inside the Select All button; the SelectionBar needs it too,
-  /// and two copies of a filter is how the old toolbar's two code paths
-  /// drifted apart in the first place.
-  List<TwitchVideo> _filteredChannelVods() {
-    final searchQuery = _vodSearchController.text.trim().toLowerCase();
-    return _channelVods.where((vod) {
-      final matchesSearch = searchQuery.isEmpty ||
-          vod.title.toLowerCase().contains(searchQuery) ||
-          vod.games.any((game) => game.toLowerCase().contains(searchQuery));
-      final matchesGameFilter = _selectedGamesFilter.isEmpty ||
-          vod.games.any((game) => _selectedGamesFilter.contains(game));
-      return matchesSearch && matchesGameFilter;
-    }).toList();
-  }
-
 }

@@ -5,7 +5,9 @@ import '../theme/neu_theme.dart';
 import '../theme/theme_notifier.dart';
 import 'shell/neu_dialog.dart';
 
-/// Asks where VODs go, for a download started before any folder was set.
+/// Asks where VODs go, for a download started by hand when VODs cannot be
+/// saved in the folder set - it cannot be made right now ([unusable]), or
+/// none is set at all.
 ///
 /// [show] completes with the folder the user picked, or null when they
 /// cancelled or dismissed the prompt. Saving the folder and starting the
@@ -25,12 +27,18 @@ class DownloadFolderPrompt extends StatefulWidget {
   /// Not `const`: it reads `themeNotifier` in build, and a const instance
   /// is never rebuilt when the theme changes (see const_theme_reader_test).
   // ignore: prefer_const_constructors_in_immutables
-  DownloadFolderPrompt({Key? key}) : super(key: key);
+  DownloadFolderPrompt({Key? key, this.unusable}) : super(key: key);
 
-  static Future<String?> show(BuildContext context) => NeuDialog.show<String>(
+  /// The folder set, and why VODs cannot be saved in it; null when no
+  /// folder is set.
+  final ({String folder, String reason})? unusable;
+
+  static Future<String?> show(BuildContext context,
+          {({String folder, String reason})? unusable}) =>
+      NeuDialog.show<String>(
         context,
         dismissible: true,
-        builder: (context) => DownloadFolderPrompt(),
+        builder: (context) => DownloadFolderPrompt(unusable: unusable),
       );
 
   @override
@@ -65,9 +73,18 @@ class _DownloadFolderPromptState extends State<DownloadFolderPrompt> {
     }
   }
 
+  /// [reason] inside brackets: the system's messages end with a full stop.
+  static String _sentence(String reason) {
+    final trimmed = reason.trim();
+    return trimmed.endsWith('.')
+        ? trimmed.substring(0, trimmed.length - 1)
+        : trimmed;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = themeNotifier.isDarkTheme;
+    final unusable = widget.unusable;
     return NeuDialog(
       title: 'Where should VODs be saved?',
       icon: Icons.folder_copy,
@@ -76,8 +93,15 @@ class _DownloadFolderPromptState extends State<DownloadFolderPrompt> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'No download folder is set yet. Pick one and the download starts '
-            'straight away; everything you download later goes there too.',
+            unusable == null
+                ? 'No download folder is set yet. Pick one and the download '
+                    'starts straight away; everything you download later goes '
+                    'there too.'
+                : 'VODs cannot be saved in ${unusable.folder} right now '
+                    '(${_sentence(unusable.reason)}). Pick another folder and '
+                    'the download starts straight away; everything you '
+                    'download later goes there too. Or cancel, and keep this '
+                    'one for when it is back.',
             style: NeuType.body(isDark),
           ),
           // The folder dialog is a window of its own, not part of this

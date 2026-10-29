@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/twitch_video.dart';
+import '../state/vod_selection.dart';
 import 'twitch_video_card.dart';
 import 'horizontal_mouse_scrollable.dart';
 import 'neumorphic/neu_button.dart';
@@ -162,14 +163,10 @@ class _VodsGridState extends State<VodsGrid> {
     }
     
     final searchQuery = widget.vodSearchController.text.trim().toLowerCase();
-    final filteredVods = widget.vods.where((vod) {
-      final matchesSearch = searchQuery.isEmpty ||
-          vod.title.toLowerCase().contains(searchQuery) ||
-          vod.games.any((game) => game.toLowerCase().contains(searchQuery));
-      final matchesGameFilter = widget.selectedGamesFilter.isEmpty ||
-          vod.games.any((game) => widget.selectedGamesFilter.contains(game));
-      return matchesSearch && matchesGameFilter;
-    }).toList();
+    // The one filter, which the selection bar's All selects from too: two
+    // copies of it is how the old toolbar's two code paths drifted apart.
+    final filteredVods = VodSelection.filter(widget.vods,
+        query: searchQuery, games: widget.selectedGamesFilter);
 
     final allGames = <String>{};
     for (final vod in widget.vods) {

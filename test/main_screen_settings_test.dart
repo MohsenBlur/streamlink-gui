@@ -63,6 +63,42 @@ void main() {
     expect(tester.widget<SidebarPanel>(find.byType(SidebarPanel)).sidebarTab,
         0,
         reason: 'the Followed tab goes with the token');
+    // And the saved tab with it: left at Followed, a token added again later
+    // in the session opened the next launch on Followed, though the sidebar
+    // had shown Favorites since the sign-out.
+    await h.advance(tester, const Duration(seconds: 2));
+    expect(h.storage.savedSettings?.activeSidebarTab, 0);
+
+    await h.close(tester);
+  });
+
+  testWidgets(
+      'a launch with no account token puts the saved tab back to Favorites '
+      'too, so adding one does not open the next launch on Followed',
+      (tester) async {
+    // A config saved at Followed with no token in it - signed out by a build
+    // before the sign-out reset the saved tab, or the token taken out by
+    // hand. The launch showed Favorites and kept Followed saved, and adding
+    // a token in Settings then wrote Followed again.
+    final h = ScreenHarness();
+    h.helix.user('gamma');
+    await h.launch(tester,
+        size: const Size(1400, 1000),
+        settings: ScreenHarness.defaultSettings()
+          ..twitchOauthToken = ''
+          ..activeSidebarTab = 1);
+    expect(tester.widget<SidebarPanel>(find.byType(SidebarPanel)).sidebarTab,
+        0,
+        reason: 'precondition: no Followed tab without a token');
+
+    await openSettings(tester, h, 'Twitch');
+    await tester.enterText(
+        field('oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'), 'oauth:account-token');
+    await save(tester, h);
+
+    expect(h.storage.savedSettings?.twitchOauthToken, 'oauth:account-token');
+    expect(h.storage.savedSettings?.activeSidebarTab, 0,
+        reason: 'the sidebar has shown Favorites all along');
 
     await h.close(tester);
   });

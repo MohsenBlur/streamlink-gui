@@ -216,6 +216,15 @@ class PlayerEvents {
       _progressBuckets.remove(vodId);
       _progressStatuses.remove(vodId);
       if (_mounted()) {
+        // Only the user's Cancel reports this; an exit, an update or the
+        // session ending stops downloads without it, and their saved queue
+        // resumes them. The user said no to this VOD, so the auto-download
+        // pass leaves it alone from now on, as it does one downloaded once
+        // (DownloadHistory): it used to queue it again a minute later. A
+        // Download by hand still fetches it.
+        if (_downloadHistory.record(vodId, _clock())) {
+          _repository.requestSave();
+        }
         publishActivity();
         _repaint();
         _libraryChanged();

@@ -44,6 +44,10 @@ class FakeHelix {
   /// not listed.
   final Map<String, int> watchPositions = <String, int>{};
 
+  /// The games each VOD's chapters name, by id: what the GQL chapter lookup
+  /// answers. Chess for a VOD not listed.
+  final Map<String, List<String>> videoGames = <String, List<String>>{};
+
   /// When set, helix/videos waits for it before answering.
   Completer<void>? holdVideos;
 
@@ -263,18 +267,21 @@ class FakeHelix {
           });
         }
         // Chapter (games) lookups.
+        final videoId =
+            (json.decode(request.body) as Map)['variables']?['videoID'];
         return _json({
           'data': {
             'video': {
               'moments': {
                 'edges': [
-                  {
-                    'node': {
-                      'details': {
-                        'game': {'displayName': 'Chess'},
+                  for (final game in videoGames[videoId] ?? const ['Chess'])
+                    {
+                      'node': {
+                        'details': {
+                          'game': {'displayName': game},
+                        },
                       },
                     },
-                  },
                 ],
               },
             },

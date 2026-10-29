@@ -349,6 +349,27 @@ void main() {
       });
     });
 
+    test('a VOD whose download the user cancelled is left alone, and the '
+        'window does not move on past it', () async {
+      // The cancel was recorded nowhere, so the next pass queued the VOD
+      // again. The screen records it in the history now (PlayerEvents); a
+      // newer VOD starting in its place a minute later would read as the
+      // cancel not having worked either.
+      final rig = Rig();
+      rig.favorites
+          .add(channel('a', autoPlay: false, autoDownload: true, keep: 1));
+      rig.vodsByChannel['a'] = [vod('v2', daysAgo: 1), vod('v1', daysAgo: 2)];
+      await rig.service.runPass();
+      expect(rig.queued.map((q) => q.vod), ['v1']);
+
+      // Cancelled: no longer queued, and recorded as the screen does.
+      rig.history.record('v1', DateTime(2026, 1, 30));
+      for (var pass = 0; pass < 3; pass++) {
+        await rig.service.runPass();
+      }
+      expect(rig.queued.map((q) => q.vod), ['v1'], reason: 'three passes on');
+    });
+
     test('does nothing, not even a fetch, without a download folder', () async {
       final rig = Rig()..settings.vodDownloadFolder = '  ';
       rig.favorites.add(channel('a', autoPlay: false, autoDownload: true));

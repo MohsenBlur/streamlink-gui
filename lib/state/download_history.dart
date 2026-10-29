@@ -13,6 +13,11 @@
 /// This record outlives the file, the registry entry and the archive line.
 /// Only the pass reads it: a download queued by hand goes ahead, which is
 /// how a VOD deleted on purpose is brought back.
+///
+/// A VOD whose download the user cancelled is recorded too. Nothing else
+/// remembered the cancel either, so the pass queued that VOD again a minute
+/// later. Recorded, it holds its place in its window like one downloaded
+/// and deleted.
 class DownloadHistory {
   /// How long an id is kept. The pass reads past broadcasts only, which
   /// Twitch deletes after 60 days at the most, and a VOD is downloaded after
@@ -39,9 +44,28 @@ class DownloadHistory {
   bool record(String vodId, DateTime now) => addAll([vodId], now);
 
   /// [record] for each of [vodIds].
-  bool addAll(Iterable<String> vodIds, DateTime now) {
+  bool addAll(Iterable<String> vodIds, DateTime now) =>
+      _add(vodIds, now.millisecondsSinceEpoch, now);
+
+  /// [addAll] for ids worth less than every one already held: each is
+  /// stamped a millisecond before the oldest held (or before [now]), so past
+  /// [maxEntries] these go first, in the order they came.
+  ///
+  /// For the seed from yt-dlp's archive. Read after the registry's seed
+  /// ([restore]), and maybe after the scan has found files on disk, it was
+  /// stamped later than both and outranked them: past the cap, VODs the app
+  /// still had a file or a registry entry for were dropped before archive
+  /// lines from builds long gone.
+  bool addBeneath(Iterable<String> vodIds, DateTime now) {
+    var oldest = now.millisecondsSinceEpoch;
+    for (final at in _firstDownloadedMs.values) {
+      if (at < oldest) oldest = at;
+    }
+    return _add(vodIds, oldest - 1, now);
+  }
+
+  bool _add(Iterable<String> vodIds, int at, DateTime now) {
     final before = _firstDownloadedMs.length;
-    final at = now.millisecondsSinceEpoch;
     for (final id in vodIds) {
       if (id.isEmpty) continue;
       _firstDownloadedMs.putIfAbsent(id, () => at);
