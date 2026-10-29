@@ -305,16 +305,21 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         // fixed-width, so the Expanded beside it was handed less space than
         // the status pill inside it needs.
         //
-        // Below 440 the Stats control drops its label and the gaps between the
-        // mini actions halve. Nothing is removed: the popover still opens from
-        // the icon, and the word it loses is repeated inside the popover it
-        // opens. 440 is the measured point where the untightened row stops
-        // fitting, at 100% text; it grows with Windows' Text size
+        // Below that point the Stats control drops its label and the gaps
+        // between the mini actions halve. Nothing is removed: the popover
+        // still opens from the icon, and the word it loses is repeated inside
+        // the popover it opens. The point is where the untightened row stops
+        // fitting, measured at 100% text on the widest label face and held a
+        // few px over: 490 live or open, 557 offline, whose pill and launch
+        // label are both the long OFFLINE. It was one 440 for every state,
+        // and the pill overran the name's room in windows 498 to 614 wide
+        // (header_width_sweep_test). It grows with Windows' Text size
         // (textGrowthOf), or at 150% the untightened row overflowed a
         // 700-wide window.
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final tight = constraints.maxWidth < 440 * textGrowthOf(context);
+            final fits = widget.channel.isLive ? 492 : 560;
+            final tight = constraints.maxWidth < fits * textGrowthOf(context);
             final miniGap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s6);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
