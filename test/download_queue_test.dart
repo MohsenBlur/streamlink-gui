@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
+import 'package:streamlink_gui/services/log_store.dart';
 import 'package:streamlink_gui/services/player_service.dart';
 
 import 'support/fake_process.dart';
@@ -161,6 +162,38 @@ void main() {
           containsAllInOrder(['--downloader', 'ffmpeg']));
       expect(failed, isEmpty);
     });
+  });
+
+  test("the ffmpeg retry keeps the first run's log, the error that caused it "
+      'included', () async {
+    // The retry began a session of its own, which dropped the first run's
+    // output: a retry that failed too left View log nothing to say why the
+    // downloader switched.
+    final logStore = LogNotifier();
+    service
+      ..onPlayerStarted = logStore.beginSession
+      ..onPlayerLog = logStore.appendLog
+      ..onDownloadEnded = ((id, code) => logStore.endSession('dl-$id', code));
+    service.queueVodDownload(
+        vod('1'), 'chan', AppSettings(vodDownloadFolder: temp.path));
+    await pumpEventQueue();
+    final first = launcher.launched.single;
+    first.printErr('ERROR: Initialization fragment found after media fragments\n');
+    await first.exit(1);
+    await Future<void>.delayed(const Duration(milliseconds: 1300));
+    expect(launcher.launched, hasLength(2), reason: 'precondition: the retry');
+
+    final lines = logStore.getLogs('dl-1').join('\n');
+    expect(lines, contains('Initialization fragment found after media fragments'));
+    expect(lines, contains('--downloader ffmpeg'));
+    expect(logStore.session('dl-1')!.isRunning, isTrue,
+        reason: 'one session, still running for the retry');
+
+    await launcher.launched.last.exit(1);
+    await pumpEventQueue();
+    expect(logStore.session('dl-1')!.exitCode, 1);
+    expect(logStore.getLogs('dl-1').join('\n'),
+        contains('Initialization fragment found after media fragments'));
   });
 
   test('cancelling during the gap before the ffmpeg retry stops the retry',

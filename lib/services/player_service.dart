@@ -620,8 +620,9 @@ class PlayerService {
       }
     } catch (e) {
       // A session of its own, so the failure snackbar's View log has the
-      // reason to show.
-      onPlayerStarted?.call(key, title);
+      // reason to show - or, for the ffmpeg retry, the first run's session,
+      // which goes on (see below).
+      if (!isRetryWithFfmpeg) onPlayerStarted?.call(key, title);
       log(key, '[System Error] Could not prepare the download folder: $e');
       _cleanupDownloadState(vodId);
       onDownloadEnded?.call(vodId, -1);
@@ -667,7 +668,11 @@ class PlayerService {
       url
     ]);
 
-    onPlayerStarted?.call(key, title);
+    // The ffmpeg retry carries on the first run's session, as a heal's
+    // relaunch does (launchStreamlinkForVod). A session of its own dropped
+    // that run's output - the very error that brought the retry on - and a
+    // retry that failed too left View log nothing to say why it switched.
+    if (!isRetryWithFfmpeg) onPlayerStarted?.call(key, title);
 
     log(key, '[System] Initializing VOD Download for: ${vod.title}');
     log(key, '[System] Arguments: yt-dlp ${argsForLog(args)}');
@@ -819,16 +824,23 @@ class PlayerService {
 
       final exitCode = await proc.exitCode;
       _cleanupDownloadState(vodId, onlyFor: claim);
-      // Before every branch below, including the cancelled early return and
-      // the ffmpeg retry (which begins a fresh session of its own).
-      onDownloadEnded?.call(vodId, exitCode);
+      final cancelled = _cancelledDownloads.remove(vodId);
+      final retrying = !cancelled &&
+          exitCode != 0 &&
+          !isRetryWithFfmpeg &&
+          needsFfmpegFallback &&
+          !_shuttingDown;
+      // Before every branch below, including the cancelled early return -
+      // but not the ffmpeg retry, whose run carries on this session and ends
+      // it (or the gap before it does, when the retry is called off).
+      if (!retrying) onDownloadEnded?.call(vodId, exitCode);
 
       // A cancelled download exits non-zero like a failed one. Without this
       // check the ffmpeg fallback below restarted it - after the user cancelled
       // and after its partial files had been deleted - and the restarted run was
       // invisible to the cancel bookkeeping, so it could not be cancelled again.
       // It also reported "Download failed" on top of "Download cancelled".
-      if (_cancelledDownloads.remove(vodId)) {
+      if (cancelled) {
         log(key, '[System] Download cancelled by user.');
         return;
       }
@@ -842,7 +854,7 @@ class PlayerService {
         // The limit in force now, not the one this download started under.
         _cleanupOldestDownloads(_settingsNow(settings));
       } else {
-        if (!isRetryWithFfmpeg && needsFfmpegFallback && !_shuttingDown) {
+        if (retrying) {
           log(key, '[System Warning] HLS fragment error detected. Automatically retrying download using ffmpeg downloader...');
           deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
           _downloadsAwaitingRetry.add(vodId);
@@ -851,6 +863,7 @@ class PlayerService {
           // told "Download cancelled" and its files are already gone.
           if (!_downloadsAwaitingRetry.remove(vodId) || _shuttingDown) {
             log(key, '[System] Retry abandoned: the download was cancelled.');
+            onDownloadEnded?.call(vodId, exitCode);
             return;
           }
           await startVodDownload(
