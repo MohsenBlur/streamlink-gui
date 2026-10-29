@@ -116,6 +116,54 @@ void main() {
     });
   });
 
+  group('failing refreshes', () {
+    test('a live channel back after three failed refreshes is not announced '
+        'again', () async {
+      // Three failures in a row drop it offline; the broadcast never ended.
+      // Its return on the same stream id announced it a second time.
+      twitch.goLive('shroud');
+      final shroud = FakeHelix.channel('shroud');
+      final controller = controllerFor([shroud]);
+      await controller.refresh(isInitialLoad: true);
+      final streamId = shroud.streamId;
+
+      twitch.revokedTokens.add('account-token');
+      for (var i = 0; i < 3; i++) {
+        await controller.refresh(force: true);
+        twitch.now = twitch.now.add(const Duration(seconds: 5));
+      }
+      expect(shroud.isLive, isFalse);
+      expect(passes.last.favoritesWentOffline, [shroud]);
+
+      twitch.revokedTokens.clear();
+      await controller.tick();
+
+      expect(shroud.isLive, isTrue);
+      expect(shroud.streamId, streamId);
+      expect(passes.last.favoritesWentLive, isEmpty);
+    });
+
+    test('a new broadcast after the outage is announced', () async {
+      twitch.goLive('shroud');
+      final shroud = FakeHelix.channel('shroud');
+      final controller = controllerFor([shroud]);
+      await controller.refresh(isInitialLoad: true);
+
+      twitch.revokedTokens.add('account-token');
+      for (var i = 0; i < 3; i++) {
+        await controller.refresh(force: true);
+        twitch.now = twitch.now.add(const Duration(minutes: 1));
+      }
+      twitch
+        ..goOffline('shroud')
+        ..goLive('shroud', at: twitch.now)
+        ..revokedTokens.clear();
+      await controller.tick();
+
+      expect(passes.last.favoritesWentLive, [shroud]);
+    });
+  });
+
   group('rate limiting', () {
     test('a rate-limited pass does not flip a live channel offline', () async {
       twitch.goLive('shroud');

@@ -167,6 +167,56 @@ void main() {
       expect(rig.played, ['alpha', 'alpha']);
     });
 
+    test('a broadcast whose refreshes failed for a while is not relaunched '
+        'when they work again', () async {
+      // Three failed refreshes show a live channel offline, though Twitch
+      // never said so. Forgetting its session then launched the same
+      // broadcast again, unasked, the user having closed the player.
+      final rig = Rig();
+      final alpha = channel('alpha', live: true, streamId: '1');
+      rig.favorites.add(alpha);
+      await rig.service.runPass();
+      rig.running.clear();
+
+      alpha
+        ..isLive = false
+        ..streamId = null
+        ..errorMessage = 'timed out';
+      await rig.service.runPass();
+      alpha
+        ..isLive = true
+        ..streamId = '1'
+        ..errorMessage = null;
+      await rig.service.runPass();
+
+      expect(rig.played, ['alpha']);
+      expect(rig.notifications, ['Auto-Playing Live Stream']);
+    });
+
+    test('nor is one keyed by its stream id that Twitch briefly reported '
+        'offline', () async {
+      final rig = Rig();
+      final alpha = channel('alpha', live: true, streamId: '1');
+      rig.favorites.add(alpha);
+      await rig.service.runPass();
+      rig.running.clear();
+
+      alpha
+        ..isLive = false
+        ..streamId = null;
+      await rig.service.runPass();
+      alpha
+        ..isLive = true
+        ..streamId = '1';
+      await rig.service.runPass();
+      expect(rig.played, ['alpha']);
+
+      // Removing the favourite still forgets it.
+      rig.favorites.clear();
+      await rig.service.runPass();
+      expect(rig.service.playedSessions, isEmpty);
+    });
+
     test('an already-running stream is remembered, not relaunched after it '
         'is closed', () async {
       final rig = Rig();

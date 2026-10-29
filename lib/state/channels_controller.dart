@@ -130,6 +130,12 @@ class ChannelsController extends ChangeNotifier {
   final Set<String> _liveFavorites = <String>{};
   final Set<String> _liveFollowed = <String>{};
 
+  /// The broadcast last known live on each favourite and followed channel
+  /// (see [LiveTransitions.knownBroadcasts]), kept while it is offline: a
+  /// channel back from an outage on the same broadcast is not news.
+  Map<String, String> _favoriteBroadcasts = <String, String>{};
+  Map<String, String> _followedBroadcasts = <String, String>{};
+
   /// Called once per completed pass.
   void Function(ChannelsPass pass)? onPass;
 
@@ -236,20 +242,24 @@ class ChannelsController extends ChangeNotifier {
       before: before,
       announced: _liveFavorites,
       isInitialLoad: isInitialLoad,
+      knownBroadcasts: _favoriteBroadcasts,
     );
     _liveFavorites
       ..clear()
       ..addAll(favoriteEdges.announced);
+    _favoriteBroadcasts = favoriteEdges.knownBroadcasts;
 
     final followedEdges = detectLiveTransitions(
       channels: List.of(_followed),
       before: before,
       announced: _liveFollowed,
       isInitialLoad: isInitialLoad,
+      knownBroadcasts: _followedBroadcasts,
     );
     _liveFollowed
       ..clear()
       ..addAll(followedEdges.announced);
+    _followedBroadcasts = followedEdges.knownBroadcasts;
 
     final favoriteNames = {
       for (final c in favorites) c.username.toLowerCase().trim(),
@@ -379,6 +389,7 @@ class ChannelsController extends ChangeNotifier {
     _followedGeneration++;
     _followed = <TwitchChannel>[];
     _liveFollowed.clear();
+    _followedBroadcasts = <String, String>{};
     _followedLoadedAt = null;
     _isLoadingFollowed = false;
     _notify();

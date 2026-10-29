@@ -2,6 +2,7 @@ import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../models/twitch_video.dart';
 import '../state/automation_decisions.dart';
+import '../state/channel_transitions.dart' show isPresumedOffline;
 import 'twitch_api_service.dart' show VodsFetchResult;
 
 /// Runs the favourites automation: auto-play of the highest-priority live
@@ -158,13 +159,21 @@ class AutomationService {
   Future<void> _runAutoPlayPass() async {
     final channels = favorites();
 
-    // Forget sessions for channels that are no longer live, so the next
-    // broadcast is treated as new.
-    final liveNames = channels
-        .where((c) => c.isLive)
-        .map((c) => c.username.toLowerCase().trim())
-        .toSet();
-    _playedSessions.removeWhere((name, _) => !liveNames.contains(name));
+    // Forget sessions that could be mistaken for the channel's next
+    // broadcast once it is over, so that one is treated as new. A session
+    // keyed by its stream id never can be, so it is kept - and so is any
+    // session of a channel only presumed offline because its refreshes kept
+    // failing. Forgetting those relaunched the same broadcast, unasked, as
+    // soon as requests worked again.
+    final keep = <String>{
+      for (final c in channels)
+        if (c.isLive || isPresumedOffline(c)) c.username.toLowerCase().trim(),
+    };
+    final favoriteNames =
+        channels.map((c) => c.username.toLowerCase().trim()).toSet();
+    _playedSessions.removeWhere((name, key) =>
+        !favoriteNames.contains(name) ||
+        (!keep.contains(name) && !sessionKeyNamesBroadcast(key)));
 
     final decision = decideAutoPlay(
       channels: channels,
