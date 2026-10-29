@@ -2418,13 +2418,6 @@ class PlayerService {
     }
   }
 
-  /// Ends everything this service started.
-  ///
-  /// The bookkeeping is synchronous, so the exit handlers that follow already
-  /// see a deliberate stop; the kill itself is one asynchronous taskkill.
-  /// Callers that are about to exit need not wait for it - the runner's
-  /// kill-on-close job object ends every child with the app regardless - but
-  /// can, to know the children are gone.
   /// Undoes [stopAll]'s latch: the app is not going after all - an update's
   /// handover failed after everything had been stopped for it.
   ///
@@ -2437,6 +2430,13 @@ class PlayerService {
     _shuttingDown = false;
   }
 
+  /// Ends everything this service started.
+  ///
+  /// The bookkeeping is synchronous, so the exit handlers that follow already
+  /// see a deliberate stop; the kill itself is one asynchronous taskkill.
+  /// Callers that are about to exit need not wait for it - the runner's
+  /// kill-on-close job object ends every child with the app regardless - but
+  /// can, to know the children are gone.
   Future<void> stopAll() async {
     // Stop the queue drain before killing anything, so terminating the active
     // download cannot cause the next queued one to start.
