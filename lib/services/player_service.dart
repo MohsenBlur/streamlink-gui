@@ -1071,7 +1071,12 @@ class PlayerService {
     }
   }
 
-  Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder) async {
+  /// Calls off [vodId]'s download, queued or running, and removes what it
+  /// left. With [keepFinished] - the VOD was already downloaded before this
+  /// download of it was queued - its finished file and archive line stay:
+  /// the cancel is of the extra download, not of the copy the user had.
+  Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder,
+      {bool keepFinished = false}) async {
     final proc = activeDownloadProcesses[vodId];
 
     // Nothing in flight, nothing to call off. A cancel confirmed after its
@@ -1119,6 +1124,10 @@ class PlayerService {
     downloadTaskFastDownloadOverrides.remove(vodId);
     _cleanupDownloadState(vodId);
     onDownloadCancelled?.call(vodId);
+    if (keepFinished) {
+      deleteTemporaryDownloadFiles(vodId, channelName, downloadFolder);
+      return;
+    }
     unawaited(removeVodFromArchive(vodId));
 
     // Remove the partial output. Anchored matching only: this used to delete
