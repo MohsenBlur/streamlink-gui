@@ -94,7 +94,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       // screen readers as "Refreshing", which it never was.
       content = [
         Icon(Icons.ondemand_video, size: compact ? 12 : 14, color: subtext),
-        SizedBox(width: compact ? 4 : 6),
+        SizedBox(width: compact ? NeuSpace.s4 : NeuSpace.s6),
         label(Text('OPEN', style: NeuType.plate(isDark, color: subtext))),
       ];
     } else if (!live) {
@@ -107,7 +107,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     } else {
       content = [
         Icon(Icons.play_arrow, size: compact ? 14 : 16),
-        SizedBox(width: compact ? 2 : 4),
+        SizedBox(width: compact ? NeuSpace.s2 : NeuSpace.s4),
         label(const Text(
           'PLAY',
           // No ink: ElevatedButton supplies the foreground, including its

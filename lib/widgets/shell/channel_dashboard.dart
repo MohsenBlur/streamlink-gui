@@ -166,7 +166,7 @@ class ChannelDashboard extends StatelessWidget {
                   SliverToBoxAdapter(child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  SizedBox(height: isCompact ? 12 : 32),
+                  SizedBox(height: isCompact ? NeuSpace.s12 : NeuSpace.s32),
                   // In selection mode the SelectionBar REPLACES this row
                   // rather than growing out of it. Appending the bulk actions
                   // to the toolbar is what made the toolbar overflow: four
