@@ -392,6 +392,35 @@ void main() {
       expect(controller.isFollowedReloadDue, isTrue);
     });
 
+    test('a first load that failed is tried again, less often each time',
+        () async {
+      // A 500 on the very first load left the followed list empty for the
+      // session: only a list that had loaded was ever fetched again, and a
+      // 5xx leaves the token's status alone, so nothing else reloaded it.
+      twitch.followed.add('a');
+      twitch.failFollowed = true;
+      final controller = controllerFor(const []);
+      await expectLater(controller.loadFollowed(), throwsA(anything));
+      expect(controller.isFollowedReloadDue, isFalse, reason: 'not at once');
+
+      twitch.now = twitch.now.add(ChannelsController.followedRetryDelays[0]);
+      expect(controller.isFollowedReloadDue, isTrue);
+      await expectLater(controller.loadFollowed(), throwsA(anything));
+
+      twitch.now = twitch.now.add(ChannelsController.followedRetryDelays[0]);
+      expect(controller.isFollowedReloadDue, isFalse, reason: 'backing off');
+      twitch.now = twitch.now.add(ChannelsController.followedRetryDelays[1]);
+      expect(controller.isFollowedReloadDue, isTrue);
+
+      twitch.failFollowed = false;
+      await controller.loadFollowed();
+      expect(controller.followed.map((c) => c.username), ['a']);
+      expect(controller.isFollowedReloadDue, isFalse,
+          reason: 'loaded: the ordinary interval again');
+      twitch.now = twitch.now.add(ChannelsController.followedReloadInterval);
+      expect(controller.isFollowedReloadDue, isTrue);
+    });
+
     test("clearing drops a load still out for the old account", () async {
       twitch.followed.add('a');
       final controller = controllerFor(const []);

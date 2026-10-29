@@ -327,15 +327,39 @@ class ChannelsController extends ChangeNotifier {
   Future<FollowedChannelsResult?>? _followedLoad;
   int _followedLoadGeneration = -1;
 
+  /// When the last followed load failed, and how many have failed in a row
+  /// since the last that worked.
+  DateTime? _followedFailedAt;
+  int _followedFailures = 0;
+
+  /// How long after a failed followed load the background tries again, by
+  /// how many have failed in a row; the last applies from then on.
+  static const List<Duration> followedRetryDelays = <Duration>[
+    Duration(minutes: 2),
+    Duration(minutes: 5),
+    Duration(minutes: 10),
+    followedReloadInterval,
+  ];
+
   /// Whether the followed list is old enough to fetch again in the
-  /// background. Never before a first successful load, and never while
-  /// rate limited.
+  /// background, or a load that failed is due another try. Never before a
+  /// first load was tried, and never while rate limited.
+  ///
+  /// Only a list that had loaded was ever fetched again, so a first load
+  /// that Twitch answered with a 5xx, a 429 or an unreadable body - which
+  /// leave the token's status alone, so no recovery reloads it either - left
+  /// the followed channels empty, unpolled and unannounced for the session.
   bool get isFollowedReloadDue {
+    if (_isLoadingFollowed || _rateLimited) return false;
+    final now = _now();
+    final failedAt = _followedFailedAt;
+    if (failedAt != null) {
+      final step = _followedFailures.clamp(1, followedRetryDelays.length) - 1;
+      if (now.difference(failedAt) < followedRetryDelays[step]) return false;
+    }
     final at = _followedLoadedAt;
-    return at != null &&
-        !_isLoadingFollowed &&
-        !_rateLimited &&
-        _now().difference(at) >= followedReloadInterval;
+    if (at == null) return failedAt != null;
+    return now.difference(at) >= followedReloadInterval;
   }
 
   /// Fetches the followed list, reconciles it into [followed], then runs a
@@ -363,12 +387,23 @@ class ChannelsController extends ChangeNotifier {
     _isLoadingFollowed = true;
     _notify();
     try {
-      final result = await _api.fetchFollowedChannels(_settings());
+      final FollowedChannelsResult result;
+      try {
+        result = await _api.fetchFollowedChannels(_settings());
+      } catch (_) {
+        if (generation == _followedGeneration) {
+          _followedFailedAt = _now();
+          _followedFailures++;
+        }
+        rethrow;
+      }
       if (_disposed || generation != _followedGeneration) return null;
       // Reconciled, not replaced: a partial answer keeps the channels it
       // never reached, and every channel still followed keeps its object.
       _followed = result.reconcileWith(_followed);
       _followedLoadedAt = _now();
+      _followedFailedAt = null;
+      _followedFailures = 0;
       _isLoadingFollowed = false;
       _notify();
       await refresh(force: true);
@@ -391,6 +426,8 @@ class ChannelsController extends ChangeNotifier {
     _liveFollowed.clear();
     _followedBroadcasts = <String, String>{};
     _followedLoadedAt = null;
+    _followedFailedAt = null;
+    _followedFailures = 0;
     _isLoadingFollowed = false;
     _notify();
   }

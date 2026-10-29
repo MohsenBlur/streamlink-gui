@@ -178,4 +178,34 @@ void main() {
 
     await h.close(tester);
   });
+
+  testWidgets(
+      'a followed list that failed at startup, with the window hidden, '
+      'arrives once Twitch gives it', (tester) async {
+    // Started at login into the tray, the one snackbar was shown to nobody,
+    // and nothing loaded the list again: no live state, no went-live toasts
+    // for followed channels, all session.
+    final h = ScreenHarness();
+    h.helix.user('gamma');
+    h.helix.followed.add('gamma');
+    h.helix.failFollowed = true;
+    await h.launch(tester,
+        settings: ScreenHarness.defaultSettings()
+          ..activeSidebarTab = 1
+          ..notifyFollowedWentLive = true);
+    h.tray.choose('Hide App');
+    await h.settle(tester);
+    h.helix.failFollowed = false;
+    final since = h.helix.requests.length;
+
+    await h.advance(tester, const Duration(minutes: 3));
+    expect(h.requestsTo('/helix/channels/followed', since: since), 1);
+    expect(ScreenHarness.sidebarRow('gamma'), findsWidgets);
+
+    h.helix.goLive('gamma');
+    await h.advance(tester, const Duration(seconds: 61));
+    expect(h.notifications.titles, contains('gamma is now LIVE!'));
+
+    await h.close(tester);
+  });
 }
