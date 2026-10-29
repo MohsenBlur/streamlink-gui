@@ -299,7 +299,11 @@ class AppShellController with WindowListener {
       settings.windowY = state.bounds.top / s;
       settings.windowWidth = state.bounds.width / s;
       settings.windowHeight = state.bounds.height / s;
-      settings.isWindowMaximized = state.maximized;
+      // A window never on screen yet - started in the tray, and left there
+      // all session - is not maximized until its first show, so it keeps
+      // what the session started with. Its "not maximized" used to be saved
+      // at the session's end, and the next launch came up at normal size.
+      if (state.shown) settings.isWindowMaximized = state.maximized;
       return true;
     } catch (_) {
       return false;

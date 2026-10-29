@@ -122,8 +122,7 @@ bool FlutterWindow::OnCreate() {
           result->Success(
               flutter::EncodableValue(window_placement::DescribeMonitors()));
         } else if (method == "getPlacement") {
-          result->Success(flutter::EncodableValue(
-              window_placement::DescribeWindow(GetHandle(), GetChildContent())));
+          result->Success(flutter::EncodableValue(Describe()));
         } else if (method == "setInitialPlacement") {
           const auto* args =
               std::get_if<flutter::EncodableMap>(call.arguments());
@@ -300,8 +299,17 @@ flutter::EncodableValue FlutterWindow::ApplyInitialPlacement(
     ::ShowWindow(window, SW_MAXIMIZE);
   }
 
-  return flutter::EncodableValue(
-      window_placement::DescribeWindow(window, GetChildContent()));
+  return flutter::EncodableValue(Describe());
+}
+
+flutter::EncodableMap FlutterWindow::Describe() {
+  flutter::EncodableMap state =
+      window_placement::DescribeWindow(GetHandle(), GetChildContent());
+  if (!state.empty()) {
+    state[flutter::EncodableValue("shown")] =
+        flutter::EncodableValue(HasBeenShown());
+  }
+  return state;
 }
 
 void FlutterWindow::NotifySession(const char* method) {

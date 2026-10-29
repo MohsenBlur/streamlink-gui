@@ -537,6 +537,34 @@ void main() {
       await rig.finish(tester);
     });
 
+    testWidgets(
+        'keeps a maximized window maximized when it never left the tray',
+        (tester) async {
+      // Started at login into the tray from a maximized session and never
+      // opened: the frame is not zoomed until its first show, and saving
+      // that at the session's end brought the next launch up at normal size.
+      final rig = _Rig();
+      rig.settings.isWindowMaximized = true;
+      rig.window
+        ..visible = false
+        ..shown = false;
+      await rig.attach(tester);
+
+      await _fromRunner(tester, 'streamlink_gui/session', 'end');
+      expect(rig.log, contains('save.config'));
+      expect(rig.settings.isWindowMaximized, isTrue);
+      expect(rig.settings.windowWidth, 1400,
+          reason: 'the planned normal bounds are still saved');
+
+      // Once it has been on screen, what it reports is how it was left.
+      await rig.shell.showWindow();
+      await _fromRunner(tester, 'streamlink_gui/session', 'end');
+      expect(rig.settings.isWindowMaximized, isFalse);
+
+      await tester.pump(const Duration(seconds: 31));
+      await rig.finish(tester);
+    });
+
     testWidgets('one that is called off lets the queue go at once',
         (tester) async {
       final rig = _Rig();

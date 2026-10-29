@@ -52,6 +52,12 @@ class FlutterWindow : public Win32Window {
   flutter::EncodableValue ApplyInitialPlacement(
       const flutter::EncodableMap& args);
 
+  // window_placement::DescribeWindow for this window, plus "shown": whether
+  // the frame has been on screen yet. A frame that started hidden is not
+  // zoomed until its first show, however that show will present it, so its
+  // "maximized" says nothing about the session until then.
+  flutter::EncodableMap Describe();
+
   // Windows ending the session (WM_QUERYENDSESSION / WM_ENDSESSION): tells
   // Dart, and for a real end waits a bounded time for it to save, since the
   // process can be ended as soon as WM_ENDSESSION returns. See

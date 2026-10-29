@@ -101,7 +101,13 @@ void main() {
       expect(s.maximized, isTrue);
       expect(s.contentVisible, isFalse);
       expect(s.monitorBounds, ultrawide.bounds);
+      expect(s.shown, isTrue, reason: 'a runner that does not say');
       expect(WindowState.fromMap('nope'), isNull);
+      expect(
+          WindowState.fromMap(
+              {'left': 0, 'top': 0, 'width': 10, 'height': 10, 'shown': false})!
+              .shown,
+          isFalse);
     });
   });
 
