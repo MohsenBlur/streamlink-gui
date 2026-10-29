@@ -1091,8 +1091,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
 
     // The open channel is left to its own refreshes; after "Go to
-    // dashboard" there is none, though the browser still holds the last one.
-    unawaited(_vodBrowser.prefetch(_channels, open: _selectedChannel));
+    // dashboard" there is none, though the browser still holds the last one,
+    // and while the window is hidden they stop (see _onPollTick).
+    unawaited(_vodBrowser.prefetch(_channels,
+        open: _shell.windowVisible ? _selectedChannel : null));
     _shell.rebuildTrayMenu();
   }
 

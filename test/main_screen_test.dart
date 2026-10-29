@@ -176,6 +176,34 @@ void main() {
     });
 
     testWidgets(
+        'left open with the window hidden, its broadcast end is looked at '
+        'again when the first look fails', (tester) async {
+      // The open channel, in the tray: its normal resting state. The look at
+      // the broadcast's end was its only one - the cadence stops while the
+      // window is hidden and the prefetch left it to that cadence - so one
+      // failed request lost its New VOD toast.
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.goLive('alpha');
+      await h.launch(tester, favorites: ['alpha']);
+      await openChannel(tester, h, 'alpha');
+      h.tray.choose('Hide App');
+      await h.settle(tester);
+
+      h.helix
+        ..goOffline('alpha')
+        ..failVideos = true;
+      await h.advance(tester, const Duration(seconds: 61));
+      h.helix.failVideos = false;
+      expect(h.notifications.titles, isNot(contains('New VOD from alpha')));
+
+      await h.advance(tester, const Duration(minutes: 3));
+      expect(h.notifications.titles, contains('New VOD from alpha'));
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'coming back after a minute away refreshes it once, however many '
         'events the return fires', (tester) async {
       final h = ScreenHarness();

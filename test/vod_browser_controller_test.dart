@@ -425,6 +425,111 @@ void main() {
     });
   });
 
+  group('an ended broadcast whose VOD was not found', () {
+    test('is looked for again when the look at its end failed', () async {
+      // One failed request at the end was the only look for a favourite
+      // past the prefetch's ten: its VOD was never announced.
+      final start = twitch.now.subtract(const Duration(hours: 3));
+      final vodId = twitch.addVideo('summit1g', publishedAt: start);
+      final favorites = [
+        for (var i = 0; i < VodBrowserController.prefetchLimit; i++)
+          FakeHelix.channel('fav$i'),
+      ];
+      for (final c in favorites) {
+        twitch.addVideo(c.username);
+      }
+      final summit = FakeHelix.channel('summit1g')..wentLiveTime = start;
+      favorites.add(summit);
+      final browser = browserFor();
+      await browser.prefetch(favorites, open: null);
+
+      twitch.failVideos = true;
+      await browser.checkForNewVods(summit, endedBroadcastStart: start);
+      expect(announced, isEmpty);
+      twitch.failVideos = false;
+
+      later(const Duration(minutes: 1));
+      twitch.requests.clear();
+      await browser.prefetch(favorites, open: null);
+      expect(twitch.to('/helix/videos'), isEmpty, reason: 'not due yet');
+
+      later(const Duration(minutes: 1));
+      await browser.prefetch(favorites, open: null);
+      expect(announced, hasLength(1));
+      expect(announced.single.$2, [vodId]);
+
+      // Found: no more looks.
+      twitch.requests.clear();
+      for (var i = 0; i < 6; i++) {
+        later(const Duration(minutes: 20));
+        await browser.prefetch(const [], open: null);
+      }
+      expect(twitch.to('/helix/videos'), isEmpty);
+    });
+
+    test('is found when Twitch lists it late', () async {
+      twitch.goLive('summit1g', archive: false);
+      final summit = FakeHelix.channel('summit1g')
+        ..wentLiveTime = twitch.now
+        ..lastUpdated = twitch.now;
+      final start = twitch.now;
+      final browser = browserFor();
+      later(const Duration(hours: 2));
+      twitch.goOffline('summit1g');
+      await browser.checkForNewVods(summit, endedBroadcastStart: start);
+      expect(announced, isEmpty, reason: 'nothing listed yet');
+
+      later(const Duration(minutes: 3));
+      final vodId = twitch.addVideo('summit1g', publishedAt: start);
+      await browser.prefetch(const [], open: null);
+
+      expect(announced, hasLength(1));
+      expect(announced.single.$2, [vodId],
+          reason: 'its first list, read for the broadcast, not a baseline');
+    });
+
+    test('the open channel is left to its refreshes while they run, and '
+        'looked at again when they stop', () async {
+      final start = twitch.now.subtract(const Duration(hours: 3));
+      twitch.addVideo('shroud', publishedAt: start.subtract(const Duration(days: 1)));
+      final shroud = FakeHelix.channel('shroud')..wentLiveTime = start;
+      final browser = browserFor();
+      await browser.open(shroud);
+
+      final vodId = twitch.addVideo('shroud', publishedAt: start);
+      twitch.failVideos = true;
+      await browser.refresh(endedBroadcastStart: start);
+      twitch.failVideos = false;
+
+      later(const Duration(minutes: 3));
+      twitch.requests.clear();
+      await browser.prefetch(const [], open: shroud);
+      expect(twitch.to('/helix/videos'), isEmpty,
+          reason: 'on screen, its own refreshes keep it current');
+
+      // The window hidden: the screen passes no open channel.
+      await browser.prefetch(const [], open: null);
+      expect(announced, hasLength(1));
+      expect(announced.single.$2, [vodId]);
+      expect(idsOf(browser.vods).first, vodId, reason: 'and the grid has it');
+    });
+
+    test('a channel that keeps no archive is given up on', () async {
+      twitch.user('summit1g');
+      final summit = FakeHelix.channel('summit1g');
+      final browser = browserFor();
+      await browser.checkForNewVods(summit, endedBroadcastStart: twitch.now);
+      twitch.requests.clear();
+
+      for (var i = 0; i < 30; i++) {
+        later(const Duration(minutes: 5));
+        await browser.prefetch(const [], open: null);
+      }
+      expect(twitch.to('/helix/videos'),
+          hasLength(VodBrowserController.endedBroadcastLooks.length));
+    });
+  });
+
   group('prefetch', () {
     test('fills the cache once, and again only after the TTL', () async {
       for (final name in ['a', 'b']) {
