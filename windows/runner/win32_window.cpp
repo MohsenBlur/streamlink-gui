@@ -168,6 +168,15 @@ bool Win32Window::Show() {
 }
 
 void Win32Window::ShowAsLaunched() {
+  // Only for a window not on screen yet. One that is was brought up before
+  // its first frame by a second launch - the user asking for it while this
+  // one was still starting, at a slow login say - and the launcher's command
+  // is out of date: a "Run: Minimized" shortcut's would minimize the window
+  // the user had just summoned. So it gets the plain show, as it always did.
+  if (has_been_shown_) {
+    Show();
+    return;
+  }
   const bool maximized = first_show_command_ == SW_SHOWMAXIMIZED;
   switch (launch_show_command_) {
     case SW_MINIMIZE:

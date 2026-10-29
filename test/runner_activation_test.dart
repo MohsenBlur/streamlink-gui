@@ -205,6 +205,21 @@ void main() {
       expect(normal.indexOf('Show();'), lessThan(normal.indexOf('return;')));
     });
 
+    test('but not to a window a second launch brought up before it', () {
+      // The first frame can come after a second launch has already shown
+      // the window (BringToFront), and applying a "Run: Minimized"
+      // shortcut's command then minimized the window the user had just
+      // asked for. Before the runner applied the command, that first frame
+      // was a plain Show().
+      final launched = body(window, 'void Win32Window::ShowAsLaunched(');
+      final shown = launched.indexOf('if (has_been_shown_) {');
+      expect(shown, isNonNegative);
+      expect(shown, lessThan(launched.indexOf('switch (launch_show_command_)')));
+      final early = launched.substring(shown, launched.indexOf('}', shown));
+      expect(early.indexOf('Show();'), isNonNegative);
+      expect(early.indexOf('Show();'), lessThan(early.indexOf('return;')));
+    });
+
     test('and only there: a summons shows the window as the user asks', () {
       final onCreate = body(flutter, 'bool FlutterWindow::OnCreate(');
       expect(

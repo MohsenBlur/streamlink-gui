@@ -43,7 +43,8 @@ class Win32Window {
   // The first show at launch: Show(), unless the launcher asked for
   // something else (SetLaunchShowCommand) - minimized, without activation,
   // or maximized - in which case that, on top of the restored placement.
-  // Ends the start in the background after the show.
+  // Ends the start in the background after the show. A window already shown
+  // (by a second launch, before the first frame) gets Show() alone.
   void ShowAsLaunched();
 
   // The show command the launcher put in STARTUPINFO, or -1 for none. Call
