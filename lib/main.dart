@@ -1490,7 +1490,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               builder: (context, _) => _buildDashboard(open));
         },
       ),
-      onEscape: _library.close,
+      // The selection bar's exit button says "(Esc)"; Esc reached only
+      // the Library's close, which does nothing while the Library is shut -
+      // and the selection bar only shows then.
+      onEscape: () {
+        if (_library.isOpen) {
+          _library.close();
+        } else if (_selection.isSelecting) {
+          _selection.end();
+        }
+      },
       // Focus the sidebar search from anywhere. In layouts without the
       // inline field the search popover is the affordance instead.
       onFind: () {

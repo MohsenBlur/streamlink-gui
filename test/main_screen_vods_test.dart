@@ -351,6 +351,24 @@ void main() {
 
       await h.close(tester);
     });
+
+    testWidgets('Esc leaves selection mode, as its exit button says',
+        (tester) async {
+      final h = await openAlpha(tester);
+      await tapText(tester, h, 'Select');
+      await tapText(tester, h, 'Any% run');
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(find.byTooltip('Leave selection mode (Esc)'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await h.settle(tester);
+      expect(find.text('1 selected'), findsNothing);
+      expect(find.text('Select'), findsOneWidget,
+          reason: 'the toolbar is back');
+      expect(card(tester, 'Any% run').isMultiSelectMode, isFalse);
+
+      await h.close(tester);
+    });
   });
 
   group('downloading', () {
