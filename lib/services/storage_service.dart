@@ -356,10 +356,11 @@ class StorageService {
   /// a folder moved or copied without it, looks exactly like this, and there
   /// the file is the user's real config. Deleted, putting portable.txt back
   /// no longer brought its channels and settings back; scrubbed, it costs
-  /// one reconnect of the account. Call this only once the config has loaded
-  /// from AppData: one that would not load is quarantined, and the next
-  /// launch's migration then recovers from this copy. A config that is
-  /// portable, or that is this file, is never touched.
+  /// one reconnect of the account. Startup calls this only once the config
+  /// has loaded from AppData (see startApp for why). A config that is
+  /// portable, or that is this file, is never touched; nor is this copy
+  /// while AppData holds no config, which is when [getStorageFile]'s
+  /// migration still has to read it.
   ///
   /// Rewritten through a temp file and a rename, byte for byte apart from
   /// the tokens (see [_decodeAsWritten]), and only when it holds one. It can

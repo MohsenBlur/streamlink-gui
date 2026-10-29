@@ -207,8 +207,13 @@ void main() {
     }, skip: !Platform.isWindows);
 
     test('startup scrubs it only after the config loaded', () {
-      // A config that would not load is quarantined, and the next launch's
-      // migration recovers from the mirror: it must outlive that launch.
+      // Not for a recovery from it: a quarantined config leaves nothing in
+      // AppData to find the mirror stale against ('with no config in AppData
+      // yet the mirror is kept for the migration'), and the first save
+      // writes the session's state over what the migration copies in. A
+      // config that is there but empty or unreadable is still the config,
+      // and removed by hand, the migration takes the mirror whole, tokens
+      // included.
       final src = File('lib/app_startup.dart')
           .readAsStringSync()
           .replaceAll('\r\n', '\n');

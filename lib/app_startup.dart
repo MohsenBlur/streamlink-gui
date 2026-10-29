@@ -248,8 +248,12 @@ Future<void> startApp(
                 ? 'config: unreadable, quarantined; using defaults'
                 : 'config: loaded')));
     // The plaintext copy an older build left beside the exe loses its
-    // tokens. Only after a load: a config that would not load is
-    // quarantined, and the next launch's migration recovers from that copy.
+    // tokens. Only after a load, and not to keep a recovery: a config that
+    // was quarantined leaves no config in AppData for the scrub to find this
+    // copy stale against, and the session's first save then migrates it in
+    // only to write this session's state over it. One that is there but
+    // empty or unreadable is still the config, though: removed by hand, the
+    // next launch's migration takes this copy whole, tokens included.
     if (startup.data != null) {
       final mirror = storage.scrubStaleConfigMirror();
       if (mirror != null) milestone(mirror);
