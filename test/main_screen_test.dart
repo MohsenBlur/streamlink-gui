@@ -472,6 +472,36 @@ void main() {
 
       await h.close(tester);
     });
+
+    testWidgets('an update that fails before its dialog has built still '
+        'takes the dialog away', (tester) async {
+      final h = ScreenHarness();
+      h.updates.available = UpdateInfo(
+        version: '99.0.0',
+        releaseNotes: 'Faster.',
+        zipDownloadUrl: 'https://example.invalid/app.zip',
+        isUpdateAvailable: true,
+      );
+      // Offline with no adapter: the download fails before the next frame,
+      // so the failure reaches the dialog's handle ahead of its first build.
+      h.updates.download.future.ignore();
+      h.updates.download.completeError(Exception('offline'));
+      await h.launch(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Update available'), findsOneWidget);
+
+      await tester.tap(find.text('Update and restart'));
+      await h.settle(tester);
+      await tester.pump(const Duration(milliseconds: 600));
+      await h.settle(tester);
+
+      expect(find.textContaining('Update failed: offline'),
+          findsOneWidget);
+      expect(find.text('Updating'), findsNothing,
+          reason: 'it has no buttons and cannot be dismissed');
+
+      await h.close(tester);
+    });
   });
 
   group('exit', () {

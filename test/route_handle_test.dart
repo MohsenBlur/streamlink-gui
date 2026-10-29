@@ -76,6 +76,21 @@ void main() {
         reason: 'closing a gone dialog must not pop the page under it');
   });
 
+  testWidgets('a close asked for before the dialog builds closes it '
+      'once it does', (tester) async {
+    await pumpHome(tester);
+    // The update's download failing inside the frame that would first
+    // build "Updating": the builder, and so attach, has not run yet.
+    final progress = openProgress();
+    expect(progress.close(), isFalse);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Updating'), findsNothing,
+        reason: 'a dialog with no way out must not outlive the failure');
+    expect(find.text('home'), findsOneWidget);
+    expect(progress.isOpen, isFalse);
+  });
+
   test('a handle that never attached closes nothing', () {
     expect(RouteHandle().close(), isFalse);
   });
