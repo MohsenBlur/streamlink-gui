@@ -905,8 +905,10 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
           if (!tight) ...[
             const SizedBox(width: NeuSpace.s8),
-            const SizedBox(
-                height: 24, child: EngravedRule(vertical: true)),
+            // Not const: the rule reads the theme in build, and under a
+            // const parent it kept the old palette after a toggle
+            // (const_theme_reader_test).
+            SizedBox(height: NeuSpace.s24, child: EngravedRule(vertical: true)),
           ],
           gap,
           // Flexible with a floor, not Expanded.
@@ -1007,8 +1009,8 @@ class SidebarPanelState extends State<SidebarPanel> {
           ],
           if (!tight) ...[
             const SizedBox(width: NeuSpace.s8),
-            const SizedBox(
-                height: 24, child: EngravedRule(vertical: true)),
+            // Not const, as the rule above.
+            SizedBox(height: NeuSpace.s24, child: EngravedRule(vertical: true)),
           ],
           gap,
           NeuIconAction(
@@ -1272,8 +1274,9 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               ],
             ),
             subtitle: channel.isLoading
-                ? const Padding(
-                    padding: EdgeInsets.only(top: NeuSpace.s4),
+                // Not const: NeuProgressBar reads the theme global too.
+                ? Padding(
+                    padding: const EdgeInsets.only(top: NeuSpace.s4),
                     child: NeuProgressBar(size: NeuProgressSize.xs, semanticLabel: 'Loading'),
                   )
                 : Text(
