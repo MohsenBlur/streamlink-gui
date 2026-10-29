@@ -1,3 +1,5 @@
+import 'dart:ui' show Size;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/services/oauth_loopback_server.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
@@ -58,6 +60,38 @@ void main() {
         h.helix.to('/helix/channels/followed').last.headers['Authorization'],
         'Bearer fresh-token',
         reason: 'the followed list follows the new token');
+
+    await h.close(tester);
+  });
+
+  testWidgets(
+      'a sign-in that finishes while Settings is open survives its Save',
+      (tester) async {
+    // The dialog staged the token field it opened with - empty - and Save
+    // put that back over the token just granted, blanked the Client ID that
+    // minted it, and signed the account out.
+    final h = ScreenHarness();
+    await h.launch(tester,
+        size: const Size(1400, 1000),
+        settings: ScreenHarness.defaultSettings()..twitchOauthToken = '');
+    await connect(tester, h);
+    // The "Opening browser" snackbar goes, uncovering the Settings button.
+    await tester.pump(const Duration(seconds: 5));
+    await h.settleRoute(tester);
+    await tester.tap(find.byTooltip('Settings').first);
+    await h.settleRoute(tester);
+
+    h.signIns.single.succeed('fresh-token');
+    await h.settleRoute(tester);
+    expect(h.storage.savedSettings!.twitchOauthToken, 'oauth:fresh-token');
+
+    await tester.tap(find.text('Save changes'));
+    await h.settleRoute(tester);
+
+    final saved = h.storage.savedSettings!;
+    expect(saved.twitchOauthToken, 'oauth:fresh-token');
+    expect(saved.twitchTokenClientId, OAuthLoopbackServer.publicClientId);
+    expect(twitchAuth.helix.value.isUsable, isTrue);
 
     await h.close(tester);
   });
