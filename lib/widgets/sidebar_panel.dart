@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
@@ -347,7 +348,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 // Global Actions Toolbar
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
-                  child: Row(
+                  child: LayoutBuilder(builder: (context, toolbar) => Row(
                     children: [
                       Expanded(
                         child: NeuButton(
@@ -381,13 +382,21 @@ class SidebarPanelState extends State<SidebarPanel> {
                         ),
                       ),
                       const SizedBox(width: NeuSpace.s8),
-                      _PinnedFavoritesAutomationButton(
-                        onPressed: _openFavoritesAutomationDialog,
-                        enabled: widget.sidebarTab == 0,
-                        expanded: true,
+                      // Never so wide that Refresh loses its icon: at 175%
+                      // Windows Text size the label pushed this row past the
+                      // sidebar. Held to what is left, the word ellipsizes.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth: math.max(
+                                0, toolbar.maxWidth - NeuSpace.s8 - 48)),
+                        child: _PinnedFavoritesAutomationButton(
+                          onPressed: _openFavoritesAutomationDialog,
+                          enabled: widget.sidebarTab == 0,
+                          expanded: true,
+                        ),
                       ),
                     ],
-                  ),
+                  )),
                 ),
                 const SizedBox(height: NeuSpace.s8),
 
@@ -1088,11 +1097,16 @@ class _PinnedFavoritesAutomationButton extends StatelessWidget {
                   ? NeuTheme.text(isDark)
                   : NeuTheme.disabledText(isDark)),
           const SizedBox(width: NeuSpace.s6),
-          Text('Automation',
-              style: NeuType.bodySm(isDark).copyWith(
-                  color: enabled
-                      ? NeuTheme.text(isDark)
-                      : NeuTheme.disabledText(isDark))),
+          // Gives way where the toolbar holds it back (see its row).
+          Flexible(
+            child: Text('Automation',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: NeuType.bodySm(isDark).copyWith(
+                    color: enabled
+                        ? NeuTheme.text(isDark)
+                        : NeuTheme.disabledText(isDark))),
+          ),
         ],
       ),
     );
@@ -1249,7 +1263,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                 ),
               ],
             ),
-            title: Row(
+            title: LayoutBuilder(builder: (context, title) => Row(
               children: [
                 Expanded(
                   child: Text(
@@ -1269,9 +1283,18 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                   // end (its stale comment even claimed 'the expanded
                   // sidebar uses the real badge': it did not, this IS the
                   // expanded sidebar). One window, one way of saying LIVE.
-                  LiveBadge(pulse: widget.pulseController),
+                  //
+                  // Never wider than the title: at 175% Windows Text size
+                  // the badge alone overran it. It scales down only then.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: title.maxWidth),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: LiveBadge(pulse: widget.pulseController),
+                    ),
+                  ),
               ],
-            ),
+            )),
             subtitle: channel.isLoading
                 // Not const: NeuProgressBar reads the theme global too.
                 ? Padding(

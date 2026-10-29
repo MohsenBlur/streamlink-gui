@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../models/twitch_channel.dart';
@@ -517,7 +519,7 @@ class HomeView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  LayoutBuilder(builder: (context, header) => Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // The title gives way to the button: at the 380px
@@ -538,13 +540,23 @@ class HomeView extends StatelessWidget {
                           ],
                         ),
                       ),
-                      TextButton.icon(
-                        onPressed: onOpenLibrary,
-                        icon: const Icon(Icons.open_in_new, size: 14),
-                        label: const Text('Open Library', style: NeuType.labelMetrics),
+                      // ...but never past the title's icon: at 150% text in
+                      // that window the button's label alone left the icon
+                      // no room. Held to what is left, the label ellipsizes.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth: math.max(0, header.maxWidth - 28)),
+                        child: TextButton.icon(
+                          onPressed: onOpenLibrary,
+                          icon: const Icon(Icons.open_in_new, size: 14),
+                          label: const Text('Open Library',
+                              style: NeuType.labelMetrics,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
                       ),
                     ],
-                  ),
+                  )),
                   const SizedBox(height: NeuSpace.s12),
                   ...runningDownloads.take(2).map((item) {
                     final progress = item.progress ?? 0.0;

@@ -39,8 +39,23 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Size get preferredSize => const Size.fromHeight(40.0);
 
+  /// The largest text scale the title bar draws at.
+  static const double maxTextScale = 1.25;
+
   @override
   Widget build(BuildContext context) {
+    // A fixed 40px strip, so its text cannot follow Windows' Text size past
+    // what fits in it: at 175% the activity pill's two lines overflowed its
+    // slot at the bottom, and at 150% the plate, live count and pill overran
+    // a 380px window. Up to 125% it follows the setting; everything under
+    // the title bar follows it all the way.
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: maxTextScale,
+      child: _bar(),
+    );
+  }
+
+  Widget _bar() {
     return Container(
       height: 40.0,
       // The device's top edge. It takes the panel treatment rather than a flat

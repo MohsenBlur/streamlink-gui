@@ -309,10 +309,12 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         // mini actions halve. Nothing is removed: the popover still opens from
         // the icon, and the word it loses is repeated inside the popover it
         // opens. 440 is the measured point where the untightened row stops
-        // fitting.
+        // fitting, at 100% text; it grows with Windows' Text size
+        // (textGrowthOf), or at 150% the untightened row overflowed a
+        // 700-wide window.
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final tight = constraints.maxWidth < 440;
+            final tight = constraints.maxWidth < 440 * textGrowthOf(context);
             final miniGap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s6);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
