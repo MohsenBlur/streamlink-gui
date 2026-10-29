@@ -142,6 +142,25 @@ void main() {
       expect(mirror().readAsStringSync(), mirrored);
     });
 
+    test('nor is the config reached through another path to its folder', () {
+      // The exe's folder a junction or link to the config's: two paths that
+      // do not compare equal, one file. Scrubbed, that blanked the live
+      // tokens at every start; and the updater was asked to delete it.
+      final via = Link(p.join(root.path, 'via'))..createSync(appData.path);
+      addTearDown(() {
+        try {
+          via.deleteSync();
+        } catch (_) {}
+      });
+      StorageService.exeDirectoryOverride = via.path;
+      config().writeAsStringSync(mirrored);
+
+      expect(StorageService().scrubStaleConfigMirror(), isNull);
+      expect(config().readAsStringSync(), mirrored);
+      expect(StorageService().configLivesInAppData(), isFalse,
+          reason: 'the file beside the exe is the config');
+    });
+
     test('nothing to say when there is no mirror', () {
       config().writeAsStringSync(current);
       expect(StorageService().scrubStaleConfigMirror(), isNull);

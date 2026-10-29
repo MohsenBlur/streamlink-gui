@@ -298,9 +298,25 @@ class StorageService {
         return null;
       }
       if (!config.existsSync()) return null;
+      // So is one the two paths reach by different names - the exe's folder
+      // a junction or link to the config's, or either spelled another way
+      // (a short name, a mapped drive) - which the comparison above misses:
+      // both resolve to where the file really is.
+      if (mirror.existsSync() && _sameFile(mirror, config)) return null;
       return mirror;
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Whether two existing files are one, reached by different paths. False
+  /// when that cannot be told, leaving [_staleMirrorPath] to the plain path
+  /// comparison.
+  static bool _sameFile(File a, File b) {
+    try {
+      return p.equals(a.resolveSymbolicLinksSync(), b.resolveSymbolicLinksSync());
+    } catch (_) {
+      return false;
     }
   }
 
