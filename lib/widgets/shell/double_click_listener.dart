@@ -19,6 +19,9 @@ import 'package:flutter/widgets.dart';
 /// it is [onTap], except that it ignores the second click of a double - that
 /// click already played the channel, and re-selecting a channel selected a
 /// moment ago would only clear and refetch its VOD list.
+///
+/// The sidebar's rows and avatars use it, and so do Home's live cards, which
+/// had the same lag under the same GestureDetector.
 class DoubleClickListener extends StatefulWidget {
   const DoubleClickListener({
     super.key,
