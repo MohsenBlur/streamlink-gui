@@ -2279,6 +2279,18 @@ class PlayerService {
   /// Callers that are about to exit need not wait for it - the runner's
   /// kill-on-close job object ends every child with the app regardless - but
   /// can, to know the children are gone.
+  /// Undoes [stopAll]'s latch: the app is not going after all - an update's
+  /// handover failed after everything had been stopped for it.
+  ///
+  /// Only queueing a download cleared the latch, so a session that went on
+  /// after a failed handover had a streamed VOD's heal kill the player and
+  /// then decline to relaunch it (the exit handler reads the latch as the app
+  /// stopping), and report the kill as a stop the user asked for: the player
+  /// just vanished, until some download happened to be queued.
+  void resume() {
+    _shuttingDown = false;
+  }
+
   Future<void> stopAll() async {
     // Stop the queue drain before killing anything, so terminating the active
     // download cannot cause the next queued one to start.

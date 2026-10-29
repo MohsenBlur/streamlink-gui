@@ -53,6 +53,7 @@ class _Rig {
       log.add('player.stopAll');
       await stopGate?.future;
     },
+    resumeAfterStop: () => log.add('player.resume'),
     liveFavorites: () => live,
     startHidden: false,
     onVisibilityChanged: () => visibilityChanges++,
@@ -490,6 +491,9 @@ void main() {
       expect(rig.shell.isUpdateInProgress, isFalse);
       expect(rig.updates.discarded, isEmpty,
           reason: 'a late updater may still be copying out of it');
+      expect(rig.log, containsAllInOrder(['player.stopAll', 'player.resume']),
+          reason: 'the app carries on, and so must its players: a heal '
+              'stopped relaunching streamed VODs after this');
       rig.window.userCloses();
       await tester.pump();
       expect(rig.window.visible, isFalse, reason: 'hidden, as any close');

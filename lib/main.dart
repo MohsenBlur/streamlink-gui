@@ -637,6 +637,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     repository: _settingsRepo,
     settings: () => _settings,
     stopAll: _playerService.stopAll,
+    resumeAfterStop: _playerService.resume,
     liveFavorites: () =>
         _channels.where((c) => c.isLive).map((c) => c.username),
     startHidden: widget.startHidden,

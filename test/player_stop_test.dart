@@ -145,6 +145,19 @@ void main() {
       expect(stopped, isEmpty, reason: 'a heal is not a stop');
     });
 
+    test('still relaunches after a stop of everything the app came back from',
+        () async {
+      // An update's handover failed after stopAll, and the app went on: the
+      // heal killed the player and, the latch still set, never relaunched it.
+      await service.stopAll();
+      service.resume();
+      taskkill.gracefulEndsTargets = true;
+      await playUntilTheHealBegins();
+      await waitFor(() => launcher.launched.length == 2,
+          reason: 'the relaunch');
+      expect(stopped, isEmpty, reason: 'a heal is not a stop');
+    });
+
     test('is honoured instead of relaunching', () async {
       await playUntilTheHealBegins();
 
