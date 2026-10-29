@@ -150,8 +150,15 @@ class NeuContextMenu extends StatelessWidget {
       //
       // A RawGestureDetector, because GestureDetector's supportedDevices
       // applies to every recognizer it builds, the right-click included.
+      //
+      // Out of the semantics tree: a TapGestureRecognizer there exposes a
+      // tap action whatever it handles, and with only the secondary button
+      // set that tap ran nothing - and it split the wrapped item's own node,
+      // so Narrator stopped on an unnamed, do-nothing element before each
+      // card and row. The menu key above is the way in from assistive tech.
       child: RawGestureDetector(
         behavior: HitTestBehavior.translucent,
+        excludeFromSemantics: true,
         gestures: items.isEmpty
             ? const <Type, GestureRecognizerFactory>{}
             : <Type, GestureRecognizerFactory>{
