@@ -69,8 +69,10 @@ class TwitchAuth {
     if (next != helix.value) helix.value = next;
   }
 
-  /// A completed `/oauth2/validate` probe of the account token.
-  void recordHelixProbe(TwitchAuthStatus status) {
+  /// A completed `/oauth2/validate` probe of the account token. [credential]
+  /// names the pair it probed (see [noteHelixProbeCredential]).
+  void recordHelixProbe(TwitchAuthStatus status, {int? credential}) {
+    if (credential != null) noteHelixProbeCredential(credential);
     if (status != helix.value) helix.value = status;
   }
 

@@ -65,6 +65,10 @@ class FakeHelix {
   /// The account each token belongs to; 'viewer' for any not listed.
   final Map<String, String> tokenLogins = <String, String>{};
 
+  /// The scopes `/oauth2/validate` reports for each token; the followed-list
+  /// scope for any not listed.
+  final Map<String, List<String>> tokenScopes = <String, List<String>>{};
+
   /// When set, `/oauth2/validate` waits for it before answering.
   Completer<void>? holdValidate;
 
@@ -196,7 +200,7 @@ class FakeHelix {
           'client_id': validClientId,
           'login': tokenLogins[token] ?? 'viewer',
           'user_id': '999',
-          'scopes': ['user:read:follows'],
+          'scopes': tokenScopes[token] ?? ['user:read:follows'],
           'expires_in': 5000000,
         });
       case '/helix/users':

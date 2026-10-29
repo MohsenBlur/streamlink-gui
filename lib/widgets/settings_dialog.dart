@@ -1368,7 +1368,11 @@ class SettingsDialog {
                                                       '${testedIsSaved ? '' : '. Save to start using it.'}'
                                                   : (connectionDetail(status) ?? connectionLabel(status));
                                             });
-                                            if (testedIsSaved) twitchAuth.recordHelixProbe(status);
+                                            if (testedIsSaved) {
+                                              twitchAuth.recordHelixProbe(status,
+                                                  credential: TwitchApiService.helixCredential(
+                                                      testedToken, testedClientId));
+                                            }
                                           },
                                     child: isTestingAccount
                                         ? SizedBox(
