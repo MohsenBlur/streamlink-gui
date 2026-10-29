@@ -17,7 +17,8 @@
 //
 // "The instance already running" means the one sharing this launch's config:
 // every installed copy shares one, a portable copy (portable.txt beside the
-// exe) is its own, keyed by its folder. The property's value says which.
+// exe) is its own, keyed by its folder - the real one, however the launch
+// spelled the path to it. The property's value says which.
 namespace single_instance {
 
 // The single-instance mutex for this launch's scope.
