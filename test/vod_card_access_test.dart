@@ -306,7 +306,7 @@ void main() {
     const games = [long, 'Just Chatting'];
 
     Future<void> pumpCard(WidgetTester tester,
-        {required bool onThumbnails}) async {
+        {required bool onThumbnails, List<String> names = games}) async {
       tester.view.physicalSize = const Size(600, 500);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -318,7 +318,7 @@ void main() {
               child: SizedBox(
                 width: 300,
                 child: TwitchVideoCard(
-                  vod: vod(0)..games = List.of(games),
+                  vod: vod(0)..games = List.of(names),
                   scale: 300,
                   theme: Theme.of(context),
                   onPlay: () {},
@@ -375,6 +375,25 @@ void main() {
       expect(find.byTooltip(everyName), findsOneWidget);
       await hover(tester, find.byTooltip(everyName));
       expect(find.text(everyName), findsOneWidget);
+    });
+
+    testWidgets('wider than the card stays on it in the single badge, cut '
+        'short there', (tester) async {
+      // The badge sits in the thumbnail's top-right corner, which bounds it
+      // on the right only: a name wider than the card grew it leftwards past
+      // the card's edge. Half the card at most, as the pills are; its
+      // tooltip has the name in full.
+      const longest = 'A category name far too long for the card to hold whole';
+      await pumpCard(tester,
+          onThumbnails: false, names: const [longest, 'Just Chatting']);
+      final card = tester.getRect(find.byType(TwitchVideoCard));
+      final name = find.text(longest);
+      expect(tester.getRect(name).left, greaterThanOrEqualTo(card.left));
+      expect(tester.getRect(name).width, lessThanOrEqualTo(card.width / 2));
+      expect(tester.renderObject<RenderParagraph>(name).didExceedMaxLines,
+          isTrue);
+      expect(tester.takeException(), isNull);
+      expect(find.byTooltip('$longest\nJust Chatting'), findsOneWidget);
     });
   });
 }

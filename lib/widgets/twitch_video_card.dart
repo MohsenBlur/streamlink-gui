@@ -239,6 +239,10 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
     final hasMultiple = _games!.length > 1;
     
     final mainBadge = Container(
+      // Half the card at most, as the pills on the thumbnail are. The corner
+      // it sits in bounds it on the right only, so a long name grew it
+      // leftwards past the card's edge; cut short, its tooltip has it whole.
+      constraints: BoxConstraints(maxWidth: widget.scale * 0.5),
       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s4),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.75),
@@ -249,9 +253,13 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
         children: [
           const Icon(Icons.sports_esports, size: 10, color: Colors.white70),
           const SizedBox(width: NeuSpace.s4),
-          Text(
-            firstGame,
-            style: NeuType.plate(true, color: Colors.white),
+          Flexible(
+            child: Text(
+              firstGame,
+              style: NeuType.plate(true, color: Colors.white),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
