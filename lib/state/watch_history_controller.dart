@@ -95,8 +95,11 @@ class WatchHistoryController extends ChangeNotifier {
   }
 
   /// Reads watch_progress.json and the recently-watched list into memory,
-  /// then lets them be written.
+  /// then lets them be written - unless either is there but could not be
+  /// read, when neither may be (see StorageReadFailure) until a later [load]
+  /// reads them.
   Future<void> load() async {
+    var read = true;
     try {
       // The sidecar is authoritative where it has an entry: it carries the
       // furthest point and the undo trail, which the flat compatibility copy
@@ -119,12 +122,17 @@ class WatchHistoryController extends ChangeNotifier {
             .toList();
         notifyListeners();
       }
+    } on StorageReadFailure catch (e, st) {
+      // Opened anyway, the next save rewrote the sidecar from the flat copy:
+      // every furthest point and undo trail, gone.
+      read = false;
+      _onLoadError?.call(e, st);
     } catch (e, st) {
       // Both readers already fall back to empty on a damaged file; this is
       // for anything else, which must not stop the channels loading after it.
       _onLoadError?.call(e, st);
     } finally {
-      _repository.markHistoryLoaded();
+      if (read) _repository.markHistoryLoaded();
     }
   }
 

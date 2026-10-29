@@ -241,9 +241,12 @@ Future<void> startApp(
     startup = await storage.loadStartupConfig();
     milestone(startup.isFirstRun
         ? 'config: none, first run'
-        : (startup.data == null
-            ? 'config: unreadable, quarantined; using defaults'
-            : 'config: loaded'));
+        : (startup.readFailure != null
+            ? 'config: could not be read (${startup.readFailure!.error}); '
+                'using defaults and saving nothing over it'
+            : (startup.data == null
+                ? 'config: unreadable, quarantined; using defaults'
+                : 'config: loaded')));
     // The plaintext copy an older build left beside the exe loses its
     // tokens. Only after a load: a config that would not load is
     // quarantined, and the next launch's migration recovers from that copy.

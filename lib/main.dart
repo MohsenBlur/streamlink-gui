@@ -326,6 +326,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// disk problem does not become an undismissable wall. Reset whenever a save
   /// succeeds, so a NEW failure is reported again.
   bool _saveWarningDismissed = false;
+  bool _readWarningDismissed = false;
 
   /// Whether the startup sequence has finished: the poll, a window coming
   /// back and a token that starts working again (AccountController) all wait
@@ -798,6 +799,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// The config is there but could not be read at startup, so nothing is
+  /// saved over it this session (see StorageReadFailure).
+  bool _configUnreadable = false;
+
   Future<void> _loadChannels() async {
     setState(() => _isGlobalLoading = true);
     try {
@@ -805,9 +810,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       // only; null there means there was none or it was quarantined, and
       // reading again would only find the same.
       final startup = widget.startup;
-      final config = startup != null && !_startupConfigUsed
-          ? startup.data
-          : await _storageService.loadConfig();
+      Map<String, dynamic>? config;
+      if (startup != null && !_startupConfigUsed) {
+        config = startup.data;
+        _configUnreadable = startup.readFailure != null;
+      } else {
+        try {
+          config = await _storageService.loadConfig();
+        } on StorageReadFailure {
+          _configUnreadable = true;
+        }
+      }
       _startupConfigUsed = true;
       List<TwitchChannel> loadedChannels = [];
 
@@ -878,8 +891,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           _resumeUnfinishedDownloads(resumable);
         });
       }
-      // Everything the config holds is in memory now, so it may be written.
-      _settingsRepo.markConfigLoaded();
+      // Everything the config holds is in memory now, so it may be written -
+      // unless it could not be read, when nothing it holds is (see
+      // StorageReadFailure): its gate stays shut for the session.
+      if (!_configUnreadable) _settingsRepo.markConfigLoaded();
 
       // The watch history next, BEFORE any network wait. It used to be read
       // last, after the refresh below, and anything that saved meanwhile -
@@ -904,8 +919,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       // as it always could (a no-op when already open). The history only once
       // it has been read, though: opened unread after a failure above, its
       // gate would let the next save replace the sidecar with the flat copy -
-      // or with nothing - which is the loss the gate exists to stop.
-      _settingsRepo.markConfigLoaded();
+      // or with nothing - which is the loss the gate exists to stop. The same
+      // goes for a config that is there but could not be read.
+      if (!_configUnreadable) _settingsRepo.markConfigLoaded();
       if (!_settingsRepo.historyLoaded) await _history.load();
       // Arms the recovery refresh. Startup already fetches everything, so
       // arming earlier would make the first successful probe refresh it all a
@@ -1448,6 +1464,18 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _saveChannels();
       },
       banners: [
+        ValueListenableBuilder<StorageReadFailure?>(
+          valueListenable: storageReadFailure,
+          builder: (context, failure, _) {
+            if (failure == null || _readWarningDismissed) {
+              return const SizedBox.shrink();
+            }
+            return SaveFailureBanner.unreadable(
+              failure: failure,
+              onDismiss: () => setState(() => _readWarningDismissed = true),
+            );
+          },
+        ),
         ValueListenableBuilder<StorageWriteFailure?>(
           valueListenable: storageWriteFailure,
           builder: (context, failure, _) {

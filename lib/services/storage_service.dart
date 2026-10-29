@@ -11,6 +11,30 @@ import 'config_secrets.dart';
 final ValueNotifier<StorageWriteFailure?> storageWriteFailure =
     ValueNotifier<StorageWriteFailure?>(null);
 
+/// The first of the app's files found present but unreadable this session,
+/// or null when every one read.
+final ValueNotifier<StorageReadFailure?> storageReadFailure =
+    ValueNotifier<StorageReadFailure?>(null);
+
+/// A file that is there but could not be read: held open by another program
+/// that shares no reading (a backup or sync client), on a share that is out
+/// of reach for a moment, or damaged and impossible to move aside.
+///
+/// Not "nothing to lose". Reading it as damage, or as no file, started the
+/// app from defaults, and the next save replaced the user's channels,
+/// settings, tokens, registry and history - or every furthest point and
+/// undo trail - with nothing left to recover. What it holds was never
+/// loaded, so nothing may be written over it this session.
+class StorageReadFailure implements Exception {
+  StorageReadFailure(this.path, this.error);
+
+  final String path;
+  final Object error;
+
+  @override
+  String toString() => '$path: $error';
+}
+
 /// A save that did not reach disk.
 class StorageWriteFailure {
   StorageWriteFailure(this.path, this.error, this.at);
@@ -407,15 +431,69 @@ class StorageService {
     }
   }
 
-  /// Moves an unreadable config aside so it is not silently overwritten by the
+  /// Moves a damaged file aside so it is not silently overwritten by the
   /// next autosave, and can still be recovered by hand.
+  ///
+  /// Throws [StorageReadFailure] when it is still there afterwards: the move
+  /// failed (it is held open, or the folder refuses it), and the next save
+  /// would replace it with no copy left anywhere.
   void _quarantineCorruptFile(File file) {
+    Object? refused;
     try {
       if (!file.existsSync()) return;
       final stamp = DateTime.now().millisecondsSinceEpoch;
       file.renameSync('${file.path}.corrupt-$stamp');
-    } catch (_) {}
+    } catch (e) {
+      refused = e;
+    }
     _pruneQuarantine(file);
+    if (refused != null) {
+      throw _readFailure(file, 'damaged, and could not be moved aside: $refused');
+    }
+  }
+
+  /// How long a read that failed waits before it is tried again.
+  static const Duration _readRetryDelay = Duration(milliseconds: 200);
+
+  /// [file]'s bytes, or null when there is no such file.
+  ///
+  /// A read that fails is tried twice more, as the writer retries: the usual
+  /// cause is a scanner or a sync client holding the file for a moment.
+  /// Throws [StorageReadFailure] when it still cannot be read. Only bytes are
+  /// read here, so a failure is the file's access and never its content -
+  /// readAsString reported text that is not UTF-8 the same way.
+  Future<List<int>?> _readPatiently(File file) async {
+    Object? error;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await Future<void>.delayed(_readRetryDelay);
+      try {
+        if (!await file.exists()) return null;
+        return await file.readAsBytes();
+      } on FileSystemException catch (e) {
+        error = e;
+      }
+    }
+    throw _readFailure(file, error!);
+  }
+
+  static StorageReadFailure _readFailure(File file, Object error) {
+    final failure = StorageReadFailure(file.path, error);
+    storageReadFailure.value ??= failure;
+    return failure;
+  }
+
+  /// [bytes] as JSON; null when they hold nothing but whitespace. Calls
+  /// [damaged] instead when they are not JSON at all.
+  static Object? _decodeJson(List<int> bytes,
+      {required void Function() damaged}) {
+    try {
+      final content = utf8.decode(bytes);
+      if (content.trim().isEmpty) return null;
+      return json.decode(content);
+    } catch (_) {
+      damaged();
+      return null;
+    }
   }
 
   /// Keeps only the newest few quarantined copies.
@@ -477,12 +555,17 @@ class StorageService {
     // and returns null, which is indistinguishable from a first run - so a
     // user whose config got corrupted was shown the onboarding wizard.
     final existed = configExists();
-    final data = await loadConfig();
-    return StartupConfig(existed: existed, data: data);
+    try {
+      final data = await loadConfig();
+      return StartupConfig(existed: existed, data: data);
+    } on StorageReadFailure catch (e) {
+      return StartupConfig(existed: true, data: null, readFailure: e);
+    }
   }
 
   /// The decoded config, with its tokens already decrypted, or null when there
-  /// is none or it was unreadable (and has been quarantined).
+  /// is none or it was damaged (and has been quarantined). Throws
+  /// [StorageReadFailure] when it is there but could not be read.
   Future<Map<String, dynamic>?> loadConfig() async {
     final file = _getStorageFile();
     sweepTempFiles(file);
@@ -525,25 +608,21 @@ class StorageService {
     } catch (_) {}
   }
 
+  /// Throws [StorageReadFailure] for a config that is there but could not be
+  /// read, or damaged and impossible to move aside.
   Future<Map<String, dynamic>?> _readConfig(File file) async {
-    Map<String, dynamic>? config;
-    try {
-      if (!await file.exists()) return null;
-      final content = await file.readAsString();
-      if (content.trim().isEmpty) return null;
-
-      final decoded = json.decode(content);
-      if (decoded is Map<String, dynamic>) {
-        config = decoded;
-      } else {
-        _quarantineCorruptFile(file);
-      }
-    } catch (_) {
-      // Unreadable or invalid JSON: preserve it rather than letting the app
-      // start from defaults and immediately autosave over the user's data.
+    final bytes = await _readPatiently(file);
+    if (bytes == null) return null;
+    // Invalid JSON, or not an object: preserve it rather than letting the app
+    // start from defaults and immediately autosave over the user's data.
+    var damaged = false;
+    final decoded = _decodeJson(bytes, damaged: () => damaged = true);
+    if (damaged || (decoded != null && decoded is! Map<String, dynamic>)) {
       _quarantineCorruptFile(file);
+      return null;
     }
-    // Outside the try on purpose: nothing about the tokens may quarantine a
+    final config = decoded as Map<String, dynamic>?;
+    // After the parse on purpose: nothing about the tokens may quarantine a
     // config that parsed.
     if (config != null) await _openSecrets(file, config);
     return config;
@@ -618,21 +697,19 @@ class StorageService {
     //   there, and one from before the flag ignores it.
   }
 
+  /// Throws [StorageReadFailure] for a list that is there but could not be
+  /// read.
   Future<List<Map<String, dynamic>>> loadRecentWatchedVods() async {
     final file = getStorageFile('recent_watched_vods.json');
-    try {
-      if (!await file.exists()) return [];
-      final content = await file.readAsString();
-      if (content.trim().isEmpty) return [];
-
-      final decoded = json.decode(content);
-      if (decoded is List) {
-        return decoded.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
-      }
-      _quarantineCorruptFile(file);
-    } catch (_) {
-      _quarantineCorruptFile(file);
+    final bytes = await _readPatiently(file);
+    if (bytes == null) return [];
+    var damaged = false;
+    final decoded = _decodeJson(bytes, damaged: () => damaged = true);
+    if (!damaged && decoded == null) return [];
+    if (decoded is List) {
+      return decoded.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
     }
+    _quarantineCorruptFile(file);
     return [];
   }
 
@@ -649,18 +726,18 @@ class StorageService {
   /// integrity of a file that is rewritten when the window moves. The flat
   /// `local_vods_progress` key stays in the config as a compatibility copy, so
   /// an older build still finds positions where it expects them.
+  ///
+  /// Throws [StorageReadFailure] for a sidecar that is there but could not be
+  /// read.
   Future<Map<String, dynamic>> loadWatchProgress() async {
     final file = getStorageFile('watch_progress.json');
-    try {
-      if (!await file.exists()) return {};
-      final content = await file.readAsString();
-      if (content.trim().isEmpty) return {};
-      final decoded = json.decode(content);
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      _quarantineCorruptFile(file);
-    } catch (_) {
-      _quarantineCorruptFile(file);
-    }
+    final bytes = await _readPatiently(file);
+    if (bytes == null) return {};
+    var damaged = false;
+    final decoded = _decodeJson(bytes, damaged: () => damaged = true);
+    if (!damaged && decoded == null) return {};
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    _quarantineCorruptFile(file);
     return {};
   }
 
@@ -682,7 +759,11 @@ class StorageService {
 /// A launch snapshot only. Anything that wants the config later must call
 /// [StorageService.loadConfig], since saves move the file on from here.
 class StartupConfig {
-  const StartupConfig({required this.existed, required this.data});
+  const StartupConfig({
+    required this.existed,
+    required this.data,
+    this.readFailure,
+  });
 
   /// Whether a config file was present before loading, even one too damaged
   /// to read. Distinct from [data] being null: see [isFirstRun].
@@ -692,6 +773,10 @@ class StartupConfig {
   /// [StorageService.loadConfig] returned it; null when there was none or it
   /// was unreadable (and has been quarantined).
   final Map<String, dynamic>? data;
+
+  /// Set when the config is there but could not be read (see
+  /// [StorageReadFailure]): [data] is null, and nothing may be saved over it.
+  final StorageReadFailure? readFailure;
 
   /// True only when there was no config file at all. A corrupted one is not a
   /// first run, and must not show the onboarding wizard to an existing user.

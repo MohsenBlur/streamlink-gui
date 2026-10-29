@@ -134,6 +134,65 @@ void main() {
       expect(configFile().existsSync(), isFalse);
     });
 
+    test('quarantines a config that is not UTF-8 too: damage, not access',
+        () async {
+      configFile().writeAsBytesSync([0x7b, 0xff, 0xfe, 0x7d]);
+      expect(await storage.loadConfig(), isNull);
+      expect(configFile().existsSync(), isFalse);
+      expect(storageReadFailure.value, isNull);
+    });
+
+    group('a file that is there but cannot be read', () {
+      // Another program holding it without sharing reads (a backup or sync
+      // client) read as damage: the move aside failed on the same lock, the
+      // app started from defaults, and the next save replaced the user's
+      // data with nothing to recover. Locked here by this process's own
+      // handle, which shares no deletes either - as such a program's does.
+      final notWindows = Platform.isWindows ? null : 'locks are advisory here';
+      tearDown(() => storageReadFailure.value = null);
+
+      RandomAccessFile hold(File file) =>
+          file.openSync(mode: FileMode.append)..lockSync(FileLock.exclusive);
+
+      test('is reported, kept where it is, and not quarantined', () async {
+        configFile().writeAsStringSync('{"channels":[{"username":"alpha"}]}');
+        final lock = hold(configFile());
+        final StartupConfig startup;
+        try {
+          startup = await storage.loadStartupConfig();
+        } finally {
+          lock
+            ..unlockSync()
+            ..closeSync();
+        }
+        expect(startup.readFailure, isNotNull);
+        expect(startup.isFirstRun, isFalse);
+        expect(startup.data, isNull);
+        expect(storageReadFailure.value?.path, configFile().path);
+        expect(
+            tempDir.listSync().where((f) => f.path.contains('.corrupt-')),
+            isEmpty,
+            reason: 'it is not damaged');
+        expect(configFile().readAsStringSync(), contains('alpha'));
+      }, skip: notWindows);
+
+      test('the sidecar the same way', () async {
+        final sidecar = File(
+            '${tempDir.path}${Platform.pathSeparator}watch_progress.json')
+          ..writeAsStringSync('{"42":{"p":100,"b":5000}}');
+        final lock = hold(sidecar);
+        try {
+          await expectLater(
+              storage.loadWatchProgress(), throwsA(isA<StorageReadFailure>()));
+        } finally {
+          lock
+            ..unlockSync()
+            ..closeSync();
+        }
+        expect(sidecar.readAsStringSync(), contains('5000'));
+      }, skip: notWindows);
+    });
+
     test('treats an empty config as absent without quarantining it', () async {
       configFile().writeAsStringSync('');
       expect(await storage.loadConfig(), isNull);

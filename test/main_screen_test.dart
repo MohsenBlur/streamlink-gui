@@ -504,6 +504,31 @@ void main() {
 
   group('exit', () {
     testWidgets(
+        'with a config that could not be read, saves nothing over it, and '
+        'says so', (tester) async {
+      // Held open by a backup client at launch: the app ran on defaults and
+      // the Exit's save wrote them over every channel, setting and token.
+      addTearDown(() => storageReadFailure.value = null);
+      final failure =
+          StorageReadFailure('channels_config.json', 'in use by another program');
+      storageReadFailure.value = failure;
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      await h.launch(tester, favorites: ['alpha'], configReadFailure: failure);
+      expect(find.textContaining('could not be read'), findsOneWidget);
+
+      h.tray.choose('Exit');
+      await h.settle(tester);
+
+      expect(h.log, contains('window.destroy'), reason: 'it did exit');
+      expect(h.storage.configWrites, 0);
+      expect(h.storage.config!['channels'], hasLength(1),
+          reason: 'what was there is still there');
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'captures the window, stops the players, saves, and only then '
         'removes the tray icon and the window', (tester) async {
       final h = ScreenHarness();

@@ -31,6 +31,13 @@ class MemoryStorageService extends StorageService {
   int progressWrites = 0;
   int recentsWrites = 0;
 
+  /// When set, reading the config throws it: the file is there but could
+  /// not be read (see StorageReadFailure).
+  StorageReadFailure? configReadFailure;
+
+  /// The same for the watch-progress sidecar and the recents list.
+  StorageReadFailure? historyReadFailure;
+
   /// The settings as last saved.
   AppSettings? get savedSettings {
     final stored = config?['settings'];
@@ -45,8 +52,11 @@ class MemoryStorageService extends StorageService {
   File getStorageFile(String filename) => File(p.join(_dir.path, filename));
 
   @override
-  Future<Map<String, dynamic>?> loadConfig() async =>
-      config == null ? null : _copy(config!);
+  Future<Map<String, dynamic>?> loadConfig() async {
+    final failure = configReadFailure;
+    if (failure != null) throw failure;
+    return config == null ? null : _copy(config!);
+  }
 
   @override
   Future<void> saveConfig(
@@ -68,8 +78,11 @@ class MemoryStorageService extends StorageService {
   }
 
   @override
-  Future<Map<String, dynamic>> loadWatchProgress() async =>
-      _copy(watchProgress);
+  Future<Map<String, dynamic>> loadWatchProgress() async {
+    final failure = historyReadFailure;
+    if (failure != null) throw failure;
+    return _copy(watchProgress);
+  }
 
   @override
   Future<void> saveWatchProgress(Map<String, dynamic> data) async {

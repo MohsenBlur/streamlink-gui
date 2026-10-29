@@ -104,6 +104,7 @@ class ScreenHarness {
     Map<String, dynamic> watchProgress = const <String, dynamic>{},
     List<TwitchVideo> recents = const <TwitchVideo>[],
     Size size = const Size(1400, 900),
+    StorageReadFailure? configReadFailure,
   }) async {
     final effective = settings ?? defaultSettings();
     final stored = <String, dynamic>{
@@ -119,7 +120,8 @@ class ScreenHarness {
     storage = MemoryStorageService(log: log, config: stored)
       ..watchProgress = json.decode(json.encode(watchProgress))
           as Map<String, dynamic>
-      ..recents = [for (final vod in recents) vod.toJson()];
+      ..recents = [for (final vod in recents) vod.toJson()]
+      ..configReadFailure = configReadFailure;
     files.forEach(
         (name, text) => storage.getStorageFile(name).writeAsStringSync(text));
 
@@ -167,7 +169,10 @@ class ScreenHarness {
       // As main() hands it over: read and parsed once, before runApp.
       startup: StartupConfig(
         existed: true,
-        data: json.decode(json.encode(stored)) as Map<String, dynamic>,
+        data: configReadFailure != null
+            ? null
+            : json.decode(json.encode(stored)) as Map<String, dynamic>,
+        readFailure: configReadFailure,
       ),
       services: AppServices(
         storage: storage,
