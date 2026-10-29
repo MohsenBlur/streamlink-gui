@@ -166,7 +166,7 @@ class ChannelDashboard extends StatelessWidget {
                   SliverToBoxAdapter(child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  SizedBox(height: isCompact ? 12 : 32),
+                  SizedBox(height: isCompact ? NeuSpace.s12 : NeuSpace.s32),
                   // In selection mode the SelectionBar REPLACES this row
                   // rather than growing out of it. Appending the bulk actions
                   // to the toolbar is what made the toolbar overflow: four
@@ -213,7 +213,18 @@ class ChannelDashboard extends StatelessWidget {
                       ],
                     )
                   else
-                    Row(
+                    LayoutBuilder(builder: (context, toolbar) {
+                    // The labelled row needs 320px at 100% text, 348 while
+                    // the ring spins. Below that Select and Display keep
+                    // their icons and tooltips and drop the word, as the
+                    // header's Stats control does. Grown with Windows' Text
+                    // size (textGrowthOf): at 125% the labelled row
+                    // overflowed the 380px window.
+                    final busy =
+                        vodBrowser.isLoading || vodBrowser.isRefreshing;
+                    final iconsOnly = toolbar.maxWidth <
+                        (busy ? 348 : 320) * textGrowthOf(context);
+                    return Row(
                       children: [
                         // A labelled button, not a bare pencil. The pencil had
                         // a tooltip and nothing else, so the only way to learn
@@ -232,12 +243,14 @@ class ChannelDashboard extends StatelessWidget {
                                   size: 15,
                                   color: NeuTheme.text(
                                       themeNotifier.isDarkTheme)),
-                              const SizedBox(width: NeuSpace.s6),
-                              Text('Select',
-                                  style: NeuType.captionStrong(
-                                      themeNotifier.isDarkTheme,
-                                      color: NeuTheme.text(
-                                          themeNotifier.isDarkTheme))),
+                              if (!iconsOnly) ...[
+                                const SizedBox(width: NeuSpace.s6),
+                                Text('Select',
+                                    style: NeuType.captionStrong(
+                                        themeNotifier.isDarkTheme,
+                                        color: NeuTheme.text(
+                                            themeNotifier.isDarkTheme))),
+                              ],
                             ],
                           ),
                         ),
@@ -280,10 +293,12 @@ class ChannelDashboard extends StatelessWidget {
                         // 110px slider versus an Expanded one).
                         InteractivePopover(
                           popover: displayMenu,
-                          child: VodDisplayButton(theme: theme),
+                          child: VodDisplayButton(
+                              theme: theme, iconOnly: iconsOnly),
                         ),
                       ],
-                    ),
+                    );
+                    }),
                   const SizedBox(height: NeuSpace.s16),
                   if (isWebTokenExpired) ...[
                     Container(
@@ -295,37 +310,64 @@ class ChannelDashboard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(NeuRadius.r8),
                         border: Border.all(color: NeuTheme.warning.withValues(alpha: 0.3)),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.warning_amber_rounded,
-                              color: NeuTheme.warningText(themeNotifier.isDarkTheme), size: 20),
-                          const SizedBox(width: NeuSpace.s12),
-                          Expanded(
-                            child: Text(
-                              'Your Twitch Browser OAuth Token has expired. VOD watch progress tracking is currently paused.',
-                              style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                      child: LayoutBuilder(builder: (context, warning) {
+                        final icon = Icon(Icons.warning_amber_rounded,
+                            color: NeuTheme.warningText(themeNotifier.isDarkTheme), size: 20);
+                        final message = Text(
+                          'Your Twitch Browser OAuth Token has expired. VOD watch progress tracking is currently paused.',
+                          style: NeuType.headingSm(themeNotifier.isDarkTheme, color: NeuTheme.text(themeNotifier.isDarkTheme)),
+                        );
+                        final update = TextButton(
+                          style: TextButton.styleFrom(
+                            backgroundColor: NeuTheme.warning.withValues(alpha: 0.2),
+                            foregroundColor: NeuTheme.warningText(themeNotifier.isDarkTheme),
+                            padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
+                          ),
+                          onPressed: onUpdateToken,
+                          child: const Text('Update Token', style: NeuType.labelMetrics),
+                        );
+                        final dismiss = NeuIconAction(
+                          icon: Icons.close,
+                          tooltip: 'Dismiss',
+                          size: NeuActionSize.sm,
+                          style: NeuActionStyle.flat,
+                          onPressed: onDismissWebTokenWarning,
+                        );
+                        // In one row while it leaves the message a word's
+                        // width: the rest of the row is 262px at 100% text,
+                        // and grows with Windows' Text size (textGrowthOf).
+                        // At 150% it no longer fitted a 380px window and
+                        // overflowed; the button goes under the message.
+                        if (warning.maxWidth >= 310 * textGrowthOf(context)) {
+                          return Row(
+                            children: [
+                              icon,
+                              const SizedBox(width: NeuSpace.s12),
+                              Expanded(child: message),
+                              const SizedBox(width: NeuSpace.s12),
+                              update,
+                              const SizedBox(width: NeuSpace.s8),
+                              dismiss,
+                            ],
+                          );
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                icon,
+                                const SizedBox(width: NeuSpace.s12),
+                                Expanded(child: message),
+                                const SizedBox(width: NeuSpace.s8),
+                                dismiss,
+                              ],
                             ),
-                          ),
-                          const SizedBox(width: NeuSpace.s12),
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: NeuTheme.warning.withValues(alpha: 0.2),
-                              foregroundColor: NeuTheme.warningText(themeNotifier.isDarkTheme),
-                              padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s8),
-                            ),
-                            onPressed: onUpdateToken,
-                            child: const Text('Update Token', style: NeuType.labelMetrics),
-                          ),
-                          const SizedBox(width: NeuSpace.s8),
-                          NeuIconAction(
-                            icon: Icons.close,
-                            tooltip: 'Dismiss',
-                            size: NeuActionSize.sm,
-                            style: NeuActionStyle.flat,
-                            onPressed: onDismissWebTokenWarning,
-                          ),
-                        ],
-                      ),
+                            const SizedBox(height: NeuSpace.s8),
+                            update,
+                          ],
+                        );
+                      }),
                     ),
                   ],
                   ])),
@@ -689,9 +731,13 @@ class VodDisplayMenu extends StatelessWidget {
 /// widths there was no static hint that a menu existed. It is now a plain
 /// labelled button, present at every width.
 class VodDisplayButton extends StatelessWidget {
-  const VodDisplayButton({super.key, required this.theme});
+  const VodDisplayButton({super.key, required this.theme, this.iconOnly = false});
 
   final ThemeData theme;
+
+  /// Without the word, where the toolbar has no room for it (large Text
+  /// size in a narrow window); the tooltip still says what it opens.
+  final bool iconOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -710,9 +756,11 @@ class VodDisplayButton extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.tune, size: 15, color: NeuTheme.text(isDark)),
-          const SizedBox(width: NeuSpace.s6),
-          Text('Display',
-              style: NeuType.bodySm(isDark)),
+          if (!iconOnly) ...[
+            const SizedBox(width: NeuSpace.s6),
+            Text('Display',
+                style: NeuType.bodySm(isDark)),
+          ],
           const SizedBox(width: NeuSpace.s2),
           Icon(Icons.arrow_drop_down, size: 16, color: NeuTheme.subtext(isDark)),
         ],

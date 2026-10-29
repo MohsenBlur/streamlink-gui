@@ -44,6 +44,70 @@ import 'overflow_sweep_test.dart' show channel, sweepSizes;
 /// running both would double the cost to re-measure identical boxes. That
 /// claim is asserted rather than assumed.
 void main() {
+  sweepRealSurfaces();
+
+  group('the brightness axis is collapsed on purpose', () {
+    test('light and dark palettes declare identical geometry', () {
+      // The justification for sweeping dark only. A material's two palettes
+      // may differ in every colour and in nothing that occupies space — if one
+      // ever grew a wider bevel than the other, the sweep above would be
+      // covering half the app and saying so in neither direction.
+      for (final spec in MaterialSpec.available) {
+        final light = spec.palette(false);
+        final dark = spec.palette(true);
+        final where = spec.id.key;
+
+        expect(light.bevelWidth, dark.bevelWidth, reason: '$where bevelWidth');
+        expect(light.fill.length, dark.fill.length,
+            reason: '$where fill stop count');
+        for (var i = 0; i < light.fill.length; i++) {
+          expect(light.fill[i].at, dark.fill[i].at,
+              reason: '$where fill stop $i position');
+        }
+        expect(light.contact.length, dark.contact.length,
+            reason: '$where contact layer count');
+        expect(light.inset.length, dark.inset.length,
+            reason: '$where inset layer count');
+        expect(light.recessStyle, dark.recessStyle,
+            reason: '$where recessStyle — a true inset and an outer fake do '
+                'not occupy the same box');
+        expect(light.lightAzimuthDeg, dark.lightAzimuthDeg,
+            reason: '$where light direction');
+
+        // Shadow extents, which is where a difference would actually move a
+        // pixel: a cast layer's reach is offset plus blur plus spread.
+        double reach(List<ShadowLayer> layers) => layers.fold(0.0, (max, l) {
+              final r = Offset(l.dx, l.dy).distance + l.blur + l.spread;
+              return r > max ? r : max;
+            });
+        expect(reach(light.contact), closeTo(reach(dark.contact), 1e-9),
+            reason: '$where contact reach');
+        expect(reach(light.inset), closeTo(reach(dark.inset), 1e-9),
+            reason: '$where inset reach');
+      }
+    });
+  });
+}
+
+/// The sweep, with Windows' Text size at [textScale] (1 is 100%).
+///
+/// The engine reads Settings > Accessibility > Text size and hands it to
+/// MediaQuery, so every Text in the app grows with it - and width budgets
+/// measured at 100% did not: at 125% the selection bar picked its full
+/// layout at 1280 wide and the count overflowed into the actions, with every
+/// sweep green because every sweep ran at 1.0. text_scale_sweep_test runs
+/// this at 125% and 150%, over [sizes].
+void sweepRealSurfaces(
+    {double textScale = 1.0, List<Size> sizes = sweepSizes}) {
+  if (textScale == 1.0) {
+    _sweepRealSurfaces(textScale, sizes);
+  } else {
+    group('at ${(textScale * 100).round()}% text',
+        () => _sweepRealSurfaces(textScale, sizes));
+  }
+}
+
+void _sweepRealSurfaces(double textScale, List<Size> sizes) {
   /// Pumps [build] at [size] under [material] and fails on any overflow.
   ///
   /// Not shared with `overflow_sweep_test.expectNoOverflow`: this one has to
@@ -76,6 +140,10 @@ void main() {
 
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
+    if (textScale != 1.0) {
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    }
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(() => NeuTheme.activeMaterial = previousMaterial);
@@ -400,7 +468,7 @@ void main() {
   group('real surfaces survive every size, on every material', () {
     for (final spec in MaterialSpec.available) {
       final m = spec.id;
-      for (final size in sweepSizes) {
+      for (final size in sizes) {
         final label = '${m.key} ${size.width.toInt()}x${size.height.toInt()}';
 
         testWidgets('the sidebar — $label', (tester) async {
@@ -482,47 +550,5 @@ void main() {
         });
       }
     }
-  });
-
-  group('the brightness axis is collapsed on purpose', () {
-    test('light and dark palettes declare identical geometry', () {
-      // The justification for sweeping dark only. A material's two palettes
-      // may differ in every colour and in nothing that occupies space — if one
-      // ever grew a wider bevel than the other, the sweep above would be
-      // covering half the app and saying so in neither direction.
-      for (final spec in MaterialSpec.available) {
-        final light = spec.palette(false);
-        final dark = spec.palette(true);
-        final where = spec.id.key;
-
-        expect(light.bevelWidth, dark.bevelWidth, reason: '$where bevelWidth');
-        expect(light.fill.length, dark.fill.length,
-            reason: '$where fill stop count');
-        for (var i = 0; i < light.fill.length; i++) {
-          expect(light.fill[i].at, dark.fill[i].at,
-              reason: '$where fill stop $i position');
-        }
-        expect(light.contact.length, dark.contact.length,
-            reason: '$where contact layer count');
-        expect(light.inset.length, dark.inset.length,
-            reason: '$where inset layer count');
-        expect(light.recessStyle, dark.recessStyle,
-            reason: '$where recessStyle — a true inset and an outer fake do '
-                'not occupy the same box');
-        expect(light.lightAzimuthDeg, dark.lightAzimuthDeg,
-            reason: '$where light direction');
-
-        // Shadow extents, which is where a difference would actually move a
-        // pixel: a cast layer's reach is offset plus blur plus spread.
-        double reach(List<ShadowLayer> layers) => layers.fold(0.0, (max, l) {
-              final r = Offset(l.dx, l.dy).distance + l.blur + l.spread;
-              return r > max ? r : max;
-            });
-        expect(reach(light.contact), closeTo(reach(dark.contact), 1e-9),
-            reason: '$where contact reach');
-        expect(reach(light.inset), closeTo(reach(dark.inset), 1e-9),
-            reason: '$where inset reach');
-      }
-    });
   });
 }

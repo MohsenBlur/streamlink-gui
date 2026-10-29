@@ -94,7 +94,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
       // screen readers as "Refreshing", which it never was.
       content = [
         Icon(Icons.ondemand_video, size: compact ? 12 : 14, color: subtext),
-        SizedBox(width: compact ? 4 : 6),
+        SizedBox(width: compact ? NeuSpace.s4 : NeuSpace.s6),
         label(Text('OPEN', style: NeuType.plate(isDark, color: subtext))),
       ];
     } else if (!live) {
@@ -107,7 +107,7 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     } else {
       content = [
         Icon(Icons.play_arrow, size: compact ? 14 : 16),
-        SizedBox(width: compact ? 2 : 4),
+        SizedBox(width: compact ? NeuSpace.s2 : NeuSpace.s4),
         label(const Text(
           'PLAY',
           // No ink: ElevatedButton supplies the foreground, including its
@@ -305,14 +305,21 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         // fixed-width, so the Expanded beside it was handed less space than
         // the status pill inside it needs.
         //
-        // Below 440 the Stats control drops its label and the gaps between the
-        // mini actions halve. Nothing is removed: the popover still opens from
-        // the icon, and the word it loses is repeated inside the popover it
-        // opens. 440 is the measured point where the untightened row stops
-        // fitting.
+        // Below that point the Stats control drops its label and the gaps
+        // between the mini actions halve. Nothing is removed: the popover
+        // still opens from the icon, and the word it loses is repeated inside
+        // the popover it opens. The point is where the untightened row stops
+        // fitting, measured at 100% text on the widest label face and held a
+        // few px over: 490 live or open, 557 offline, whose pill and launch
+        // label are both the long OFFLINE. It was one 440 for every state,
+        // and the pill overran the name's room in windows 498 to 614 wide
+        // (header_width_sweep_test). It grows with Windows' Text size
+        // (textGrowthOf), or at 150% the untightened row overflowed a
+        // 700-wide window.
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final tight = constraints.maxWidth < 440;
+            final fits = widget.channel.isLive ? 492 : 560;
+            final tight = constraints.maxWidth < fits * textGrowthOf(context);
             final miniGap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s6);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,

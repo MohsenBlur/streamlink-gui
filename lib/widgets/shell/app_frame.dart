@@ -78,9 +78,9 @@ class AppFrame extends StatelessWidget {
       body: AppChassis(
       child: CallbackShortcuts(
         bindings: {
-          // Esc leaves the Library. Dialogs sit on their own Navigator route
-          // and consume Esc before it reaches here, so this cannot steal a
-          // dialog's dismiss.
+          // Esc leaves the Library, or else selection mode. Dialogs sit on
+          // their own Navigator route and consume Esc before it reaches
+          // here, so this cannot steal a dialog's dismiss.
           const SingleActivator(LogicalKeyboardKey.escape): onEscape,
           // Focus the sidebar search from anywhere. In layouts without the
           // inline field the search popover is the affordance instead.

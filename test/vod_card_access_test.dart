@@ -293,6 +293,40 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('and no unnamed node that does nothing comes before it',
+      (tester) async {
+    // The right-click menu's tap recognizer (secondary button only) gave
+    // every card an extra node around its button: no label, and a tap
+    // action that ran nothing. Narrator stopped on it before each card.
+    final semantics = tester.ensureSemantics();
+    await pumpGrid(tester);
+
+    final unnamedTaps = <String>[];
+    void visit(SemanticsNode node) {
+      final data = node.getSemanticsData();
+      if (data.hasAction(SemanticsAction.tap) && data.label.isEmpty) {
+        final inside = <String>[];
+        node.visitChildren((child) {
+          inside.add(child.getSemanticsData().label.split('\n').first);
+          return true;
+        });
+        unnamedTaps.add('#${node.id} around $inside');
+      }
+      node.visitChildren((child) {
+        visit(child);
+        return true;
+      });
+    }
+
+    visit(tester.getSemantics(find.byType(CustomScrollView)));
+    expect(unnamedTaps, isEmpty);
+    expect(
+        tester.getSemantics(find.bySemanticsLabel(RegExp('^VOD 1, downloaded'))),
+        isSemantics(hasTapAction: true, hasLongPressAction: false),
+        reason: 'one node per card, its own');
+    semantics.dispose();
+  });
+
   testWidgets('a card is still one widget per VOD', (tester) async {
     // Guard against the wrappers above duplicating the card in the tree.
     await pumpGrid(tester);

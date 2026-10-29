@@ -452,14 +452,20 @@ void main() {
   group('PlayerPathCheck', () {
     // testWidgets for its fake clock, so the debounce is a pump. The probe
     // records what it was asked and answers only when told to.
-    late List<String> probed;
-    late List<Completer<bool>> answers;
-    late int settled;
+    var probed = <String>[];
+    var answers = <Completer<bool>>[];
+    var settled = 0;
 
-    PlayerPathCheck check({String path = '', bool exists = false}) {
+    // Per test, not in check(): a test that builds its PlayerPathCheck by
+    // hand still counts onSettled, and run alone or first (an IDE's single
+    // run, a shuffled order) it read a `late` counter nothing had set.
+    setUp(() {
       probed = <String>[];
       answers = <Completer<bool>>[];
       settled = 0;
+    });
+
+    PlayerPathCheck check({String path = '', bool exists = false}) {
       return PlayerPathCheck(
         path: path,
         exists: exists,
@@ -550,6 +556,7 @@ void main() {
       await tester.pump(debounce);
       await tester.pump();
       expect(c.exists, isFalse);
+      expect(settled, 1, reason: 'a failed stat still settles the field');
     });
 
     testWidgets('an emptied field needs no stat', (tester) async {

@@ -90,7 +90,6 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
   @override
   Widget build(BuildContext context) {
     final isDark = themeNotifier.isDarkTheme;
-    final theme = Theme.of(context);
     final query = widget.controller.text.trim();
     final results = filterChannels(widget.channels, query);
     final hasExactMatch =
@@ -132,7 +131,9 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                     leading: Icon(Icons.add_circle_outline,
                         color: themeNotifier.accentInk, size: 18),
                     title: "Add '$query' to Favorites",
-                    titleColor: theme.primaryColor,
+                    // Ink, as the inline sidebar's same prompt: the raw
+                    // accent is unreadable as text on light grounds.
+                    titleColor: themeNotifier.accentInk,
                     onTap: () {
                       widget.onAdd(query);
                       widget.close();

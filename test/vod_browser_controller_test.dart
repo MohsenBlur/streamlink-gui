@@ -307,6 +307,14 @@ void main() {
             localVodsProgress: progress,
             fetchGames: false,
           );
+      // The service fills games in from its static cache even when told to
+      // skip them, and the open above seeded it - so as it came back, this
+      // list never tested the carry-over. Without games, as the pass's list
+      // is when that cache is cold (a games lookup that failed, say).
+      for (final vod in result.vods) {
+        vod.games = const [];
+      }
+      expect(result.vods.last.games, isEmpty, reason: 'precondition');
       final changed =
           browser.ingest(shroud, result, fetchedAt: fetchedAt, detailed: false);
 

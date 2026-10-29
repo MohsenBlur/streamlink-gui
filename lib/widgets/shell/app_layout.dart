@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import '../../theme/neu_tokens.dart';
 
@@ -117,3 +119,15 @@ class AppLayout extends InheritedWidget {
   @override
   bool updateShouldNotify(AppLayout oldWidget) => oldWidget.data != data;
 }
+
+/// How much larger than at 100% the window's text is drawn: Windows' Text
+/// size (Settings > Accessibility > Text size), which the engine hands to
+/// MediaQuery as the text scale. Never below 1.
+///
+/// For a width budget measured at 100% text. A label grows by exactly this,
+/// its padding, gaps and icons not at all, so a budget multiplied by it can
+/// only overestimate what the same content needs at the larger size. Budgets
+/// that were not multiplied picked full layouts their larger labels then
+/// overflowed.
+double textGrowthOf(BuildContext context) =>
+    math.max(1.0, MediaQuery.textScalerOf(context).scale(12) / 12);

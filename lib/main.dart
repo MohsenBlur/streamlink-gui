@@ -1524,7 +1524,16 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               builder: (context, _) => _buildDashboard(open));
         },
       ),
-      onEscape: _library.close,
+      // The selection bar's exit button says "(Esc)"; Esc reached only
+      // the Library's close, which does nothing while the Library is shut -
+      // and the selection bar only shows then.
+      onEscape: () {
+        if (_library.isOpen) {
+          _library.close();
+        } else if (_selection.isSelecting) {
+          _selection.end();
+        }
+      },
       // Focus the sidebar search from anywhere. In layouts without the
       // inline field the search popover is the affordance instead.
       onFind: () {
@@ -1675,8 +1684,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       onClearGameFilter: _selection.clearGames,
       onPlayVod: (vod) => _vods.play(vod, channelName),
       onDownloadVod: (vod) => _vods.download(vod, channelName),
-      onDeleteDownload: (id) => _vods.deleteDownload(id, channelName),
-      onCancelDownload: (id) => _vods.cancelDownload(id, channelName),
+      // A card's Delete and Cancel ask first, as the Library's do.
+      onDeleteDownload: (id) => _vods.deleteDownloadAsking(id, channelName,
+          title: [for (final v in _channelVods) if (v.id == id) v.title]
+                  .firstOrNull ??
+              'VOD $id'),
+      onCancelDownload: (id) => _vods.cancelDownloadAsking(id, channelName),
       onVodSelectedChange: _selection.pick,
       onOpenFolder: (vod) {
         final path = _downloadedVodsRegistry[vod.id];

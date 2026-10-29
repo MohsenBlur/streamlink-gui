@@ -457,6 +457,53 @@ void main() {
     await h.close(tester);
   });
 
+  testWidgets("a double-click on Home's live card plays it, though its "
+      'first click has already opened the channel', (tester) async {
+    // The click opens the channel at once, so Home - and the card - are
+    // gone before the second click: it landed on the channel page, and the
+    // double-click that watches the channel did nothing.
+    final h = ScreenHarness();
+    h.helix.user('alpha');
+    h.helix.addVideo('alpha', title: 'Old broadcast');
+    h.helix.goLive('alpha', title: 'Speedrun night');
+    await h.launch(tester, favorites: ['alpha']);
+    await h.advance(tester, const Duration(seconds: 2));
+    final at = tester.getCenter(find.text('Speedrun night').first);
+
+    await tester.tapAt(at, kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(find.byType(ChannelDashboard), findsOneWidget,
+        reason: 'the first click opened it, without waiting');
+    await tester.tapAt(at, kind: PointerDeviceKind.mouse);
+    await h.settle(tester);
+
+    expect(h.player.runningChannels, {'alpha'});
+    expect(find.byType(ChannelDashboard), findsOneWidget);
+
+    await h.close(tester);
+  });
+
+  testWidgets("but a click there once a double-click's time is up is the "
+      "channel page's", (tester) async {
+    final h = ScreenHarness();
+    h.helix.user('alpha');
+    h.helix.addVideo('alpha', title: 'Old broadcast');
+    h.helix.goLive('alpha', title: 'Speedrun night');
+    await h.launch(tester, favorites: ['alpha']);
+    await h.advance(tester, const Duration(seconds: 2));
+    final at = tester.getCenter(find.text('Speedrun night').first);
+
+    await tester.tapAt(at, kind: PointerDeviceKind.mouse);
+    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
+    await tester.tapAt(at, kind: PointerDeviceKind.mouse);
+    await h.settle(tester);
+    expect(h.player.runningChannels, isEmpty,
+        reason: 'nothing is held over the page past the double-click time');
+    expect(find.byType(ChannelDashboard), findsOneWidget);
+
+    await h.close(tester);
+  });
+
   group('the update guard', () {
     testWidgets('an Exit or a close while an update installs is refused, '
         'with the reason, until the update fails', (tester) async {
@@ -497,6 +544,36 @@ void main() {
       await h.settle(tester);
       expect(h.window.destroyed, isTrue,
           reason: 'a failed update gives the way out back');
+
+      await h.close(tester);
+    });
+
+    testWidgets('an update that fails before its dialog has built still '
+        'takes the dialog away', (tester) async {
+      final h = ScreenHarness();
+      h.updates.available = UpdateInfo(
+        version: '99.0.0',
+        releaseNotes: 'Faster.',
+        zipDownloadUrl: 'https://example.invalid/app.zip',
+        isUpdateAvailable: true,
+      );
+      // Offline with no adapter: the download fails before the next frame,
+      // so the failure reaches the dialog's handle ahead of its first build.
+      h.updates.download.future.ignore();
+      h.updates.download.completeError(Exception('offline'));
+      await h.launch(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Update available'), findsOneWidget);
+
+      await tester.tap(find.text('Update and restart'));
+      await h.settle(tester);
+      await tester.pump(const Duration(milliseconds: 600));
+      await h.settle(tester);
+
+      expect(find.textContaining('Update failed: offline'),
+          findsOneWidget);
+      expect(find.text('Updating'), findsNothing,
+          reason: 'it has no buttons and cannot be dismissed');
 
       await h.close(tester);
     });
@@ -1236,6 +1313,9 @@ void main() {
 
       await openChannel(tester, h, 'alpha');
       await fromMenu(tester, h, 'Not this one', 'Cancel download');
+      // It is running, so the card asks first.
+      await tester.tap(find.text('Cancel download').last);
+      await h.settleRoute(tester);
       // taskkill's yt-dlp ends on a zero-length timer.
       await h.advance(tester, const Duration(milliseconds: 50),
           step: const Duration(milliseconds: 10));

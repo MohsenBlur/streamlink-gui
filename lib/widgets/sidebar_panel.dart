@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
@@ -15,12 +15,12 @@ import 'sidebar_search_popover.dart';
 import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
 import 'neumorphic/neu_segmented_control.dart';
-import 'package:flutter/gestures.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_avatar.dart';
 import 'neumorphic/neu_icon_action.dart';
 import 'shell/nav_scope.dart';
 import 'shell/context_menu.dart';
+import 'shell/double_click_listener.dart';
 import 'shell/engraved_rule.dart';
 import 'neumorphic/neu_badge.dart';
 import 'neumorphic/neu_led_indicator.dart';
@@ -348,7 +348,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 // Global Actions Toolbar
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
-                  child: Row(
+                  child: LayoutBuilder(builder: (context, toolbar) => Row(
                     children: [
                       Expanded(
                         child: NeuButton(
@@ -382,13 +382,21 @@ class SidebarPanelState extends State<SidebarPanel> {
                         ),
                       ),
                       const SizedBox(width: NeuSpace.s8),
-                      _PinnedFavoritesAutomationButton(
-                        onPressed: _openFavoritesAutomationDialog,
-                        enabled: widget.sidebarTab == 0,
-                        expanded: true,
+                      // Never so wide that Refresh loses its icon: at 175%
+                      // Windows Text size the label pushed this row past the
+                      // sidebar. Held to what is left, the word ellipsizes.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth: math.max(
+                                0, toolbar.maxWidth - NeuSpace.s8 - 48)),
+                        child: _PinnedFavoritesAutomationButton(
+                          onPressed: _openFavoritesAutomationDialog,
+                          enabled: widget.sidebarTab == 0,
+                          expanded: true,
+                        ),
                       ),
                     ],
-                  ),
+                  )),
                 ),
                 const SizedBox(height: NeuSpace.s8),
 
@@ -668,7 +676,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                   padding: const EdgeInsets.symmetric(vertical: NeuSpace.s8),
                   child: Tooltip(
                     message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
-                    child: _DoubleClickListener(
+                    child: DoubleClickListener(
                     onTap: () => widget.onChannelSelected(ch),
                     onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch) : null,
                     builder: (onTap) => GestureDetector(
@@ -905,8 +913,10 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
           if (!tight) ...[
             const SizedBox(width: NeuSpace.s8),
-            const SizedBox(
-                height: 24, child: EngravedRule(vertical: true)),
+            // Not const: the rule reads the theme in build, and under a
+            // const parent it kept the old palette after a toggle
+            // (const_theme_reader_test).
+            SizedBox(height: NeuSpace.s24, child: EngravedRule(vertical: true)),
           ],
           gap,
           // Flexible with a floor, not Expanded.
@@ -947,7 +957,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                       margin: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s8),
                       child: Tooltip(
                         message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
-                        child: _DoubleClickListener(
+                        child: DoubleClickListener(
                           onTap: () => widget.onChannelSelected(ch),
                           onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch) : null,
                           builder: (onTap) => GestureDetector(
@@ -1007,8 +1017,8 @@ class SidebarPanelState extends State<SidebarPanel> {
           ],
           if (!tight) ...[
             const SizedBox(width: NeuSpace.s8),
-            const SizedBox(
-                height: 24, child: EngravedRule(vertical: true)),
+            // Not const, as the rule above.
+            SizedBox(height: NeuSpace.s24, child: EngravedRule(vertical: true)),
           ],
           gap,
           NeuIconAction(
@@ -1087,11 +1097,16 @@ class _PinnedFavoritesAutomationButton extends StatelessWidget {
                   ? NeuTheme.text(isDark)
                   : NeuTheme.disabledText(isDark)),
           const SizedBox(width: NeuSpace.s6),
-          Text('Automation',
-              style: NeuType.bodySm(isDark).copyWith(
-                  color: enabled
-                      ? NeuTheme.text(isDark)
-                      : NeuTheme.disabledText(isDark))),
+          // Gives way where the toolbar holds it back (see its row).
+          Flexible(
+            child: Text('Automation',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: NeuType.bodySm(isDark).copyWith(
+                    color: enabled
+                        ? NeuTheme.text(isDark)
+                        : NeuTheme.disabledText(isDark))),
+          ),
         ],
       ),
     );
@@ -1219,7 +1234,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               isDestructive: widget.isFavorite,
             ),
           ],
-          child: _DoubleClickListener(
+          child: DoubleClickListener(
           onTap: () => widget.onSelected(channel),
           onDoubleTap:
               channel.isLive ? () => widget.onDoubleTapped(channel) : null,
@@ -1248,7 +1263,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                 ),
               ],
             ),
-            title: Row(
+            title: LayoutBuilder(builder: (context, title) => Row(
               children: [
                 Expanded(
                   child: Text(
@@ -1268,12 +1283,22 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                   // end (its stale comment even claimed 'the expanded
                   // sidebar uses the real badge': it did not, this IS the
                   // expanded sidebar). One window, one way of saying LIVE.
-                  LiveBadge(pulse: widget.pulseController),
+                  //
+                  // Never wider than the title: at 175% Windows Text size
+                  // the badge alone overran it. It scales down only then.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: title.maxWidth),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: LiveBadge(pulse: widget.pulseController),
+                    ),
+                  ),
               ],
-            ),
+            )),
             subtitle: channel.isLoading
-                ? const Padding(
-                    padding: EdgeInsets.only(top: NeuSpace.s4),
+                // Not const: NeuProgressBar reads the theme global too.
+                ? Padding(
+                    padding: const EdgeInsets.only(top: NeuSpace.s4),
                     child: NeuProgressBar(size: NeuProgressSize.xs, semanticLabel: 'Loading'),
                   )
                 : Text(
@@ -1291,126 +1316,6 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
         ),
         ),
       ),
-    );
-  }
-}
-
-/// A click that selects at once, and a double-click that also plays.
-///
-/// Live rows used to put a `GestureDetector(onDoubleTap:)` around the row's
-/// own tap handler, and that held every single click for the full double-tap
-/// timeout (about 300ms): the double-tap recognizer keeps the gesture arena
-/// open after the first pointer-up to see whether a second press follows, and
-/// the row's tap cannot win until it gives up. So the rows users click most -
-/// live channels - selected a third of a second late, while offline rows (no
-/// double-tap handler) were instant.
-///
-/// This reads raw pointer events instead, and a Listener never joins the
-/// arena, so the row's own tap fires on pointer-up exactly as an offline row's
-/// does. [builder] receives the tap handler to install on that recognizer:
-/// it is [onTap], except that it ignores the second click of a double - that
-/// click already played the channel, and re-selecting a channel selected a
-/// moment ago would only clear and refetch its VOD list.
-class _DoubleClickListener extends StatefulWidget {
-  const _DoubleClickListener({
-    required this.onTap,
-    required this.onDoubleTap,
-    required this.builder,
-  });
-
-  final VoidCallback onTap;
-
-  /// Null for offline channels: every click is then a plain click.
-  final VoidCallback? onDoubleTap;
-
-  final Widget Function(VoidCallback onTap) builder;
-
-  @override
-  State<_DoubleClickListener> createState() => _DoubleClickListenerState();
-}
-
-class _DoubleClickListenerState extends State<_DoubleClickListener> {
-  /// Open from a click's pointer-up for [kDoubleTapTimeout]; a press that
-  /// lands inside it is the second half of a double. The framework's own
-  /// recognizer measures the same interval, first up to second down.
-  Timer? _secondClickWindow;
-  Offset? _firstClickAt;
-
-  int? _pressPointer;
-  Offset? _pressAt;
-  bool _pressIsSecondClick = false;
-
-  /// Set by the pointer-up that completes a double, so the row's tap - which
-  /// fires on that same event, after this Listener - is skipped. Cleared in a
-  /// microtask, so a stray flag can never eat a later keyboard activation.
-  bool _ignoreTap = false;
-
-  @override
-  void dispose() {
-    _secondClickWindow?.cancel();
-    super.dispose();
-  }
-
-  void _onPointerDown(PointerDownEvent event) {
-    if (event.buttons != kPrimaryButton) {
-      _pressPointer = null;
-      return;
-    }
-    final first = _firstClickAt;
-    _pressIsSecondClick = _secondClickWindow != null &&
-        first != null &&
-        (event.position - first).distance <= kDoubleTapSlop;
-    _secondClickWindow?.cancel();
-    _secondClickWindow = null;
-    _pressPointer = event.pointer;
-    _pressAt = event.position;
-  }
-
-  void _onPointerUp(PointerUpEvent event) {
-    final at = _pressAt;
-    if (event.pointer != _pressPointer || at == null) return;
-    _pressPointer = null;
-    // A drag that ends on the row is not a click.
-    if ((event.position - at).distance > kTouchSlop) {
-      _firstClickAt = null;
-      return;
-    }
-    if (_pressIsSecondClick) {
-      _firstClickAt = null;
-      final onDoubleTap = widget.onDoubleTap;
-      if (onDoubleTap != null) {
-        _ignoreTap = true;
-        scheduleMicrotask(() => _ignoreTap = false);
-        onDoubleTap();
-      }
-      return;
-    }
-    _firstClickAt = event.position;
-    _secondClickWindow = Timer(kDoubleTapTimeout, () {
-      _secondClickWindow = null;
-      _firstClickAt = null;
-    });
-  }
-
-  void _onPointerCancel(PointerCancelEvent event) {
-    if (event.pointer == _pressPointer) _pressPointer = null;
-  }
-
-  void _handleTap() {
-    if (_ignoreTap) {
-      _ignoreTap = false;
-      return;
-    }
-    widget.onTap();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: _onPointerDown,
-      onPointerUp: _onPointerUp,
-      onPointerCancel: _onPointerCancel,
-      child: widget.builder(_handleTap),
     );
   }
 }

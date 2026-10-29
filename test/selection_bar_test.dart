@@ -31,6 +31,20 @@ void main() {
       expect(split.start, closeTo(200, 1e-9));
       expect(split.end, closeTo(100, 1e-9));
     });
+
+    test('but never less than what an end cannot give up, while the other '
+        'still can', () {
+      // The count's All and None need 220 here; two thirds of 300 is 200.
+      // The Actions menu can lose its word down to 50.
+      expect(splitTwoEnds(300, 280, 130, startMin: 220, endMin: 50),
+          (start: 220.0, end: 80.0));
+      // Past the other's own floor, only as far as that floor.
+      expect(splitTwoEnds(300, 280, 130, startMin: 260, endMin: 60),
+          (start: 240.0, end: 60.0));
+      // And the same for the end.
+      expect(splitTwoEnds(300, 100, 400, startMin: 40, endMin: 250),
+          (start: 50.0, end: 250.0));
+    });
   });
 
   group('the bar', () {
@@ -71,7 +85,7 @@ void main() {
 
     testWidgets('cuts neither end while the row holds both', (tester) async {
       // Measured where both have room to spare, with the Actions menu in
-      // place of the actions (the bar shows them all from 820px).
+      // place of the actions (the bar shows them all from 860px).
       await pumpAt(tester, 800);
       final want = tester.getSize(countSide()).width + tester.getSize(menu()).width;
       final around = 800 - tester.getSize(find.byType(Expanded)).width;
@@ -97,6 +111,18 @@ void main() {
       }
     });
 
+    testWidgets('shows the actions themselves only where they fit',
+        (tester) async {
+      // From 820, where an estimate of 130 per action picked the labelled
+      // actions, to 840 they did not fit: the count's All and None
+      // overflowed into them, in windows 1150 to 1165 wide.
+      for (var width = 800.0; width <= 1000; width += 2) {
+        await pumpAt(tester, width);
+        expect(tester.takeException(), isNull, reason: 'at $width');
+      }
+      expect(menu(), findsNothing, reason: 'all four, labelled, at 1000');
+    });
+
     testWidgets('keeps its ends at the edges, and gives way without '
         'overflowing when the row is too narrow', (tester) async {
       await pumpAt(tester, 330);
@@ -105,6 +131,36 @@ void main() {
       final row = tester.getRect(find.byType(Expanded));
       expect(tester.getRect(countSide()).left, row.left);
       expect(tester.getRect(menu()).right, row.right);
+    });
+
+    group('with Windows Text size turned up', () {
+      setUp(() {
+        addTearDown(TestWidgetsFlutterBinding.instance.platformDispatcher
+            .clearTextScaleFactorTestValue);
+      });
+
+      testWidgets('at 125% the actions go to the menu where their labels '
+          'no longer fit', (tester) async {
+        // 900 is past the 820 measured at 100%, so the full layout was
+        // picked - and its labels, a quarter wider, overflowed the count.
+        await pumpAt(tester, 900);
+        expect(menu(), findsNothing, reason: 'all four fit at 100%');
+
+        tester.platformDispatcher.textScaleFactorTestValue = 1.25;
+        await pumpAt(tester, 900);
+        expect(tester.takeException(), isNull);
+        expect(menu(), findsOneWidget);
+      });
+
+      testWidgets("at 150% in a narrow bar, All and None keep their room and "
+          "the menu's word gives way", (tester) async {
+        tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+        // From the bar a 380px window leaves it, up.
+        for (var width = 340.0; width <= 480; width += 10) {
+          await pumpAt(tester, width);
+          expect(tester.takeException(), isNull, reason: 'at $width');
+        }
+      });
     });
   });
 }

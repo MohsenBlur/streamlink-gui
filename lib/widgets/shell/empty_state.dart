@@ -77,7 +77,7 @@ class EmptyState extends StatelessWidget {
               // an error.
               color: NeuTheme.disabledText(isDark),
             ),
-            SizedBox(height: compact ? 10 : 16),
+            SizedBox(height: compact ? NeuSpace.s8 : NeuSpace.s16),
             Text(
               title,
               textAlign: TextAlign.center,
@@ -99,7 +99,7 @@ class EmptyState extends StatelessWidget {
               ),
             ],
             if (action != null) ...[
-              SizedBox(height: compact ? 12 : 18),
+              SizedBox(height: compact ? NeuSpace.s12 : NeuSpace.s16),
               action!,
             ],
           ],

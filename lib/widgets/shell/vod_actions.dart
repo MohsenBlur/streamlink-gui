@@ -237,11 +237,34 @@ class VodActions {
   /// Cancels [vodId]'s download, queued or running. A VOD the registry
   /// already holds keeps its file: cancelling an extra download of it used
   /// to delete the copy the user had, with a plain "Download cancelled."
+  ///
+  /// Nothing once it is neither: a running download's Cancel is asked
+  /// first, and the download can finish while the question is up. The
+  /// cancel deletes every file of the VOD, the finished one with the
+  /// partial ones, so a yes given to "the partial file is deleted" removed
+  /// the download it had just completed. A run waiting for its ffmpeg retry
+  /// is still queued, so it is still cancelled.
   Future<void> cancelDownload(String vodId, String channelName) async {
+    if (!_player.queuedDownloadTasks.containsKey(vodId) &&
+        !_player.activeDownloadProcesses.containsKey(vodId)) {
+      return;
+    }
     await _player.cancelVodDownload(
         vodId, channelName, _settings().vodDownloadFolder,
         keepFinished: _registry().containsKey(vodId));
     if (_mounted()) _changed();
+  }
+
+  /// A card's Cancel: asks first when the download is running, as the
+  /// Library row's and the activity popover's Cancel do - its partial file
+  /// goes. One still queued has nothing to lose, so it is cancelled at once.
+  Future<void> cancelDownloadAsking(String vodId, String channelName) async {
+    if (_player.activeDownloadProcesses.containsKey(vodId)) {
+      final confirmed =
+          await confirmStopActivity(_context(), isDownload: true);
+      if (confirmed != true || !_mounted()) return;
+    }
+    await cancelDownload(vodId, channelName);
   }
 
   /// Deletes the files for [vodId], preferring the path recorded in the
@@ -272,7 +295,21 @@ class VodActions {
     return deleted;
   }
 
-  /// Deletes [vodId]'s download and forgets it.
+  /// A card's Delete download (its hover button, menu item or key): asks
+  /// first, as the Library's Delete download and a selection's Delete files
+  /// do. The file is deleted for good, not to the Recycle Bin, and once
+  /// Twitch has expired the VOD it is the only copy there is; the card's
+  /// menu and keyboard paths made it one slip away.
+  Future<void> deleteDownloadAsking(String vodId, String channelName,
+      {required String title}) async {
+    final confirmed = await confirmDeleteDownload(_context(), title);
+    if (confirmed != true || !_mounted()) return;
+    await deleteDownload(vodId, channelName);
+  }
+
+  /// Deletes [vodId]'s download and forgets it, without asking: the
+  /// callers that reach it have asked already (LibraryController.delete,
+  /// [deleteDownloadAsking]).
   Future<void> deleteDownload(String vodId, String channelName) async {
     final deleted = _deleteFilesFor(vodId, channelName);
 

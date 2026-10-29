@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../models/twitch_channel.dart';
@@ -10,7 +12,9 @@ import '../hover_overlay_menu.dart';
 import '../live_preview_popup.dart';
 import '../neumorphic/neu_avatar.dart';
 import '../neumorphic/neu_button.dart';
+import '../neumorphic/neu_focusable.dart';
 import '../neumorphic/neu_progress.dart';
+import 'double_click_listener.dart';
 import 'edge_fade.dart';
 import 'empty_state.dart';
 import 'section_header.dart';
@@ -160,9 +164,24 @@ class HomeView extends StatelessWidget {
               itemCount: liveFavorites.length,
               itemBuilder: (context, index) {
                 final channel = liveFavorites[index];
-                final itemCard = GestureDetector(
+                // A Tab stop that Enter opens, as a VOD card and a sidebar
+                // row are: Home's two strips were mouse-only.
+                final itemCard = NeuFocusable(
+                  onActivate: () => onSelectChannel(channel),
+                  semanticLabel: '${channel.username}, live: '
+                      '${channel.streamTitle ?? 'No Stream Title'}',
+                  focusRadius: NeuRadius.r12,
+                  // A click opens the channel at once, a double-click also
+                  // plays it. GestureDetector(onDoubleTap:) held every single
+                  // click for the double-tap timeout, as it did the
+                  // sidebar's live rows (see DoubleClickListener). The click
+                  // takes Home away, so its second click is held for it.
+                  child: DoubleClickListener(
+                  tapLeaves: true,
                   onTap: () => onSelectChannel(channel),
                   onDoubleTap: () => onLaunchLive(channel),
+                  builder: (onTap) => GestureDetector(
+                  onTap: onTap,
                   child: Container(
                     padding: const EdgeInsets.all(NeuSpace.s12),
                     decoration: NeuTheme.raisedDecoration(
@@ -241,6 +260,8 @@ class HomeView extends StatelessWidget {
                       ],
                     ),
                   ),
+                  ),
+                  ),
                 );
 
                 return HoverOverlayMenu(
@@ -285,20 +306,30 @@ class HomeView extends StatelessWidget {
 
                     return StatefulBuilder(
                       builder: (context, setHoverState) {
-                        return MouseRegion(
+                        // The gap to the next card sits outside it, so the
+                        // focus ring below is drawn round the card alone.
+                        return Padding(
+                          padding: const EdgeInsets.only(right: NeuSpace.s12),
+                          child: MouseRegion(
                           onEnter: (_) => setHoverState(() => isHovered = true),
                           onExit: (_) => setHoverState(() => isHovered = false),
                           cursor: SystemMouseCursors.click,
                           child: Tooltip(
                             message: '${video.title}\nResume at $progressPct% (${video.duration})',
-                            child: GestureDetector(
+                            // Tab and Enter resume it too, as they play a
+                            // VOD card in the grid.
+                            child: NeuFocusable(
+                              onActivate: () => onPlayRecent(video),
+                              semanticLabel:
+                                  '${video.title}, resume at $progressPct%',
+                              focusRadius: NeuRadius.r12,
+                              child: GestureDetector(
                               onTap: () => onPlayRecent(video),
                               child: AnimatedContainer(
                                 duration: const Duration(milliseconds: 180),
                                 child: Container(
                                   width: w.toDouble(),
                                   height: h.toDouble(),
-                                  margin: const EdgeInsets.only(right: NeuSpace.s12),
                                   // A caller border REPLACES the material's
                                   // edge, so a transparent width-0 border at
                                   // rest deleted the bevel and zeroed the
@@ -451,6 +482,8 @@ class HomeView extends StatelessWidget {
                                 ),
                               ),
                             ),
+                            ),
+                          ),
                           ),
                         );
                       },
@@ -488,7 +521,7 @@ class HomeView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  LayoutBuilder(builder: (context, header) => Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // The title gives way to the button: at the 380px
@@ -509,13 +542,23 @@ class HomeView extends StatelessWidget {
                           ],
                         ),
                       ),
-                      TextButton.icon(
-                        onPressed: onOpenLibrary,
-                        icon: const Icon(Icons.open_in_new, size: 14),
-                        label: const Text('Open Library', style: NeuType.labelMetrics),
+                      // ...but never past the title's icon: at 150% text in
+                      // that window the button's label alone left the icon
+                      // no room. Held to what is left, the label ellipsizes.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth: math.max(0, header.maxWidth - 28)),
+                        child: TextButton.icon(
+                          onPressed: onOpenLibrary,
+                          icon: const Icon(Icons.open_in_new, size: 14),
+                          label: const Text('Open Library',
+                              style: NeuType.labelMetrics,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
                       ),
                     ],
-                  ),
+                  )),
                   const SizedBox(height: NeuSpace.s12),
                   ...runningDownloads.take(2).map((item) {
                     final progress = item.progress ?? 0.0;

@@ -105,27 +105,37 @@ void main() {
       expect(writes, ['config']);
     });
 
-    test('progress ticks are written once per delay, not once per tick',
-        () async {
+    // These two run on testWidgets' fake clock (timers made in the body are
+    // fake), so what they see is the delay rule and nothing else. On real
+    // time, an isolate stalled past the delay mid-loop - a loaded CI runner -
+    // let the first timer fire there and the next tick arm a second, and the
+    // first test saw two rounds of writes.
+    testWidgets('progress ticks are written once per delay, not once per tick',
+        (tester) async {
       // Thirty ticks inside one delay - a tracker polling every two seconds
       // does about ten in the twenty seconds the app uses.
       for (var i = 0; i < 30; i++) {
         repo.noteProgress(recents: true);
-        await pumpEventQueue(times: 2);
+        await tester.pump(const Duration(milliseconds: 1));
       }
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await tester.pump(const Duration(milliseconds: 150));
 
       expect(writes, unorderedEquals(['config', 'progress', 'recents']),
           reason: 'one round for the lot; it used to be three writes per tick');
     });
 
-    test('a stream of ticks cannot put the write off forever', () async {
-      final stopAt = DateTime.now().add(const Duration(milliseconds: 200));
-      while (DateTime.now().isBefore(stopAt)) {
+    testWidgets('a stream of ticks cannot put the write off forever',
+        (tester) async {
+      // A tick every 5ms for 200ms: a timer restarted by each tick would
+      // never fire. Held to its first tick, it fires every delay.
+      for (var i = 0; i < 40; i++) {
         repo.noteProgress();
-        await Future<void>.delayed(const Duration(milliseconds: 5));
+        await tester.pump(const Duration(milliseconds: 5));
       }
-      expect(writes.where((w) => w == 'progress').length, greaterThanOrEqualTo(2));
+      expect(writes.where((w) => w == 'progress'), hasLength(3),
+          reason: 'at 60, 120 and 180ms');
+      // The fourth, armed at 180ms, is written out rather than left pending.
+      repo.dispose();
     });
 
     test('flushProgress writes a held position at once', () async {

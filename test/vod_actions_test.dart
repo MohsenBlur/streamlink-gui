@@ -71,11 +71,26 @@ void main() {
         changed: changed,
       );
 
+  /// [id] as the queue holds it, without starting the queue's drain.
+  TwitchVideo queued(PlayerService player, String id) =>
+      player.queuedDownloadTasks[id] = TwitchVideo(
+        id: id,
+        title: 'VOD $id',
+        duration: '1h0m0s',
+        thumbnailUrl: '',
+        viewCount: '1',
+        publishedAt: DateTime(2026, 1, 1),
+      );
+
   test('a cancel repaints the screen itself, and not once it has gone',
       () async {
     var repaints = 0;
     var mounted = true;
-    final vods = actions(mounted: () => mounted, changed: () => repaints++);
+    final player = PlayerService();
+    final vods = actions(
+        mounted: () => mounted, changed: () => repaints++, player: player);
+    queued(player, 'v1');
+    queued(player, 'v2');
 
     await vods.cancelDownload('v1', 'alpha');
     expect(repaints, 1);
@@ -150,5 +165,20 @@ void main() {
           ['https://twitch.tv/videos/6']);
       expect(messages, ['Queued 1 download; 1 already downloaded.']);
     });
+  });
+
+  test('a cancel of a download that is over leaves its file alone',
+      () async {
+    // A running download's Cancel is asked first, and it can finish while
+    // the question is up. The cancel deletes every file of the VOD.
+    var repaints = 0;
+    final vods = actions(mounted: () => true, changed: () => repaints++);
+    final finished = File('${folder.path}/alpha/Done - 9001.mp4')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('video');
+
+    await vods.cancelDownload('9001', 'alpha');
+    expect(finished.existsSync(), isTrue);
+    expect(repaints, 0, reason: 'nothing was cancelled');
   });
 }
