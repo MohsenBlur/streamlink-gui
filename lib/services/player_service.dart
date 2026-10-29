@@ -839,7 +839,8 @@ class PlayerService {
         final downloadedFile = getDownloadedVodFile(vodId, channelName, settings.vodDownloadFolder);
         final filePath = downloadedFile?.path ?? '';
         onDownloadCompleted?.call(vodId, vod.title, filePath);
-        _cleanupOldestDownloads(settings);
+        // The limit in force now, not the one this download started under.
+        _cleanupOldestDownloads(_settingsNow(settings));
       } else {
         if (!isRetryWithFfmpeg && needsFfmpegFallback && !_shuttingDown) {
           log(key, '[System Warning] HLS fragment error detected. Automatically retrying download using ffmpeg downloader...');
@@ -855,7 +856,7 @@ class PlayerService {
           await startVodDownload(
             vod,
             channelName,
-            settings,
+            _settingsNow(settings),
             isRetryWithFfmpeg: true,
             // Carry the fast-download choice into the retry; it used to be
             // dropped, so the retry silently ran the slow post-processing path.
@@ -969,6 +970,7 @@ class PlayerService {
     // subsequent download - manual or automatic - would sit in the queue
     // forever, showing "Queued" and never starting.
     _shuttingDown = false;
+    _latestSettings = settings;
     final vodId = vod.id;
     if (queuedDownloadTasks.containsKey(vodId) || activeDownloadProcesses.containsKey(vodId)) {
       return;
@@ -1006,6 +1008,22 @@ class PlayerService {
   final Map<String, int> _queueTickets = {};
   int _lastQueueTicket = 0;
 
+  /// Where the settings in force are read (the screen's), for a download
+  /// queue that outlives the settings it was started with. Unset, the latest
+  /// settings any queueing handed in stand in.
+  ///
+  /// The drain took the settings of the call that started it and used them
+  /// for every download until the queue was empty - hours, for a bulk queue
+  /// or the resume at launch - while a Settings save adopts a new object. So
+  /// a folder changed meanwhile was ignored, as were Fast VOD downloads and
+  /// the custom yt-dlp arguments, and retention kept deleting finished VODs
+  /// at the old limit after the user had raised it or turned it off.
+  AppSettings Function()? currentSettings;
+  AppSettings? _latestSettings;
+
+  AppSettings _settingsNow(AppSettings fallback) =>
+      currentSettings?.call() ?? _latestSettings ?? fallback;
+
   /// Set by [stopAll] so the queue drain stops instead of starting the next
   /// download. Without this, killing the active yt-dlp let the loop below spawn
   /// a fresh one - after the resume list had already been written to disk, and
@@ -1032,7 +1050,9 @@ class PlayerService {
         bool stillOurs() => _queueTickets[vodId] == ticket;
         try {
           if (vod != null) {
-            await startVodDownload(vod, chName, settings, overrideDisablePostProcessing: overridePostProc);
+            // Read for each download as it starts (see currentSettings).
+            await startVodDownload(vod, chName, _settingsNow(settings),
+                overrideDisablePostProcessing: overridePostProc);
           }
         } catch (e) {
           log(logKeyForDownload(vodId),

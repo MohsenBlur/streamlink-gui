@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/player_service.dart';
@@ -455,6 +456,58 @@ void main() {
     service.queueVodDownload(vod('1'), 'chan', settings);
     await pumpEventQueue();
     expect(queued, ['chan/1', 'other/2']);
+  });
+
+  group('a queue that outlives a Settings save', () {
+    // The drain kept the settings of the call that started it for every
+    // download until the queue was empty: the old folder, and retention at
+    // the old limit, deleting finished VODs the user had chosen to keep.
+    late Directory a;
+    late Directory b;
+    setUp(() {
+      a = Directory(p.join(temp.path, 'A'))..createSync();
+      b = Directory(p.join(temp.path, 'B'))..createSync();
+    });
+
+    String folderOf(FakeProcess run) =>
+        run.arguments[run.arguments.indexOf('-o') + 1];
+
+    test('starts each download, and keeps the downloads, as it says now',
+        () async {
+      final old = File(p.join(a.path, 'chan', 'Old - 1.mp4'))
+        ..createSync(recursive: true)
+        ..setLastModifiedSync(DateTime(2020));
+      final before = AppSettings(vodDownloadFolder: a.path)
+        ..maxDownloadsToKeep = 1;
+      service.queueVodDownload(vod('2', title: 'T2'), 'chan', before);
+      await pumpEventQueue();
+
+      final saved = before.copyWith(vodDownloadFolder: b.path, maxDownloadsToKeep: 0);
+      service.queueVodDownload(vod('3', title: 'T3'), 'chan', saved);
+      File(p.join(a.path, 'chan', 'T2 - 2.mp4')).writeAsStringSync('video');
+      await launcher.launched.single.exit(0);
+      await pumpEventQueue();
+
+      expect(launcher.launched, hasLength(2));
+      expect(folderOf(launcher.launched.last), startsWith(b.path));
+      expect(old.existsSync(), isTrue,
+          reason: 'retention is off now; it deleted at the old limit');
+    });
+
+    test('follows the settings in force, with no new queueing to bring them',
+        () async {
+      var current = AppSettings(vodDownloadFolder: a.path);
+      service.currentSettings = () => current;
+      service.queueVodDownload(vod('2'), 'chan', current);
+      service.queueVodDownload(vod('3'), 'chan', current);
+      await pumpEventQueue();
+
+      current = current.copyWith(vodDownloadFolder: b.path);
+      await launcher.launched.single.exit(0);
+      await pumpEventQueue();
+
+      expect(folderOf(launcher.launched.last), startsWith(b.path));
+    });
   });
 
   test('a cancel that lands after its download finished does nothing',
