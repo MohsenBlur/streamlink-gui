@@ -33,6 +33,7 @@ class AutomationService {
     required this.queueDownload,
     required this.showNotification,
     this.onVodsFetched,
+    this.folderProblem,
     this.allPositionsEvery = const Duration(minutes: 30),
     DateTime Function()? clock,
     void Function(String message)? log,
@@ -93,6 +94,26 @@ class AutomationService {
 
   final Future<void> Function(String title, String body) showNotification;
 
+  /// Why VODs cannot be saved in a folder right now, or null when they can
+  /// (VodActions.folderProblem). Unset, the folder is not checked.
+  final String? Function(String folder)? folderProblem;
+
+  /// How long a VOD whose automatic download failed waits before the pass
+  /// queues it again, by how many times it has been queued; the last applies
+  /// from then on.
+  ///
+  /// A failure is recorded nowhere else (unlike a completion or a cancel, in
+  /// the download history), so the next pass, a minute later, queued it again
+  /// - and with a folder that could not be made, or a download that keeps
+  /// failing, the same VODs failed every minute, two toasts and a snackbar
+  /// each, for as long as it lasted.
+  static const List<Duration> retryAfterFailure = <Duration>[
+    Duration(minutes: 10),
+    Duration(minutes: 30),
+    Duration(hours: 2),
+    Duration(hours: 6),
+  ];
+
   /// HOOK for whoever caches VOD lists: called with every list the
   /// auto-download pass fetched, empty ones included, before anything is
   /// queued from it, and with the moment its request began, so a cache can
@@ -112,6 +133,15 @@ class AutomationService {
   /// Lowercased channel -> when the pass last read every one of its VODs'
   /// positions.
   final Map<String, DateTime> _allPositionsReadAt = {};
+
+  /// The VODs this pass has queued, by id, until they are in the download
+  /// history. One the pass finds neither in flight nor downloaded again
+  /// failed: a cancel and a deletion are in that history.
+  final Map<String, ({int times, DateTime at})> _queuedByPass = {};
+
+  /// The download folder's problem the log last reported, so an unplugged
+  /// drive is said once, not every minute.
+  String? _reportedFolderProblem;
 
   bool _passRunning = false;
 
@@ -231,9 +261,36 @@ class AutomationService {
     // Auto-download writes to disk, so a configured folder is required. This
     // used to be skipped entirely, and startVodDownload then threw on every
     // single queued item.
-    if (settings().vodDownloadFolder.trim().isEmpty) {
+    final folder = settings().vodDownloadFolder.trim();
+    if (folder.isEmpty) {
       _log('[Auto-Download] Skipped: no VOD download folder configured.');
       return;
+    }
+
+    _queuedByPass.removeWhere((id, _) => wasDownloaded(id));
+    final now = _now();
+    bool waitingToRetry(String vodId) {
+      final queued = _queuedByPass[vodId];
+      if (queued == null) return false;
+      final step = (queued.times - 1).clamp(0, retryAfterFailure.length - 1);
+      return now.difference(queued.at) < retryAfterFailure[step];
+    }
+
+    // Looked at once a pass, and only once there is something to queue. A
+    // folder that cannot be made - an unplugged drive, a NAS out of reach -
+    // failed every download the pass queued into it.
+    bool? folderUsable;
+    bool canQueue() {
+      if (folderUsable == null) {
+        final problem = folderProblem?.call(folder);
+        if (problem != _reportedFolderProblem && problem != null) {
+          _log('[Auto-Download] Skipped: the VOD download folder cannot be '
+              'used ($problem).');
+        }
+        _reportedFolderProblem = problem;
+        folderUsable = problem == null;
+      }
+      return folderUsable!;
     }
 
     for (final channel in channels) {
@@ -260,12 +317,17 @@ class AutomationService {
             vods: result.vods,
             localProgress: localProgress(),
             settings: settings(),
-            isAlreadyHandled: (id) => isVodHandled(id) || wasDownloaded(id),
+            isAlreadyHandled: (id) =>
+                isVodHandled(id) || wasDownloaded(id) || waitingToRetry(id),
           ),
         );
 
         for (final vod in selected) {
-          _log('[Auto-Download] Queueing ${vod.id} for @${channel.username}');
+          if (!canQueue()) return;
+          final before = _queuedByPass[vod.id];
+          _queuedByPass[vod.id] = (times: (before?.times ?? 0) + 1, at: now);
+          _log('[Auto-Download] Queueing ${vod.id} for @${channel.username}'
+              '${before == null ? '' : ' again, after a failed download'}');
           queueDownload(
             vod,
             channel,
@@ -277,7 +339,8 @@ class AutomationService {
                 channel.autoDownloadFastDownload ? true : null,
           );
 
-          if (settings().notifyAutoDownloadStart) {
+          // Announced once: a retry after a failure has its failure's toast.
+          if (before == null && settings().notifyAutoDownloadStart) {
             try {
               await showNotification(
                 'Auto-Downloading VOD',

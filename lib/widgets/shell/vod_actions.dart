@@ -187,7 +187,7 @@ class VodActions {
   /// anyway, and failed with exit code -1 - one by one, for a selection.
   Future<void> ensureDownloadFolder(VoidCallback onConfigured) async {
     final folder = _settings().vodDownloadFolder.trim();
-    final problem = folder.isEmpty ? null : _folderProblem(folder);
+    final problem = folder.isEmpty ? null : folderProblem(folder);
     if (folder.isNotEmpty && problem == null) {
       onConfigured();
       return;
@@ -216,7 +216,7 @@ class VodActions {
   /// Why VODs cannot be saved in [folder] right now, or null when they can
   /// be: it is there, or it could be made - as the download makes it, which
   /// is why this makes it too. Synchronous, as the download's own check is.
-  static String? _folderProblem(String folder) {
+  static String? folderProblem(String folder) {
     try {
       Directory(folder).createSync(recursive: true);
       return null;

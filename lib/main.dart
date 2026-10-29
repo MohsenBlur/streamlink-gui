@@ -423,6 +423,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _playerService.activeDownloadProcesses.containsKey(vodId) ||
         _playerService.downloadQueue.contains(vodId),
     wasDownloaded: _downloadHistory.contains,
+    folderProblem: VodActions.folderProblem,
     queueDownload: (vod, channel, {overrideDisablePostProcessing}) =>
         _playerService.queueVodDownload(
       vod,

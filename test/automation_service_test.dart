@@ -76,6 +76,10 @@ class Rig {
   /// When set, every VOD fetch waits on it.
   Completer<void>? fetchGate;
 
+  /// Why the download folder cannot be used; null when it can.
+  String? folderProblem;
+  int folderChecks = 0;
+
   final List<String> played = [];
   final List<String> stopped = [];
   final List<String> fetched = [];
@@ -124,6 +128,10 @@ class Rig {
     showNotification: (title, body) async {
       if (notificationsFail) throw Exception('toast failed');
       notifications.add(title);
+    },
+    folderProblem: (_) {
+      folderChecks++;
+      return folderProblem;
     },
     log: log.add,
   );
@@ -317,6 +325,58 @@ void main() {
         (vod: 'f2', channel: 'fast', fast: true),
         (vod: 's1', channel: 'slow', fast: null),
       ]);
+    });
+
+    test('a folder that cannot be used queues nothing, and is logged once',
+        () async {
+      // An unplugged drive: every VOD the pass queued failed at once, and the
+      // next pass queued them again - two toasts each, every minute.
+      final rig = Rig()..folderProblem = 'The device is not ready.';
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true, keep: 2));
+      rig.vodsByChannel['a'] = [vod('v2', daysAgo: 1), vod('v1', daysAgo: 2)];
+
+      await rig.service.runPass();
+      await rig.service.runPass();
+      expect(rig.queued, isEmpty);
+      expect(rig.notifications, isEmpty);
+      expect(rig.log.where((l) => l.contains('cannot be used')), hasLength(1));
+      expect(rig.folderChecks, 2, reason: 'once a pass, not once a VOD');
+
+      rig.folderProblem = null;
+      await rig.service.runPass();
+      expect(rig.queued.map((q) => q.vod), ['v1', 'v2']);
+    });
+
+    test('nothing to queue, nothing to check', () async {
+      final rig = Rig()..handled.add('v1');
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true));
+      rig.vodsByChannel['a'] = [vod('v1', daysAgo: 1)];
+      await rig.service.runPass();
+      expect(rig.folderChecks, 0);
+    });
+
+    test('a VOD whose download failed is tried again later, not every pass, '
+        'and announced once', () async {
+      // A failure is recorded nowhere: the next pass, a minute later, queued
+      // it again, and a download that kept failing did so every minute.
+      final rig = Rig();
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true));
+      rig.vodsByChannel['a'] = [vod('v1', daysAgo: 1)];
+
+      await rig.service.runPass(); // queued; it fails: in no list afterwards
+      rig.now = rig.now.add(const Duration(minutes: 1));
+      await rig.service.runPass();
+      expect(rig.queued.map((q) => q.vod), ['v1']);
+
+      rig.now = rig.now.add(AutomationService.retryAfterFailure.first);
+      await rig.service.runPass();
+      expect(rig.queued.map((q) => q.vod), ['v1', 'v1']);
+      expect(rig.notifications, ['Auto-Downloading VOD'],
+          reason: 'the retry is not news; its failure had a toast of its own');
+
+      rig.now = rig.now.add(AutomationService.retryAfterFailure.first);
+      await rig.service.runPass();
+      expect(rig.queued, hasLength(2), reason: 'backing off');
     });
 
     test('skips VODs already handled', () async {

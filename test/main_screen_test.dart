@@ -1069,6 +1069,31 @@ void main() {
     });
 
     testWidgets(
+        'with the download folder out of reach, nothing is queued to fail '
+        'every minute', (tester) async {
+      // An unplugged drive: each pass queued the VODs, each failed at once,
+      // and each pass after it did the same - two toasts and a snackbar
+      // per VOD, every minute, for as long as the drive was away.
+      final unplugged = File(p.join(folder.path, 'not a folder'))
+        ..writeAsStringSync('x');
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.addVideo('alpha',
+          publishedAt: h.helix.now.subtract(const Duration(days: 1)));
+      await h.launch(tester,
+          channels: [autoDownloading('alpha', keep: 1)],
+          settings: ScreenHarness.defaultSettings()
+            ..vodDownloadFolder = p.join(unplugged.path, 'VODs'));
+      await h.advance(tester, const Duration(minutes: 3));
+
+      expect(h.notifications.titles, isNot(contains('VOD Download Failed')));
+      expect(h.notifications.titles, isNot(contains('Auto-Downloading VOD')));
+      expect(h.launcher.launched, isEmpty);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
         'a VOD the pass downloads and announces raises no New VOD toast as '
         'well', (tester) async {
       // A broadcast ending off screen leaves a VOD inside the auto-download
