@@ -1227,29 +1227,66 @@ class PlayerService {
     deleteVodFiles(vodId, channelName, downloadFolder);
   }
 
+  /// Whether the app downloaded [vodId] - its registry or its download
+  /// history says so - set by the screen. Retention only deletes the files
+  /// of VODs this says yes to; unset, it deletes nothing.
+  bool Function(String vodId)? isOwnDownload;
+
+  /// The extensions yt-dlp leaves a finished Twitch VOD in.
+  static const Set<String> _videoExtensions = {
+    'mp4', 'mkv', 'webm', 'ts', 'mov', 'flv', 'm4v',
+  };
+
+  /// Deletes the oldest finished downloads beyond the limit, for good.
+  ///
+  /// Only the app's own: files of VODs it downloaded ([isOwnDownload]), with
+  /// a video extension, where it puts them - `<folder>/<channel>/` and no
+  /// deeper, never through a link. It used to walk the whole folder tree,
+  /// links included, and take any file named like ` - 2019.jpg`: with the
+  /// folder set to one that holds the user's own files, the oldest of them
+  /// went first - photos, scans, episodes, a NAS share behind a junction.
   void _cleanupOldestDownloads(AppSettings settings) {
     if (settings.maxDownloadsToKeep <= 0) return;
+    final isOwn = isOwnDownload;
+    if (isOwn == null) return;
     final downloadFolder = settings.vodDownloadFolder.trim();
     if (downloadFolder.isEmpty) return;
 
     final mainDir = Directory(downloadFolder);
     if (!mainDir.existsSync()) return;
 
-    final vodIdInName = RegExp(r' - v?(\d+)\.[A-Za-z0-9]+$', caseSensitive: false);
+    final vodIdInName =
+        RegExp(r' - v?(\d+)\.([A-Za-z0-9]+)$', caseSensitive: false);
 
     try {
       final allFiles = <File>[];
-      final entities = mainDir.listSync(recursive: true);
-      for (final entity in entities) {
-        if (entity is! File) continue;
-        final name = entity.path;
-        // Protect active .part/.ytdl downloads
-        if (!vodIdInName.hasMatch(name) || name.endsWith('.part') || name.endsWith('.ytdl')) {
+      final channelDirs =
+          mainDir.listSync(followLinks: false).whereType<Directory>();
+      for (final channelDir in channelDirs) {
+        final List<FileSystemEntity> entities;
+        try {
+          entities = channelDir.listSync(followLinks: false);
+        } catch (_) {
           continue;
         }
-        // Never delete a file that is open in a player right now.
-        if (playingVodFilePaths.values.any((p) => _isSamePath(p, name))) continue;
-        allFiles.add(entity);
+        for (final entity in entities) {
+          if (entity is! File) continue;
+          final match = vodIdInName.firstMatch(path.basename(entity.path));
+          // .part and .ytdl, a download in progress, have no video extension.
+          // yt-dlp names a Twitch VOD by its own id, the app's with a `v`
+          // before it (see vodFinalFilePattern); either may be the app's.
+          final digits = match?.group(1);
+          if (match == null ||
+              !_videoExtensions.contains(match.group(2)!.toLowerCase()) ||
+              !(isOwn(digits!) || isOwn('v$digits'))) {
+            continue;
+          }
+          // Never delete a file that is open in a player right now.
+          if (playingVodFilePaths.values.any((p) => _isSamePath(p, entity.path))) {
+            continue;
+          }
+          allFiles.add(entity);
+        }
       }
 
       if (allFiles.length <= settings.maxDownloadsToKeep) return;

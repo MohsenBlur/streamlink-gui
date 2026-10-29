@@ -507,6 +507,7 @@ void main() {
 
     test('starts each download, and keeps the downloads, as it says now',
         () async {
+      service.isOwnDownload = (_) => true;
       final old = File(p.join(a.path, 'chan', 'Old - 1.mp4'))
         ..createSync(recursive: true)
         ..setLastModifiedSync(DateTime(2020));
@@ -541,6 +542,42 @@ void main() {
 
       expect(folderOf(launcher.launched.last), startsWith(b.path));
     });
+  });
+
+  test("retention deletes only the app's own downloads, where it puts them",
+      () async {
+    // It walked the whole folder tree, links included, and deleted the
+    // oldest of any file named like " - <digits>.<ext>": with the download
+    // folder set to D:\Videos, the user's own photos and documents first.
+    File make(String relative, {DateTime? at}) {
+      final file = File(p.join(temp.path, relative))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('x');
+      file.setLastModifiedSync(at ?? DateTime(2020));
+      return file;
+    }
+
+    final wedding = make(p.join('Family', 'Wedding - 2019.mp4'));
+    final invoice = make('Invoice - 1042.pdf');
+    final holiday = make(p.join('Phone', 'Holiday - 7.jpg'));
+    final deep = make(p.join('chan', 'old', 'Kept - 3.mp4'));
+    final ours = make(p.join('chan', 'Old stream - v1.mp4'), at: DateTime(2021));
+    final known = {'1', '3', '555'};
+    service.isOwnDownload = known.contains;
+
+    final settings = AppSettings(vodDownloadFolder: temp.path)
+      ..maxDownloadsToKeep = 1;
+    service.queueVodDownload(vod('555', title: 'Stream'), 'chan', settings);
+    await pumpEventQueue();
+    make(p.join('chan', 'Stream - v555.mp4'), at: DateTime.now());
+    await launcher.launched.single.exit(0);
+    await pumpEventQueue();
+
+    expect(ours.existsSync(), isFalse, reason: 'the oldest of its own goes');
+    expect(wedding.existsSync(), isTrue);
+    expect(invoice.existsSync(), isTrue);
+    expect(holiday.existsSync(), isTrue);
+    expect(deep.existsSync(), isTrue, reason: 'not where downloads go');
   });
 
   test('a cancel that lands after its download finished does nothing',
