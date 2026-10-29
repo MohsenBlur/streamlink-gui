@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_channel.dart';
+import 'package:streamlink_gui/state/activity_state.dart';
+import 'package:streamlink_gui/widgets/activity_pill.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_title_bar.dart';
 import 'package:streamlink_gui/widgets/shell/app_layout.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
@@ -36,6 +38,41 @@ void main() {
     ));
     expect(inside, NeuTitleBar.maxTextScale);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets("but the activity popover it opens follows Windows' setting",
+      (tester) async {
+    // The popover is an OverlayPortal child, built under the strip's clamp
+    // though it is no part of the strip: it has no fixed height to keep,
+    // and its list of downloads and players is what Text size is for.
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    final activity = ValueNotifier(ActivitySnapshot(
+      downloading: const [
+        ActivityItem(
+            kind: ActivityKind.downloading, id: '1', label: 'Download 1'),
+      ],
+      queued: const [],
+      playing: const [],
+    ));
+    addTearDown(activity.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: NeuTitleBar(
+          isDarkTheme: true,
+          onThemeToggle: (_) {},
+          actions: [ActivityPill(activity: activity, onStop: (_) {})],
+        ),
+      ),
+    ));
+    await tester.tap(find.byType(ActivityPill));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final popover = tester.element(find.byType(ActivityPopover));
+    expect(MediaQuery.textScalerOf(popover).scale(10) / 10, 2.0);
   });
 
   testWidgets('the expanded sidebar holds at 175%', (tester) async {

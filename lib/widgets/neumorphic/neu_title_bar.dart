@@ -49,9 +49,27 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
     // slot at the bottom, and at 150% the plate, live count and pill overran
     // a 380px window. Up to 125% it follows the setting; everything under
     // the title bar follows it all the way.
-    return MediaQuery.withClampedTextScaling(
-      maxScaleFactor: maxTextScale,
-      child: _bar(),
+    return _WindowTextScale(
+      scaler: MediaQuery.textScalerOf(context),
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: maxTextScale,
+        child: _bar(),
+      ),
+    );
+  }
+
+  /// [child] at the window's own text scale, for what the title bar opens
+  /// rather than draws in its strip. A popover is an OverlayPortal child and
+  /// inherits from where it is declared, so the activity pill's list of
+  /// downloads and players was held to 125% with the strip, though it has
+  /// no fixed height to keep. Outside a title bar, [child] as it is.
+  static Widget unclamped(BuildContext context, {required Widget child}) {
+    final window =
+        context.dependOnInheritedWidgetOfExactType<_WindowTextScale>();
+    if (window == null) return child;
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: window.scaler),
+      child: child,
     );
   }
 
@@ -161,6 +179,17 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
       ),
     );
   }
+}
+
+/// The text scale above the title bar's clamp (see [NeuTitleBar.unclamped]).
+class _WindowTextScale extends InheritedWidget {
+  const _WindowTextScale({required this.scaler, required super.child});
+
+  final TextScaler scaler;
+
+  @override
+  bool updateShouldNotify(_WindowTextScale oldWidget) =>
+      oldWidget.scaler != scaler;
 }
 
 /// Minimize / maximize / close, with the maximize button tracking the actual
