@@ -78,9 +78,12 @@ class SelectionBar extends StatelessWidget {
 
     return LayoutBuilder(builder: (context, constraints) {
       // Measured from the widest label set at 100% text: the count and the
-      // two selection controls need ~300px, each labelled action ~130.
+      // two selection controls need ~300px, each labelled action ~140.
+      // 130 was short of Unwatched's ~150, and the four the channel page
+      // shows need 841: from 820, where 130 picked this layout, to 840 the
+      // count's All and None overflowed into the actions.
       final full = constraints.maxWidth >=
-          (300 + actions.length * 130) * textGrowth;
+          (300 + actions.length * 140) * textGrowth;
 
       final count = Row(
         mainAxisSize: MainAxisSize.min,

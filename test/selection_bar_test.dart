@@ -85,7 +85,7 @@ void main() {
 
     testWidgets('cuts neither end while the row holds both', (tester) async {
       // Measured where both have room to spare, with the Actions menu in
-      // place of the actions (the bar shows them all from 820px).
+      // place of the actions (the bar shows them all from 860px).
       await pumpAt(tester, 800);
       final want = tester.getSize(countSide()).width + tester.getSize(menu()).width;
       final around = 800 - tester.getSize(find.byType(Expanded)).width;
@@ -109,6 +109,18 @@ void main() {
         expect(cut(tester, '2 selected'), isFalse, reason: 'at $width');
         expect(cut(tester, 'Actions'), isFalse, reason: 'at $width');
       }
+    });
+
+    testWidgets('shows the actions themselves only where they fit',
+        (tester) async {
+      // From 820, where an estimate of 130 per action picked the labelled
+      // actions, to 840 they did not fit: the count's All and None
+      // overflowed into them, in windows 1150 to 1165 wide.
+      for (var width = 800.0; width <= 1000; width += 2) {
+        await pumpAt(tester, width);
+        expect(tester.takeException(), isNull, reason: 'at $width');
+      }
+      expect(menu(), findsNothing, reason: 'all four, labelled, at 1000');
     });
 
     testWidgets('keeps its ends at the edges, and gives way without '
