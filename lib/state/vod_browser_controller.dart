@@ -462,16 +462,30 @@ class VodBrowserController extends ChangeNotifier {
         _endedBroadcasts.remove(entry.key);
         continue;
       }
+      final channel = ended.channel;
+      // Back on the broadcast that only seemed to end (see below): it never
+      // did, so there is no VOD of it to look for.
+      if (channel.isLive && channel.wentLiveTime == ended.start) {
+        _endedBroadcasts.remove(entry.key);
+        continue;
+      }
+      // Only presumed offline - its refreshes kept failing, and Twitch never
+      // said the broadcast ended (isPresumedOffline) - the look waits, its
+      // turn kept. Taken now, it failed like the refreshes, spending looks an
+      // outage of an hour or so used up before the VOD could be found; or it
+      // got through and took the broadcast still running for its finished
+      // VOD, a "New VOD" toast for a stream still live.
+      if (isPresumedOffline(channel)) continue;
       if (now.isBefore(ended.nextLookAt)) continue;
-      if (refreshed != null && _sameChannel(refreshed, ended.channel)) continue;
-      if (_beingRead(ended.channel)) continue;
+      if (refreshed != null && _sameChannel(refreshed, channel)) continue;
+      if (_beingRead(channel)) continue;
       ended.looks++;
       if (ended.looks < endedBroadcastLooks.length) {
         ended.nextLookAt = now.add(endedBroadcastLooks[ended.looks]);
       } else {
         _endedBroadcasts.remove(entry.key);
       }
-      await _readForNewVods(ended.channel, ended.start);
+      await _readForNewVods(channel, ended.start);
     }
   }
 
@@ -540,6 +554,9 @@ class VodBrowserController extends ChangeNotifier {
   }) async {
     if (_settings().twitchOauthToken.trim().isEmpty) return;
     _lookOutFor(channel, endedBroadcastStart);
+    // An end only presumed - three refreshes failed - may be a broadcast
+    // still running: looked at once Twitch says (_lookAgainForEndedBroadcasts).
+    if (endedBroadcastStart != null && isPresumedOffline(channel)) return;
     await _readForNewVods(channel, endedBroadcastStart);
   }
 

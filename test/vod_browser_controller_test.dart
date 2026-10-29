@@ -514,6 +514,61 @@ void main() {
       expect(idsOf(browser.vods).first, vodId, reason: 'and the grid has it');
     });
 
+    test('waits while the end is only presumed, then looks once Twitch says',
+        () async {
+      // Three failed refreshes show a live channel offline, and the poll
+      // reports that as an end. A look then failed with the refreshes and
+      // spent the few there are, or got through and took the archive of the
+      // broadcast still running for its finished VOD.
+      final start = twitch.now.subtract(const Duration(hours: 2));
+      final vodId = twitch.addVideo('summit1g', publishedAt: start);
+      final summit = FakeHelix.channel('summit1g')
+        ..wentLiveTime = start
+        ..lastUpdated = twitch.now
+        ..errorMessage = 'Network is unreachable';
+      final browser = browserFor();
+      twitch.requests.clear();
+
+      await browser.checkForNewVods(summit, endedBroadcastStart: start);
+      for (var i = 0; i < 10; i++) {
+        later(const Duration(minutes: 10));
+        await browser.prefetch(const [], open: null);
+      }
+      expect(twitch.to('/helix/videos'), isEmpty,
+          reason: 'Twitch has not said the broadcast ended');
+      expect(announced, isEmpty, reason: 'it may still be running');
+
+      // Twitch answers again, and the channel is offline.
+      summit.errorMessage = null;
+      later(const Duration(minutes: 1));
+      await browser.prefetch(const [], open: null);
+      expect(announced, hasLength(1));
+      expect(announced.single.$2, [vodId]);
+    });
+
+    test('is dropped once the channel is back on the broadcast that only '
+        'seemed to end', () async {
+      twitch.user('summit1g');
+      final start = twitch.now.subtract(const Duration(hours: 1));
+      final summit = FakeHelix.channel('summit1g')
+        ..wentLiveTime = start
+        ..lastUpdated = twitch.now
+        ..errorMessage = 'Network is unreachable';
+      final browser = browserFor();
+      await browser.checkForNewVods(summit, endedBroadcastStart: start);
+
+      // Requests work again: still live, on the same broadcast.
+      summit
+        ..isLive = true
+        ..errorMessage = null;
+      twitch.requests.clear();
+      for (var i = 0; i < 30; i++) {
+        later(const Duration(minutes: 5));
+        await browser.prefetch(const [], open: null);
+      }
+      expect(twitch.to('/helix/videos'), isEmpty, reason: 'it never ended');
+    });
+
     test('a channel that keeps no archive is given up on', () async {
       twitch.user('summit1g');
       final summit = FakeHelix.channel('summit1g');
