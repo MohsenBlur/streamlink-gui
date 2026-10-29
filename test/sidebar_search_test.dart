@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/models/twitch_channel.dart';
+import 'package:streamlink_gui/theme/app_theme.dart';
+import 'package:streamlink_gui/theme/neu_theme.dart';
+import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/shell/app_layout.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 import 'package:streamlink_gui/widgets/sidebar_search_popover.dart';
@@ -81,6 +84,37 @@ void main() {
 
       await pumpWith('foo_bar');
       expect(find.text("Add 'foo_bar' to Favorites"), findsOneWidget);
+    });
+
+    testWidgets("the add row's label is in the accent's ink, not the raw "
+        'accent', (tester) async {
+      // The raw Soft Pink measured about 2.1:1 on the light popover, and
+      // Cyan near 1:1; the inline sidebar's same prompt was always ink.
+      themeNotifier.setDarkTheme(false);
+      addTearDown(() => themeNotifier.setDarkTheme(true));
+      search.text = 'foo_bar';
+      await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(isDark: false),
+        home: Scaffold(
+          body: SidebarSearchPopover(
+            controller: search,
+            channels: const [],
+            tab: 0,
+            onSelect: (_) {},
+            onPlay: (_) {},
+            onAdd: (_) {},
+            close: () {},
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final label =
+          tester.widget<Text>(find.text("Add 'foo_bar' to Favorites"));
+      expect(label.style?.color, themeNotifier.accentInk);
+      expect(
+          NeuTheme.contrastRatio(label.style!.color!, NeuTheme.surface(false)),
+          greaterThanOrEqualTo(4.5));
     });
   });
 
