@@ -235,7 +235,18 @@ class VodActions {
   }
 
   /// Cancels [vodId]'s download, queued or running.
+  ///
+  /// Nothing once it is neither: a running download's Cancel is asked
+  /// first, and the download can finish while the question is up. The
+  /// cancel deletes every file of the VOD, the finished one with the
+  /// partial ones, so a yes given to "the partial file is deleted" removed
+  /// the download it had just completed. A run waiting for its ffmpeg retry
+  /// is still queued, so it is still cancelled.
   Future<void> cancelDownload(String vodId, String channelName) async {
+    if (!_player.queuedDownloadTasks.containsKey(vodId) &&
+        !_player.activeDownloadProcesses.containsKey(vodId)) {
+      return;
+    }
     await _player.cancelVodDownload(vodId, channelName, _settings().vodDownloadFolder);
     if (_mounted()) _changed();
   }

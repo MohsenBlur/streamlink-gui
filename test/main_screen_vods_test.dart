@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
@@ -491,6 +492,45 @@ void main() {
       expect(ytDlp.hasExited, isTrue);
       expect(find.text('Download cancelled.'), findsOneWidget);
       expect(card(tester, 'Half way').downloadStatus, isNull);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'a download that finishes while its Cancel is being asked is kept',
+        (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.addVideo('alpha', id: '7010', title: 'Nearly there');
+      final settings = withFolder();
+      await h.launch(tester, favorites: ['alpha'], settings: settings);
+      await h.openChannel(tester, 'alpha');
+      h.player
+          .queueVodDownload(card(tester, 'Nearly there').vod, 'alpha', settings);
+      await h.settle(tester);
+      final ytDlp = h.launcher.launched.single;
+      ytDlp.printOut('[download]  99.9% of 1.00GiB at 2.00MiB/s ETA 00:01\n');
+      await h.settle(tester);
+
+      await fromMenu(tester, h, 'Nearly there', 'Cancel download');
+      expect(find.text('Cancel this download?'), findsOneWidget);
+
+      // It completes behind the question: yt-dlp writes the file, exits 0.
+      final file = downloaded('7010');
+      unawaited(ytDlp.exit(0));
+      await h.advance(tester, const Duration(milliseconds: 50),
+          step: const Duration(milliseconds: 10));
+
+      // The answer was about a partial file, and there is none any more.
+      await tester.tap(find.text('Cancel download').last);
+      await h.settleRoute(tester);
+      await h.advance(tester, const Duration(milliseconds: 50),
+          step: const Duration(milliseconds: 10));
+      expect(file.existsSync(), isTrue,
+          reason: 'a finished download is not deleted by a cancel of it');
+      expect(find.text('Download cancelled.'), findsNothing);
+      expect((h.storage.config!['downloaded_vods'] as Map).containsKey('7010'),
+          isTrue);
 
       await h.close(tester);
     });
