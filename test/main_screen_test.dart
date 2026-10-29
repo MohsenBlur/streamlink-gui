@@ -1184,6 +1184,9 @@ void main() {
 
       await openChannel(tester, h, 'alpha');
       await fromMenu(tester, h, 'Not this one', 'Cancel download');
+      // It is running, so the card asks first.
+      await tester.tap(find.text('Cancel download').last);
+      await h.settleRoute(tester);
       // taskkill's yt-dlp ends on a zero-length timer.
       await h.advance(tester, const Duration(milliseconds: 50),
           step: const Duration(milliseconds: 10));

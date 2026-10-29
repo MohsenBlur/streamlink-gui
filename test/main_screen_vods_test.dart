@@ -135,8 +135,8 @@ void main() {
 
   group('deleting downloads', () {
     testWidgets(
-        "a card's Delete download removes the file, forgets it, and says how "
-        'many went', (tester) async {
+        "a card's Delete download asks first, then removes the file, forgets "
+        'it, and says how many went', (tester) async {
       final h = ScreenHarness();
       h.helix.user('alpha');
       h.helix.addVideo('alpha', id: '7003', title: 'To delete');
@@ -150,7 +150,22 @@ void main() {
       await h.openChannel(tester, 'alpha');
       await untilBadged(tester, h, 'To delete');
 
+      // Deleted for good, and maybe the only copy left: asked, as the
+      // Library's Delete download is.
       await fromMenu(tester, h, 'To delete', 'Delete download');
+      expect(find.text('Delete download?'), findsOneWidget);
+      expect(
+          find.text('Delete the downloaded file for "To delete"? This cannot '
+              'be undone.'),
+          findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await h.settleRoute(tester);
+      expect(file.existsSync(), isTrue, reason: 'kept, as asked');
+      expect(card(tester, 'To delete').isDownloaded, isTrue);
+
+      await fromMenu(tester, h, 'To delete', 'Delete download');
+      await tester.tap(find.text('Delete'));
+      await h.settleRoute(tester);
       expect(file.existsSync(), isFalse);
       expect(find.text('Deleted 1 file(s) for VOD 7003.'), findsOneWidget);
       expect((h.storage.config!['downloaded_vods'] as Map).containsKey('7003'),
@@ -422,6 +437,42 @@ void main() {
       expect(savedQueue(), isEmpty,
           reason: 'a cancelled download is not started again at the next '
               'launch');
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        "a running download's card Cancel asks first, as the Library's does",
+        (tester) async {
+      final h = ScreenHarness();
+      h.helix.user('alpha');
+      h.helix.addVideo('alpha', title: 'Half way');
+      final settings = withFolder();
+      await h.launch(tester, favorites: ['alpha'], settings: settings);
+      await h.openChannel(tester, 'alpha');
+      h.player.queueVodDownload(card(tester, 'Half way').vod, 'alpha', settings);
+      await h.settle(tester);
+      final ytDlp = h.launcher.launched.single;
+      ytDlp.printOut('[download]  50.0% of 1.00GiB at 2.00MiB/s ETA 04:00\n');
+      await h.settle(tester);
+
+      // Its partial file goes with it.
+      await fromMenu(tester, h, 'Half way', 'Cancel download');
+      expect(find.text('Cancel this download?'), findsOneWidget);
+      await tester.tap(find.text('Keep running'));
+      await h.settleRoute(tester);
+      expect(ytDlp.hasExited, isFalse, reason: 'kept, as asked');
+      expect(card(tester, 'Half way').downloadStatus, isNotNull);
+
+      await fromMenu(tester, h, 'Half way', 'Cancel download');
+      await tester.tap(find.text('Cancel download').last);
+      await h.settleRoute(tester);
+      // taskkill's yt-dlp ends on a zero-length timer.
+      await h.advance(tester, const Duration(milliseconds: 50),
+          step: const Duration(milliseconds: 10));
+      expect(ytDlp.hasExited, isTrue);
+      expect(find.text('Download cancelled.'), findsOneWidget);
+      expect(card(tester, 'Half way').downloadStatus, isNull);
 
       await h.close(tester);
     });

@@ -1641,8 +1641,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       onClearGameFilter: _selection.clearGames,
       onPlayVod: (vod) => _vods.play(vod, channelName),
       onDownloadVod: (vod) => _vods.download(vod, channelName),
-      onDeleteDownload: (id) => _vods.deleteDownload(id, channelName),
-      onCancelDownload: (id) => _vods.cancelDownload(id, channelName),
+      // A card's Delete and Cancel ask first, as the Library's do.
+      onDeleteDownload: (id) => _vods.deleteDownloadAsking(id, channelName,
+          title: [for (final v in _channelVods) if (v.id == id) v.title]
+                  .firstOrNull ??
+              'VOD $id'),
+      onCancelDownload: (id) => _vods.cancelDownloadAsking(id, channelName),
       onVodSelectedChange: _selection.pick,
       onOpenFolder: (vod) {
         final path = _downloadedVodsRegistry[vod.id];

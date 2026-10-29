@@ -240,6 +240,18 @@ class VodActions {
     if (_mounted()) _changed();
   }
 
+  /// A card's Cancel: asks first when the download is running, as the
+  /// Library row's and the activity popover's Cancel do - its partial file
+  /// goes. One still queued has nothing to lose, so it is cancelled at once.
+  Future<void> cancelDownloadAsking(String vodId, String channelName) async {
+    if (_player.activeDownloadProcesses.containsKey(vodId)) {
+      final confirmed =
+          await confirmStopActivity(_context(), isDownload: true);
+      if (confirmed != true || !_mounted()) return;
+    }
+    await cancelDownload(vodId, channelName);
+  }
+
   /// Deletes the files for [vodId], preferring the path recorded in the
   /// registry over re-deriving it from the currently selected channel.
   /// Returns how many files were actually removed.
@@ -268,7 +280,21 @@ class VodActions {
     return deleted;
   }
 
-  /// Deletes [vodId]'s download and forgets it.
+  /// A card's Delete download (its hover button, menu item or key): asks
+  /// first, as the Library's Delete download and a selection's Delete files
+  /// do. The file is deleted for good, not to the Recycle Bin, and once
+  /// Twitch has expired the VOD it is the only copy there is; the card's
+  /// menu and keyboard paths made it one slip away.
+  Future<void> deleteDownloadAsking(String vodId, String channelName,
+      {required String title}) async {
+    final confirmed = await confirmDeleteDownload(_context(), title);
+    if (confirmed != true || !_mounted()) return;
+    await deleteDownload(vodId, channelName);
+  }
+
+  /// Deletes [vodId]'s download and forgets it, without asking: the
+  /// callers that reach it have asked already (LibraryController.delete,
+  /// [deleteDownloadAsking]).
   Future<void> deleteDownload(String vodId, String channelName) async {
     final deleted = _deleteFilesFor(vodId, channelName);
 
