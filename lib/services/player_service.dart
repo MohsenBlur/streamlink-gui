@@ -1054,6 +1054,20 @@ class PlayerService {
   Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder) async {
     final proc = activeDownloadProcesses[vodId];
 
+    // Nothing in flight, nothing to call off. A cancel confirmed after its
+    // download had finished (the Stop dialog can stay up for any length of
+    // time) used to run in full: "Download cancelled." replaced the
+    // completion message, and the VOD's archive line and files went - the
+    // finished file surviving only because the channel had been forgotten
+    // with the download, so the wrong folder was searched.
+    final inFlight = proc != null ||
+        _startingDownloads.contains(vodId) ||
+        _downloadsAwaitingRetry.contains(vodId) ||
+        downloadQueue.contains(vodId) ||
+        queuedDownloadTasks.containsKey(vodId) ||
+        activeDownloadTasks.containsKey(vodId);
+    if (!inFlight) return;
+
     // Only mark when a process actually exists to consume the marker.
     //
     // The exit handler in startVodDownload is the sole consumer. Cancelling a

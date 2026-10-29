@@ -1269,9 +1269,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         await _vods.cancelDownload(
             item.id, _playerService.downloadChannelNames[item.id] ?? 'VOD');
       case ActivityKind.downloading:
+        // Read before the dialog: a download that finishes while it is up
+        // forgets its channel (and the cancel then does nothing).
+        final channel = _playerService.downloadChannelNames[item.id] ?? 'VOD';
         if (!await _confirmStop(isDownload: true)) return;
-        await _vods.cancelDownload(
-            item.id, _playerService.downloadChannelNames[item.id] ?? 'VOD');
+        await _vods.cancelDownload(item.id, channel);
       case ActivityKind.liveStream:
         if (!await _confirmStop(isDownload: false)) return;
         _playerService.killLiveStream(item.id);

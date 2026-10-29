@@ -456,4 +456,26 @@ void main() {
     await pumpEventQueue();
     expect(queued, ['chan/1', 'other/2']);
   });
+
+  test('a cancel that lands after its download finished does nothing',
+      () async {
+    // The Stop dialog was confirmed after the download completed under it:
+    // "Download cancelled." replaced the completion message, the archive
+    // line went, and the VOD's files were deleted from the folder searched.
+    final settings = AppSettings(vodDownloadFolder: temp.path);
+    final done = File('${temp.path}/chan/Some VOD - v1.mp4');
+    service.queueVodDownload(vod('1'), 'chan', settings);
+    await pumpEventQueue();
+    done
+      ..createSync(recursive: true)
+      ..writeAsStringSync('video');
+    await launcher.launched.single.exit(0);
+    await pumpEventQueue();
+    expect(service.activeDownloadTasks, isEmpty, reason: 'precondition');
+
+    await service.cancelVodDownload('1', 'chan', temp.path);
+
+    expect(cancelled, isEmpty);
+    expect(done.existsSync(), isTrue);
+  });
 }
