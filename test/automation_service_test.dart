@@ -327,10 +327,11 @@ void main() {
       ]);
     });
 
-    test('a folder that cannot be used queues nothing, and is logged once',
+    test('a folder that cannot be used queues nothing, and is said once',
         () async {
       // An unplugged drive: every VOD the pass queued failed at once, and the
-      // next pass queued them again - two toasts each, every minute.
+      // next pass queued them again - two toasts each, every minute. Then
+      // only the log said so, and auto-download stopped without a word.
       final rig = Rig()..folderProblem = 'The device is not ready.';
       rig.favorites.add(channel('a', autoPlay: false, autoDownload: true, keep: 2));
       rig.vodsByChannel['a'] = [vod('v2', daysAgo: 1), vod('v1', daysAgo: 2)];
@@ -338,13 +339,39 @@ void main() {
       await rig.service.runPass();
       await rig.service.runPass();
       expect(rig.queued, isEmpty);
-      expect(rig.notifications, isEmpty);
+      expect(rig.notifications, ['Auto-Download Paused']);
       expect(rig.log.where((l) => l.contains('cannot be used')), hasLength(1));
       expect(rig.folderChecks, 2, reason: 'once a pass, not once a VOD');
 
       rig.folderProblem = null;
       await rig.service.runPass();
       expect(rig.queued.map((q) => q.vod), ['v1', 'v2']);
+    });
+
+    test('a folder that goes away again is said again; with download toasts '
+        'off, only logged', () async {
+      final rig = Rig()..folderProblem = 'The device is not ready.';
+      rig.favorites.add(channel('a', autoPlay: false, autoDownload: true));
+      rig.vodsByChannel['a'] = [vod('v1', daysAgo: 1)];
+      await rig.service.runPass();
+
+      rig.folderProblem = null;
+      await rig.service.runPass(); // queued; it fails: in no list afterwards
+      rig.folderProblem = 'The device is not ready.';
+      rig.now = rig.now.add(AutomationService.retryAfterFailure.first);
+      await rig.service.runPass();
+      expect(rig.notifications,
+          ['Auto-Download Paused', 'Auto-Downloading VOD', 'Auto-Download Paused']);
+
+      rig.settings.notifyDownloadComplete = false;
+      rig.folderProblem = null;
+      rig.now = rig.now.add(AutomationService.retryAfterFailure[1]);
+      await rig.service.runPass();
+      rig.folderProblem = 'The device is not ready.';
+      rig.now = rig.now.add(AutomationService.retryAfterFailure[2]);
+      await rig.service.runPass();
+      expect(rig.notifications, hasLength(3));
+      expect(rig.log.where((l) => l.contains('cannot be used')), hasLength(3));
     });
 
     test('nothing to queue, nothing to check', () async {

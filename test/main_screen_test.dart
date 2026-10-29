@@ -1089,6 +1089,10 @@ void main() {
       expect(h.notifications.titles, isNot(contains('VOD Download Failed')));
       expect(h.notifications.titles, isNot(contains('Auto-Downloading VOD')));
       expect(h.launcher.launched, isEmpty);
+      expect(
+          h.notifications.titles.where((t) => t == 'Auto-Download Paused'),
+          hasLength(1),
+          reason: 'said once, not every minute, and not never');
 
       await h.close(tester);
     });

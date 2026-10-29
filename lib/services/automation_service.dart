@@ -280,15 +280,30 @@ class AutomationService {
     // folder that cannot be made - an unplugged drive, a NAS out of reach -
     // failed every download the pass queued into it.
     bool? folderUsable;
-    bool canQueue() {
+    Future<bool> canQueue() async {
       if (folderUsable == null) {
         final problem = folderProblem?.call(folder);
-        if (problem != _reportedFolderProblem && problem != null) {
-          _log('[Auto-Download] Skipped: the VOD download folder cannot be '
-              'used ($problem).');
-        }
+        final news = problem != null && problem != _reportedFolderProblem;
         _reportedFolderProblem = problem;
         folderUsable = problem == null;
+        if (news) {
+          _log('[Auto-Download] Skipped: the VOD download folder cannot be '
+              'used ($problem).');
+          // Said once while it lasts, as a failure is. Queued anyway, each
+          // VOD failed with two toasts a minute; only logged, auto-download
+          // stopped without a word for as long as the drive was away.
+          if (settings().notifyDownloadComplete) {
+            try {
+              await showNotification(
+                'Auto-Download Paused',
+                'The VOD download folder cannot be used ($problem). New VODs '
+                    'are downloaded once it can be.',
+              );
+            } catch (e) {
+              _log('[Auto-Download Notification Error]: $e');
+            }
+          }
+        }
       }
       return folderUsable!;
     }
@@ -323,7 +338,7 @@ class AutomationService {
         );
 
         for (final vod in selected) {
-          if (!canQueue()) return;
+          if (!await canQueue()) return;
           final before = _queuedByPass[vod.id];
           _queuedByPass[vod.id] = (times: (before?.times ?? 0) + 1, at: now);
           _log('[Auto-Download] Queueing ${vod.id} for @${channel.username}'
