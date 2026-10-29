@@ -70,7 +70,9 @@ foreach ($m in $Materials) {
             $placement = Get-PlacementSettings $Position
             foreach ($key in $placement.Keys) { $settings[$key] = $placement[$key] }
         }
-        Set-IsolatedConfig $exe $settings
+        # Not maximized when launched without activation: see
+        # Set-IsolatedConfig.
+        Set-IsolatedConfig $exe $settings -NoActivate:(-not $NormalLaunch)
         # shoot.ps1 launches it, so the capture is refused - not quietly taken
         # of the installed app - when another copy holds the single-instance
         # mutex. The long settle replaces the old fixed 10s wait: material

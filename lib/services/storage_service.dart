@@ -264,7 +264,7 @@ class StorageService {
     return getStorageFile(_configFileName);
   }
 
-  /// The folder [dropStaleConfigMirror] looks in for the mirror. Used by
+  /// The folder [scrubStaleConfigMirror] looks in for the mirror. Used by
   /// tests, which run from the test runner's own folder; leave null in the
   /// app, where it is the executable's.
   @visibleForTesting
@@ -298,39 +298,98 @@ class StorageService {
         return null;
       }
       if (!config.existsSync()) return null;
+      // So is one the two paths reach by different names - the exe's folder
+      // a junction or link to the config's, or either spelled another way
+      // (a short name, a mapped drive) - which the comparison above misses:
+      // both resolve to where the file really is.
+      if (mirror.existsSync() && _sameFile(mirror, config)) return null;
       return mirror;
     } catch (_) {
       return null;
     }
   }
 
-  /// Deletes the copy of the config an older build mirrored beside the
-  /// executable, and returns a line saying what it did, for the startup log;
-  /// null when there was nothing to do.
+  /// Whether two existing files are one, reached by different paths. False
+  /// when that cannot be told, leaving [_staleMirrorPath] to the plain path
+  /// comparison.
+  static bool _sameFile(File a, File b) {
+    try {
+      return p.equals(a.resolveSymbolicLinksSync(), b.resolveSymbolicLinksSync());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Blanks the tokens in the copy of the config an older build mirrored
+  /// beside the executable, keeping the rest of it, and returns a line
+  /// saying what it did, for the startup log; null when there was nothing
+  /// to do.
   ///
   /// Those builds wrote the whole config there on every save, the OAuth and
   /// browser tokens in plaintext, even for an installed copy (see the NOTE in
   /// [saveConfig]), and nothing reads it again once the config is in AppData.
-  /// Call this only once the config has loaded from AppData: one that would
-  /// not load is quarantined, and the next launch's migration then recovers
-  /// from this copy. A portable copy's config is never touched.
+  /// Scrubbed, not deleted: a portable copy whose portable.txt went missing,
+  /// a folder moved or copied without it, looks exactly like this, and there
+  /// the file is the user's real config. Deleted, putting portable.txt back
+  /// no longer brought its channels and settings back; scrubbed, it costs
+  /// one reconnect of the account. Call this only once the config has loaded
+  /// from AppData: one that would not load is quarantined, and the next
+  /// launch's migration then recovers from this copy. A config that is
+  /// portable, or that is this file, is never touched.
   ///
-  /// It can only delete where this process may write - a per-user install,
-  /// not Program Files, where the updater's elevated step removes it instead
-  /// (`--drop-config-mirror`, see `UpdateService.updaterArguments`).
-  String? dropStaleConfigMirror() {
+  /// Rewritten through a temp file and a rename, byte for byte apart from
+  /// the tokens (see [_decodeAsWritten]), and only when it holds one. It can
+  /// only do that where this process may write - a per-user install, not
+  /// Program Files, where the updater's elevated step deletes the file
+  /// instead (`--drop-config-mirror`, see `UpdateService.updaterArguments`).
+  String? scrubStaleConfigMirror() {
     final mirror = _staleMirrorPath();
     if (mirror == null) return null;
+    final ({String text, Encoding encoding}) read;
     try {
       if (!mirror.existsSync()) return null;
-      mirror.deleteSync();
-      return 'stale config mirror beside the exe removed: ${mirror.path}';
-    } on FileSystemException catch (e) {
-      final why = e.osError?.message.trim() ?? e.message;
-      return 'stale config mirror beside the exe kept, as it cannot be deleted '
-          'from here ($why); the next update removes it';
+      read = _decodeAsWritten(mirror.readAsBytesSync());
     } catch (_) {
       return null;
+    }
+    final scrubbed = ConfigSecrets.blankTokensInText(read.text);
+    if (scrubbed == null) return null;
+
+    final temp = File('${mirror.path}.scrubbing');
+    var written = false;
+    try {
+      temp.writeAsBytesSync(read.encoding.encode(scrubbed), flush: true);
+      written = true;
+      temp.renameSync(mirror.path);
+      return 'stale config mirror beside the exe scrubbed, its tokens blanked '
+          'and the rest kept: ${mirror.path}';
+    } on FileSystemException catch (e) {
+      try {
+        if (temp.existsSync()) temp.deleteSync();
+      } catch (_) {}
+      final why = e.osError?.message.trim() ?? e.message;
+      // No temp file beside it: the folder is not this process's to write,
+      // which is the updater's case. A refused rename is the file's own
+      // (read-only, or held open), and the next launch tries again.
+      return written
+          ? 'stale config mirror beside the exe still holds its tokens, as it '
+              'cannot be rewritten ($why): ${mirror.path}'
+          : 'stale config mirror beside the exe still holds its tokens, as '
+              'this process cannot write that folder ($why); the next update '
+              'removes it';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// [bytes] as text the same bytes can be written back from: UTF-8 when
+  /// they are valid UTF-8, and otherwise byte by byte, so whatever made a
+  /// file invalid survives a rewrite that only meant to change its tokens.
+  static ({String text, Encoding encoding}) _decodeAsWritten(List<int> bytes) {
+    try {
+      return (text: utf8.decode(bytes), encoding: utf8);
+    } on FormatException {
+      return (text: latin1.decode(bytes), encoding: latin1);
     }
   }
 
@@ -455,19 +514,11 @@ class StorageService {
           .toList();
       for (final copy in copies) {
         try {
-          final bytes = await copy.readAsBytes();
-          Encoding encoding = utf8;
-          String text;
-          try {
-            text = utf8.decode(bytes);
-          } on FormatException {
-            encoding = latin1;
-            text = latin1.decode(bytes);
-          }
-          final sealed = _secrets.sealTokensInText(text);
+          final read = _decodeAsWritten(await copy.readAsBytes());
+          final sealed = _secrets.sealTokensInText(read.text);
           if (sealed == null) continue;
           final temp = File('${copy.path}.sealing');
-          await temp.writeAsBytes(encoding.encode(sealed), flush: true);
+          await temp.writeAsBytes(read.encoding.encode(sealed), flush: true);
           await temp.rename(copy.path);
         } catch (_) {}
       }
@@ -540,24 +591,31 @@ class StorageService {
     // into another user's profile). Portable installs are already served by the
     // portable.txt branch in getStorageFile.
     //
-    // Nothing writes that mirror any more, and one an older build left
-    // behind, plaintext tokens and all, is removed in two places - never in a
+    // Nothing writes that mirror any more. One an older build left behind,
+    // plaintext tokens and all, is dealt with in two places - never in a
     // portable copy, where that name is the real config, and never while
     // AppData has no config, since the one-time migration in getStorageFile
     // still reads it then:
     //
-    // * At startup, once the config has loaded from AppData
-    //   (dropStaleConfigMirror). That reaches a per-user install only: under
-    //   Program Files only an elevated process can change the file, and the
-    //   app never runs elevated now - which is also how such a mirror got
-    //   there, as the updater used to relaunch the app with its
-    //   administrator token.
-    // * By the updater, in the step that writes the install folder (its
-    //   elevated child under Program Files), when the app passes
-    //   --drop-config-mirror - which it does only on the same conditions -
-    //   and no portable.txt is in that folder. Otherwise the updater still
-    //   never replaces or deletes a channels_config.json there, and one from
-    //   before the flag ignores it.
+    // * At startup, once the config has loaded from AppData, the app
+    //   scrubs it (scrubStaleConfigMirror): its tokens blanked, everything
+    //   else kept. Not deleted, because the conditions cannot tell it from
+    //   a portable copy that lost its portable.txt - a folder moved or
+    //   copied without it - whose real config this is: deleting it lost the
+    //   channels and settings that putting portable.txt back used to
+    //   recover. That reaches only a folder the user can write, such as a
+    //   per-user install: under Program Files only an elevated process can
+    //   change the file, and the app never runs elevated now - which is
+    //   also how such a mirror got there, as the updater used to relaunch
+    //   the app with its administrator token.
+    // * By the updater, which deletes it only where it needs elevation to
+    //   write the install folder - the one case the scrub cannot reach, and
+    //   one where no portable copy could have saved a config of its own -
+    //   when the app passes --drop-config-mirror, which it does only on the
+    //   same conditions, and no portable.txt is in that folder. In a folder
+    //   the user can write it leaves the file to the scrub. Otherwise the
+    //   updater still never replaces or deletes a channels_config.json
+    //   there, and one from before the flag ignores it.
   }
 
   Future<List<Map<String, dynamic>>> loadRecentWatchedVods() async {

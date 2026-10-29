@@ -64,7 +64,7 @@ void main() {
           'channels': [
             {'username': 'some_streamer'}
           ],
-          'settings': {
+          'settings': <String, Object?>{
             for (final key in AppSettings.secretJsonKeys) key: 'dpapi:sealed-$key',
             'material': 'rack',
             'twitch_client_id': 'kept',
@@ -101,6 +101,84 @@ void main() {
       for (final key in AppSettings.secretJsonKeys) {
         expect(settings[key], '');
       }
+    }, skip: !Platform.isWindows);
+
+    test('turns launch at startup off, even when asked for it', () async {
+      // A staged build started with it on rewrites the user's HKCU Run value
+      // to its own exe (StartupService().sync(true) at every launch).
+      final config = realConfig();
+      (config['settings'] as Map<String, Object?>)['launch_at_startup'] = true;
+      File(p.join(appData.path, 'channels_config.json'))
+          .writeAsStringSync(json.encode(config));
+
+      await ps("Set-IsolatedConfig '${exe.path}' @{ launch_at_startup = \$true }",
+          appData: p.dirname(appData.path));
+
+      expect(settingsIn(staged())['launch_at_startup'], false);
+
+      // A staged copy from before is put right too, with no settings at all.
+      final old = json.decode(staged().readAsStringSync().replaceFirst('﻿', ''))
+          as Map<String, dynamic>;
+      (old['settings'] as Map<String, dynamic>)['launch_at_startup'] = true;
+      staged().writeAsStringSync(json.encode(old));
+      await ps("Set-IsolatedConfig '${exe.path}' @{}", appData: p.dirname(appData.path));
+      expect(settingsIn(staged())['launch_at_startup'], false);
+    }, skip: !Platform.isWindows);
+
+    test('-NoActivate stages a window that is not maximized', () async {
+      // A maximized first show is one SW_SHOWNOACTIVATE most likely does not
+      // replace, so a launch meant to stay in the background would not.
+      final config = realConfig();
+      (config['settings'] as Map<String, Object?>)['is_window_maximized'] = true;
+      File(p.join(appData.path, 'channels_config.json'))
+          .writeAsStringSync(json.encode(config));
+
+      await ps("Set-IsolatedConfig '${exe.path}' @{}", appData: p.dirname(appData.path));
+      expect(settingsIn(staged())['is_window_maximized'], true,
+          reason: 'without -NoActivate the copy keeps what the user had');
+      expect(await ps("Test-StagedOpensMaximized '${exe.path}'", appData: root.path), 'True');
+
+      await ps("Set-IsolatedConfig '${exe.path}' @{ is_window_maximized = \$true } -NoActivate",
+          appData: p.dirname(appData.path));
+      expect(settingsIn(staged())['is_window_maximized'], false);
+      expect(await ps("Test-StagedOpensMaximized '${exe.path}'", appData: root.path), 'False');
+    }, skip: !Platform.isWindows);
+  });
+
+  group('Test-StagedOpensMaximized', () {
+    late Directory build;
+    late String exe;
+
+    setUp(() {
+      build = Directory(p.join(root.path, 'Release'))..createSync();
+      exe = p.join(build.path, 'streamlink_gui.exe');
+    });
+
+    Future<String> opensMaximized() =>
+        ps("Test-StagedOpensMaximized '$exe'", appData: root.path);
+
+    void stage(Object config) => File(p.join(build.path, 'channels_config.json'))
+        .writeAsStringSync(config is String ? config : json.encode(config));
+
+    test('reads only the config a portable build reads', () async {
+      stage({
+        'settings': {'is_window_maximized': true}
+      });
+      expect(await opensMaximized(), 'False',
+          reason: 'no portable.txt: the build reads %APPDATA%, not this file');
+      File(p.join(build.path, 'portable.txt')).writeAsStringSync('');
+      expect(await opensMaximized(), 'True');
+    }, skip: !Platform.isWindows);
+
+    test('says no for a window that is not maximized, or a config it cannot read', () async {
+      File(p.join(build.path, 'portable.txt')).writeAsStringSync('');
+      expect(await opensMaximized(), 'False', reason: 'no config');
+      stage({
+        'settings': {'is_window_maximized': false}
+      });
+      expect(await opensMaximized(), 'False');
+      stage('{"settings": {"is_window_maximized": tr');
+      expect(await opensMaximized(), 'False');
     }, skip: !Platform.isWindows);
   });
 
@@ -150,4 +228,31 @@ void main() {
         appData: root.path);
     expect(out.split(','), AppSettings.secretJsonKeys);
   }, skip: !Platform.isWindows);
+
+  test('shoot.ps1 -ClickAt posts its click unless -RealInput', () {
+    // A source check: the click needs a running app. The real click took the
+    // foreground from the user's window and moved their cursor on every
+    // channel and Library capture of the matrix; tools/click.ps1 already
+    // posted its clicks to the view instead.
+    final script =
+        File('tools/shoot.ps1').readAsStringSync().replaceAll('\r\n', '\n');
+    String block(String opening) {
+      final start = script.indexOf(opening);
+      expect(start, isNonNegative, reason: opening);
+      return script.substring(start, script.indexOf('\n}\n', start));
+    }
+
+    final posted = block(r'if ($ClickAt -and -not $RealInput) {');
+    for (final message in ['WM_MOUSEMOVE', 'WM_LBUTTONDOWN', 'WM_LBUTTONUP']) {
+      expect(posted, contains('PostMouse(\$view, \$$message'));
+    }
+    for (final call in ['ClickAbsolute', 'SetCursorPos', 'SetWindowPos', 'SetForegroundWindow']) {
+      expect(posted, isNot(contains(call)), reason: '$call activates or moves something');
+    }
+
+    final real = block(r'if ($ClickAt -and $RealInput) {');
+    expect(real, contains('ClickAbsolute('));
+    expect('ClickAbsolute('.allMatches(script), hasLength(2),
+        reason: 'its definition, and the one call behind -RealInput');
+  });
 }

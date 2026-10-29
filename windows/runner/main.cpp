@@ -43,6 +43,31 @@ void AssignSelfToKillOnCloseJob() {
   // lifetime of the process; the OS closes it on exit, which is the trigger.
 }
 
+// Whether whoever started this process asked for its window to be shown
+// without activating it: a show command in STARTUPINFO that leaves the
+// foreground alone (a shortcut set to run minimized, a launcher's
+// SW_SHOWNOACTIVATE). Windows applies that command to the first show, but
+// nothing before it, so the window asks to start in the background too
+// (Win32Window::SetStartInBackground).
+bool LauncherAskedNotToActivate() {
+  STARTUPINFOW startup = {};
+  startup.cb = sizeof(startup);
+  ::GetStartupInfoW(&startup);
+  if ((startup.dwFlags & STARTF_USESHOWWINDOW) == 0) {
+    return false;
+  }
+  switch (startup.wShowWindow) {
+    case SW_HIDE:
+    case SW_SHOWNOACTIVATE:
+    case SW_MINIMIZE:
+    case SW_SHOWMINNOACTIVE:
+    case SW_SHOWNA:
+      return true;
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -105,6 +130,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // scaling.
   FlutterWindow window(project);
   window.SetStartHidden(start_hidden);
+  // Neither a launch at login (--start-minimized) nor one asked to show
+  // without activation may take the foreground while the window is hidden.
+  window.SetStartInBackground(start_hidden || LauncherAskedNotToActivate());
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"streamlink_gui", origin, size)) {

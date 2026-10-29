@@ -24,14 +24,15 @@
   every capture moves it back there before sizing. Without it the window
   opens where the copied config says, which is wherever the real app last
   was. Captures never bring the window to the foreground unless -Focus is
-  passed; the two clicks into the channel and Library screens activate it,
-  as any click would. A -Position from which any size in the matrix would
-  reach onto a second monitor is refused before anything launches.
+  passed, and the two clicks into the channel and Library screens are
+  posted to the app's view (shoot.ps1 -ClickAt), so they do not activate it
+  either. A -Position from which any size in the matrix would reach onto
+  a second monitor is refused before anything launches.
 
   Nor does the launch's show: the build is started with SW_SHOWNOACTIVATE
-  (shoot.ps1 -NoActivate, and what it cannot cover), so its first show
-  leaves the user's window active. -NormalLaunch starts it as a user would
-  instead.
+  (shoot.ps1 -NoActivate), so neither its start nor its first show takes
+  the foreground from the user's window. -NormalLaunch starts it as a user
+  would instead.
 
 .EXAMPLE
   # A second monitor left of the primary, 2160 physical px wide at 150%. The

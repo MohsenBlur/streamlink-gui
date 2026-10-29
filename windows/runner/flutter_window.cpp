@@ -150,6 +150,9 @@ bool FlutterWindow::OnCreate() {
     if (!start_hidden_) {
       ShowFirstTime();
     }
+    // Shown, or staying hidden: either way the start is over, and with it
+    // the hold on the foreground that kept it in the background.
+    EndBackgroundStart();
   });
 
   // Flutter can complete the first frame before the "show window" callback is

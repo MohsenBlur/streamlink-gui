@@ -76,9 +76,24 @@ function Get-SecretSettingKeys {
 # user's own Twitch account and left one more copy of the tokens beside a
 # build folder. Blanked, the build runs with no account: captures of the
 # channel screen show no VOD list. A staged config from before this is
-# blanked the same way, and $settings is applied last, so a caller can still
-# hand it a test token on purpose.
-function Set-IsolatedConfig([string]$exePath, [hashtable]$settings) {
+# blanked the same way, and $settings is applied after that, so a caller can
+# still hand it a test token on purpose.
+#
+# launch_at_startup is forced off after everything else, $settings
+# included. The copy carries the user's own "Launch at startup", and a build
+# that starts with it on rewrites the HKCU Run value to ITS exe at every
+# launch (StartupService().sync(true) in main.dart, to heal a moved
+# install): one capture and the user's login started the build under test
+# instead of their app.
+#
+# -NoActivate stages a window that is not maximized, for a launch with
+# Start-AppNoActivate. Windows hands the launcher's SW_SHOWNOACTIVATE to the
+# runner's first show in place of a plain SW_SHOWNORMAL, which is what that
+# launch relies on. A placement saved maximized makes the first show
+# SW_SHOWMAXIMIZED instead, which it most likely does not replace (not
+# measured here: it would take a launch that may steal the foreground), so
+# the window would come up maximized and active.
+function Set-IsolatedConfig([string]$exePath, [hashtable]$settings, [switch]$NoActivate) {
     $relDir = Split-Path -Parent $exePath
     $marker = Join-Path $relDir 'portable.txt'
     if (-not (Test-Path $marker)) { New-Item -ItemType File -Path $marker | Out-Null }
@@ -104,6 +119,10 @@ function Set-IsolatedConfig([string]$exePath, [hashtable]$settings) {
     }
     foreach ($key in $settings.Keys) {
         $json.settings | Add-Member -NotePropertyName $key -NotePropertyValue $settings[$key] -Force
+    }
+    $json.settings | Add-Member -NotePropertyName 'launch_at_startup' -NotePropertyValue $false -Force
+    if ($NoActivate) {
+        $json.settings | Add-Member -NotePropertyName 'is_window_maximized' -NotePropertyValue $false -Force
     }
     # Windows PowerShell's utf8 writes a BOM; the app's reader (dart:io
     # readAsString) strips it, so the file still loads.
@@ -221,18 +240,34 @@ public class ShootCommonV1 {
 # materials script once per shot. The working directory is the exe's own, as
 # a shortcut or the updater's relaunch would give it.
 #
-# It covers the show, not everything before it. Sampling the foreground
-# every 20ms through a launch with this showed the window shown without
-# activation, and the foreground the user's own afterwards - but the still
-# hidden main window held the foreground for about 0.45s at process start,
-# ~15ms before Dart's first startup line: the runner's
-# Win32Window::SetChildContent calls SetFocus on its view as the window is
-# created (a stock Flutter template line), which activates the frame
-# whenever Windows lets this process take the foreground. Only a runner
-# change can stop that.
+# The show command only reaches the first show; the runner keeps everything
+# before it from taking the foreground for such a launch too
+# (Win32Window::SetStartInBackground). A 20ms foreground sampler showed the
+# still hidden window taking it at process start in builds from before
+# that: once by the runner's own SetFocus, and again by window_manager's
+# title bar setup. Such a build still takes it whenever Windows lets it,
+# however it is launched.
 function Start-AppNoActivate([string]$exePath) {
     $procId = [ShootCommonV1]::StartNoActivate($exePath, (Split-Path -Parent $exePath))
     return [Diagnostics.Process]::GetProcessById($procId)
+}
+
+# Whether the config a portable $exePath reads beside itself would open its
+# window maximized - the first show Start-AppNoActivate most likely cannot
+# keep from activating (see Set-IsolatedConfig -NoActivate). $false when it
+# is not portable, has no config there, or the config cannot be read: the
+# question is only asked to warn.
+function Test-StagedOpensMaximized([string]$exePath) {
+    $dir = Split-Path -Parent $exePath
+    $cfg = Join-Path $dir 'channels_config.json'
+    if (-not (Test-Path -LiteralPath (Join-Path $dir 'portable.txt'))) { return $false }
+    if (-not (Test-Path -LiteralPath $cfg)) { return $false }
+    try {
+        $json = Get-Content -LiteralPath $cfg -Raw -Encoding UTF8 | ConvertFrom-Json
+        return ($json.settings.is_window_maximized -eq $true)
+    } catch {
+        return $false
+    }
 }
 
 # Every monitor as Left/Top/Right/Bottom (physical, right and bottom

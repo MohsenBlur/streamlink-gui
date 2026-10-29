@@ -506,11 +506,13 @@ class UpdateService {
   ///
   /// [dropConfigMirror] asks the updater to delete the channels_config.json
   /// an older build mirrored into the install folder, plaintext tokens and
-  /// all, which this app cannot delete itself under Program Files (see
-  /// [StorageService.dropStaleConfigMirror]). Only for a copy whose config
-  /// lives in AppData: in a portable copy that file is the config, which is
-  /// why the updater also refuses whenever the folder holds a portable.txt.
-  /// An updater from before the flag ignores it.
+  /// all, which this app cannot scrub itself under Program Files (see
+  /// [StorageService.scrubStaleConfigMirror]). The updater deletes it only
+  /// in a folder it needs elevation to write; in one the user can write it
+  /// leaves the file to that scrub, which keeps everything but the tokens.
+  /// Only for a copy whose config lives in AppData: in a portable copy that
+  /// file is the config, which is why the updater also refuses whenever the
+  /// folder holds a portable.txt. An updater from before the flag ignores it.
   static List<String> updaterArguments({
     required String targetPath,
     required String sourcePath,
