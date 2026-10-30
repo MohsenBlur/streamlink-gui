@@ -560,7 +560,10 @@ class HomeView extends StatelessWidget {
                     ],
                   )),
                   const SizedBox(height: NeuSpace.s12),
-                  ...runningDownloads.take(2).map((item) {
+                  // Every one: several can run at once now (Settings,
+                  // Simultaneous downloads), and the two this took left the
+                  // third running with no row.
+                  ...runningDownloads.map((item) {
                     final progress = item.progress ?? 0.0;
                     final taskText = item.status ?? 'Downloading...';
                     final title = item.label;

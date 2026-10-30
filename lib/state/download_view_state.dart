@@ -3,8 +3,9 @@
 /// The raw service state double-lists downloads in both directions:
 /// - `queueVodDownload` writes `activeDownloadTasks[id] = 'Queued'` at queue
 ///   time, so queued items used to render under "Active Downloads".
-/// - The running id stays at the head of `downloadQueue` until it finishes,
-///   so the active download used to render under "Queue List" too.
+/// - A running id stays in `downloadQueue` until it finishes (several run at
+///   once with Simultaneous downloads above one), so the active downloads
+///   used to render under "Queue List" too.
 ///
 /// The single source of truth for "actually running" is
 /// `activeDownloadProcesses` (a yt-dlp process exists). Everything else that

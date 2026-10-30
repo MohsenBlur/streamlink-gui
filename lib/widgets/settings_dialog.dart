@@ -75,6 +75,22 @@ bool accountTestDescribesSavedToken(
     token.trim() == saved.twitchOauthToken.trim() &&
     clientId.trim() == saved.twitchClientId.trim();
 
+/// What the Simultaneous downloads setting at [n] does, in a sentence.
+String simultaneousDownloadsLabel(int n) =>
+    n <= 1 ? 'One download at a time.' : 'Up to $n downloads at once.';
+
+/// What running several at once does to the speed, as measured: real VODs,
+/// the app's own yt-dlp arguments, about a minute per run. One alone ran at
+/// 8 to 59 MiB/s by the moment and the server, two at once 34 to 74 in
+/// total, three 69 to 78 and four 77 - where the connection measured on
+/// filled up. The total never fell; each download's own share did.
+const String simultaneousDownloadsHelp =
+    'Twitch sends each download at its own pace, often below what your '
+    'connection can take. Measured: one alone averaged 35 MiB/s (8 to 59), '
+    'two at once 61 MiB/s in total, and three or four filled that connection '
+    'at about 75 MiB/s. Each download is slower while they share it, but '
+    'the queue as a whole finishes sooner.';
+
 /// Whether the custom player path names a file: checked off the UI thread,
 /// and only once the typing stops.
 ///
@@ -203,6 +219,7 @@ class SettingsDialog {
     final maxDownloadsController = TextEditingController(
       text: settings.maxDownloadsToKeep == 0 ? '' : settings.maxDownloadsToKeep.toString()
     );
+    int tempSimultaneousDownloads = settings.simultaneousDownloads;
     bool tempDisableVodPostProcessing = settings.disableVodPostProcessing;
     bool tempSeekableVodStreaming = settings.seekableVodStreaming;
     final customVodArgsController = TextEditingController(text: settings.customVodArgs);
@@ -320,6 +337,7 @@ class SettingsDialog {
         localServerPort: int.tryParse(portController.text.trim()) ?? settings.localServerPort,
         vodDownloadFolder: downloadFolderController.text.trim(),
         maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
+        simultaneousDownloads: tempSimultaneousDownloads,
         maxRecentlyWatched: tempMaxRecentlyWatched,
         closeAction: tempCloseAction,
         minimizeAction: tempMinimizeAction,
@@ -875,6 +893,39 @@ class SettingsDialog {
                                 hintText: 'e.g. 5, 10, or leave empty',
                                 errorText: maxDownloadsError,
                               ),
+                            ),
+                            const SizedBox(height: NeuSpace.s16),
+                            Text('Simultaneous downloads', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
+                            const SizedBox(height: NeuSpace.s4),
+                            Text(
+                              '${simultaneousDownloadsLabel(tempSimultaneousDownloads)} '
+                              '$simultaneousDownloadsHelp',
+                              style: NeuType.caption(themeNotifier.isDarkTheme),
+                            ),
+                            const SizedBox(height: NeuSpace.s8),
+                            Row(
+                              children: [
+                                Text('1', style: NeuType.caption(themeNotifier.isDarkTheme)),
+                                Expanded(
+                                  child: SliderTheme(
+                                    data: neuSliderTheme(context, accent: themeNotifier.primaryColor),
+                                    child: Slider(
+                                      value: tempSimultaneousDownloads.toDouble(),
+                                      min: 1,
+                                      max: AppSettings.maxSimultaneousDownloads.toDouble(),
+                                      divisions: AppSettings.maxSimultaneousDownloads - 1,
+                                      semanticFormatterCallback: (val) =>
+                                          simultaneousDownloadsLabel(val.round()),
+                                      onChanged: (val) {
+                                        setDialogState(() {
+                                          tempSimultaneousDownloads = val.round();
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                Text('${AppSettings.maxSimultaneousDownloads}', style: NeuType.caption(themeNotifier.isDarkTheme)),
+                              ],
                             ),
                             const SizedBox(height: NeuSpace.s16),
                             Row(

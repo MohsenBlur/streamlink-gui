@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:streamlink_gui/models/app_settings.dart';
+import 'package:streamlink_gui/models/twitch_video.dart';
 import 'package:streamlink_gui/services/desktop_shell.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
 import 'package:streamlink_gui/widgets/activity_pill.dart';
+import 'package:streamlink_gui/widgets/shell/home_view.dart';
 import 'package:streamlink_gui/widgets/twitch_video_card.dart';
 
 import 'support/main_screen_harness.dart';
@@ -217,6 +220,147 @@ void main() {
       await h.advance(tester, const Duration(milliseconds: 50),
           step: const Duration(milliseconds: 10));
       expect(h.notifications.titles, isEmpty);
+
+      await h.close(tester);
+    });
+  });
+
+  group('several downloads at once', () {
+    // Simultaneous downloads in Settings. Each surface read the service's
+    // maps, which several running at once had never filled.
+    List<String> started(ScreenHarness h) => [
+          for (final run in h.launcher.launched)
+            if (run.arguments.isNotEmpty &&
+                run.arguments.last.startsWith('https://twitch.tv/videos/'))
+              run.arguments.last.substring('https://twitch.tv/videos/'.length),
+        ];
+
+    /// A config whose saved queue holds [titles], in order, on alpha - what
+    /// the last run left unfinished. With [holdStarts], each yt-dlp's start
+    /// waits at the launcher's gate.
+    Future<(ScreenHarness, List<String>)> resumed(
+        WidgetTester tester, List<String> titles, AppSettings settings,
+        {bool holdStarts = false}) async {
+      final h = ScreenHarness();
+      if (holdStarts) h.launcher.startGate = Completer<void>();
+      h.helix.user('alpha');
+      final ids = [for (final title in titles) h.helix.addVideo('alpha', title: title)];
+      settings.unfinishedDownloads = [
+        for (var i = 0; i < ids.length; i++)
+          {
+            'vod': TwitchVideo(
+              id: ids[i],
+              title: titles[i],
+              duration: '1h0m0s',
+              thumbnailUrl: '',
+              viewCount: '0',
+              publishedAt: DateTime(2026),
+            ).toJson(),
+            'channelName': 'alpha',
+          },
+      ];
+      await h.launch(tester, favorites: ['alpha'], settings: settings);
+      return (h, ids);
+    }
+
+    List<Object?> savedQueue(ScreenHarness h) {
+      final settings = h.storage.config!['settings'] as Map;
+      return [
+        for (final entry in settings['unfinished_downloads'] as List)
+          ((entry as Map)['vod'] as Map)['id'],
+      ];
+    }
+
+    Finder onHome(String text) => find.descendant(
+        of: find.byType(HomeView), matching: find.text(text));
+
+    testWidgets(
+        'resumed at launch, run as many at once as allowed, each shown on Home '
+        'and in the pill; one finishing starts the next and the saved queue '
+        'keeps its order', (tester) async {
+      final (h, ids) = await resumed(tester, ['One', 'Two', 'Three', 'Four'],
+          withFolder()..simultaneousDownloads = 3);
+
+      expect(started(h), ids.take(3).toList());
+      for (final run in h.launcher.launched) {
+        run.printOut('[download]  10.0% of ~1.00GiB at 2.00MiB/s ETA 05:00\n');
+      }
+      await h.settle(tester);
+      expect(find.byTooltip('3 downloading · 1 queued'), findsOneWidget);
+      for (final title in ['One', 'Two', 'Three']) {
+        expect(onHome(title), findsOneWidget,
+            reason: '"$title" runs, and Home showed only two');
+      }
+      expect(onHome('Four'), findsNothing, reason: 'queued, not running');
+
+      // The second finishes first.
+      File(p.join(folder.path, 'alpha', 'Two - ${ids[1]}.mp4'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('video');
+      unawaited(h.launcher.launched[1].exit(0));
+      await h.advance(tester, const Duration(milliseconds: 50),
+          step: const Duration(milliseconds: 10));
+      await h.settleRoute(tester);
+      expect(find.text('Download completed: Two'), findsOneWidget);
+      expect(h.notifications.titles, ['VOD Download Completed'],
+          reason: 'one toast for the one that finished');
+      expect(started(h), [...ids.take(3), ids[3]]);
+      await h.advance(tester, const Duration(seconds: 2));
+      expect(savedQueue(h), [ids[0], ids[2], ids[3]]);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'each shows as downloading once its yt-dlp starts, before it prints '
+        'any progress', (tester) async {
+      // yt-dlp prints no progress until it has read the VOD's formats, and
+      // slept for as long as a yt-dlp config asks - up to half a minute with
+      // some. Until then the pill counted the downloads started at once as
+      // queued, and Home listed none of them.
+      final (h, ids) = await resumed(tester, ['One', 'Two', 'Three', 'Four'],
+          withFolder()..simultaneousDownloads = 3,
+          holdStarts: true);
+      expect(h.launcher.starting, 3);
+      expect(onHome('One'), findsNothing, reason: 'no yt-dlp yet');
+
+      // The screen has drawn everything else by now: these starts are all
+      // that is left to show.
+      h.launcher.startGate!.complete();
+      h.launcher.startGate = null;
+      await h.settle(tester);
+      expect(started(h), ids.take(3).toList());
+
+      expect(find.byTooltip('3 downloading · 1 queued'), findsOneWidget);
+      for (final title in ['One', 'Two', 'Three']) {
+        expect(onHome(title), findsOneWidget, reason: '"$title" runs');
+      }
+      expect(onHome('Four'), findsNothing, reason: 'queued, not running');
+
+      await h.close(tester);
+    });
+
+    testWidgets('raised in Settings, more start on Save', (tester) async {
+      // Otherwise only a download ending, or another queued, starts one.
+      final (h, ids) =
+          await resumed(tester, ['One', 'Two', 'Three'], withFolder());
+      expect(started(h), [ids[0]], reason: 'one at a time by default');
+
+      await tester.tap(find.byTooltip('Settings').first);
+      await h.settleRoute(tester);
+      await tester.tap(find.text('Downloads'));
+      await h.settleRoute(tester);
+      final slider = find.byWidgetPredicate((w) =>
+          w is Slider && w.max == AppSettings.maxSimultaneousDownloads);
+      await tester.ensureVisible(slider);
+      tester.widget<Slider>(slider).onChanged!(3);
+      await h.settle(tester);
+      expect(find.textContaining('Up to 3 downloads at once.'), findsOneWidget);
+      await tester.tap(find.text('Save changes'));
+      await h.settleRoute(tester);
+
+      expect(h.storage.savedSettings?.simultaneousDownloads, 3);
+      expect(started(h), ids);
 
       await h.close(tester);
     });

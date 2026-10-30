@@ -143,6 +143,30 @@ void main() {
       expect(passes.last.favoritesWentLive, isEmpty);
     });
 
+    test('a channel Twitch reported offline is announced again when it '
+        'comes back on the same stream id', () async {
+      // Unlike the outage above, Twitch said it ended: a stream that drops
+      // and reconnects, on its stream id. That return used to be silent.
+      final startedAt = twitch.now.subtract(const Duration(minutes: 30));
+      twitch.goLive('shroud', at: startedAt, archive: false);
+      final shroud = FakeHelix.channel('shroud');
+      final controller = controllerFor([shroud]);
+      await controller.refresh(isInitialLoad: true);
+      final streamId = shroud.streamId;
+
+      twitch.goOffline('shroud');
+      await controller.refresh(force: true);
+      expect(shroud.isLive, isFalse);
+      expect(shroud.errorMessage, isNull, reason: 'an answer, not a failure');
+      expect(passes.last.favoritesWentOffline, [shroud]);
+
+      twitch.goLive('shroud', at: startedAt, archive: false);
+      await controller.refresh(force: true);
+
+      expect(shroud.streamId, streamId, reason: 'precondition: the same id');
+      expect(passes.last.favoritesWentLive, [shroud]);
+    });
+
     test('a new broadcast after the outage is announced', () async {
       twitch.goLive('shroud');
       final shroud = FakeHelix.channel('shroud');

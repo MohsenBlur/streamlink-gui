@@ -1320,10 +1320,14 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// Saving Settings, and what a save sets off (SettingsSaveCoordinator).
   late final SettingsSaveCoordinator _settingsSave = SettingsSaveCoordinator(
     settings: () => _settings,
-    adopt: (updated) => setState(() {
-      _settings = updated;
-      _isWebTokenExpired = false;
-    }),
+    adopt: (updated) {
+      setState(() {
+        _settings = updated;
+        _isWebTokenExpired = false;
+      });
+      // More downloads at once may be allowed now.
+      _playerService.startQueuedDownloads();
+    },
     save: _saveChannels,
     mounted: () => mounted,
     auth: twitchAuth,

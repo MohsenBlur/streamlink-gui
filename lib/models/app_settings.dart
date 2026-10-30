@@ -44,6 +44,16 @@ class AppSettings {
 
   String vodDownloadFolder;
   int maxDownloadsToKeep; // 0 = unlimited
+
+  /// How many VOD downloads run at once; the rest wait in the queue. 1, the
+  /// default, is one at a time as it always was.
+  int simultaneousDownloads;
+
+  /// The most [simultaneousDownloads] allows: as many as were measured.
+  /// Three already filled the connection they were measured on, and a
+  /// fourth added little; past that is untried.
+  static const int maxSimultaneousDownloads = 4;
+
   List<dynamic> unfinishedDownloads;
   int maxRecentlyWatched;
   int activeSidebarTab;
@@ -151,6 +161,7 @@ class AppSettings {
     this.material = 'rack',
     this.vodDownloadFolder = '',
     this.maxDownloadsToKeep = 0,
+    this.simultaneousDownloads = 1,
     this.unfinishedDownloads = const [],
     this.maxRecentlyWatched = 8,
     this.activeSidebarTab = 0,
@@ -226,6 +237,7 @@ class AppSettings {
     String? material,
     String? vodDownloadFolder,
     int? maxDownloadsToKeep,
+    int? simultaneousDownloads,
     List<dynamic>? unfinishedDownloads,
     int? maxRecentlyWatched,
     int? activeSidebarTab,
@@ -280,6 +292,8 @@ class AppSettings {
       material: material ?? this.material,
       vodDownloadFolder: vodDownloadFolder ?? this.vodDownloadFolder,
       maxDownloadsToKeep: maxDownloadsToKeep ?? this.maxDownloadsToKeep,
+      simultaneousDownloads:
+          simultaneousDownloads ?? this.simultaneousDownloads,
       unfinishedDownloads: unfinishedDownloads ?? this.unfinishedDownloads,
       maxRecentlyWatched: maxRecentlyWatched ?? this.maxRecentlyWatched,
       activeSidebarTab: activeSidebarTab ?? this.activeSidebarTab,
@@ -348,6 +362,7 @@ class AppSettings {
         'material': material,
         'vod_download_folder': vodDownloadFolder,
         'max_downloads_to_keep': maxDownloadsToKeep,
+        'simultaneous_downloads': simultaneousDownloads,
         'unfinished_downloads': unfinishedDownloads,
         'max_recently_watched': maxRecentlyWatched,
         'active_sidebar_tab': activeSidebarTab,
@@ -472,6 +487,8 @@ class AppSettings {
         material: _str(json['material'], 'rack'),
         vodDownloadFolder: _str(json['vod_download_folder'], ''),
         maxDownloadsToKeep: _clampInt(json['max_downloads_to_keep'], 0, 0, 1 << 30),
+        simultaneousDownloads: _clampInt(json['simultaneous_downloads'], 1, 1,
+            maxSimultaneousDownloads),
         unfinishedDownloads: _list(json['unfinished_downloads']),
         maxRecentlyWatched: _clampInt(json['max_recently_watched'], 8, 1, 20),
         activeSidebarTab: _clampInt(json['active_sidebar_tab'], 0, 0, 2),

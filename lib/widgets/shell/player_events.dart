@@ -188,17 +188,22 @@ class PlayerEvents {
 
     _player.onDownloadProgress = (vodId, progress, status) {
       if (!_mounted()) return;
+      final running = activity.value.downloading.length;
       // Always cheap, and drives the pill plus the Library's live rows.
       publishActivity();
       // The full rebuild is still needed because VodsGrid reads the service
       // maps directly during build - but at most once per whole percent
-      // instead of the ~10/second it used to fire.
-      if (progressTickIsVisible(
-        previousBucket: _progressBuckets[vodId],
-        progress: progress,
-        previousStatus: _progressStatuses[vodId],
-        status: status,
-      )) {
+      // instead of the ~10/second it used to fire. And whenever a download
+      // starts running: Home lists the running ones from the snapshot in its
+      // build, and the report of a yt-dlp starting changes neither the
+      // percent nor the status.
+      if (activity.value.downloading.length != running ||
+          progressTickIsVisible(
+            previousBucket: _progressBuckets[vodId],
+            progress: progress,
+            previousStatus: _progressStatuses[vodId],
+            status: status,
+          )) {
         _progressBuckets[vodId] = (progress * 100).floor();
         _progressStatuses[vodId] = status;
         _repaint();

@@ -131,8 +131,9 @@ class ChannelsController extends ChangeNotifier {
   final Set<String> _liveFollowed = <String>{};
 
   /// The broadcast last known live on each favourite and followed channel
-  /// (see [LiveTransitions.knownBroadcasts]), kept while it is offline: a
-  /// channel back from an outage on the same broadcast is not news.
+  /// (see [LiveTransitions.knownBroadcasts]), kept while it is only presumed
+  /// offline: a channel back from an outage on the same broadcast is not
+  /// news. One Twitch reported offline is forgotten.
   Map<String, String> _favoriteBroadcasts = <String, String>{};
   Map<String, String> _followedBroadcasts = <String, String>{};
 
