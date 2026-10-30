@@ -1,5 +1,8 @@
+import 'dart:ui';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
+import 'package:streamlink_gui/utils/window_bounds.dart';
 
 /// Builds an AppSettings where every field differs from its default, so a
 /// round-trip that silently drops a field is detectable.
@@ -22,9 +25,9 @@ AppSettings buildNonDefaultSettings() {
     watchedProgressColorHex: '#80556677',
     lightAccentColorHex: '#10B981',
     darkAccentColorHex: '#38BDF8',
-    material: 'soft',
     vodDownloadFolder: r'D:\Vods',
     maxDownloadsToKeep: 7,
+    simultaneousDownloads: 3,
     unfinishedDownloads: const [
       {'vod': {'id': '123'}, 'channelName': 'somechannel'},
     ],
@@ -35,12 +38,20 @@ AppSettings buildNonDefaultSettings() {
     windowX: 120.0,
     windowY: 240.0,
     isWindowMaximized: true,
+    windowPlacement: const SavedWindowPlacement(
+      bounds: Rect.fromLTWH(-1701, 1821, 2796, 1855),
+      dpi: 144,
+      monitorName: r'\\.\DISPLAY1',
+      monitorBounds: Rect.fromLTWH(-2160, -813, 2160, 3840),
+    ),
     showGamesOnThumbnails: false,
     vodWatchExclusionThreshold: 42,
     autoPlayPreemptLowerPriority: true,
     isDarkTheme: false,
     disableVodPostProcessing: false,
     customVodArgs: '--concurrent-fragments 5',
+    notifyNewVod: false,
+    notifyFollowedWentLive: true,
   );
 }
 
@@ -66,6 +77,7 @@ void main() {
       expect(restored.watchedThreshold, 88);
       expect(restored.vodDownloadFolder, r'D:\Vods');
       expect(restored.maxDownloadsToKeep, 7);
+      expect(restored.simultaneousDownloads, 3);
       expect(restored.maxRecentlyWatched, 15);
       expect(restored.activeSidebarTab, 2);
       expect(restored.windowWidth, 1600.0);
@@ -93,6 +105,8 @@ void main() {
       expect(restored.vodWatchExclusionThreshold, 15);
       expect(restored.isDarkTheme, isTrue);
       expect(restored.maxDownloadsToKeep, 0);
+      expect(restored.simultaneousDownloads, 1,
+          reason: 'one at a time, as before the setting existed');
       expect(restored.windowWidth, 1280.0);
       expect(restored.windowHeight, 720.0);
       expect(restored.windowX, isNull);
@@ -145,6 +159,7 @@ void main() {
       expect(updated.windowX, original.windowX);
       expect(updated.windowY, original.windowY);
       expect(updated.isWindowMaximized, original.isWindowMaximized);
+      expect(updated.windowPlacement, original.windowPlacement);
       expect(updated.showGamesOnThumbnails, original.showGamesOnThumbnails);
       expect(updated.sidebarCollapsed, original.sidebarCollapsed);
       expect(updated.activeSidebarTab, original.activeSidebarTab);
@@ -157,6 +172,9 @@ void main() {
 
       expect(cleared.windowX, isNull);
       expect(cleared.windowY, isNull);
+      // The physical record is a position too; leaving it would restore the
+      // very position being cleared.
+      expect(cleared.windowPlacement, isNull);
       // Size is independent of position and must survive.
       expect(cleared.windowWidth, original.windowWidth);
       expect(cleared.windowHeight, original.windowHeight);
@@ -176,6 +194,8 @@ void main() {
         notifyAutoPlay: false,
         notifyAutoDownloadStart: false,
         notifyDownloadComplete: false,
+        notifyNewVod: false,
+        notifyFollowedWentLive: true,
         onboardingCompleted: true,
       );
       final restored = AppSettings.fromJson(original.toJson());
@@ -192,6 +212,8 @@ void main() {
       expect(restored.notifyAutoPlay, isFalse);
       expect(restored.notifyAutoDownloadStart, isFalse);
       expect(restored.notifyDownloadComplete, isFalse);
+      expect(restored.notifyNewVod, isFalse);
+      expect(restored.notifyFollowedWentLive, isTrue);
       expect(restored.onboardingCompleted, isTrue);
     });
 
@@ -204,6 +226,7 @@ void main() {
         'vod_watch_exclusion_threshold': 200,
         'local_server_port': 0,
         'max_downloads_to_keep': -5,
+        'simultaneous_downloads': 99,
         'vod_card_scale': 5000,
         'vod_title_font_size': 2,
         'close_action': 'explode',
@@ -215,6 +238,9 @@ void main() {
       expect(restored.vodWatchExclusionThreshold, 90);
       expect(restored.localServerPort, 1);
       expect(restored.maxDownloadsToKeep, 0);
+      expect(restored.simultaneousDownloads, AppSettings.maxSimultaneousDownloads);
+      expect(AppSettings.fromJson({'simultaneous_downloads': 0}).simultaneousDownloads,
+          1);
       expect(restored.vodCardScale, 600.0);
       // Clamped to the old floor of 11, then converted to what that was
       // actually rendering at scale 600: 11 * 1.8. See _vodTitleFontSize.
@@ -233,6 +259,10 @@ void main() {
       expect(restored.launchAtStartup, isFalse);
       expect(restored.trayLiveMenuEnabled, isTrue);
       expect(restored.notifyWentLive, isTrue);
+      // New-VOD toasts are the favourites' counterpart of went-live, so on;
+      // every followed channel going live would be a flood, so off.
+      expect(restored.notifyNewVod, isTrue);
+      expect(restored.notifyFollowedWentLive, isFalse);
       expect(restored.onboardingCompleted, isFalse);
     });
 
@@ -289,32 +319,44 @@ void main() {
       expect(s.vodCardScale, 350.0);
       expect(s.closeAction, 'tray');
       expect(s.notifyWentLive, isTrue);
-      expect(s.material, 'rack');
+      expect(s.toJson()['material'], 'soft');
     });
 
-    test('a material key from a newer build survives the round trip', () {
-      // The case inside this plan's own release train: a v1.8.0 config met by
-      // a v1.7.0 build. `material` is stored as a String and validated where
-      // it is USED, so an unrecognised key is carried through untouched rather
-      // than clamped to a known one.
-      //
-      // That matters because `saveConfig` rebuilds the whole file with no
-      // merge and `_saveWindowState` fires on every window resize. A build
-      // that clamped on read would not merely ignore the newer choice - it
-      // would overwrite it within seconds of launching, and downgrading for
-      // ten minutes would silently destroy the setting.
-      final s = AppSettings.fromJson(<String, dynamic>{'material': 'deck'});
-      expect(s.material, 'deck');
-      expect(s.toJson()['material'], 'deck');
+    test('every look an older build could have saved loads as Soft', () {
+      // Builds since v1.7.0 stored the chosen look as `material`, and
+      // pre-release builds of this one the "Simple rendering" switch as
+      // `canvas_engine`. This build has one look and no engine to switch, so
+      // whatever they hold has to load without complaint - and the keys must
+      // not survive as dead settings that the next save writes back.
+      for (final saved in <Object?>[
+        'rack', 'analogue', 'deck', 'glass', 'soft', 'not-a-material', 17,
+        null,
+      ]) {
+        late AppSettings s;
+        expect(
+            () => s = AppSettings.fromJson(<String, dynamic>{
+                  'material': saved,
+                  'canvas_engine': true,
+                  'is_dark_theme': false,
+                }),
+            returnsNormally,
+            reason: 'material $saved');
+        final written = s.toJson();
+        expect(written['material'], 'soft', reason: 'material $saved');
+        expect(written.containsKey('canvas_engine'), isFalse,
+            reason: 'the switch is gone, so its key is not written back');
+        // Only the dead keys are affected: the rest of the file reads as it
+        // always did.
+        expect(s.isDarkTheme, isFalse, reason: 'material $saved');
+      }
     });
 
-    test('an absent material key means rack', () {
-      // Every config written before v1.7.0 has no such key. The default is the
-      // new material rather than the old look, which is the release decision:
-      // Broadcast rack on fresh install AND on upgrade, with the picker named
-      // in the release notes as the way back.
-      final s = AppSettings.fromJson(<String, dynamic>{});
-      expect(s.material, 'rack');
+    test('what this build writes still opens on Soft in v1.10.0', () {
+      // v1.7.0 to v1.10.0 read `material` with Broadcast rack as the
+      // default for a missing key, so a rollback after this build has saved
+      // must find Soft's key there - not nothing.
+      expect(AppSettings().toJson()['material'], 'soft');
+      expect(AppSettings.softMaterialKey, 'soft');
     });
 
     test('an out-of-range sidebar tab cannot strand the user', () {

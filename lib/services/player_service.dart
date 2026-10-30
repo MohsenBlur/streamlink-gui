@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import '../models/app_settings.dart';
@@ -10,10 +11,83 @@ import '../utils/player_progress.dart';
 import '../utils/player_seek.dart';
 import '../utils/vod_playback_monitor.dart';
 import '../models/twitch_video.dart';
+import '../utils/mpc_slave_protocol.dart';
+import 'mpc_slave.dart';
 import 'twitch_api_service.dart';
 
+/// Starts a child process; `Process.start`, in production.
+typedef ProcessStarter = Future<Process> Function(
+    String executable, List<String> arguments,
+    {Map<String, String>? environment});
+
+/// Runs a short command to completion; `Process.run`, in production. Used
+/// for taskkill.
+typedef ProcessRunner = Future<ProcessResult> Function(
+    String executable, List<String> arguments);
+
 class PlayerService {
-  final TwitchApiService _apiService = TwitchApiService();
+  /// [startProcess] stands in for every child this service launches -
+  /// streamlink, yt-dlp, the players and the mpv bridge - and [runProcess]
+  /// for taskkill, so tests can drive the real launch, exit, retry and stop
+  /// handling without running or killing anything.
+  ///
+  /// [progressPollInterval] is how often a playing VOD's player is asked
+  /// where it is; tests shorten it to drive the tracker in milliseconds.
+  /// [apiService] is where watch positions are synced to Twitch. [mpcSlave]
+  /// is MPC-HC's control channel; by default the runner's, on Windows.
+  /// [mpcConnectGrace] is how long MPC-HC has to connect to it before the
+  /// session log says it has not.
+  PlayerService({
+    ProcessStarter? startProcess,
+    ProcessRunner? runProcess,
+    this.progressPollInterval = const Duration(seconds: 2),
+    TwitchApiService? apiService,
+    MpcSlaveChannel? mpcSlave,
+    this.mpcConnectGrace = const Duration(seconds: 20),
+  })  : _startProcess = startProcess ?? Process.start,
+        _runProcess = runProcess ?? Process.run,
+        _apiService = apiService ?? TwitchApiService(),
+        _mpcSlaveChannel = mpcSlave;
+
+  final TwitchApiService _apiService;
+  final ProcessStarter _startProcess;
+  final ProcessRunner _runProcess;
+  final Duration progressPollInterval;
+  final Duration mpcConnectGrace;
+
+  /// Made on first use, not with the service: nothing about a service that
+  /// never plays MPC-HC should touch a platform channel.
+  MpcSlaveChannel? _mpcSlaveChannel;
+  MpcSlaveChannel? get _mpcSlave =>
+      _mpcSlaveChannel ??= Platform.isWindows ? MethodChannelMpcSlave() : null;
+
+  /// Ends [procs] and everything they started, with one taskkill.
+  ///
+  /// Asynchronous on purpose. Every stop used to be `Process.runSync`, which
+  /// holds the UI isolate for the whole of taskkill's run - a process start
+  /// plus a walk of the process table, routinely a few hundred milliseconds -
+  /// so a Stop dropped frames, and quitting with a few streams, downloads and
+  /// an mpv bridge ran them back to back and froze the window for seconds.
+  ///
+  /// taskkill takes any number of /PID arguments and still ends the live ones
+  /// when some are already gone (it then exits 128), so a batch needs no
+  /// pre-filtering.
+  Future<ProcessResult?> _endProcessTrees(Iterable<Process> procs,
+      {bool force = true}) async {
+    final targets = procs.toList();
+    if (targets.isEmpty) return null;
+    if (!Platform.isWindows) {
+      for (final proc in targets) {
+        proc.kill();
+      }
+      return null;
+    }
+    return _runProcess('taskkill', [
+      if (force) '/F',
+      '/T',
+      for (final proc in targets) ...['/PID', '${proc.pid}'],
+    ]);
+  }
 
   String _getExecutablePath(String name) {
     final exeName = Platform.isWindows ? '$name.exe' : name;
@@ -64,7 +138,9 @@ class PlayerService {
   final Map<String, TwitchVideo> queuedDownloadTasks = {};
   final Map<String, String> downloadChannelNames = {};
   final Map<String, String> downloadTitles = {};
-  bool isQueueProcessing = false;
+
+  /// Whether any queued download is being run (see [_processDownloadQueue]).
+  bool get isQueueProcessing => _runningQueueEntries.isNotEmpty;
 
   /// VOD ids whose download the user cancelled, so the exit handler can tell a
   /// deliberate cancel apart from a genuine failure.
@@ -108,19 +184,31 @@ class PlayerService {
       logKeyForLiveStream(channelName.trim());
 
   /// Stops the live stream for [channelName], if one is running.
-  void killLiveStream(String channelName) {
-    killProcess(liveStreamKey(channelName));
-  }
+  Future<void> killLiveStream(String channelName) =>
+      killProcess(liveStreamKey(channelName));
 
   
   // Windows PowerShell bridges
   final Map<String, Process> _winIpcBridges = {};
+
+  /// Each bridge's per-session token, which a client must send before the
+  /// bridge relays anything to mpv.
+  final Map<String, String> _winIpcBridgeTokens = {};
 
   // Event Callbacks
   void Function(String vodId, double progress, String status)? onDownloadProgress;
   void Function(String vodId)? onDownloadCancelled;
   void Function(String vodId, String title, String filePath)? onDownloadCompleted;
   void Function(String vodId, String title, int exitCode)? onDownloadFailed;
+
+  /// Fires when [queueVodDownload] accepts a download - not for one it turns
+  /// away because it is already queued or running.
+  ///
+  /// The queue is queued into from several places (the grid, multi-select,
+  /// the Library, the auto-download pass, the resume at launch), so this is
+  /// the one place that sees every addition - which is what keeping the saved
+  /// queue current needs.
+  void Function(TwitchVideo vod, String channelName)? onDownloadQueued;
 
   /// Fires once per download process, whatever the outcome.
   ///
@@ -135,11 +223,22 @@ class PlayerService {
   /// callers do not report a deliberate stop as a failure.
   void Function(String key, int exitCode, bool userInitiated)? onPlayerStopped;
   void Function(String key, String line)? onPlayerLog;
+
+  /// Records a corroborated watch position and answers whether it was kept.
+  ///
+  /// The local store refuses a position that looks like a failed resume - far
+  /// behind the furthest point, early in a session - and answering false
+  /// keeps that position off Twitch too. The tracker used to push every
+  /// position regardless, through a void callback that could not say no: a
+  /// player that came up near 0 on a VOD stored at 2h30m was refused locally
+  /// and still overwrote the remote resume point every two seconds, where
+  /// other devices and Twitch's own UI read it.
+  ///
   /// [sessionAgeMs] lets the store tell a failed resume from a deliberate
   /// seek: a large backwards jump seconds into a session is a player that
   /// came up in the wrong place, not a user rewatching.
-  void Function(String vodId, int position, double progress, int sessionAgeMs)?
-      onWatchProgressUpdated;
+  bool Function(String vodId, int position, double progress, int sessionAgeMs)?
+      recordWatchProgress;
 
   /// Ports released recently, and when.
   ///
@@ -156,15 +255,148 @@ class PlayerService {
   /// restarting a VOD twice does not march up the port range.
   static const Duration _portCooldown = Duration(seconds: 20);
 
-  int getNextAvailablePlayerPort() {
+  /// Ports just handed out, and when.
+  ///
+  /// The probe below awaits, so two launches at once could otherwise both be
+  /// given the same free port before either had recorded it. A claim lasts
+  /// until the port is recorded, or a few seconds if the launch never gets
+  /// that far.
+  final Map<int, DateTime> _claimedPorts = {};
+  static const Duration _claimHold = Duration(seconds: 5);
+
+  static const int firstPlayerPort = 8089;
+
+  Future<int> getNextAvailablePlayerPort() async {
     final now = DateTime.now();
     _coolingPorts.removeWhere((_, at) => now.difference(at) > _portCooldown);
-    int port = 8089;
-    while (activePlayerPorts.containsValue(port) ||
-        _coolingPorts.containsKey(port)) {
-      port++;
+    _claimedPorts.removeWhere((_, at) => now.difference(at) > _claimHold);
+    for (var port = firstPlayerPort; port <= 65535; port++) {
+      if (activePlayerPorts.containsValue(port) ||
+          _coolingPorts.containsKey(port) ||
+          _claimedPorts.containsKey(port)) {
+        continue;
+      }
+      _claimedPorts[port] = now;
+      // The maps above only know this app's own players. Anything else on the
+      // port - a dev server on 8089 is common - meant the player could not
+      // bind its interface, and the tracker then polled the foreign server
+      // for the whole session: no progress saved, one suppressed log line.
+      if (await _isLoopbackPortFree(port)) return port;
+      _claimedPorts.remove(port);
     }
-    return port;
+    return firstPlayerPort; // every port taken; let the launch report it
+  }
+
+  static Future<bool> _isLoopbackPortFree(int port) async {
+    try {
+      final probe = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      await probe.close();
+      return true;
+    } on SocketException {
+      return false;
+    }
+  }
+
+  void _recordPlayerPort(String vodId, int port) {
+    activePlayerPorts[vodId] = port;
+    _claimedPorts.remove(port);
+  }
+
+  /// VLC's HTTP-interface password per playing VOD: new for every launch
+  /// (see buildPlayerArgs), and what the tracker and a seek authenticate
+  /// with.
+  final Map<String, String> _httpPasswords = {};
+
+  static String _newHttpPassword() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 16; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+  }
+
+  String _basicAuthFor(String vodId) =>
+      'Basic ${base64Encode(utf8.encode(':${_httpPasswords[vodId] ?? ''}'))}';
+
+  /// Each playing VOD's MPC-HC control session (see mpc_slave.dart), by VOD
+  /// id. It replaced the web interface the app used to turn on, which has no
+  /// authentication: any web page could drive the player with a plain GET
+  /// while a VOD played. Nothing here reads or writes MPC-HC's own settings.
+  final Map<String, MpcSlaveSession> _mpcSessions = {};
+
+  /// A control session for an MPC-HC launch of [key], or why there is none -
+  /// the player then plays, untracked. The reason is the caller's to log,
+  /// once the session's log has begun.
+  Future<(MpcSlaveSession?, String?)> _openMpcSession(String key) async {
+    final channel = _mpcSlave;
+    if (channel == null) return (null, 'there is no control channel here');
+    try {
+      final session = await MpcSlaveSession.open(channel);
+      var rejectionLogged = false;
+      session
+        ..onEvent = (event) {
+          if (event.command == MpcCommand.connect &&
+              identical(_mpcSessions[key], session)) {
+            log(key,
+                '[System] MPC-HC connected to the app over its /slave interface.');
+          }
+        }
+        ..onRejected = (rejection) {
+          if (rejectionLogged || !identical(_mpcSessions[key], session)) {
+            return;
+          }
+          rejectionLogged = true;
+          final sender = rejection.pid == 0
+              ? 'an unknown process'
+              : 'process ${rejection.pid}';
+          log(key,
+              '[System] Ignored a control message from $sender, which this '
+              'session did not start (further ones are ignored silently).');
+        };
+      // A displaced session would keep its window until the app exits.
+      final displaced = _mpcSessions.remove(key);
+      if (displaced != null) unawaited(displaced.close());
+      _mpcSessions[key] = session;
+      return (session, null);
+    } catch (e) {
+      return (null, '$e');
+    }
+  }
+
+  /// Hands [session] the process just started for it; false, with the reason
+  /// logged and the session closed, if it cannot be held to one.
+  Future<bool> _bindMpcSession(
+      String key, MpcSlaveSession session, int pid) async {
+    var bound = false;
+    try {
+      bound = await session.bind(pid);
+    } catch (_) {}
+    if (!bound) {
+      log(key,
+          _mpcUntracked('the process it started could not be held on to'));
+      _closeMpcSession(key, session);
+    }
+    return bound;
+  }
+
+  /// Ends [key]'s control session - [only] that one, when given, so a late
+  /// exit handler cannot end its relaunch's.
+  void _closeMpcSession(String key, [MpcSlaveSession? only]) {
+    final session = _mpcSessions[key];
+    if (session == null || (only != null && !identical(session, only))) {
+      return;
+    }
+    _mpcSessions.remove(key);
+    unawaited(session.close());
+  }
+
+  static String _mpcUntracked(String why) =>
+      "[System] MPC-HC's position is not tracked this session: $why.";
+
+  /// Frees [vodId]'s port, though not for immediate reuse: see _coolingPorts.
+  void _releasePlayerPort(String vodId) {
+    final port = activePlayerPorts.remove(vodId);
+    if (port != null) _coolingPorts[port] = DateTime.now();
   }
 
   String? findVlcPath() {
@@ -224,8 +456,8 @@ class PlayerService {
   /// player before building arguments. Only local playback did this, so the
   /// two streamlink paths fell through every branch and passed no --player at
   /// all - leaving Streamlink to guess, and skipping the player-specific
-  /// arguments (VLC's HTTP interface, MPV's IPC socket, MPC-HC's web port)
-  /// that watch-progress tracking depends on.
+  /// arguments (VLC's HTTP interface, MPV's IPC socket, MPC-HC's control
+  /// window) that watch-progress tracking depends on.
   String resolveEffectivePlayerType(AppSettings settings) {
     if (settings.playerType != 'default') return settings.playerType;
     if (findVlcPath() != null) return 'vlc';
@@ -265,7 +497,11 @@ class PlayerService {
   /// file. Several deletion paths used to test `path.contains(' - $vodId')`,
   /// which would happily match `Title - 123456789.mp4` while deleting id
   /// `12345`.
-  static RegExp _vodFinalFilePattern(String vodId) =>
+  ///
+  /// Public because the downloaded-file scan (DownloadsController) matches a
+  /// whole folder listing against it off the UI isolate, and must agree with
+  /// every path here about which file is a VOD's.
+  static RegExp vodFinalFilePattern(String vodId) =>
       // The negative lookahead keeps a bare `Title - 12345.ytdl` from being
       // treated as a finished download just because `ytdl` is alphanumeric.
       RegExp(
@@ -293,7 +529,7 @@ class PlayerService {
   List<File> findDownloadedVodFiles(String vodId, String channelName, String downloadFolder) {
     final dir = _channelDirectory(channelName, downloadFolder);
     if (dir == null) return const [];
-    final pattern = _vodFinalFilePattern(vodId);
+    final pattern = vodFinalFilePattern(vodId);
     try {
       return dir.listSync().whereType<File>().where((f) => pattern.hasMatch(f.path)).toList();
     } catch (_) {
@@ -341,27 +577,122 @@ class PlayerService {
     return deleted;
   }
 
-  void removeVodFromArchive(String vodId) {
-    if (downloadArchiveFilePath == null) return;
-    final file = File(downloadArchiveFilePath!);
-    if (!file.existsSync()) return;
-    
+  /// Whether [line] of yt-dlp's download archive records [vodId].
+  ///
+  /// yt-dlp records a Twitch VOD as `twitchvod v2821242888`: its own id
+  /// carries a `v` the app's ids do not, the same `v` [vodFinalFilePattern]
+  /// allows in file names. This compared the bare id, so it never matched a
+  /// Twitch line and no VOD was ever taken out of the archive: one deleted,
+  /// whether by hand, by a scan that found its file gone or by retention,
+  /// and then downloaded again was skipped as already done, and the run
+  /// exited 0 with no file.
+  static bool isArchiveLineFor(String line, String vodId) {
+    final parts = line.trim().split(RegExp(r'\s+'));
+    if (parts.length < 2) return false;
+    final id = parts.last;
+    return id == vodId || id == 'v$vodId';
+  }
+
+  /// The Twitch VOD ids yt-dlp's archive [text] records, in the order it
+  /// recorded them: its `twitchvod v<id>` lines, as [isArchiveLineFor]
+  /// reads them.
+  static List<String> archivedVodIds(String text) {
+    final ids = <String>[];
+    for (final line in const LineSplitter().convert(text)) {
+      final parts = line.trim().split(RegExp(r'\s+'));
+      if (parts.length < 2 || parts.first.toLowerCase() != 'twitchvod') continue;
+      final match = RegExp(r'^v?(\d+)$').firstMatch(parts.last);
+      if (match != null) ids.add(match.group(1)!);
+    }
+    return ids;
+  }
+
+  /// [archivedVodIds] of the archive on disk; empty when there is none or it
+  /// cannot be read. Never throws.
+  Future<List<String>> readArchivedVodIds() async {
+    final archivePath = downloadArchiveFilePath?.trim() ?? '';
+    if (archivePath.isEmpty) return const <String>[];
     try {
-      final lines = file.readAsLinesSync();
-      final newLines = <String>[];
-      bool changed = false;
-      for (final line in lines) {
-        final parts = line.split(RegExp(r'\s+'));
-        if (parts.length >= 2 && parts.last.trim() == vodId) {
+      final bytes = await File(archivePath).readAsBytes();
+      return archivedVodIds(utf8.decode(bytes, allowMalformed: true));
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
+  /// Every archive rewrite this service has started, in order; see
+  /// [removeVodFromArchive].
+  Future<void> _archiveWrites = Future<void>.value();
+
+  /// Takes [vodId] out of yt-dlp's download archive, so its next download is
+  /// not skipped as one already done.
+  ///
+  /// Asynchronous, and one rewrite at a time. This used to read and rewrite
+  /// the whole file synchronously on the UI isolate, once per VOD in a
+  /// multi-delete and once per entry a downloaded-file scan strips. Run
+  /// side by side, two rewrites would each start from the same read, and the
+  /// second would put back the line the first had just taken out.
+  ///
+  /// yt-dlp is the archive's other writer. It reads the file as it starts
+  /// and appends a line as each download completes, both under a lock on the
+  /// whole file (LockFileEx on Windows, over the same range Dart's lock
+  /// takes). The rewrite holds that lock too, so neither ever reads the
+  /// other's half-done work, and a line yt-dlp appends just before it is
+  /// read back in rather than written over. The file is rewritten in place
+  /// rather than replaced by a rename, which would swap it out from under
+  /// that lock; a crash mid-write leaves at worst a repeated or broken line,
+  /// which matches no download.
+  ///
+  /// Never throws.
+  Future<void> removeVodFromArchive(String vodId) {
+    final archivePath = downloadArchiveFilePath?.trim() ?? '';
+    if (archivePath.isEmpty) return Future<void>.value();
+    final rewrite =
+        _archiveWrites.then((_) => _removeArchiveLines(archivePath, vodId));
+    _archiveWrites = rewrite;
+    return rewrite;
+  }
+
+  static Future<void> _removeArchiveLines(String archivePath, String vodId) async {
+    final file = File(archivePath);
+    RandomAccessFile? archive;
+    var locked = false;
+    try {
+      if (!await file.exists()) return;
+      // Read and write, without the truncation FileMode.write does on open:
+      // nothing may change before the lock is held.
+      archive = await file.open(mode: FileMode.append);
+      await archive.lock(FileLock.blockingExclusive);
+      locked = true;
+      await archive.setPosition(0);
+      final text = utf8.decode(await archive.read(await archive.length()),
+          allowMalformed: true);
+      final kept = <String>[];
+      var changed = false;
+      for (final line in const LineSplitter().convert(text)) {
+        if (isArchiveLineFor(line, vodId)) {
           changed = true;
           continue;
         }
-        newLines.add(line);
+        kept.add(line);
       }
-      if (changed) {
-        file.writeAsStringSync(newLines.join('\n') + (newLines.isNotEmpty ? '\n' : ''), flush: true);
-      }
-    } catch (_) {}
+      if (!changed) return;
+      final bytes = utf8.encode(kept.isEmpty ? '' : '${kept.join('\n')}\n');
+      await archive.setPosition(0);
+      await archive.writeFrom(bytes);
+      await archive.truncate(bytes.length);
+      await archive.flush();
+    } catch (_) {
+    } finally {
+      // Unlocked explicitly: Windows releases a closed handle's locks only
+      // when it gets round to it, and yt-dlp waits on this one.
+      try {
+        if (locked) await archive?.unlock();
+      } catch (_) {}
+      try {
+        await archive?.close();
+      } catch (_) {}
+    }
   }
 
   void deleteTemporaryDownloadFiles(String vodId, String channelName, String downloadFolder) {
@@ -375,17 +706,38 @@ class PlayerService {
   }
 
   Future<void> startVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool isRetryWithFfmpeg = false, bool? overrideDisablePostProcessing}) async {
-    final downloadFolder = settings.vodDownloadFolder.trim();
-    if (downloadFolder.isEmpty) {
-      throw Exception('Download folder is empty');
-    }
-
-    final outputDir = Directory('$downloadFolder/$channelName');
-    if (!outputDir.existsSync()) {
-      outputDir.createSync(recursive: true);
-    }
-
     final vodId = vod.id;
+    final key = logKeyForDownload(vodId);
+    final title = 'Download: ${vod.title}';
+    final claim = _claimDownloadState(vodId);
+
+    // Reported like any other failure, not thrown. These used to throw
+    // straight out of the queue drain, which then never reset
+    // isQueueProcessing: one unplugged external drive, or a channel folder the
+    // user may not create, left every later download - manual or automatic -
+    // showing "Queued" until the app restarted.
+    final Directory outputDir;
+    try {
+      final downloadFolder = settings.vodDownloadFolder.trim();
+      if (downloadFolder.isEmpty) {
+        throw const FileSystemException('No download folder is set');
+      }
+      outputDir = Directory('$downloadFolder/$channelName');
+      if (!outputDir.existsSync()) {
+        outputDir.createSync(recursive: true);
+      }
+    } catch (e) {
+      // A session of its own, so the failure snackbar's View log has the
+      // reason to show - or, for the ffmpeg retry, the first run's session,
+      // which goes on (see below).
+      if (!isRetryWithFfmpeg) onPlayerStarted?.call(key, title);
+      log(key, '[System Error] Could not prepare the download folder: $e');
+      _cleanupDownloadState(vodId);
+      onDownloadEnded?.call(vodId, -1);
+      onDownloadFailed?.call(vodId, vod.title, -1);
+      return;
+    }
+
     downloadChannelNames[vodId] = channelName;
     downloadTitles[vodId] = vod.title;
     activeDownloadsProgress[vodId] = 0.0;
@@ -424,31 +776,94 @@ class PlayerService {
       url
     ]);
 
-    final key = logKeyForDownload(vodId);
-    final title = 'Download: ${vod.title}';
-    onPlayerStarted?.call(key, title);
+    // The ffmpeg retry carries on the first run's session, as a heal's
+    // relaunch does (launchStreamlinkForVod). A session of its own dropped
+    // that run's output - the very error that brought the retry on - and a
+    // retry that failed too left View log nothing to say why it switched.
+    if (!isRetryWithFfmpeg) onPlayerStarted?.call(key, title);
 
     log(key, '[System] Initializing VOD Download for: ${vod.title}');
-    log(key, '[System] Arguments: yt-dlp ${args.join(" ")}');
+    log(key, '[System] Arguments: yt-dlp ${argsForLog(args)}');
 
     bool needsFfmpegFallback = false;
 
     try {
-      final proc = await Process.start(
-        _getExecutablePath('yt-dlp'),
-        args,
-        environment: _getEnvironmentWithBin(),
-        runInShell: false,
-      );
+      // Until its process exists, a cancel has nothing to end: it is noted
+      // (_cancelledWhileStarting) and carried out here once it does.
+      _startingDownloads.add(vodId);
+      final Process proc;
+      try {
+        // A VOD deleted and then downloaded again must be out of the archive
+        // before yt-dlp reads it, or yt-dlp skips it as already done and
+        // exits 0 with no file. Bounded, so an archive some other program
+        // keeps locked cannot hold every download at "Starting...".
+        await _archiveWrites.timeout(const Duration(seconds: 5), onTimeout: () {});
+        if (_startCalledOff(vodId)) {
+          _endCalledOffStart(vodId, claim, -1);
+          return;
+        }
+        proc = await _startProcess(
+          _getExecutablePath('yt-dlp'),
+          args,
+          environment: _getEnvironmentWithBin(),
+        );
+      } finally {
+        _startingDownloads.remove(vodId);
+      }
+
+      if (_startCalledOff(vodId)) {
+        // It started after all, and used to download in full: the cancel had
+        // already cleared its state, so nothing showed it, and only a second
+        // cancel once its progress surfaced could stop it. Ended at once
+        // instead, as the cancel would have ended a running one.
+        final cancelled = _cancelledWhileStarting.contains(vodId);
+        unawaited(proc.stdout.drain<void>().catchError((_) {}));
+        unawaited(proc.stderr.drain<void>().catchError((_) {}));
+        try {
+          await _endProcessTrees([proc]);
+        } catch (_) {}
+        final exitCode = await proc.exitCode;
+        // The cancel deleted the VOD's files before this one could write
+        // any. Stopping everything leaves them, as it does a running one's.
+        if (cancelled) {
+          deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
+        }
+        _endCalledOffStart(vodId, claim, exitCode);
+        return;
+      }
 
       activeDownloadProcesses[vodId] = proc;
+      // Running from here, and said so: the activity pill and Home tell a
+      // running download from a queued one by its process, and heard of it
+      // only at yt-dlp's first progress line - after it has read the VOD's
+      // formats and slept whatever a yt-dlp config asks, half a minute with
+      // some. Every download started at once showed as queued until then.
+      onDownloadProgress?.call(vodId, activeDownloadsProgress[vodId] ?? 0.0,
+          activeDownloadTasks[vodId] ?? 'Starting...');
 
-      proc.stdout.transform(const Utf8Decoder(allowMalformed: true)).listen((line) {
+      // Line by line, not pipe read by pipe read. One read can hold several
+      // progress updates (yt-dlp separates them with a bare \r, which
+      // LineSplitter honours), half of one, or a progress update glued to the
+      // next message. The percentage used to be the first `NN%` anywhere in
+      // the read, so a VOD titled "My 100% run" briefly reported 100% from its
+      // Destination line; and the fragment error split across two reads never
+      // triggered the ffmpeg fallback below.
+      proc.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
         final trimmed = line.trim();
+        if (trimmed.isEmpty) return;
         log(key, trimmed);
-        if (line.contains('Initialization fragment found after media fragments')) {
+        if (trimmed.contains('Initialization fragment found after media fragments')) {
           needsFfmpegFallback = true;
         }
+        // Cancelled and queued again: a yt-dlp still talking on its way out
+        // (taskkill returns before its target is gone) would overwrite the new
+        // entry's "Queued". Only then: what one cancelled and not queued again
+        // prints is shown until its exit clears it.
+        final owner = _downloadStateOwners[vodId];
+        if (owner != null && owner != claim) return;
 
         if (trimmed.startsWith('[Metadata]') ||
             trimmed.startsWith('[EmbedThumbnail]') ||
@@ -461,9 +876,11 @@ class PlayerService {
           return;
         }
 
-        // Robust regex matching both integer & decimal percentage output
-        final pctMatch = RegExp(r'(\d+(?:\.\d+)?)%').firstMatch(line);
-        final speedMatch = RegExp(r'at\s+(\S+)').firstMatch(line);
+        // Integer and decimal percentages, but only on yt-dlp's own progress
+        // lines.
+        final pctMatch = _ytDlpProgressPattern.firstMatch(trimmed);
+        final speedMatch =
+            pctMatch == null ? null : _ytDlpSpeedPattern.firstMatch(trimmed);
 
         double? pct;
         String? speed;
@@ -490,7 +907,10 @@ class PlayerService {
         }
       });
 
-      proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((line) {
+      proc.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
         final trimmed = line.trim();
         if (trimmed.isEmpty) return;
 
@@ -518,17 +938,24 @@ class PlayerService {
       });
 
       final exitCode = await proc.exitCode;
-      _cleanupDownloadState(vodId);
-      // Before every branch below, including the cancelled early return and
-      // the ffmpeg retry (which begins a fresh session of its own).
-      onDownloadEnded?.call(vodId, exitCode);
+      _cleanupDownloadState(vodId, onlyFor: claim);
+      final cancelled = _cancelledDownloads.remove(vodId);
+      final retrying = !cancelled &&
+          exitCode != 0 &&
+          !isRetryWithFfmpeg &&
+          needsFfmpegFallback &&
+          !_shuttingDown;
+      // Before every branch below, including the cancelled early return -
+      // but not the ffmpeg retry, whose run carries on this session and ends
+      // it (or the gap before it does, when the retry is called off).
+      if (!retrying) onDownloadEnded?.call(vodId, exitCode);
 
       // A cancelled download exits non-zero like a failed one. Without this
       // check the ffmpeg fallback below restarted it - after the user cancelled
       // and after its partial files had been deleted - and the restarted run was
       // invisible to the cancel bookkeeping, so it could not be cancelled again.
       // It also reported "Download failed" on top of "Download cancelled".
-      if (_cancelledDownloads.remove(vodId)) {
+      if (cancelled) {
         log(key, '[System] Download cancelled by user.');
         return;
       }
@@ -539,16 +966,25 @@ class PlayerService {
         final downloadedFile = getDownloadedVodFile(vodId, channelName, settings.vodDownloadFolder);
         final filePath = downloadedFile?.path ?? '';
         onDownloadCompleted?.call(vodId, vod.title, filePath);
-        _cleanupOldestDownloads(settings);
+        // The limit in force now, not the one this download started under.
+        _cleanupOldestDownloads(_settingsNow(settings));
       } else {
-        if (!isRetryWithFfmpeg && needsFfmpegFallback && !_shuttingDown) {
+        if (retrying) {
           log(key, '[System Warning] HLS fragment error detected. Automatically retrying download using ffmpeg downloader...');
           deleteTemporaryDownloadFiles(vodId, channelName, settings.vodDownloadFolder);
+          _downloadsAwaitingRetry.add(vodId);
           await Future.delayed(const Duration(seconds: 1));
+          // Cancelled during the gap (or the app is stopping): the user was
+          // told "Download cancelled" and its files are already gone.
+          if (!_downloadsAwaitingRetry.remove(vodId) || _shuttingDown) {
+            log(key, '[System] Retry abandoned: the download was cancelled.');
+            onDownloadEnded?.call(vodId, exitCode);
+            return;
+          }
           await startVodDownload(
             vod,
             channelName,
-            settings,
+            _settingsNow(settings),
             isRetryWithFfmpeg: true,
             // Carry the fast-download choice into the retry; it used to be
             // dropped, so the retry silently ran the slow post-processing path.
@@ -560,14 +996,82 @@ class PlayerService {
         }
       }
     } catch (e) {
+      // A start that fails after its cancel is the cancel's: the user was
+      // told "Download cancelled", not that it failed.
+      if (_cancelledWhileStarting.contains(vodId)) {
+        _endCalledOffStart(vodId, claim, -1);
+        return;
+      }
       log(key, '[System Error] Download failed to start: $e');
-      _cleanupDownloadState(vodId);
+      _cleanupDownloadState(vodId, onlyFor: claim);
       onDownloadEnded?.call(vodId, -1);
       onDownloadFailed?.call(vodId, vod.title, -1);
     }
   }
 
-  void _cleanupDownloadState(String vodId) {
+  /// Downloads whose yt-dlp is being started: past "Starting...", with no
+  /// process yet for a cancel to end.
+  final Set<String> _startingDownloads = {};
+
+  /// Downloads cancelled while their yt-dlp was starting, for
+  /// [startVodDownload] to end the moment it exists. The cancel had nothing
+  /// to end and marked nothing, so the yt-dlp started anyway and downloaded
+  /// the VOD, with the cancel having cleared every trace of it on screen.
+  final Set<String> _cancelledWhileStarting = {};
+
+  /// Whether a start still on its way was cancelled, or everything was
+  /// stopped ([stopAll]), since it began.
+  bool _startCalledOff(String vodId) =>
+      _cancelledWhileStarting.contains(vodId) || _shuttingDown;
+
+  /// What a start called off still owes: its log session's end. A cancel
+  /// has already cleared the rest and told the screen; [stopAll] leaves the
+  /// queue saved, as it does for a running download.
+  void _endCalledOffStart(String vodId, int claim, int exitCode) {
+    _cancelledWhileStarting.remove(vodId);
+    _cleanupDownloadState(vodId, onlyFor: claim);
+    onDownloadEnded?.call(vodId, exitCode);
+    log(logKeyForDownload(vodId), '[System] Download cancelled by user.');
+  }
+
+  /// `[download]  45.3% of ~1.23GiB at 2.34MiB/s ETA 05:12` - anchored, so a
+  /// percentage elsewhere in a line (a title, a URL) is never progress.
+  static final RegExp _ytDlpProgressPattern =
+      RegExp(r'^\[download\]\s+(\d+(?:\.\d+)?)%');
+  static final RegExp _ytDlpSpeedPattern = RegExp(r'\bat\s+(\S+)');
+
+  /// Downloads sitting in the one-second gap before their ffmpeg retry.
+  ///
+  /// In that gap the failed yt-dlp has exited and its state is cleaned up, but
+  /// the VOD is still in the queue, so the Downloads panel lists it as queued
+  /// with a cancel button - and cancelling did nothing about the retry, which
+  /// started a second later, after the cancel had deleted its partial files.
+  final Set<String> _downloadsAwaitingRetry = {};
+
+  /// Which queueing or run of a VOD its download state belongs to.
+  ///
+  /// The state is keyed by VOD id, and a download cancelled while it runs
+  /// can be queued again before its yt-dlp's exit is processed (taskkill
+  /// returns before its target is gone). That exit used to clear the new
+  /// entry's "Queued" status, title and channel name; the drain then fell
+  /// back to its own channelName, which is whichever download started it, and
+  /// could save the VOD into another channel's folder. A run now clears the
+  /// state only while no queueing or run has claimed it since.
+  final Map<String, int> _downloadStateOwners = {};
+  int _lastDownloadStateOwner = 0;
+
+  int _claimDownloadState(String vodId) =>
+      _downloadStateOwners[vodId] = ++_lastDownloadStateOwner;
+
+  /// With [onlyFor], only while that claim (see [_claimDownloadState]) still
+  /// owns the state, or nothing does. A cancel releases the state without
+  /// claiming it, and the cancelled run must still clear what it records
+  /// after that: the progress a yt-dlp prints between taskkill returning and
+  /// its exit, which used to stay on show for good.
+  void _cleanupDownloadState(String vodId, {int? onlyFor}) {
+    final owner = _downloadStateOwners[vodId];
+    if (onlyFor != null && owner != null && owner != onlyFor) return;
+    _downloadStateOwners.remove(vodId);
     activeDownloadProcesses.remove(vodId);
     activeDownloadsProgress.remove(vodId);
     activeDownloadTasks.remove(vodId);
@@ -577,7 +1081,15 @@ class PlayerService {
 
   final Map<String, bool> downloadTaskFastDownloadOverrides = {};
 
-  void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings, {bool? overrideDisablePostProcessing}) {
+  /// [byHand] for a download the user asked for, which yt-dlp's archive is
+  /// no reason to skip: its line there, if any, is taken out before yt-dlp
+  /// starts. Builds before the archive matched Twitch's ids never took one
+  /// out, so a VOD deleted under them - and one yt-dlp ever skipped as done
+  /// without a file - came back from Download as "completed", with no file.
+  /// Not for the auto-download pass, which must not fetch such a VOD again,
+  /// nor for the resume at launch.
+  void queueVodDownload(TwitchVideo vod, String channelName, AppSettings settings,
+      {bool? overrideDisablePostProcessing, bool byHand = false}) {
     // Queueing a download means we are not shutting down after all.
     //
     // stopAll() latches _shuttingDown, and it is not only called on exit: the
@@ -586,6 +1098,8 @@ class PlayerService {
     // subsequent download - manual or automatic - would sit in the queue
     // forever, showing "Queued" and never starting.
     _shuttingDown = false;
+    _latestSettings = settings;
+    _latestChannelName = channelName;
     final vodId = vod.id;
     if (queuedDownloadTasks.containsKey(vodId) || activeDownloadProcesses.containsKey(vodId)) {
       return;
@@ -594,16 +1108,64 @@ class PlayerService {
     if (overrideDisablePostProcessing != null) {
       downloadTaskFastDownloadOverrides[vodId] = overrideDisablePostProcessing;
     }
+    // startVodDownload waits for the archive's rewrites before yt-dlp reads
+    // it, this one included.
+    if (byHand) unawaited(removeVodFromArchive(vodId));
 
+    _claimDownloadState(vodId);
     downloadChannelNames[vodId] = channelName;
     downloadTitles[vodId] = vod.title;
     queuedDownloadTasks[vodId] = vod;
     downloadQueue.add(vodId);
+    _queueTickets[vodId] = ++_lastQueueTicket;
     activeDownloadTasks[vodId] = 'Queued';
     onDownloadProgress?.call(vodId, 0.0, 'Queued');
+    onDownloadQueued?.call(vod, channelName);
 
     _processDownloadQueue(settings, channelName);
   }
+
+  /// Starts queued downloads up to the number allowed now, for a Settings
+  /// save that raised it. Otherwise only a queueing or a download ending
+  /// starts one, and the extra room stood empty until either happened.
+  /// Lowering it stops nothing: the downloads running finish, and fewer
+  /// start after them.
+  void startQueuedDownloads() {
+    final settings = currentSettings?.call() ?? _latestSettings;
+    if (settings == null || downloadQueue.isEmpty) return;
+    _processDownloadQueue(settings, _latestChannelName);
+  }
+
+  /// Which queueing of a VOD each queue entry is.
+  ///
+  /// The drain below removes an entry by id once its download is over, after
+  /// an await - and a VOD cancelled and queued again in the meantime (in the
+  /// one-second gap before its ffmpeg retry, where the Downloads panel offers
+  /// both buttons) has the same id. The drain used to remove the NEW entry,
+  /// so the re-queued VOD sat at "Queued" with nothing left to start it until
+  /// the app restarted. With a ticket per queueing, the drain removes only
+  /// the entry it actually ran.
+  final Map<String, int> _queueTickets = {};
+  int _lastQueueTicket = 0;
+
+  /// Where the settings in force are read (the screen's), for a download
+  /// queue that outlives the settings it was started with. Unset, the latest
+  /// settings any queueing handed in stand in.
+  ///
+  /// The drain took the settings of the call that started it and used them
+  /// for every download until the queue was empty - hours, for a bulk queue
+  /// or the resume at launch - while a Settings save adopts a new object. So
+  /// a folder changed meanwhile was ignored, as were Fast VOD downloads and
+  /// the custom yt-dlp arguments, and retention kept deleting finished VODs
+  /// at the old limit after the user had raised it or turned it off.
+  AppSettings Function()? currentSettings;
+  AppSettings? _latestSettings;
+
+  /// The channel the latest queueing named; see [_runQueueEntry].
+  String _latestChannelName = '';
+
+  AppSettings _settingsNow(AppSettings fallback) =>
+      currentSettings?.call() ?? _latestSettings ?? fallback;
 
   /// Set by [stopAll] so the queue drain stops instead of starting the next
   /// download. Without this, killing the active yt-dlp let the loop below spawn
@@ -611,28 +1173,104 @@ class PlayerService {
   /// while the app was shutting down, leaving a stray partial file behind.
   bool _shuttingDown = false;
 
-  Future<void> _processDownloadQueue(AppSettings settings, String channelName) async {
-    if (isQueueProcessing) return;
-    isQueueProcessing = true;
+  /// The queue entries being run now, by VOD id, each with the ticket (see
+  /// [_queueTickets]) of the queueing its run started from.
+  ///
+  /// One run per VOD at most. A run cancelled while its yt-dlp is still
+  /// dying, or in the gap before its ffmpeg retry, keeps its place until it
+  /// is over, and the VOD queued again meanwhile waits for it, as it did
+  /// behind the one loop that used to drain the queue: two runs of a VOD
+  /// would write the same partial file, and the cancel and retry markers
+  /// above, kept by VOD id, cannot tell two runs apart.
+  final Map<String, int?> _runningQueueEntries = {};
 
-    while (downloadQueue.isNotEmpty && !_shuttingDown) {
-      final vodId = downloadQueue.first;
+  /// Starts queued downloads, in queue order, while fewer are running than
+  /// Settings allows at once ([AppSettings.simultaneousDownloads]).
+  ///
+  /// One loop used to drain the queue, a download at a time. Each entry now
+  /// runs on its own ([_runQueueEntry]), and each one ending, like each
+  /// queueing, comes back here to start the next.
+  void _processDownloadQueue(AppSettings settings, String channelName) {
+    // Read now, like the rest of the settings: lowering it lets the
+    // downloads running finish, and fewer start after them.
+    final limit = _settingsNow(settings)
+        .simultaneousDownloads
+        .clamp(1, AppSettings.maxSimultaneousDownloads);
+    while (!_shuttingDown && _runningQueueEntries.length < limit) {
+      String? next;
+      for (final vodId in downloadQueue) {
+        if (!_runningQueueEntries.containsKey(vodId)) {
+          next = vodId;
+          break;
+        }
+      }
+      if (next == null) return;
+      _runningQueueEntries[next] = _queueTickets[next];
+      unawaited(_runQueueEntry(next, settings, channelName));
+    }
+  }
+
+  /// Runs [vodId]'s queue entry to its end, its ffmpeg retry included, then
+  /// gives its place to the next.
+  Future<void> _runQueueEntry(
+      String vodId, AppSettings settings, String channelName) async {
+    final ticket = _runningQueueEntries[vodId];
+    // Still the queueing this run started from, after the await: see
+    // _queueTickets. A re-queue since then is left for a later run.
+    bool stillOurs() => _queueTickets[vodId] == ticket;
+
+    // Nothing may end a run with its place still taken: with every place
+    // taken, each later download would sit at "Queued" for good.
+    // startVodDownload reports its own failures; this is the backstop for
+    // anything it did not anticipate.
+    try {
       final vod = queuedDownloadTasks[vodId];
       final chName = downloadChannelNames[vodId] ?? channelName;
       final overridePostProc = downloadTaskFastDownloadOverrides[vodId];
-      if (vod != null) {
-        await startVodDownload(vod, chName, settings, overrideDisablePostProcessing: overridePostProc);
+      try {
+        if (vod != null) {
+          // Read for each download as it starts (see currentSettings).
+          await startVodDownload(vod, chName, _settingsNow(settings),
+              overrideDisablePostProcessing: overridePostProc);
+        }
+      } catch (e) {
+        log(logKeyForDownload(vodId),
+            '[System Error] The download stopped unexpectedly: $e');
+        if (stillOurs()) _cleanupDownloadState(vodId);
       }
-      downloadQueue.remove(vodId);
-      queuedDownloadTasks.remove(vodId);
-      downloadTaskFastDownloadOverrides.remove(vodId);
+      if (stillOurs()) {
+        _queueTickets.remove(vodId);
+        downloadQueue.remove(vodId);
+        queuedDownloadTasks.remove(vodId);
+        downloadTaskFastDownloadOverrides.remove(vodId);
+      }
+    } finally {
+      _runningQueueEntries.remove(vodId);
+      _processDownloadQueue(settings, channelName);
     }
-
-    isQueueProcessing = false;
   }
 
-  Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder) async {
+  /// Calls off [vodId]'s download, queued or running, and removes what it
+  /// left. With [keepFinished] - the VOD was already downloaded before this
+  /// download of it was queued - its finished file and archive line stay:
+  /// the cancel is of the extra download, not of the copy the user had.
+  Future<void> cancelVodDownload(String vodId, String channelName, String downloadFolder,
+      {bool keepFinished = false}) async {
     final proc = activeDownloadProcesses[vodId];
+
+    // Nothing in flight, nothing to call off. A cancel confirmed after its
+    // download had finished (the Stop dialog can stay up for any length of
+    // time) used to run in full: "Download cancelled." replaced the
+    // completion message, and the VOD's archive line and files went - the
+    // finished file surviving only because the channel had been forgotten
+    // with the download, so the wrong folder was searched.
+    final inFlight = proc != null ||
+        _startingDownloads.contains(vodId) ||
+        _downloadsAwaitingRetry.contains(vodId) ||
+        downloadQueue.contains(vodId) ||
+        queuedDownloadTasks.containsKey(vodId) ||
+        activeDownloadTasks.containsKey(vodId);
+    if (!inFlight) return;
 
     // Only mark when a process actually exists to consume the marker.
     //
@@ -646,13 +1284,17 @@ class PlayerService {
     if (proc != null) {
       _cancelledDownloads.add(vodId);
       try {
-        if (Platform.isWindows) {
-          await Process.run('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
+        await _endProcessTrees([proc]);
       } catch (_) {}
+    } else if (_startingDownloads.contains(vodId)) {
+      // Its yt-dlp is on its way up: ended by startVodDownload once it
+      // exists, or never started if it does not yet.
+      _cancelledWhileStarting.add(vodId);
     }
+
+    // A download between its failed first run and its ffmpeg retry has no
+    // process, but must not be restarted after this.
+    _downloadsAwaitingRetry.remove(vodId);
 
     downloadQueue.remove(vodId);
     queuedDownloadTasks.remove(vodId);
@@ -661,7 +1303,11 @@ class PlayerService {
     downloadTaskFastDownloadOverrides.remove(vodId);
     _cleanupDownloadState(vodId);
     onDownloadCancelled?.call(vodId);
-    removeVodFromArchive(vodId);
+    if (keepFinished) {
+      deleteTemporaryDownloadFiles(vodId, channelName, downloadFolder);
+      return;
+    }
+    unawaited(removeVodFromArchive(vodId));
 
     // Remove the partial output. Anchored matching only: this used to delete
     // anything whose path merely contained " - <vodId>", so cancelling a short
@@ -669,29 +1315,76 @@ class PlayerService {
     deleteVodFiles(vodId, channelName, downloadFolder);
   }
 
+  /// Whether the app downloaded [vodId] - its registry or its download
+  /// history says so - set by the screen. Retention only deletes the files
+  /// of VODs this says yes to; unset, it deletes nothing.
+  bool Function(String vodId)? isOwnDownload;
+
+  /// The extensions yt-dlp leaves a finished Twitch VOD in.
+  static const Set<String> _videoExtensions = {
+    'mp4', 'mkv', 'webm', 'ts', 'mov', 'flv', 'm4v',
+  };
+
+  /// Deletes the oldest finished downloads beyond the limit, for good.
+  ///
+  /// Only the app's own: files of VODs it downloaded ([isOwnDownload]), with
+  /// a video extension, where it puts them - `<folder>/<channel>/` and no
+  /// deeper, never through a link. It used to walk the whole folder tree,
+  /// links included, and take any file named like ` - 2019.jpg`: with the
+  /// folder set to one that holds the user's own files, the oldest of them
+  /// went first - photos, scans, episodes, a NAS share behind a junction.
   void _cleanupOldestDownloads(AppSettings settings) {
     if (settings.maxDownloadsToKeep <= 0) return;
+    final isOwn = isOwnDownload;
+    if (isOwn == null) return;
     final downloadFolder = settings.vodDownloadFolder.trim();
     if (downloadFolder.isEmpty) return;
 
     final mainDir = Directory(downloadFolder);
     if (!mainDir.existsSync()) return;
 
-    final vodIdInName = RegExp(r' - v?(\d+)\.[A-Za-z0-9]+$', caseSensitive: false);
+    final vodIdInName =
+        RegExp(r' - v?(\d+)\.([A-Za-z0-9]+)$', caseSensitive: false);
 
     try {
       final allFiles = <File>[];
-      final entities = mainDir.listSync(recursive: true);
-      for (final entity in entities) {
-        if (entity is! File) continue;
-        final name = entity.path;
-        // Protect active .part/.ytdl downloads
-        if (!vodIdInName.hasMatch(name) || name.endsWith('.part') || name.endsWith('.ytdl')) {
+      final channelDirs =
+          mainDir.listSync(followLinks: false).whereType<Directory>();
+      for (final channelDir in channelDirs) {
+        final List<FileSystemEntity> entities;
+        try {
+          entities = channelDir.listSync(followLinks: false);
+        } catch (_) {
           continue;
         }
-        // Never delete a file that is open in a player right now.
-        if (playingVodFilePaths.values.any((p) => _isSamePath(p, name))) continue;
-        allFiles.add(entity);
+        for (final entity in entities) {
+          if (entity is! File) continue;
+          final match = vodIdInName.firstMatch(path.basename(entity.path));
+          // .part and .ytdl, a download in progress, have no video extension.
+          // yt-dlp names a Twitch VOD by its own id, the app's with a `v`
+          // before it (see vodFinalFilePattern); either may be the app's.
+          final digits = match?.group(1);
+          if (match == null ||
+              !_videoExtensions.contains(match.group(2)!.toLowerCase()) ||
+              !(isOwn(digits!) || isOwn('v$digits'))) {
+            continue;
+          }
+          // Never delete a file that is open in a player right now.
+          if (playingVodFilePaths.values.any((p) => _isSamePath(p, entity.path))) {
+            continue;
+          }
+          // Nor one another download is still writing. One at a time, none
+          // was running when this ran; with several, one finishing runs it
+          // while another may be past its .part, its file under the final
+          // name while yt-dlp fixes it up - and a VOD downloaded before is
+          // the app's own by its history. Deleted then, that download
+          // "completed" with no file.
+          if (activeDownloadProcesses.containsKey(digits) ||
+              activeDownloadProcesses.containsKey('v$digits')) {
+            continue;
+          }
+          allFiles.add(entity);
+        }
       }
 
       if (allFiles.length <= settings.maxDownloadsToKeep) return;
@@ -714,7 +1407,7 @@ class PlayerService {
           // the archive made a later re-download exit 0 immediately without
           // producing a file, which surfaced as a bogus "Download completed".
           if (match != null) {
-            removeVodFromArchive(match.group(1)!);
+            unawaited(removeVodFromArchive(match.group(1)!));
           }
         } catch (_) {}
       }
@@ -738,9 +1431,14 @@ class PlayerService {
     // streaming path: resolving a player touches the filesystem, and a throw
     // out here would skip the stop callback the caller depends on.
     try {
+      // Claimed before the first await (the port check), or a second launch
+      // arriving meanwhile passes the guard above too. The catch releases it.
+      playingVodIds.add(vod.id);
       final path = file.path;
       final args = <String>[];
       String exe = '';
+      MpcSlaveSession? mpc;
+      String? mpcUntracked;
 
       final finalSeek = resumeSeconds(
         watchPosition: vod.watchPosition,
@@ -748,7 +1446,7 @@ class PlayerService {
         watchedThreshold: settings.watchedThreshold,
       );
 
-      final port = getNextAvailablePlayerPort();
+      final port = await getNextAvailablePlayerPort();
       final title = 'Local: ${vod.title}';
 
       final String effectivePlayerType = resolveEffectivePlayerType(settings);
@@ -762,6 +1460,11 @@ class PlayerService {
         args.addAll(['/c', 'start', '/WAIT', '""', path]);
       } else {
         exe = resolvedExe;
+        if (kind == PlayerKind.mpcHc) {
+          (mpc, mpcUntracked) = await _openMpcSession(key);
+        }
+        final httpPassword = _newHttpPassword();
+        _httpPasswords[vod.id] = httpPassword;
         // Local files are passed straight to Process.start, so no shlex quoting
         // here - unlike the streamlink path, which parses --player-args.
         args.addAll(buildPlayerArgs(
@@ -770,27 +1473,29 @@ class PlayerService {
           port: port,
           ipcName: key,
           isWindows: Platform.isWindows,
+          httpPassword: httpPassword,
+          mpcSlaveWindow: mpc?.window,
+          mpcBe: isMpcBe(resolvedExe),
         ));
         args.add(path);
       }
 
-      playingVodIds.add(vod.id);
       // Recorded so retention never deletes the file being watched.
       playingVodFilePaths[vod.id] = file.path;
-      activePlayerPorts[vod.id] = port;
+      _recordPlayerPort(vod.id, port);
 
       onPlayerStarted?.call(key, title);
       log(key, '[System] Initializing local player for VOD ${vod.id}...');
       log(key, '[System] Seek time offset: ${finalSeek}s');
+      if (mpcUntracked != null) log(key, _mpcUntracked(mpcUntracked));
       log(key, '[System] Running local file command: $exe ${args.join(" ")}');
 
-      final proc = await Process.start(
-        exe,
-        args,
-        runInShell: false,
-      );
+      final proc = await _startProcess(exe, args);
 
       activePlayerProcesses[vod.id] = proc;
+      if (mpc != null && !await _bindMpcSession(key, mpc, proc.pid)) {
+        mpc = null;
+      }
 
       // Drain and log the player's own output. Without listeners dart:io
       // still creates the pipes, so a chatty player can fill the 64KB OS
@@ -823,22 +1528,30 @@ class PlayerService {
         }
       }
 
-      _startVODProgressTracker(vod, port, settings);
+      if (kind != PlayerKind.mpcHc || mpc != null) {
+        _startVODProgressTracker(vod, port, settings);
+      }
 
+      final session = mpc;
       proc.exitCode.then((exitCode) {
         log(key, '[System] Local player process exited with code $exitCode');
         playingVodIds.remove(vod.id);
         playingVodFilePaths.remove(vod.id);
         activePlayerProcesses.remove(vod.id);
-        activePlayerPorts.remove(vod.id);
+        // Cooled like the streamed path's: replaying a file right after
+        // closing one used to land on the port the dying player (or its mpv
+        // bridge) still held.
+        _releasePlayerPort(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
+        if (session != null) _closeMpcSession(key, session);
         onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
       });
     } catch (e) {
       playingVodIds.remove(vod.id);
       playingVodFilePaths.remove(vod.id);
       activePlayerPorts.remove(vod.id);
+      _closeMpcSession(key);
       log(key, '[System Error] Failed to launch local player: $e');
       onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key));
     }
@@ -856,6 +1569,9 @@ class PlayerService {
     // here left the caller's "now playing" marker set with no stop callback
     // ever firing to clear it.
     try {
+      // Claimed before the first await (the port check), or a second launch
+      // arriving meanwhile passes the guard above too. The catch releases it.
+      playingVodIds.add(vod.id);
       String titleString = '$channelName - ${vod.title}';
       // Resolve "default" to a real player before building arguments.
       final playerType = resolveEffectivePlayerType(settings);
@@ -870,8 +1586,13 @@ class PlayerService {
           ? settings.twitchClientId.trim()
           : 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
-      final port = getNextAvailablePlayerPort();
+      final port = await getNextAvailablePlayerPort();
       final title = 'VOD: ${vod.title}';
+      var (mpc, mpcUntracked) = kind == PlayerKind.mpcHc && playerExe != null
+          ? await _openMpcSession(key)
+          : (null, null);
+      final httpPassword = _newHttpPassword();
+      _httpPasswords[vod.id] = httpPassword;
 
       final cmd = buildVodStreamlinkArgs(
         vodId: vod.id,
@@ -895,11 +1616,12 @@ class PlayerService {
               watchedThreshold: settings.watchedThreshold,
             ),
         isWindows: Platform.isWindows,
+        httpPassword: httpPassword,
+        mpcSlaveWindow: mpc?.window,
       );
       final args = cmd.args;
 
-      playingVodIds.add(vod.id);
-      activePlayerPorts[vod.id] = port;
+      _recordPlayerPort(vod.id, port);
       activePlayerDurations[vod.id] = vod.duration;
 
       if (isRestart) {
@@ -918,23 +1640,48 @@ class PlayerService {
         log(key, '[System] This player has no known start-position flag, so playback begins at 0. '
             'Drag the seek bar to ${vod.watchPosition}s.');
       }
-      log(key, '[System] Arguments: ${args.join(" ")}');
+      if (mpcUntracked != null) log(key, _mpcUntracked(mpcUntracked));
+      log(key, '[System] Arguments: ${argsForLog(args)}');
 
-      final proc = await Process.start(
+      // A Stop that landed while the relaunch was finding a port: see
+      // _vodsRelaunching. Ends the session the way a Stop just before the
+      // heal's exit would have, instead of starting a player.
+      if (isRestart && _relaunchStops.remove(vod.id)) {
+        log(key, '[System] Stopped before the relaunch began.');
+        playingVodIds.remove(vod.id);
+        _releasePlayerPort(vod.id);
+        _closeMpcSession(key);
+        _vodRestartLedgers.remove(vod.id);
+        onPlayerStopped?.call(key, _vodsRelaunching.remove(vod.id) ?? -1, true);
+        return;
+      }
+
+      final proc = await _startProcess(
         _getExecutablePath('streamlink'),
         args,
         environment: _getEnvironmentWithBin(),
-        runInShell: false,
       );
 
       activePlayerProcesses[vod.id] = proc;
-      
+      // ...or while the process was starting, when there was still nothing
+      // for it to end. Acted on once the exit handler below is in place, so
+      // the stop is reported through it like any other.
+      _vodsRelaunching.remove(vod.id);
+      final stoppedWhileStarting = isRestart && _relaunchStops.remove(vod.id);
+
+      // streamlink's process, not the player's: streamlink starts the player
+      // itself, and the runner accepts the player as its descendant.
+      if (mpc != null && !await _bindMpcSession(key, mpc, proc.pid)) {
+        mpc = null;
+      }
+
       // Spawn Windows Named Pipe to TCP Bridge for MPV players
       if (kind == PlayerKind.mpv && Platform.isWindows) {
         await _startWindowsIpcBridge(key, port);
       }
 
-      _startVODProgressTracker(vod, port, settings,
+      if (kind != PlayerKind.mpcHc || mpc != null) {
+        _startVODProgressTracker(vod, port, settings,
           channelName: channelName,
           selfHeal: true,
           // Only the passthrough path carries a player-side start flag; under
@@ -944,6 +1691,7 @@ class PlayerService {
           // ...but under piping every reported position is short by exactly
           // that skip, and must be put back before anything believes it.
           positionOffset: cmd.passthrough ? 0 : cmd.appliedStart);
+      }
 
       // allowMalformed: a single non-UTF-8 byte from the child used to raise
       // a FormatException into the zone, silently killing the listener - and
@@ -965,20 +1713,22 @@ class PlayerService {
         }
       });
 
+      final session = mpc;
       proc.exitCode.then((exitCode) {
         log(key, '[System] Streamlink process for VOD ${vod.id} exited with code $exitCode');
         playingVodIds.remove(vod.id);
         activePlayerProcesses.remove(vod.id);
-        final releasedPort = activePlayerPorts.remove(vod.id);
-        if (releasedPort != null) _coolingPorts[releasedPort] = DateTime.now();
+        _releasePlayerPort(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
+        if (session != null) _closeMpcSession(key, session);
         // A premature-EOF verdict parked a resume position here before
         // killing the tree. This death is the supervisor's own doing:
         // relaunch quietly instead of announcing a stop the user never made.
         final restartAt = _pendingVodRestarts.remove(vod.id);
         if (restartAt != null && !_shuttingDown) {
           _stoppedByUser.remove(key); // consume the heal-kill's marker
+          _vodsRelaunching[vod.id] = exitCode;
           launchStreamlinkForVod(vod, channelName, settings,
               resumeOverride: restartAt, isRestart: true);
           return;
@@ -986,15 +1736,36 @@ class PlayerService {
         _vodRestartLedgers.remove(vod.id); // user stop, normal exit, give-up
         onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
       });
+
+      if (stoppedWhileStarting) {
+        unawaited(_forceKill(key, markUserInitiated: true));
+      }
     } catch (e) {
       log(key, '[System Error] Failed to start Streamlink: $e');
       playingVodIds.remove(vod.id);
       activePlayerPorts.remove(vod.id);
+      _closeMpcSession(key);
       _pendingVodRestarts.remove(vod.id);
       _vodRestartLedgers.remove(vod.id);
-      onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key));
+      _vodsRelaunching.remove(vod.id);
+      // A Stop during a relaunch that then failed: the stop is what the user
+      // asked for, so it is reported as theirs rather than as a failure.
+      final stopped = _relaunchStops.remove(vod.id);
+      onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key) || stopped);
     }
   }
+
+  /// Streamed VODs between a self-heal's exit and its relaunched process
+  /// being registered, with the exit code of the process the heal ended.
+  ///
+  /// The relaunch finds a port and starts a process, both awaited, and in
+  /// that gap nothing is in activePlayerProcesses - so a Stop found no
+  /// process, did nothing, and the relaunch went on to play the stream the
+  /// user had just stopped. A Stop in the gap is now recorded in
+  /// [_relaunchStops], which the relaunch checks before starting its process
+  /// and again once it is registered.
+  final Map<String, int> _vodsRelaunching = {};
+  final Set<String> _relaunchStops = {};
 
   Future<void> launchStreamlinkForLive(String channelName, bool isLive, String? streamTitle, String? game, AppSettings settings) async {
     final cleanChannel = channelName.toLowerCase().trim();
@@ -1041,14 +1812,13 @@ class PlayerService {
 
     onPlayerStarted?.call(key, title);
     log(key, '[System] Initializing Streamlink for twitch.tv/$channelName ${settings.defaultQuality}...');
-    log(key, '[System] Arguments: ${args.join(" ")}');
+    log(key, '[System] Arguments: ${argsForLog(args)}');
 
     try {
-      final proc = await Process.start(
+      final proc = await _startProcess(
         _getExecutablePath('streamlink'),
         args,
         environment: _getEnvironmentWithBin(),
-        runInShell: false,
       );
 
       activePlayerProcesses[key] = proc;
@@ -1114,6 +1884,7 @@ class PlayerService {
     final durationSeconds = _apiService.parseDurationToSeconds(vod.duration);
     final monitor = VodPlaybackMonitor(durationSeconds: durationSeconds);
     bool pollErrorLogged = false;
+    bool mpcSilenceLogged = false;
 
     // Did the player actually start where it was told to?
     //
@@ -1157,7 +1928,11 @@ class PlayerService {
       for (final event in events) {
         switch (event) {
           case MonitorEvent.firstContact:
-            log(vod.id, '[System] Player interface responding on port $port.');
+            log(
+                vod.id,
+                isMpc
+                    ? '[System] Player answering over its control window.'
+                    : '[System] Player interface responding on port $port.');
           case MonitorEvent.firstConfirmedPosition:
             log(vod.id,
                 '[System] Watch position corroborated at ${confirmed}s; '
@@ -1194,7 +1969,7 @@ class PlayerService {
               // closing it here preserves the close-at-end behaviour every
               // release before keep-open had. Marked user-initiated so the
               // teardown is snackbar-free.
-              killProcess(vod.id);
+              unawaited(_forceKill(vod.id, markUserInitiated: true));
             }
         }
       }
@@ -1204,11 +1979,10 @@ class PlayerService {
       PlayerStatus? status;
       if (isVlc) {
         try {
-          final auth = 'Basic ' + base64Encode(utf8.encode(':streamlink'));
           final response = await http.get(
             Uri.parse('http://localhost:$port/requests/status.json'),
             headers: {
-              'Authorization': auth,
+              'Authorization': _basicAuthFor(vod.id),
             },
           ).timeout(const Duration(seconds: 2));
 
@@ -1224,36 +1998,32 @@ class PlayerService {
         }
       } else if (isMpv) {
         try {
-          Socket? socket;
+          final String replies;
           if (Platform.isWindows) {
-            // Windows Named Pipe IPC runs through the PowerShell TCP loopback bridge
-            socket = await Socket.connect('127.0.0.1', port, timeout: const Duration(seconds: 2));
+            // Windows Named Pipe IPC runs through the PowerShell TCP loopback
+            // bridge, which drops any client without the session's token - so
+            // with no token (the bridge never started) there is no one to ask.
+            final token = _winIpcBridgeTokens[vod.id];
+            replies = token == null
+                ? ''
+                : await exchangeWithMpv(
+                    () => _connectToMpv(vod.id, port),
+                    commands: mpvStatusCommands(),
+                    bridgeToken: token,
+                    // Wait for ALL THREE replies. The old code destroyed the
+                    // socket on the FIRST newline, which raced the second
+                    // reply - a latent bug that a third command would have
+                    // turned routine.
+                    isComplete: mpvRepliesComplete);
           } else {
             // macOS/Linux Unix domain socket connection
-            socket = await Socket.connect(
-              InternetAddress('/tmp/mpv-socket-${vod.id}', type: InternetAddressType.unix),
-              0,
-              timeout: const Duration(seconds: 2)
-            );
+            replies = await exchangeWithMpv(
+                () => _connectToMpv(vod.id, port),
+                commands: mpvStatusCommands(),
+                isComplete: mpvRepliesComplete);
           }
 
-          String responseBuffer = '';
-          socket.listen((data) {
-            responseBuffer +=
-                const Utf8Decoder(allowMalformed: true).convert(data);
-            // Wait for ALL THREE replies. The old code destroyed the socket
-            // on the FIRST newline, which raced the second reply - a latent
-            // bug that a third command would have turned routine.
-            if (mpvRepliesComplete(responseBuffer)) {
-              socket?.destroy();
-            }
-          });
-          for (final command in mpvStatusCommands()) {
-            socket.write(command);
-          }
-          await Future.delayed(const Duration(milliseconds: 300));
-
-          status = parseMpvStatus(responseBuffer);
+          status = parseMpvStatus(replies);
         } catch (e) {
           if (!pollErrorLogged && isLive()) {
             pollErrorLogged = true;
@@ -1262,20 +2032,30 @@ class PlayerService {
           }
         }
       } else if (isMpc) {
+        // Over the session's /slave window. Until MPC-HC connects there is
+        // nobody to ask and the tick has no facts, as a refused HTTP poll had
+        // none; one that never connects is said so once, rather than
+        // tracking nothing in silence.
+        final session = _mpcSessions[vod.id];
         try {
-          final response = await http.get(
-            Uri.parse('http://127.0.0.1:$port/variables.html'),
-          ).timeout(const Duration(seconds: 2));
-
-          if (response.statusCode == 200) {
-            status = parseMpcHcStatus(response.body);
-          }
+          status = session == null ? null : await session.poll();
         } catch (e) {
           if (!pollErrorLogged && isLive()) {
             pollErrorLogged = true;
             log(vod.id,
                 '[System] Progress poll error (further ones suppressed): $e');
           }
+        }
+        if (session != null &&
+            !session.state.connected &&
+            !mpcSilenceLogged &&
+            isLive() &&
+            DateTime.now().millisecondsSinceEpoch - sessionStartedMs >
+                mpcConnectGrace.inMilliseconds) {
+          mpcSilenceLogged = true;
+          log(vod.id,
+              '[System] MPC-HC has not connected to the app, so its position '
+              'is not being tracked.');
         }
       } else {
         // PlayerKind.other: no polling interface, no gate, no self-heal.
@@ -1340,7 +2120,7 @@ class PlayerService {
       handleEvents(result.events);
     }
 
-    timer = Timer.periodic(const Duration(seconds: 2), (t) async {
+    timer = Timer.periodic(progressPollInterval, (t) async {
       // One tick at a time. Every branch of tick() awaits - up to a 2s HTTP
       // timeout, or a socket connect plus a 300ms settle - so on a slow or
       // unresponsive player the ticks overlapped, interleaved their writes to
@@ -1375,90 +2155,201 @@ class PlayerService {
     // 1. Always update local progress immediately
     final totalSeconds = _apiService.parseDurationToSeconds(vod.duration);
     final progress = totalSeconds > 0 ? position / totalSeconds : 0.0;
-    onWatchProgressUpdated?.call(vod.id, position, progress,
-        DateTime.now().millisecondsSinceEpoch - sessionStartedMs);
+    final sessionAgeMs =
+        DateTime.now().millisecondsSinceEpoch - sessionStartedMs;
+    // With nothing recording locally there is no verdict to honour, and the
+    // push goes ahead as it always did.
+    final kept =
+        recordWatchProgress?.call(vod.id, position, progress, sessionAgeMs) ??
+            true;
 
-    // 2. Sync to Twitch in the background if token exists
-    if (webToken.isNotEmpty) {
+    // 2. Sync to Twitch in the background if token exists - and only what the
+    // local store kept.
+    if (kept && webToken.isNotEmpty) {
       try {
         await _apiService.syncSingleVODProgressDirect(vod.id, position, webToken);
       } catch (_) {}
     }
   }
 
-  // Windows Named Pipe to TCP loopback bridge script execution.
+  // Windows Named Pipe to TCP loopback bridge.
   //
   // MPV exposes its JSON IPC on a Windows named pipe, which dart:io cannot open
   // directly, so a small PowerShell relay fronts it with a loopback TCP socket.
+  // The script, and the protocol it speaks, live in buildMpvBridgeScript.
   //
   // The relay must serve MANY connections: the progress tracker opens a fresh
-  // socket every two seconds and closes it as soon as a reply arrives. The
-  // previous script accepted exactly ONE client and exited when either copy
+  // socket every two seconds and closes it as soon as a reply arrives. An
+  // earlier script accepted exactly ONE client and exited when either copy
   // completed - which the tracker's own close triggered - so every later poll
   // got connection-refused (swallowed by a bare catch) and the watch position
   // froze at the first sample. Worse, it connected to the pipe BEFORE starting
   // the listener, so the first polls were refused while it waited on MPV.
   Future<void> _startWindowsIpcBridge(String vodId, int port) async {
-    final pipeName = 'mpv-socket-$vodId';
-    final bridgeScript = '''
-      \$ErrorActionPreference = 'Stop'
-      try {
-        # Listen first, so a poll arriving before MPV has created its pipe is
-        # accepted and simply fails fast rather than being refused outright.
-        \$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-        \$listener.Start()
+    // A displaced relay is orphaned: nothing else holds its pid, so it would
+    // sit on the loopback port until the app exits, and the new relay's
+    // Start() would fail against the port it still holds.
+    _stopWindowsIpcBridge(vodId);
 
-        while (\$true) {
-          \$tcpClient = \$listener.AcceptTcpClient()
-          try {
-            # A fresh pipe connection per request. MPV's IPC server accepts
-            # sequential clients, and this keeps each poll independent: a
-            # half-finished exchange cannot wedge the next one.
-            \$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '$pipeName', [System.IO.Pipes.PipeDirection]::InOut)
-            \$pipe.Connect(2000)
-
-            \$tcpStream = \$tcpClient.GetStream()
-            \$pTask = \$pipe.CopyToAsync(\$tcpStream)
-            \$tTask = \$tcpStream.CopyToAsync(\$pipe)
-            [System.Threading.Tasks.Task]::WaitAny(@(\$pTask, \$tTask), 5000)
-          } catch {
-            # MPV not ready yet, or the client vanished: drop this exchange and
-            # keep serving.
-          } finally {
-            if (\$pipe) { \$pipe.Dispose(); \$pipe = \$null }
-            if (\$tcpClient) { \$tcpClient.Close() }
-          }
-        }
-      } catch {
-        exit 1
-      }
-    ''';
-
+    final token = _newBridgeToken();
     try {
-      final proc = await Process.start(
-        'powershell',
-        ['-WindowStyle', 'Hidden', '-Command', bridgeScript],
-        runInShell: false
+      final proc = await startMpvPipeBridge(
+        port: port,
+        pipeName: mpvPipeName(vodId),
+        token: token,
+        onOutput: (line) => log(vodId, '[mpv bridge] $line'),
+        start: _startProcess,
       );
-      // A displaced relay is orphaned: nothing else holds its pid, so it would
-      // sit on the loopback port until the app exits, and the new relay's
-      // Start() would fail against the port it still holds.
-      _stopWindowsIpcBridge(vodId);
       _winIpcBridges[vodId] = proc;
-    } catch (_) {}
+      _winIpcBridgeTokens[vodId] = token;
+      proc.exitCode.then((code) {
+        // Only an exit nobody asked for is news: a deliberate stop unregisters
+        // the bridge before killing it. Without this the first sign of a dead
+        // relay was a single suppressed poll error.
+        if (identical(_winIpcBridges[vodId], proc)) {
+          log(vodId,
+              '[System] The mpv progress bridge exited (code $code), so watch '
+              'progress will not be saved for the rest of this session.');
+        }
+      });
+    } catch (e) {
+      log(vodId, '[System] Could not start the mpv progress bridge: $e');
+    }
+  }
+
+  static String _newBridgeToken() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 16; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+  }
+
+  /// Starts the bridge for one session and drains everything it prints.
+  ///
+  /// Draining is load-bearing, not tidiness: dart:io creates the pipes whether
+  /// or not anyone reads them, and a child that fills one blocks on its next
+  /// write - which is exactly how the previous relay wedged. Whatever does
+  /// arrive goes to [onOutput], so a script that starts printing again shows
+  /// up in the session log instead of silently stopping the relay.
+  ///
+  /// Static so the real relay can be tested on its own.
+  static Future<Process> startMpvPipeBridge({
+    required int port,
+    required String pipeName,
+    required String token,
+    required void Function(String line) onOutput,
+    ProcessStarter start = Process.start,
+  }) async {
+    final script = buildMpvBridgeScript(port: port, pipeName: pipeName);
+    final proc = await start(
+      'powershell',
+      [
+        // A profile that prints anything would land in the very pipe this
+        // relay must keep empty, and costs startup time before it listens.
+        '-NoProfile',
+        '-NonInteractive',
+        '-WindowStyle', 'Hidden',
+        '-EncodedCommand', encodePowerShellCommand(script),
+      ],
+      environment: {mpvBridgeTokenVariable: token},
+    );
+    for (final output in [proc.stdout, proc.stderr]) {
+      output
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .transform(const LineSplitter())
+          .listen((line) {
+        if (line.trim().isNotEmpty) onOutput(line.trim());
+      });
+    }
+    return proc;
+  }
+
+  /// Where a playing mpv's JSON IPC is reached, for the session [ipcName].
+  ///
+  /// On Windows, the session's loopback bridge on [port], which relays to
+  /// mpv's named pipe; elsewhere, mpv's own unix socket - the one
+  /// `--input-ipc-server` names at launch (buildPlayerArgs). The progress
+  /// tracker and the seek both connect through this. The seek used to dial
+  /// 127.0.0.1:[port] everywhere, where off Windows nothing listens, so it
+  /// could never reach mpv there.
+  static ({Object host, int port}) mpvIpcEndpoint(String ipcName, int port,
+          {required bool isWindows}) =>
+      isWindows
+          ? (host: '127.0.0.1', port: port)
+          : (
+              host: InternetAddress(mpvIpcPath(ipcName, false),
+                  type: InternetAddressType.unix),
+              port: 0,
+            );
+
+  Future<Socket> _connectToMpv(String ipcName, int port) {
+    final endpoint =
+        mpvIpcEndpoint(ipcName, port, isWindows: Platform.isWindows);
+    return Socket.connect(endpoint.host, endpoint.port,
+        timeout: const Duration(seconds: 2));
+  }
+
+  /// One request/reply round trip over mpv's JSON IPC.
+  ///
+  /// With [bridgeToken] the far end is the Windows bridge, which wants the
+  /// token first and a blank line after the commands, and closes the
+  /// connection once it has replied. Without one it is mpv's own unix socket,
+  /// which takes the commands bare and stays open, so [isComplete] (or
+  /// [timeout]) ends the exchange.
+  ///
+  /// The socket is destroyed on every path. The tracker used to destroy it
+  /// only once all three replies had arrived, so each poll against a wedged
+  /// relay left a connected socket behind, every two seconds, for the rest of
+  /// playback - and with no onError, a reset from the relay surfaced as an
+  /// uncaught async error on each of them.
+  static Future<String> exchangeWithMpv(
+    Future<Socket> Function() connect, {
+    required List<String> commands,
+    String? bridgeToken,
+    bool Function(String replies)? isComplete,
+    Duration timeout = const Duration(seconds: 1),
+  }) async {
+    Socket? socket;
+    try {
+      socket = await connect();
+      final replies = StringBuffer();
+      final finished = Completer<void>();
+      void finish() {
+        if (!finished.isCompleted) finished.complete();
+      }
+
+      socket.listen(
+        (data) {
+          replies.write(const Utf8Decoder(allowMalformed: true).convert(data));
+          if (isComplete != null && isComplete(replies.toString())) finish();
+        },
+        onError: (Object _) => finish(),
+        onDone: finish,
+        cancelOnError: true,
+      );
+      // Writing into a connection the far end has already reset fails here,
+      // not at write(). The reply, or its absence, is all that matters.
+      socket.done.ignore();
+      socket.write([
+        if (bridgeToken != null) '$bridgeToken\n',
+        ...commands,
+        if (bridgeToken != null) '\n',
+      ].join());
+
+      await finished.future.timeout(timeout, onTimeout: () {});
+      return replies.toString();
+    } finally {
+      socket?.destroy();
+    }
   }
 
   void _stopWindowsIpcBridge(String vodId) {
+    _winIpcBridgeTokens.remove(vodId);
     final proc = _winIpcBridges.remove(vodId);
-    if (proc != null) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
-    }
+    // Fire and forget: called from exit handlers, which have nothing to wait
+    // for, and a relay that survives this is reaped by the job object at exit.
+    if (proc != null) _endProcessTrees([proc]).ignore();
   }
 
   /// A premature-EOF verdict arrived from the monitor: decide whether to
@@ -1466,6 +2357,11 @@ class PlayerService {
   void _handlePrematureEof(
       TwitchVideo vod, String channelName, AppSettings settings, int confirmed) {
     if (_pendingVodRestarts.containsKey(vod.id)) return; // bounce in flight
+    // Already being stopped. A Stop marks this before its taskkill starts,
+    // and the taskkill is asynchronous, so the tracker keeps ticking while it
+    // runs; a verdict landing then would stage a relaunch behind the Stop,
+    // which the exit handler would obey.
+    if (_stoppedByUser.contains(vod.id)) return;
     final ledger =
         _vodRestartLedgers.putIfAbsent(vod.id, () => RestartLedger());
     if (shouldAttemptRestart(ledger: ledger, confirmedPosition: confirmed)) {
@@ -1502,7 +2398,12 @@ class PlayerService {
     if (channel == SeekChannel.none) return false;
     final duration = _apiService.parseDurationToSeconds(
         activePlayerDurations[vodId] ?? '');
-    await _seekPlayer(channel, port, seconds, duration, vodId);
+    // Only claimed once the player has acknowledged it: this used to log
+    // "Jumped" - and tell the user so - right after _seekPlayer had logged
+    // that it could not reach the player at all.
+    if (!await _seekPlayer(channel, port, seconds, duration, vodId)) {
+      return false;
+    }
     log(vodId, '[System] Jumped to ${seconds}s at your request.');
     return true;
   }
@@ -1515,30 +2416,76 @@ class PlayerService {
   ///
   /// Uses the same control channel the progress tracker already polls, so this
   /// needs no new plumbing and no new port.
-  Future<void> _seekPlayer(SeekChannel channel, int port, int target,
+  ///
+  /// Answers whether the player acknowledged the seek. Every way it can fail
+  /// is logged here, so a caller only has to decide what to claim.
+  Future<bool> _seekPlayer(SeekChannel channel, int port, int target,
       int durationSeconds, String logKey) async {
     try {
       if (channel == SeekChannel.mpvIpc) {
-        final socket = await Socket.connect('127.0.0.1', port,
-            timeout: const Duration(seconds: 2));
-        socket.write(mpvSeekCommand(target));
-        await socket.flush();
-        socket.destroy();
-        return;
+        final token = _winIpcBridgeTokens[logKey];
+        if (Platform.isWindows && token == null) {
+          log(logKey,
+              '[System] Could not correct the playback position: the mpv '
+              'progress bridge is not running.');
+          return false;
+        }
+        // Waits for the bridge's reply (it closes once mpv has answered), so
+        // a caller that logs "jumped" afterwards is not guessing. mpv
+        // answers every command with an "error" member; only "success" is
+        // a seek that happened, and no answer at all is none.
+        final replies = await exchangeWithMpv(
+          () => _connectToMpv(logKey, port),
+          commands: [mpvSeekCommand(target)],
+          bridgeToken: token,
+          isComplete: mpvSeekAnswered,
+          timeout: const Duration(seconds: 2),
+        );
+        if (!replies.contains('"error":"success"')) {
+          log(logKey,
+              '[System] Could not correct the playback position: mpv did not '
+              'confirm the seek${replies.trim().isEmpty ? '' : ' (${replies.trim()})'}.');
+          return false;
+        }
+        return true;
+      }
+      if (channel == SeekChannel.mpcHcSlave) {
+        final session = _mpcSessions[logKey];
+        if (session == null || !session.connected) {
+          log(logKey,
+              '[System] Could not correct the playback position: MPC-HC has '
+              'not connected to the app.');
+          return false;
+        }
+        // True only once MPC-HC reports the seek: it takes the command even
+        // when it has nothing loaded to seek in.
+        if (!await session.seek(target)) {
+          log(logKey,
+              '[System] Could not correct the playback position: MPC-HC did '
+              'not confirm the seek.');
+          return false;
+        }
+        return true;
       }
       final path = seekRequestPath(channel,
           targetSeconds: target, durationSeconds: durationSeconds);
-      if (path == null) return;
+      if (path == null) return false;
       final uri = Uri.parse('http://127.0.0.1:$port/$path');
-      if (channel == SeekChannel.vlcHttp) {
-        final auth = base64Encode(utf8.encode(':streamlink'));
-        await http.get(uri, headers: {'Authorization': 'Basic $auth'})
-            .timeout(const Duration(seconds: 2));
-      } else {
-        await http.get(uri).timeout(const Duration(seconds: 2));
+      final response = await http
+          .get(uri, headers: {'Authorization': _basicAuthFor(logKey)})
+          .timeout(const Duration(seconds: 2));
+      // A refusal (VLC's 401 for a wrong password, say) is an answer, not a
+      // seek.
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        log(logKey,
+            '[System] Could not correct the playback position: the player '
+            'answered HTTP ${response.statusCode}.');
+        return false;
       }
+      return true;
     } catch (e) {
       log(logKey, '[System] Could not correct the playback position: $e');
+      return false;
     }
   }
 
@@ -1561,7 +2508,7 @@ class PlayerService {
 
     if (Platform.isWindows) {
       try {
-        Process.runSync('taskkill', ['/T', '/PID', '${proc.pid}']);
+        await _endProcessTrees([proc], force: false);
       } catch (_) {}
       // Poll rather than sleep a fixed guess: a player that closes in 200ms
       // should not cost two seconds on every stop.
@@ -1570,10 +2517,27 @@ class PlayerService {
         if (!activePlayerProcesses.containsKey(key)) return;
       }
     }
-    killProcess(key, markUserInitiated: markUserInitiated);
+    await _forceKill(key, markUserInitiated: markUserInitiated);
   }
 
-  void killProcess(String key, {bool markUserInitiated = true}) {
+  /// Stops [key] because the user asked to.
+  Future<void> killProcess(String key) async {
+    // A Stop outranks a self-heal bounce in flight. The heal parks a resume
+    // position in _pendingVodRestarts and then gives the player up to 2.4s to
+    // close gracefully; a Stop inside that wait looked exactly like the heal's
+    // own kill, so the exit handler relaunched the stream the user had just
+    // stopped.
+    _pendingVodRestarts.remove(key);
+    // ...and a relaunch already on its way up, which has no process yet for
+    // the kill below to find.
+    if (_vodsRelaunching.containsKey(key) &&
+        !activePlayerProcesses.containsKey(key)) {
+      _relaunchStops.add(key);
+    }
+    await _forceKill(key, markUserInitiated: true);
+  }
+
+  Future<void> _forceKill(String key, {required bool markUserInitiated}) async {
     // Download tabs never route here: cancelling a download must go through
     // cancelVodDownload so the _cancelledDownloads marker and partial-file
     // cleanup happen. A raw taskkill on yt-dlp would leave both dangling.
@@ -1585,19 +2549,14 @@ class PlayerService {
       // immediately, already sees it.
       if (markUserInitiated) _stoppedByUser.add(key);
       try {
-        if (Platform.isWindows) {
-          final r =
-              Process.runSync('taskkill', ['/F', '/T', '/PID', '${proc.pid}']);
-          if (r.exitCode != 0) {
-            // Swallowed silently until now. If the kill misses, the tree never
-            // dies, `proc.exitCode` never fires, and a heal waiting on that
-            // exit simply never happens — with nothing anywhere saying so.
-            log(key,
-                '[System] Could not end the player process (taskkill exit '
-                '${r.exitCode}): ${r.stderr.toString().trim()}');
-          }
-        } else {
-          proc.kill();
+        final r = await _endProcessTrees([proc]);
+        if (r != null && r.exitCode != 0) {
+          // Swallowed silently until now. If the kill misses, the tree never
+          // dies, `proc.exitCode` never fires, and a heal waiting on that
+          // exit simply never happens — with nothing anywhere saying so.
+          log(key,
+              '[System] Could not end the player process (taskkill exit '
+              '${r.exitCode}): ${r.stderr.toString().trim()}');
         }
       } catch (e) {
         log(key, '[System] Could not end the player process: $e');
@@ -1605,31 +2564,54 @@ class PlayerService {
     }
   }
 
-  void stopAll() {
+  /// Undoes [stopAll]'s latch: the app is not going after all - an update's
+  /// handover failed after everything had been stopped for it.
+  ///
+  /// Only queueing a download cleared the latch, so a session that went on
+  /// after a failed handover had a streamed VOD's heal kill the player and
+  /// then decline to relaunch it (the exit handler reads the latch as the app
+  /// stopping), and report the kill as a stop the user asked for: the player
+  /// just vanished, until some download happened to be queued.
+  void resume() {
+    _shuttingDown = false;
+  }
+
+  /// Ends everything this service started.
+  ///
+  /// The bookkeeping is synchronous, so the exit handlers that follow already
+  /// see a deliberate stop; the kill itself is one asynchronous taskkill.
+  /// Callers that are about to exit need not wait for it - the runner's
+  /// kill-on-close job object ends every child with the app regardless - but
+  /// can, to know the children are gone.
+  Future<void> stopAll() async {
     // Stop the queue drain before killing anything, so terminating the active
-    // download cannot cause the next queued one to start.
+    // downloads cannot cause the next queued ones to start.
     _shuttingDown = true;
     downloadQueue.clear();
     queuedDownloadTasks.clear();
     downloadTaskFastDownloadOverrides.clear();
+    _queueTickets.clear();
+    _downloadsAwaitingRetry.clear();
+    // A heal relaunch still on its way up must not start a player after
+    // this, or survive it if it already has.
+    _relaunchStops.addAll(_vodsRelaunching.keys);
 
     // A killed yt-dlp exits non-zero exactly like a failed one, so quitting or
     // updating with downloads running reported "Download failed" for each -
     // the same trap _cancelledDownloads already exists to close for the cancel
     // button. Marked before the kill, since the exit handler can run at once.
     _cancelledDownloads.addAll(activeDownloadProcesses.keys);
-
     _stoppedByUser.addAll(activePlayerProcesses.keys);
-    for (final proc in activePlayerProcesses.values) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
-    }
+
+    final doomed = <Process>[
+      ...activePlayerProcesses.values,
+      ...activeDownloadProcesses.values,
+      ..._winIpcBridges.values,
+    ];
     activePlayerProcesses.clear();
+    activeDownloadProcesses.clear();
+    _winIpcBridges.clear();
+    _winIpcBridgeTokens.clear();
 
     playingVodIds.clear();
     playingVodFilePaths.clear();
@@ -1639,26 +2621,16 @@ class PlayerService {
     }
     activePlayerTimers.clear();
 
-    for (final proc in activeDownloadProcesses.values) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
+    // Their windows go with them, rather than with the app.
+    for (final key in _mpcSessions.keys.toList()) {
+      _closeMpcSession(key);
     }
-    activeDownloadProcesses.clear();
-    
-    for (final proc in _winIpcBridges.values) {
-      try {
-        if (Platform.isWindows) {
-          Process.runSync('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
-        } else {
-          proc.kill();
-        }
-      } catch (_) {}
-    }
-    _winIpcBridges.clear();
+
+    // One call for the lot, rather than one blocking taskkill per process.
+    // Its exit code is not worth reading: any tree that ended on its own in
+    // the meantime makes it non-zero.
+    try {
+      await _endProcessTrees(doomed);
+    } catch (_) {}
   }
 }

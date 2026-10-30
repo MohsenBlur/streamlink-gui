@@ -57,6 +57,48 @@ void main() {
     });
   });
 
+  group('credential redaction', () {
+    // Twitch user tokens are 30 lowercase alphanumerics.
+    const token = 'abcdefghij0123456789klmnopqrst';
+
+    test('masks every shape a token arrives in', () {
+      final lines = [
+        '[System] Arguments: --twitch-api-header Authorization=OAuth $token',
+        // streamlink --loglevel debug echoes its own arguments.
+        "[cli][debug]  --twitch-api-header=[('Authorization', 'OAuth $token')]",
+        'pasted from a tool: oauth:$token',
+        'Authorization: Bearer $token',
+        'http://localhost:65432/#access_token=$token&scope=user%3Aread',
+        '{"access_token":"$token","refresh_token":"$token"}',
+        'cookie auth-token=$token',
+      ];
+      for (final line in lines) {
+        final logs = LogNotifier()..appendLog('k', line);
+        final stored = logs.getLogs('k').single;
+        expect(stored, isNot(contains(token)), reason: line);
+        expect(stored, contains('<redacted>'), reason: line);
+      }
+    });
+
+    test('keeps the keyword, so the line still says what was sent', () {
+      expect(redactCredentials('Authorization=OAuth $token'),
+          'Authorization=OAuth <redacted>');
+      expect(redactCredentials('oauth:$token'), 'oauth:<redacted>');
+    });
+
+    test('leaves prose and already-masked lines alone', () {
+      const untouched = [
+        '[System] OAuth token rejected by Twitch',
+        'Bearer of bad news',
+        '--twitch-api-header Authorization=OAuth <redacted>',
+        '[download]  45.3% of ~1.23GiB at 2.34MiB/s ETA 05:12',
+      ];
+      for (final line in untouched) {
+        expect(redactCredentials(line), line);
+      }
+    });
+  });
+
   group('LogNotifier sessions', () {
     test('labels survive the session ending', () {
       final logs = LogNotifier()..beginSession('dl-1', 'Download: Thing');

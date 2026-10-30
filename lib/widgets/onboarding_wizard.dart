@@ -1,7 +1,7 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
+import '../services/file_dialogs.dart';
 import '../services/player_service.dart';
 import '../services/twitch_api_service.dart';
 import '../theme/neu_theme.dart';
@@ -45,6 +45,9 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
   late final Map<String, bool> _detectedPlayers;
   String _playerType = 'default';
   String _downloadFolder = '';
+  // The folder dialog is open. It no longer blocks the app (file_picker 13),
+  // so Browse stayed pressable and opened one dialog per click.
+  bool _pickingFolder = false;
   final TextEditingController _tokenController = TextEditingController();
   bool _isTestingToken = false;
   TokenValidationResult? _tokenResult;
@@ -290,12 +293,22 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
         const SizedBox(height: NeuSpace.s8),
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(backgroundColor: theme.primaryColor),
-          onPressed: () async {
-            final path = await FilePicker.platform.getDirectoryPath();
-            if (path != null && path.isNotEmpty) {
-              setState(() => _downloadFolder = path);
-            }
-          },
+          onPressed: _pickingFolder
+              ? null
+              : () async {
+                  setState(() => _pickingFolder = true);
+                  final path = await FileDialogs.pickFolder()
+                      .whenComplete(() {
+                    if (mounted) setState(() => _pickingFolder = false);
+                  });
+                  // The folder dialog runs off the UI isolate (file_picker
+                  // 13), so the wizard stays live behind it and can be
+                  // skipped, or finished, before the answer comes back.
+                  if (!mounted) return;
+                  if (path != null && path.isNotEmpty) {
+                    setState(() => _downloadFolder = path);
+                  }
+                },
           icon: Icon(Icons.folder_open, size: 16, color: themeNotifier.onPrimaryColor),
           label: Text('Browse',
               style: TextStyle(

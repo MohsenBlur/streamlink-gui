@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../utils/window_bounds.dart';
+
 class AppSettings {
   String defaultQuality;
   /// Passes `--twitch-low-latency` to streamlink when enabled.
@@ -42,6 +44,16 @@ class AppSettings {
 
   String vodDownloadFolder;
   int maxDownloadsToKeep; // 0 = unlimited
+
+  /// How many VOD downloads run at once; the rest wait in the queue. 1, the
+  /// default, is one at a time as it always was.
+  int simultaneousDownloads;
+
+  /// The most [simultaneousDownloads] allows: as many as were measured.
+  /// Three already filled the connection they were measured on, and a
+  /// fourth added little; past that is untried.
+  static const int maxSimultaneousDownloads = 4;
+
   List<dynamic> unfinishedDownloads;
   int maxRecentlyWatched;
   int activeSidebarTab;
@@ -52,6 +64,13 @@ class AppSettings {
   double? windowX;
   double? windowY;
   bool isWindowMaximized;
+
+  /// The window's last normal bounds in PHYSICAL pixels, and the monitor
+  /// they were on. The restore reads this; [windowX], [windowY],
+  /// [windowWidth] and [windowHeight] are still written (in the old logical
+  /// form) so an older build finds a position, and are migrated from when
+  /// this is absent.
+  SavedWindowPlacement? windowPlacement;
   bool showGamesOnThumbnails;
   int vodWatchExclusionThreshold; // default 15%
   bool autoPlayPreemptLowerPriority;
@@ -89,23 +108,21 @@ class AppSettings {
   bool notifyAutoDownloadStart;
   bool notifyDownloadComplete;
 
+  /// A favourite's broadcast has become a VOD (or a VOD appeared while the
+  /// app was watching). On by default: it is the favourites' counterpart of
+  /// the went-live toast, and the app had no way to say so at all.
+  bool notifyNewVod;
+
+  /// A followed channel that is not a favourite goes live. Off by default:
+  /// a large followed list would turn it into a stream of toasts.
+  bool notifyFollowedWentLive;
+
   /// First-run wizard has been completed or skipped.
   bool onboardingCompleted;
 
   /// Accent colour per theme mode. These are the values the Styling tab edits.
   String lightAccentColorHex;
   String darkAccentColorHex;
-
-  /// Which material world the app wears, as the material's own key.
-  ///
-  /// A `String`, not the enum, and validated where it is used rather than
-  /// where it is read. `StorageService.saveConfig` rebuilds the whole file
-  /// with no merge and `_saveWindowState` fires on every resize, so an older
-  /// build does not *ignore* a key it does not know - it deletes it within
-  /// seconds. Storing the raw string and resolving via `AppMaterial.fromKey`
-  /// means a v1.7.0 build meeting a v1.8.0 config falls back for the session
-  /// instead of clamping the value and destroying the choice on the next save.
-  String material;
 
   AppSettings({
     this.defaultQuality = 'best',
@@ -125,9 +142,9 @@ class AppSettings {
     this.watchedProgressColorHex = '#804CAF50',
     this.lightAccentColorHex = '#FF6584',
     this.darkAccentColorHex = '#FF3B30',
-    this.material = 'rack',
     this.vodDownloadFolder = '',
     this.maxDownloadsToKeep = 0,
+    this.simultaneousDownloads = 1,
     this.unfinishedDownloads = const [],
     this.maxRecentlyWatched = 8,
     this.activeSidebarTab = 0,
@@ -136,6 +153,7 @@ class AppSettings {
     this.windowX,
     this.windowY,
     this.isWindowMaximized = false,
+    this.windowPlacement,
     this.showGamesOnThumbnails = true,
     this.vodWatchExclusionThreshold = 15,
     this.autoPlayPreemptLowerPriority = false,
@@ -154,6 +172,8 @@ class AppSettings {
     this.notifyAutoPlay = true,
     this.notifyAutoDownloadStart = true,
     this.notifyDownloadComplete = true,
+    this.notifyNewVod = true,
+    this.notifyFollowedWentLive = false,
     this.onboardingCompleted = false,
   }) {
     if (vodDownloadFolder.isEmpty) {
@@ -175,8 +195,9 @@ class AppSettings {
   /// dialog used to wipe the theme mode, window geometry, the VOD watch
   /// exclusion threshold and the auto-play preemption toggle.
   ///
-  /// Note: [windowX] and [windowY] are nullable and passing null means "keep the
-  /// current value". Use [clearWindowPosition] to reset them.
+  /// Note: [windowX], [windowY] and [windowPlacement] are nullable and passing
+  /// null means "keep the current value". Use [clearWindowPosition] to reset
+  /// them.
   AppSettings copyWith({
     String? defaultQuality,
     bool? twitchLowLatency,
@@ -195,9 +216,9 @@ class AppSettings {
     String? watchedProgressColorHex,
     String? lightAccentColorHex,
     String? darkAccentColorHex,
-    String? material,
     String? vodDownloadFolder,
     int? maxDownloadsToKeep,
+    int? simultaneousDownloads,
     List<dynamic>? unfinishedDownloads,
     int? maxRecentlyWatched,
     int? activeSidebarTab,
@@ -206,6 +227,7 @@ class AppSettings {
     double? windowX,
     double? windowY,
     bool? isWindowMaximized,
+    SavedWindowPlacement? windowPlacement,
     bool? showGamesOnThumbnails,
     int? vodWatchExclusionThreshold,
     bool? autoPlayPreemptLowerPriority,
@@ -224,6 +246,8 @@ class AppSettings {
     bool? notifyAutoPlay,
     bool? notifyAutoDownloadStart,
     bool? notifyDownloadComplete,
+    bool? notifyNewVod,
+    bool? notifyFollowedWentLive,
     bool? onboardingCompleted,
     bool clearWindowPosition = false,
   }) {
@@ -245,9 +269,10 @@ class AppSettings {
       watchedProgressColorHex: watchedProgressColorHex ?? this.watchedProgressColorHex,
       lightAccentColorHex: lightAccentColorHex ?? this.lightAccentColorHex,
       darkAccentColorHex: darkAccentColorHex ?? this.darkAccentColorHex,
-      material: material ?? this.material,
       vodDownloadFolder: vodDownloadFolder ?? this.vodDownloadFolder,
       maxDownloadsToKeep: maxDownloadsToKeep ?? this.maxDownloadsToKeep,
+      simultaneousDownloads:
+          simultaneousDownloads ?? this.simultaneousDownloads,
       unfinishedDownloads: unfinishedDownloads ?? this.unfinishedDownloads,
       maxRecentlyWatched: maxRecentlyWatched ?? this.maxRecentlyWatched,
       activeSidebarTab: activeSidebarTab ?? this.activeSidebarTab,
@@ -256,6 +281,9 @@ class AppSettings {
       windowX: clearWindowPosition ? null : (windowX ?? this.windowX),
       windowY: clearWindowPosition ? null : (windowY ?? this.windowY),
       isWindowMaximized: isWindowMaximized ?? this.isWindowMaximized,
+      windowPlacement: clearWindowPosition
+          ? null
+          : (windowPlacement ?? this.windowPlacement),
       showGamesOnThumbnails: showGamesOnThumbnails ?? this.showGamesOnThumbnails,
       vodWatchExclusionThreshold: vodWatchExclusionThreshold ?? this.vodWatchExclusionThreshold,
       autoPlayPreemptLowerPriority: autoPlayPreemptLowerPriority ?? this.autoPlayPreemptLowerPriority,
@@ -274,9 +302,26 @@ class AppSettings {
       notifyAutoPlay: notifyAutoPlay ?? this.notifyAutoPlay,
       notifyAutoDownloadStart: notifyAutoDownloadStart ?? this.notifyAutoDownloadStart,
       notifyDownloadComplete: notifyDownloadComplete ?? this.notifyDownloadComplete,
+      notifyNewVod: notifyNewVod ?? this.notifyNewVod,
+      notifyFollowedWentLive: notifyFollowedWentLive ?? this.notifyFollowedWentLive,
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
     );
   }
+
+  /// The [toJson] keys that hold account credentials.
+  ///
+  /// `StorageService` seals exactly these at rest (DPAPI on Windows) and
+  /// opens them again on load, so [fromJson] and every caller still see
+  /// plaintext. A new credential field must be listed here, or it is written
+  /// to disk in the clear.
+  static const List<String> secretJsonKeys = [
+    'twitch_oauth_token',
+    'twitch_web_oauth_token',
+  ];
+
+  /// What [toJson] writes under `material`: Soft (classic)'s key in the
+  /// builds that offered a choice of looks.
+  static const String softMaterialKey = 'soft';
 
   Map<String, dynamic> toJson() => {
         'default_quality': defaultQuality,
@@ -296,9 +341,14 @@ class AppSettings {
         'watched_progress_color_hex': watchedProgressColorHex,
         'light_accent_color_hex': lightAccentColorHex,
         'dark_accent_color_hex': darkAccentColorHex,
-        'material': material,
+        // The look, for builds that still choose one. v1.7.0 to v1.10.0 read
+        // this key and wear Broadcast rack when it is missing, so a rollback
+        // to one of them keeps the only look this build has. Never read back:
+        // there is nothing left to choose.
+        'material': softMaterialKey,
         'vod_download_folder': vodDownloadFolder,
         'max_downloads_to_keep': maxDownloadsToKeep,
+        'simultaneous_downloads': simultaneousDownloads,
         'unfinished_downloads': unfinishedDownloads,
         'max_recently_watched': maxRecentlyWatched,
         'active_sidebar_tab': activeSidebarTab,
@@ -307,6 +357,7 @@ class AppSettings {
         'window_x': windowX,
         'window_y': windowY,
         'is_window_maximized': isWindowMaximized,
+        'window_placement': windowPlacement?.toJson(),
         'show_games_on_thumbnails': showGamesOnThumbnails,
         'vod_watch_exclusion_threshold': vodWatchExclusionThreshold,
         'auto_play_preempt_lower_priority': autoPlayPreemptLowerPriority,
@@ -326,6 +377,8 @@ class AppSettings {
         'notify_auto_play': notifyAutoPlay,
         'notify_auto_download_start': notifyAutoDownloadStart,
         'notify_download_complete': notifyDownloadComplete,
+        'notify_new_vod': notifyNewVod,
+        'notify_followed_went_live': notifyFollowedWentLive,
         'onboarding_completed': onboardingCompleted,
       };
 
@@ -416,9 +469,10 @@ class AppSettings {
             _str(json['watched_progress_color_hex'], '#804CAF50'),
         lightAccentColorHex: _str(json['light_accent_color_hex'], '#FF6584'),
         darkAccentColorHex: _str(json['dark_accent_color_hex'], '#FF3B30'),
-        material: _str(json['material'], 'rack'),
         vodDownloadFolder: _str(json['vod_download_folder'], ''),
         maxDownloadsToKeep: _clampInt(json['max_downloads_to_keep'], 0, 0, 1 << 30),
+        simultaneousDownloads: _clampInt(json['simultaneous_downloads'], 1, 1,
+            maxSimultaneousDownloads),
         unfinishedDownloads: _list(json['unfinished_downloads']),
         maxRecentlyWatched: _clampInt(json['max_recently_watched'], 8, 1, 20),
         activeSidebarTab: _clampInt(json['active_sidebar_tab'], 0, 0, 2),
@@ -427,6 +481,7 @@ class AppSettings {
         windowX: _maybeDouble(json['window_x']),
         windowY: _maybeDouble(json['window_y']),
         isWindowMaximized: _flag(json['is_window_maximized'], false),
+        windowPlacement: SavedWindowPlacement.fromJson(json['window_placement']),
         showGamesOnThumbnails: _flag(json['show_games_on_thumbnails'], true),
         vodWatchExclusionThreshold:
             _clampInt(json['vod_watch_exclusion_threshold'], 15, 5, 90),
@@ -448,6 +503,8 @@ class AppSettings {
         notifyAutoPlay: _flag(json['notify_auto_play'], true),
         notifyAutoDownloadStart: _flag(json['notify_auto_download_start'], true),
         notifyDownloadComplete: _flag(json['notify_download_complete'], true),
+        notifyNewVod: _flag(json['notify_new_vod'], true),
+        notifyFollowedWentLive: _flag(json['notify_followed_went_live'], false),
         onboardingCompleted: _flag(json['onboarding_completed'], false),
       );
 }

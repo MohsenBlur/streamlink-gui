@@ -11,6 +11,7 @@ VodStreamCommand build({
   String customPlayerArgs = '',
   String oauthToken = '',
   String clientId = _defaultClientId,
+  String? mpcSlaveWindow = '197380',
 }) {
   return buildVodStreamlinkArgs(
     vodId: '12345',
@@ -25,6 +26,8 @@ VodStreamCommand build({
     seekableStreaming: seekable,
     resume: resume,
     isWindows: true,
+    httpPassword: 'pw',
+    mpcSlaveWindow: mpcSlaveWindow,
   );
 }
 
@@ -131,11 +134,79 @@ void main() {
     });
   });
 
+  group('the launch log never carries the token', () {
+    // Both launch paths log their argv, and the log viewer's Copy all exists
+    // to be pasted into bug reports. A token sent with the default web client
+    // id acts as the user's Twitch account.
+    const token = 'abcdefghij0123456789klmnopqrst';
+
+    test('for a streamed VOD', () {
+      final args = build(oauthToken: token).args;
+      expect(args, contains('Authorization=OAuth $token'),
+          reason: 'streamlink itself still needs the real header');
+
+      final logged = argsForLog(args);
+      expect(logged, isNot(contains(token)));
+      expect(logged,
+          contains('--twitch-api-header Authorization=OAuth <redacted>'));
+    });
+
+    test('for a live stream', () {
+      final args = buildLiveStreamlinkArgs(
+        channelName: 'shroud',
+        titleString: 'shroud - Live',
+        quality: 'best',
+        oauthToken: token,
+        clientId: _defaultClientId,
+        playerExe: r'C:\mpv\mpv.exe',
+        customPlayerArgs: '',
+        lowLatency: false,
+      );
+      final logged = argsForLog(args);
+      expect(logged, isNot(contains(token)));
+      expect(logged,
+          contains('--twitch-api-header Authorization=OAuth <redacted>'));
+    });
+
+    test('also in the single-token form', () {
+      expect(argsForLog(['--twitch-api-header=Authorization=OAuth $token']),
+          '--twitch-api-header=Authorization=OAuth <redacted>');
+    });
+
+    test('everything else is logged as it was', () {
+      final args = build(kind: PlayerKind.mpv, playerExe: r'C:\mpv\mpv.exe').args;
+      expect(argsForLog(args), args.join(' '));
+    });
+  });
+
   test('user player args are forwarded verbatim, ahead of generated ones', () {
     final cmd = build(customPlayerArgs: '  --fullscreen  ');
     final pa = playerArgsOf(cmd.args)!;
     expect(pa.startsWith('--fullscreen'), isTrue);
-    expect(pa, contains('/webport 8089'));
+    expect(pa, contains('/slave 197380'));
+  });
+
+  group('MPC-HC', () {
+    test('is handed its control window, and no web interface', () {
+      final pa = playerArgsOf(build().args)!;
+      expect(pa, contains('/new /slave 197380'));
+      expect(pa, isNot(contains('/webport')));
+      expect(pa, isNot(contains('8089')));
+    });
+
+    test('without a control window it still plays, untracked', () {
+      final pa = playerArgsOf(build(mpcSlaveWindow: null).args)!;
+      expect(pa, isNot(contains('/slave')));
+      expect(pa, contains('/new'));
+    });
+
+    test('MPC-BE, by its executable, gets no view preset', () {
+      final be = playerArgsOf(
+          build(playerExe: r'C:\Program Files\MPC-BE x64\mpc-be64.exe').args)!;
+      expect(be, isNot(contains('/viewpreset')));
+      expect(be, contains('/slave 197380'));
+      expect(playerArgsOf(build().args), contains('/viewpreset 2'));
+    });
   });
 
   test('MPV pipe path is quoted so streamlink\'s shlex cannot eat it', () {

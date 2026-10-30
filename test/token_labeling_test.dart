@@ -77,47 +77,33 @@ void main() {
     });
 
     test('the followed-channels catch does not interpolate the error raw', () {
-      final src = read('lib/main.dart');
+      // The followed list loads in AccountController now; that a server
+      // error reaches the user as a sentence is main_screen_account_test's.
+      final src = read('lib/state/account_controller.dart');
       expect(src, isNot(contains(r"'Error loading followed channels: $e'")),
           reason: 'this is the line that showed the user a JSON blob');
-      expect(src, contains('describeTwitchError('));
+      expect(src,
+          contains(r"'Could not load followed channels: ${describeTwitchError(e)}'"));
     });
   });
 
-  group('recovering from a rejection refreshes what it made stale', () {
-    // Reconnecting used to reload only the followed list, so every favourite
-    // kept the error text stamped on it during the outage - "Helix Stream API
-    // error: status 401" sat on the open channel until the one-minute poll
-    // happened to clear it, minutes after the account was working again.
-    test('the auth status drives a refresh of both lists and the open VODs', () {
-      final src = File('lib/main.dart').readAsStringSync();
-      expect(src, contains('_onAuthStatusChanged'));
-      final start = src.indexOf('void _onAuthStatusChanged()');
-      expect(start, greaterThan(-1));
-      final body = src.substring(start, start + 1400);
-      expect(body, contains('_refreshAllChannels('),
-          reason: 'the favourites carry the stale per-channel error');
-      expect(body, contains('_loadFollowedChannels('));
-      expect(body, contains('_fetchVodsForChannel('),
-          reason: 'the open VOD grid holds its own stale 401');
-    });
-
-    test('the listener is attached and detached', () {
-      final src = File('lib/main.dart').readAsStringSync();
-      expect(src, contains('twitchAuth.helix.addListener(_onAuthStatusChanged)'));
-      expect(src, contains('twitchAuth.helix.removeListener(_onAuthStatusChanged)'),
-          reason: 'a listener on a global notifier outlives the widget otherwise');
-    });
-  });
+  // What a token that starts working again refreshes, and that the listener
+  // behind it comes off with the screen, were source scans of main.dart.
+  // They are behaviour now: main_screen_account_test ('a token that starts
+  // working again refreshes the channels, the followed list and the open VOD
+  // list...') and account_controller_test.
 
   test('a rejected account token raises a banner with a remedy on it', () {
-    final src = read('lib/main.dart');
-    expect(src, contains('_buildTwitchAuthBanner'));
     // The remedy has to be ON the banner. Describing the fix and making the
-    // user go find it is what turns a warning into noise.
-    final banner = src.substring(src.indexOf('Widget _buildTwitchAuthBanner'));
-    final body = banner.substring(0, banner.indexOf('void _showSaveFailureDetail'));
-    expect(body, contains('Reconnect'));
-    expect(body, contains('_startOAuthServer'));
+    // user go find it is what turns a warning into noise. That the banner
+    // shows is main_screen_test's; this is what its button does.
+    final banners = read('lib/widgets/shell/status_banners.dart');
+    final banner = banners.substring(
+        banners.indexOf('class TwitchAuthBanner'),
+        banners.indexOf('void showSaveFailureDetail'));
+    expect(banner, contains("Text('Reconnect'"));
+    expect(banner, contains('onPressed: onReconnect'));
+    // That the screen's Reconnect starts a sign-in is
+    // main_screen_account_test's.
   });
 }

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/state/watch_progress_store.dart';
 import 'package:streamlink_gui/utils/player_seek.dart';
+import 'package:streamlink_gui/utils/mpc_slave_protocol.dart';
 import 'package:streamlink_gui/utils/player_args.dart';
 
 /// The rules that stop a bad playback session from destroying a watch position.
@@ -213,39 +214,18 @@ void main() {
   });
 
   group('seek requests', () {
-    test('MPC-HC is asked in absolute time, not percent', () {
+    test('MPC-HC is asked in absolute seconds, over /slave, not percent', () {
       // percent is resolved against the duration the PLAYER loaded - under
       // passthrough the HLS manifest's, which need not match the Twitch
-      // metadata this app holds. An absolute clock cannot drift with a
-      // denominator we do not own.
-      final path = seekRequestPath(SeekChannel.mpcHcWeb,
-          targetSeconds: 9292, durationSeconds: 18876);
-      expect(path, contains('wm_command=-1'));
-      expect(path, contains('position=02:34:52'));
-      expect(path, isNot(contains('percent')));
-    });
-
-    test('an absolute seek needs no duration at all', () {
+      // metadata this app holds. An absolute position cannot drift with a
+      // denominator we do not own. CMD_SETPOSITION reads it with _wtof.
+      expect(mpcSetPositionPayload(9292), '9292');
+      expect(mpcSetPositionPayload(0), '0');
+      expect(mpcSetPositionPayload(-5), '0');
+      // Not an HTTP request any more: there is no web interface to send it to.
       expect(
-          seekRequestPath(SeekChannel.mpcHcWeb,
-              targetSeconds: 60, durationSeconds: 0),
-          isNotNull,
-          reason: 'that was the whole point of dropping percent');
-    });
-
-    test('the clock is zero padded the way the parser expects', () {
-      expect(formatSeekClock(0), '00:00:00');
-      expect(formatSeekClock(61), '00:01:01');
-      expect(formatSeekClock(9292), '02:34:52');
-    });
-
-    test('percent survives as a fallback, with real precision', () {
-      final path = seekRequestPathByPercent(SeekChannel.mpcHcWeb,
-          targetSeconds: 60, durationSeconds: 120);
-      expect(path, contains('percent=50.000000'));
-      expect(
-          seekRequestPathByPercent(SeekChannel.mpcHcWeb,
-              targetSeconds: 60, durationSeconds: 0),
+          seekRequestPath(SeekChannel.mpcHcSlave,
+              targetSeconds: 9292, durationSeconds: 18876),
           isNull);
     });
 
@@ -261,7 +241,7 @@ void main() {
     });
 
     test('each player is mapped to the channel it actually has', () {
-      expect(seekChannelFor(PlayerKind.mpcHc), SeekChannel.mpcHcWeb);
+      expect(seekChannelFor(PlayerKind.mpcHc), SeekChannel.mpcHcSlave);
       expect(seekChannelFor(PlayerKind.vlc), SeekChannel.vlcHttp);
       expect(seekChannelFor(PlayerKind.mpv), SeekChannel.mpvIpc);
     });

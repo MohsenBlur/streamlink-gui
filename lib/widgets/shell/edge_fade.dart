@@ -9,15 +9,16 @@ import 'package:flutter/widgets.dart';
 /// is that exact flat colour. It never was quite: the strip sat over a panel,
 /// not the canvas. It was close enough not to notice.
 ///
-/// A material makes it impossible to not notice. A panel carries a grain and a
-/// fill ramp, so a rectangle of flat ground colour over it is a visible band —
+/// A panel's fill ramp makes it impossible to not notice. The panel is a
+/// gradient, so a rectangle of flat ground colour over it is a visible band —
 /// brighter or duller than its surroundings, with two hard vertical edges — and
 /// no colour swap fixes it, because there is no single colour that matches a
-/// gradient with a texture on it.
+/// gradient. (The grained materials this was written for are gone; the ramp
+/// alone is reason enough.)
 ///
 /// So the fade moves from the *cover* to the *content*: `BlendMode.dstIn`
 /// multiplies the child's alpha by the shader's, so the chips themselves fade
-/// out and whatever is behind them shows through untouched, grain and all.
+/// out and whatever is behind them shows through untouched, ramp and all.
 ///
 /// Costs a `saveLayer`. Worth it here — this wraps a 38px strip — and not a
 /// pattern to spread to large scrolling surfaces.

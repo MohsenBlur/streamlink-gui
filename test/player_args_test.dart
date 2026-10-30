@@ -17,6 +17,19 @@ void main() {
       expect(classifyPlayer('custom', r'D:\mpv\mpv.exe'), PlayerKind.mpv);
     });
 
+    test('only the executable name is sniffed, not the folders above it', () {
+      // A user's own folder name, or a random temp folder (Linux mkdtemp can
+      // hand out `aVlC9q`), must not turn MPC-HC into VLC or mpv.
+      expect(classifyPlayer('custom', r'D:\vlc-and-mpv\mpc-hc64.exe'),
+          PlayerKind.mpcHc);
+      expect(
+          classifyPlayer('custom', '/tmp/streamlink_gui_mpc_aVlC9q/mpc-hc64.exe'),
+          PlayerKind.mpcHc);
+      expect(classifyPlayer('custom', r'"C:\mpv stuff\vlc.exe"'), PlayerKind.vlc);
+      expect(classifyPlayer('custom', r'C:\VLC\PotPlayerMini64.exe'),
+          PlayerKind.other);
+    });
+
     test('unknown custom player and unresolved default are "other"', () {
       expect(classifyPlayer('custom', r'C:\PotPlayer\PotPlayerMini64.exe'),
           PlayerKind.other);
@@ -65,10 +78,73 @@ void main() {
           startSeconds: 600,
           port: 8089,
           ipcName: '123',
-          isWindows: true);
+          isWindows: true,
+          httpPassword: 'pw',
+          mpcSlaveWindow: '197380');
       expect(args, containsAllInOrder(['/start', '600000']));
-      expect(args, containsAllInOrder(['/webport', '8089']));
+      expect(args, containsAllInOrder(['/slave', '197380']));
       expect(args, containsAllInOrder(['/viewpreset', '2']));
+    });
+
+    test("MPC-HC's web interface is never turned on", () {
+      // It has no authentication: while a VOD played, any web page could
+      // drive the player with a plain GET (a UNC path leaks the NTLM hash).
+      for (final window in ['197380', null]) {
+        final args = buildPlayerArgs(
+            kind: PlayerKind.mpcHc,
+            startSeconds: 60,
+            port: 8089,
+            ipcName: '1',
+            isWindows: true,
+            httpPassword: 'pw',
+            mpcSlaveWindow: window);
+        expect(args, isNot(contains('/webport')));
+        expect(args, isNot(contains('8089')));
+      }
+    });
+
+    test('MPC-HC gets a player of its own, with or without a control window',
+        () {
+      // With "use the same player for each media file" (MPC-HC's default) a
+      // launch while another MPC-HC is open hands the file, /slave and all,
+      // to that one and exits.
+      for (final window in ['197380', null]) {
+        final args = buildPlayerArgs(
+            kind: PlayerKind.mpcHc,
+            startSeconds: 0,
+            port: 8089,
+            ipcName: '1',
+            isWindows: true,
+            httpPassword: 'pw',
+            mpcSlaveWindow: window);
+        expect(args, contains('/new'));
+        expect(args.contains('/slave'), window != null);
+      }
+    });
+
+    test('MPC-BE is not given the view preset it refuses to start with', () {
+      List<String> args({required bool mpcBe}) => buildPlayerArgs(
+          kind: PlayerKind.mpcHc,
+          startSeconds: 0,
+          port: 8089,
+          ipcName: '1',
+          isWindows: true,
+          httpPassword: 'pw',
+          mpcSlaveWindow: '42',
+          mpcBe: mpcBe);
+      expect(args(mpcBe: false), containsAllInOrder(['/viewpreset', '2']));
+      expect(args(mpcBe: true), isNot(contains('/viewpreset')));
+      expect(args(mpcBe: true), containsAllInOrder(['/new', '/slave', '42']));
+    });
+
+    test('isMpcBe tells MPC-BE from MPC-HC by its executable', () {
+      expect(isMpcBe(r'C:\Program Files\MPC-BE x64\mpc-be64.exe'), isTrue);
+      expect(isMpcBe(r'"C:\Tools\MPC-BE\MPC-BE.exe"'), isTrue);
+      expect(isMpcBe('/opt/mpc-be/mpc-be64.exe'), isTrue);
+      expect(isMpcBe(r'C:\Program Files\MPC-HC\mpc-hc64.exe'), isFalse);
+      // The folder says nothing; the program does.
+      expect(isMpcBe(r'C:\mpc-be-old\mpc-hc64.exe'), isFalse);
+      expect(isMpcBe(null), isFalse);
     });
 
     test('no start flag when starting from the beginning', () {
@@ -78,7 +154,8 @@ void main() {
             startSeconds: 0,
             port: 8089,
             ipcName: '1',
-            isWindows: true);
+            isWindows: true,
+            httpPassword: 'pw');
         expect(args.join(' '), isNot(contains('start')), reason: '$kind');
       }
     });
@@ -89,7 +166,8 @@ void main() {
           startSeconds: 30,
           port: 9001,
           ipcName: '1',
-          isWindows: true);
+          isWindows: true,
+          httpPassword: 'pw');
       expect(args, contains('--start-time=30'));
       expect(args, contains('--http-port=9001'));
       expect(args, contains('--extraintf=http'));
@@ -102,7 +180,8 @@ void main() {
               startSeconds: 0,
               port: 1,
               ipcName: 'abc',
-              isWindows: true),
+              isWindows: true,
+              httpPassword: 'pw'),
           contains(r'--input-ipc-server=\\.\pipe\mpv-socket-abc'));
       expect(
           buildPlayerArgs(
@@ -110,7 +189,8 @@ void main() {
               startSeconds: 0,
               port: 1,
               ipcName: 'abc',
-              isWindows: false),
+              isWindows: false,
+              httpPassword: 'pw'),
           contains('--input-ipc-server=/tmp/mpv-socket-abc'));
     });
 
@@ -121,8 +201,27 @@ void main() {
               startSeconds: 600,
               port: 1,
               ipcName: '1',
-              isWindows: true),
+              isWindows: true,
+              httpPassword: 'pw'),
           isEmpty);
+    });
+  });
+
+  group("the players' control interfaces", () {
+    test("VLC's HTTP password is the session's own, not a public constant",
+        () {
+      // "streamlink" was in the public source: any program on the machine
+      // could log in and have VLC list folders or open any file.
+      final args = buildPlayerArgs(
+          kind: PlayerKind.vlc,
+          startSeconds: 0,
+          port: 9001,
+          ipcName: '1',
+          isWindows: true,
+          httpPassword: 's3cret');
+      expect(args, contains('--http-password=s3cret'));
+      expect(args.join(' '), isNot(contains('=streamlink')));
+      expect(args, contains('--http-host=127.0.0.1'));
     });
   });
 
@@ -133,6 +232,7 @@ void main() {
         port: 1234,
         ipcName: 'v1',
         isWindows: true,
+        httpPassword: 'pw',
         keepOpen: keepOpen);
 
     test('defaults off, so local playback keeps close-at-end', () {
@@ -150,6 +250,7 @@ void main() {
           port: 1234,
           ipcName: 'v1',
           isWindows: true,
+          httpPassword: 'pw',
           keepOpen: true);
       expect(vlc.where((a) => a.contains('keep-open')), isEmpty);
     });
@@ -167,7 +268,7 @@ void main() {
 
     test('leaves ordinary tokens untouched', () {
       expect(shlexQuote('--http-port=8089'), '--http-port=8089');
-      expect(shlexQuote('/webport'), '/webport');
+      expect(shlexQuote('/slave'), '/slave');
       expect(shlexQuote('2'), '2');
     });
 

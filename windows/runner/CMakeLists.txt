@@ -9,8 +9,12 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
+  "mpc_slave.cpp"
+  "mpc_slave_channel.cpp"
+  "single_instance.cpp"
   "utils.cpp"
   "win32_window.cpp"
+  "window_placement.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
   "runner.exe.manifest"

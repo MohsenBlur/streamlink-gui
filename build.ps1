@@ -11,6 +11,11 @@ if (-not (Test-Path $FlutterExe)) {
     exit 1
 }
 
+# Present is not enough: a release built on any SDK but the pinned one runs a
+# different engine from CI's, and drifts pubspec.lock.
+& (Join-Path $PSScriptRoot "tools\assert-flutter-sdk.ps1") -SdkRoot (Join-Path $SdkDir "flutter")
+if ($LastExitCode -ne 0) { exit 1 }
+
 # The app version is injected at build time from pubspec.yaml so that
 # UpdateService.currentVersion can never drift from the published release tag.
 $PubspecRaw = Get-Content (Join-Path $PSScriptRoot "pubspec.yaml") -Raw

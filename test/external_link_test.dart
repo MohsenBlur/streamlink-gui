@@ -18,7 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// quoted delivers the full query string.
 void main() {
   test('the URL handed to explorer is quoted, via the trailing space', () {
-    final src = File('lib/main.dart').readAsStringSync();
+    final src = File('lib/services/desktop_shell.dart').readAsStringSync();
 
     expect(
       src.contains(r"Process.start('explorer.exe', ['$url ']"),
@@ -38,7 +38,7 @@ void main() {
   test('the reason is recorded next to the code', () {
     // A bare space is invisible in review; the comment is the only thing
     // standing between it and a well-meaning cleanup.
-    final src = File('lib/main.dart').readAsStringSync();
+    final src = File('lib/services/desktop_shell.dart').readAsStringSync();
     expect(src, contains('TRAILING SPACE IS LOAD-BEARING'));
   });
 }

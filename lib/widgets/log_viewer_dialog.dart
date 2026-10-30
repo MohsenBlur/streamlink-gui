@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../services/log_store.dart';
 import '../state/log_line_kind.dart';
 import '../theme/neu_theme.dart';
+import 'horizontal_mouse_scrollable.dart';
 import 'neumorphic/neu_led_indicator.dart';
 import '../theme/theme_notifier.dart';
 import '../utils/time_utils.dart';
@@ -41,7 +42,19 @@ class _LogViewerDialog extends StatefulWidget {
 }
 
 class _LogViewerDialogState extends State<_LogViewerDialog> {
+  /// Below this content width the session list moves above the log. At 560
+  /// the side-by-side log still gets ~340px; below it, it loses more to the
+  /// fixed column than a strip costs in height.
+  static const double _sideBySideMinWidth = 560;
+  static const double _sessionColumnWidth = 210;
+
+  /// Fixed, so a session's offset in the strip is known without measuring.
+  static const double _stripTileWidth = 180;
+
   final ScrollController _scroll = ScrollController();
+
+  /// The narrow layout's session strip.
+  final ScrollController _sessionStrip = ScrollController();
   String? _selected;
 
   /// Set when the requested session had already been evicted — better to say
@@ -62,10 +75,33 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
     widget.logs.addListener(_onLogs);
   }
 
+  /// Whether the last layout was the narrow one, with the session strip.
+  bool _stripShown = false;
+
+  /// Brings the selected session into view in the narrow layout's strip.
+  /// "View log" on a failure can name an older session, and the strip shows
+  /// newest first - without this the selected tile could open off to the
+  /// right, with nothing saying which log is on screen.
+  ///
+  /// Run each time the strip appears, not only when the dialog opens: a
+  /// strip built by a resize from wide to narrow starts scrolled to the left
+  /// as well, whatever was selected in the column before.
+  void _revealSelected() {
+    if (!mounted || !_sessionStrip.hasClients) return;
+    final index =
+        widget.logs.sessions.indexWhere((s) => s.key == _selected);
+    if (index <= 0) return;
+    final position = _sessionStrip.position;
+    _sessionStrip.jumpTo((index * (_stripTileWidth + NeuSpace.s8))
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble());
+  }
+
   @override
   void dispose() {
     widget.logs.removeListener(_onLogs);
     _scroll.dispose();
+    _sessionStrip.dispose();
     super.dispose();
   }
 
@@ -90,9 +126,9 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
   ///
   /// Every one of these used to be a colour calibrated against a panel, drawn
   /// on a near-black terminal. In the dark theme that was survivable by luck -
-  /// both grounds are dark, so inks meant for one worked on the other. In a
-  /// light material it is not: a lit readout stays dark in a lit room, so
-  /// `text(false)` and `screen` are both dark and the plain lines measured
+  /// both grounds are dark, so inks meant for one worked on the other. On a
+  /// light look with a dark readout (the removed Broadcast rack) it was not:
+  /// `text(false)` and `screen` were both dark and the plain lines measured
   /// 1.08:1. The two hand-picked hexes are the source colours the walk starts
   /// from, and it only moves them if they do not already clear the bar.
   Color _colorFor(LogLineKind kind, bool isDark, Color accent) {
@@ -189,22 +225,62 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
                     ),
                   ),
                 Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        width: 210,
-                        child: ListView.builder(
-                          padding: NeuShadowRoom.list,
-                          itemCount: sessions.length,
-                          itemBuilder: (context, i) =>
-                              _sessionTile(sessions[i], isDark, theme),
+                  child: LayoutBuilder(builder: (context, constraints) {
+                    // A fixed 210px session column beside the log only works
+                    // when there is room for both. NeuDialog clamps the 900px
+                    // request to the window, so at the 380px minimum the
+                    // content is 292px wide and the log got ~70px - a few
+                    // characters per line, in the dialog whose only job is
+                    // showing those lines. Narrow, the sessions become a strip
+                    // above a full-width log instead.
+                    if (constraints.maxWidth < _sideBySideMinWidth) {
+                      if (!_stripShown) {
+                        _stripShown = true;
+                        WidgetsBinding.instance.addPostFrameCallback(
+                            (_) => _revealSelected());
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          HorizontalMouseScrollable(
+                            controller: _sessionStrip,
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (final s in sessions)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                        right: NeuSpace.s8),
+                                    child: SizedBox(
+                                      width: _stripTileWidth,
+                                      child: _sessionTile(s, isDark, theme),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          Expanded(child: _logBody(lines, isDark, theme)),
+                        ],
+                      );
+                    }
+                    _stripShown = false;
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          width: _sessionColumnWidth,
+                          child: ListView.builder(
+                            padding: NeuShadowRoom.list,
+                            itemCount: sessions.length,
+                            itemBuilder: (context, i) =>
+                                _sessionTile(sessions[i], isDark, theme),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: NeuSpace.s12),
-                      Expanded(child: _logBody(lines, isDark, theme)),
-                    ],
-                  ),
+                        const SizedBox(width: NeuSpace.s12),
+                        Expanded(child: _logBody(lines, isDark, theme)),
+                      ],
+                    );
+                  }),
                 ),
               ],
             ),

@@ -71,13 +71,31 @@ void main() {
         reason: 'pass a NeuRadius step:\n${found.join('\n')}');
   });
 
+  // A bare number straight after the colon, or in either branch of a
+  // conditional (see 'spacers come from NeuSpace').
+  final spacer = RegExp(r'SizedBox\((width|height):\s*[0-9]|'
+      r'SizedBox\((width|height):[^,()]*\?[^,()]*(?<![\w.])[0-9]');
+
   test('spacers come from NeuSpace', () {
     // 274 SizedBox spacers across fifteen values. 4/6/8/12/16 already covered
     // about 70% of them, so most of this was ratification; the stragglers -
     // 10, 14, 18 - were never a decision, just whatever was typed.
-    final found = offenders(RegExp(r'SizedBox\((width|height):\s*[0-9]'));
+    //
+    // A spacer that depends on the layout - `compact ? 10 : 16` - is a
+    // number in either branch, and the plain pattern only saw a digit
+    // straight after the colon: the empty state's 10 and 18 hid that way.
+    final found = offenders(spacer);
     expect(found, isEmpty,
         reason: 'use NeuSpace.s4/s8/s12/...:\n${found.join('\n')}');
+  });
+
+  test('the spacer net sees both branches of a conditional one', () {
+    final pattern = spacer;
+    expect(pattern.hasMatch('SizedBox(height: compact ? 10 : 16),'), isTrue);
+    expect(pattern.hasMatch('SizedBox(height: compact ? TOKEN : 18),'), isTrue);
+    expect(pattern.hasMatch('SizedBox(width: tight ? TOKEN : TOKEN),'),
+        isFalse,
+        reason: 'tokens are scrubbed to TOKEN before the match');
   });
 
   test('padding comes from NeuSpace', () {

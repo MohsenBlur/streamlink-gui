@@ -75,6 +75,85 @@ void main() {
     return found;
   }
 
+  /// [src] with every comment and string literal blanked to spaces, length
+  /// and line breaks kept: brackets inside them must not count, and a
+  /// widget's name in a comment is not a call.
+  String blankCommentsAndStrings(String src) {
+    final out = StringBuffer();
+    var i = 0;
+    void blank(int to) {
+      for (; i < to && i < src.length; i++) {
+        out.write(src[i] == '\n' ? '\n' : ' ');
+      }
+    }
+
+    while (i < src.length) {
+      if (src.startsWith('//', i)) {
+        final end = src.indexOf('\n', i);
+        blank(end < 0 ? src.length : end);
+      } else if (src.startsWith('/*', i)) {
+        final end = src.indexOf('*/', i + 2);
+        blank(end < 0 ? src.length : end + 2);
+      } else if (src[i] == "'" || src[i] == '"') {
+        final raw = i > 0 && src[i - 1] == 'r';
+        final quote = src.startsWith(src[i] * 3, i) ? src[i] * 3 : src[i];
+        out.write(quote);
+        i += quote.length;
+        var j = i;
+        while (j < src.length && !src.startsWith(quote, j)) {
+          j += (!raw && src[j] == r'\') ? 2 : 1;
+        }
+        blank(j);
+        if (i < src.length) {
+          out.write(quote);
+          i += quote.length;
+        }
+      } else {
+        out.write(src[i]);
+        i++;
+      }
+    }
+    return out.toString();
+  }
+
+  /// Calls to [widgets] inside a const expression in [src] - a const
+  /// constructor call or a const collection literal - one entry per call,
+  /// as `line: text`. A const parent makes everything under it const, so
+  /// `const SizedBox(child: EngravedRule())` freezes the rule as surely as
+  /// `const EngravedRule()` does, and the direct check cannot see it.
+  List<String> nestedInConst(String src, Set<String> widgets) {
+    final code = blankCommentsAndStrings(src);
+    final opener = RegExp(r'\bconst\s+(?:[A-Z]\w*(?:\.\w+)?\s*(?:<[^()]*?>)?\s*\(|'
+        r'(?:<[^\[\]{}()]*?>)?\s*[\[{])');
+    final call = RegExp(r'\b(' + widgets.join('|') + r')\s*(?:\.\w+)?\s*\(');
+    final found = <String>[];
+    var from = 0;
+    for (final m in opener.allMatches(code)) {
+      // Inside a const already reported: its inner consts say nothing new.
+      if (m.start < from) continue;
+      final open = m.end - 1;
+      var depth = 0;
+      var close = open;
+      for (; close < code.length; close++) {
+        final c = code[close];
+        if (c == '(' || c == '[' || c == '{') depth++;
+        if (c == ')' || c == ']' || c == '}') {
+          depth--;
+          if (depth == 0) break;
+        }
+      }
+      final inner = code.substring(open + 1, close);
+      for (final hit in call.allMatches(inner)) {
+        final at = open + 1 + hit.start;
+        final line = '\n'.allMatches(src.substring(0, at)).length + 1;
+        final lineEnd = src.indexOf('\n', at);
+        found.add('$line: ${src.substring(at, lineEnd < 0 ? src.length : lineEnd).trim()}');
+        from = close;
+      }
+    }
+    return found;
+  }
+
   test('no widget that reads the theme global is constructed const', () {
     final widgets = themeReadingWidgets();
     expect(widgets, isNotEmpty,
@@ -111,6 +190,23 @@ void main() {
             'Drop the const:\n${offenders.join('\n')}');
   });
 
+  test('nor is one built inside a const parent', () {
+    // `const SizedBox(height: 24, child: EngravedRule(vertical: true))`
+    // shipped twice in the portrait top bar, and its grooves kept the dark
+    // palette after a toggle to light. The check above only looks at the
+    // word written straight before the class name.
+    final widgets = themeReadingWidgets();
+    final offenders = <String>[
+      for (final file in files)
+        for (final hit in nestedInConst(file.readAsStringSync(), widgets))
+          '${rel(file)}:$hit',
+    ];
+    expect(offenders, isEmpty,
+        reason: 'everything under a const parent is canonicalised with it '
+            'and never rebuilt. Drop the parent\'s const:\n'
+            '${offenders.join('\n')}');
+  });
+
   test('the net would actually catch one', () {
     // A guard that cannot fire is decoration, and this one is a regex over
     // source text with an exemption for constructor declarations - exactly the
@@ -130,6 +226,28 @@ void main() {
     expect(declaration.substring(m!.end).trimLeft().startsWith('{'), isTrue,
         reason: 'the declaration exemption must still recognise a declaration, '
             'or every widget in the app reports as an offender');
+
+    // The nested net: the portrait top bar's line, a const list, and what
+    // must stay clear - a comment, a string, and a non-const parent.
+    expect(widgets, contains('EngravedRule'));
+    expect(
+        nestedInConst(
+            '    const SizedBox(\n'
+            '        height: 24, child: EngravedRule(vertical: true)),\n',
+            widgets),
+        ['2: EngravedRule(vertical: true)),']);
+    expect(
+        nestedInConst(
+            "  children: const [Text('a'), SectionHeader(title: 'b')],",
+            widgets),
+        hasLength(1));
+    expect(
+        nestedInConst(
+            '    const SizedBox(height: 8), // not EngravedRule()\n'
+            "    const Text('EngravedRule(vertical: true)'),\n"
+            '    SizedBox(child: EngravedRule(vertical: true)),\n',
+            widgets),
+        isEmpty);
   });
 
   test('the two widgets that were actually bitten cannot be const at all', () {

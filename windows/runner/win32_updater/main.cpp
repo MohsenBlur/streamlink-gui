@@ -3,6 +3,8 @@
 #include <tlhelp32.h>
 #include <shellapi.h>
 #include <shlwapi.h>
+#include <cwchar>
+#include <cwctype>
 #include <string>
 #include <filesystem>
 #include <vector>
@@ -14,6 +16,8 @@
 namespace fs = std::filesystem;
 const wchar_t* MUTEX_NAME = L"Local\\TwitchStreamlinkGUIUniqueMutexName";
 const wchar_t* BREAKAWAY_FLAG = L"--no-job";
+// The app's UpdateService.dropConfigMirrorFlag; see DropConfigMirror.
+const wchar_t* DROP_CONFIG_MIRROR_FLAG = L"--drop-config-mirror";
 
 static std::wstring g_logPath;// Set when an install failed AND its rollback could not fully restore the
 // previous files, so the installation is left in a mixed state.
@@ -130,15 +134,74 @@ BOOL CALLBACK CloseWindowForPid(HWND hwnd, LPARAM lParam) {
     return TRUE;
 }
 
+// Whether the process runs an executable from inside dir, which must end in
+// a separator. Its image path goes to *image when there is one.
+bool RunsFromDir(HANDLE process, const std::wstring& dir, std::wstring* image) {
+    wchar_t exePath[MAX_PATH];
+    DWORD size = MAX_PATH;
+    if (!QueryFullProcessImageNameW(process, 0, exePath, &size)) return false;
+    const std::wstring path(exePath);
+    if (image) *image = path;
+    return _wcsicmp(path.substr(0, dir.length()).c_str(), dir.c_str()) == 0;
+}
+
+std::wstring WithTrailingSeparator(const fs::path& dir) {
+    std::wstring s = dir.wstring();
+    if (!s.empty() && s.back() != L'\\' && s.back() != L'/') s += L'\\';
+    return s;
+}
+
+// How long the app gets to finish its own shutdown before it is closed for
+// it. That shutdown stops its players and downloads (for at most 5s) and
+// flushes its saves; this is far past it, and still bounded, so an app that
+// hangs on the way out cannot hold the update up for good.
+const DWORD kAppExitTimeoutMs = 30000;
+
+// The app's own process, named by --wait-pid, or NULL.
+//
+// The updater used to wait only on the installed copy's single-instance
+// mutex. A portable copy's mutex is named per folder, so for one the wait
+// found nothing, and the app was sent WM_CLOSE the moment the updater ran and
+// terminated 2.5s later, wherever its shutdown had got to. Waiting on the
+// process itself works for every copy.
+//
+// Opened before SignalReady, while the app is certainly still running (it
+// waits on the ready file), and only if it runs from the folder being
+// updated, so a pid recycled since cannot make us wait on something else.
+// NULL without the flag: an app from before it passes none, and gets the
+// mutex wait as before.
+HANDLE OpenAppProcess(int argc, LPWSTR* argv, const fs::path& targetDir) {
+    const std::wstring value = ArgValue(argc, argv, L"--wait-pid");
+    if (value.empty()) return NULL;
+    wchar_t* end = nullptr;
+    const unsigned long pid = wcstoul(value.c_str(), &end, 10);
+    if (pid == 0 || end == value.c_str() || *end != L'\0') {
+        LogLine(L"Ignoring --wait-pid " + value + L": not a process id.");
+        return NULL;
+    }
+    HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                                 FALSE, static_cast<DWORD>(pid));
+    if (!process) {
+        LogLine(L"Could not open process " + value + L" (error " +
+                std::to_wstring(GetLastError()) + L").");
+        return NULL;
+    }
+    std::wstring image;
+    if (!RunsFromDir(process, WithTrailingSeparator(targetDir), &image)) {
+        LogLine(L"Process " + value + L" (" + image +
+                L") is not the application being updated; not waiting on it.");
+        CloseHandle(process);
+        return NULL;
+    }
+    return process;
+}
+
 // 1. Terminate processes whose executable resides inside target directory
 void TerminateProcessesInDir(const fs::path& targetDir) {
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return;
 
-    std::wstring targetStr = targetDir.wstring();
-    if (!targetStr.empty() && targetStr.back() != L'\\' && targetStr.back() != L'/') {
-        targetStr += L'\\';
-    }
+    const std::wstring targetStr = WithTrailingSeparator(targetDir);
 
     PROCESSENTRY32W pe = { sizeof(pe) };
     if (Process32FirstW(hSnapshot, &pe)) {
@@ -146,25 +209,21 @@ void TerminateProcessesInDir(const fs::path& targetDir) {
             if (pe.th32ProcessID == GetCurrentProcessId()) continue;
             HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID);
             if (hProcess) {
-                wchar_t exePath[MAX_PATH];
-                DWORD size = MAX_PATH;
-                if (QueryFullProcessImageNameW(hProcess, 0, exePath, &size)) {
-                    std::wstring pStr(exePath);
-                    if (_wcsicmp(pStr.substr(0, targetStr.length()).c_str(), targetStr.c_str()) == 0) {
-                        LogLine(L"Closing process: " + pStr);
-                        // Ask nicely first. This used to call
-                        // PostThreadMessage(pe.th32ProcessID, WM_QUIT, ...),
-                        // passing a PROCESS id where a THREAD id is required:
-                        // it always failed, so every process ate the full
-                        // timeout and was then hard-killed - and because thread
-                        // and process ids share a namespace it could also
-                        // deliver WM_QUIT into an unrelated application.
-                        EnumWindows(CloseWindowForPid, static_cast<LPARAM>(pe.th32ProcessID));
-                        if (WaitForSingleObject(hProcess, 2500) == WAIT_TIMEOUT) {
-                            LogLine(L"  did not exit in time; terminating.");
-                            TerminateProcess(hProcess, 0);
-                            WaitForSingleObject(hProcess, 2000);
-                        }
+                std::wstring pStr;
+                if (RunsFromDir(hProcess, targetStr, &pStr)) {
+                    LogLine(L"Closing process: " + pStr);
+                    // Ask nicely first. This used to call
+                    // PostThreadMessage(pe.th32ProcessID, WM_QUIT, ...),
+                    // passing a PROCESS id where a THREAD id is required:
+                    // it always failed, so every process ate the full
+                    // timeout and was then hard-killed - and because thread
+                    // and process ids share a namespace it could also
+                    // deliver WM_QUIT into an unrelated application.
+                    EnumWindows(CloseWindowForPid, static_cast<LPARAM>(pe.th32ProcessID));
+                    if (WaitForSingleObject(hProcess, 2500) == WAIT_TIMEOUT) {
+                        LogLine(L"  did not exit in time; terminating.");
+                        TerminateProcess(hProcess, 0);
+                        WaitForSingleObject(hProcess, 2000);
                     }
                 }
                 CloseHandle(hProcess);
@@ -212,6 +271,99 @@ bool IsPreservedConfig(const std::wstring& filename) {
            _wcsicmp(filename.c_str(), L"portable.txt") == 0 ||
            _wcsicmp(filename.c_str(), L"recent_watched_vods.json") == 0 ||
            _wcsicmp(filename.c_str(), L"yt_dlp_archive.txt") == 0;
+}
+
+// Deletes the channels_config.json an older build mirrored into the install
+// folder: the whole config, Twitch tokens in plaintext, in a folder every
+// local user can read. Those builds wrote it even for an installed copy, and
+// under Program Files the app, which never runs elevated now, cannot change
+// it - this step, which writes the folder anyway, can.
+//
+// Only there: the elevated child is the one caller. In a folder the user can
+// write, the app blanks the file's tokens itself at its next start and keeps
+// the rest (StorageService.scrubStaleConfigMirror), because a portable copy
+// whose portable.txt went missing looks just like this, and there the file
+// is the user's real config - deleted here, putting portable.txt back no
+// longer brought its channels back. A folder that needs elevation to write
+// is no portable copy's: the app could never have saved a config there.
+//
+// Asked for only by an app whose config lives in AppData
+// (--drop-config-mirror), so the copy here is stale. But in a portable copy
+// that name IS the config, so a portable.txt here refuses it whatever the app
+// said, as does a folder that cannot even be checked for one. Without the
+// flag nothing here touches the file: IsPreservedConfig keeps it through the
+// swap, as it always has.
+void DropConfigMirror(const fs::path& targetDir) {
+    std::error_code ec;
+    if (fs::exists(targetDir / L"portable.txt", ec)) {
+        LogLine(L"Config mirror: kept, the target is a portable copy.");
+        return;
+    }
+    if (ec) {
+        LogLine(L"Config mirror: kept, could not check for portable.txt (error " +
+                std::to_wstring(ec.value()) + L").");
+        return;
+    }
+    const fs::path mirror = targetDir / L"channels_config.json";
+    ec.clear();
+    if (!fs::exists(mirror, ec) || ec) {
+        if (ec) {
+            LogLine(L"Config mirror: could not check for one (error " +
+                    std::to_wstring(ec.value()) + L").");
+        } else {
+            LogLine(L"Config mirror: none in the target.");
+        }
+        return;
+    }
+    ec.clear();
+    if (fs::remove(mirror, ec) && !ec) {
+        LogLine(L"Config mirror: removed " + mirror.wstring());
+    } else {
+        LogLine(L"Config mirror: could not remove " + mirror.wstring() + L" (error " +
+                std::to_wstring(ec.value()) + L").");
+    }
+}
+
+// Whether an app from before --drop-config-mirror started this update, from
+// a copy whose config lives in AppData: the request it would have made.
+//
+// v1.10.0 and earlier pass neither that flag nor --wait-pid, which came with
+// it. Without this the update that first ships this updater kept the mirror,
+// tokens in plaintext under Program Files, for one more release: the app it
+// installs cannot write that folder to scrub it. The test is the app's own
+// (StorageService.configLivesInAppData): no portable.txt, and a config in
+// %APPDATA%\TwitchStreamlinkGUI, or %LOCALAPPDATA%'s when APPDATA is unset,
+// that is not the mirror itself. Asked here, in the non-elevated parent: the
+// elevated child's %APPDATA% can be another account's. An app that passes
+// --wait-pid has answered for itself, with or without the flag.
+bool LegacyAppConfigLivesInAppData(int argc, LPWSTR* argv, const fs::path& targetDir) {
+    for (int i = 4; i < argc; ++i) {
+        if (wcscmp(argv[i], L"--wait-pid") == 0) return false;
+    }
+    std::error_code ec;
+    if (fs::exists(targetDir / L"portable.txt", ec) || ec) return false;
+
+    std::wstring base;
+    for (const wchar_t* name : {L"APPDATA", L"LOCALAPPDATA"}) {
+        const DWORD size = GetEnvironmentVariableW(name, nullptr, 0);
+        if (size == 0) continue;  // unset: the next one, as the app does
+        std::vector<wchar_t> value(size);
+        const DWORD length = GetEnvironmentVariableW(name, value.data(), size);
+        if (length > 0 && length < size) base.assign(value.data(), length);
+        break;  // set, even if empty: the app looks no further either
+    }
+    if (base.empty()) return false;
+
+    const fs::path config = fs::path(base) / L"TwitchStreamlinkGUI" / L"channels_config.json";
+    ec.clear();
+    if (!fs::exists(config, ec) || ec) return false;
+    const fs::path mirror = targetDir / L"channels_config.json";
+    ec.clear();
+    if (fs::exists(mirror, ec) && !ec) {
+        const bool same = fs::equivalent(mirror, config, ec);
+        if (same || ec) return false;
+    }
+    return true;
 }
 
 void ClearReadOnly(const fs::path& p) {
@@ -395,11 +547,58 @@ void RelaunchApp(const fs::path& targetDir, const std::wstring& exeName) {
     }
 }
 
+// Deletes the app's working directory for this update once it is installed.
+//
+// The app downloads and extracts every update into its own
+// %TEMP%\streamlink_gui_update_* directory and hands us a folder inside it
+// (extracted\<bundle>) as the staging directory. Nothing deleted it after a
+// successful swap, so each update left its ~300 MB extracted copy behind
+// until the app's startup sweep found it a day later. Only the nearest
+// ancestor carrying that prefix is removed, never the staging directory's
+// own tree on its own, and never one that holds the installation.
+void RemoveUpdateWorkDir(const fs::path& stagingDir, const fs::path& targetDir) {
+    const std::wstring prefix = L"streamlink_gui_update_";
+    fs::path workDir;
+    fs::path dir = stagingDir;
+    for (int depth = 0; depth < 4 && workDir.empty(); ++depth) {
+        const fs::path parent = dir.parent_path();
+        if (parent.empty() || parent == dir) break;
+        if (parent.filename().wstring().rfind(prefix, 0) == 0) workDir = parent;
+        dir = parent;
+    }
+    if (workDir.empty()) {
+        LogLine(L"Staging directory is not inside an update working directory; left in place.");
+        return;
+    }
+
+    std::wstring work = workDir.wstring();
+    std::wstring target = targetDir.wstring();
+    for (auto& c : work) c = static_cast<wchar_t>(std::towlower(c));
+    for (auto& c : target) c = static_cast<wchar_t>(std::towlower(c));
+    if (!work.empty() && work.back() != L'\\') work += L'\\';
+    if (!target.empty() && target.back() != L'\\') target += L'\\';
+    if (target.rfind(work, 0) == 0) {
+        LogLine(L"Update working directory contains the installation; left in place.");
+        return;
+    }
+
+    std::error_code ec;
+    fs::remove_all(workDir, ec);
+    if (ec) {
+        // A scanner still reading the archive, say. The app's startup sweep
+        // reclaims it later.
+        LogLine(L"Could not remove " + workDir.wstring() + L" (error " +
+                std::to_wstring(ec.value()) + L"); the app's sweep will.");
+    } else {
+        LogLine(L"Removed " + workDir.wstring());
+    }
+}
+
 enum SwapOutcome { kSwapOk, kSwapFailed, kSwapCancelled };
 
 // 3. Run the swap in an elevated copy of ourselves and wait for it to finish.
 SwapOutcome RunElevatedSwap(const fs::path& targetDir, const fs::path& stagingDir,
-                            const std::wstring& exeName) {
+                            const std::wstring& exeName, bool dropConfigMirror) {
     wchar_t selfPath[MAX_PATH] = {};
     if (GetModuleFileNameW(NULL, selfPath, MAX_PATH) == 0) {
         LogLine(L"Could not determine our own path for elevation.");
@@ -416,6 +615,11 @@ SwapOutcome RunElevatedSwap(const fs::path& targetDir, const fs::path& stagingDi
 
     std::wstring params = L"\"" + targetStr + L"\" \"" + stagingStr + L"\" \"" +
                           exeName + L"\" --elevated " + BREAKAWAY_FLAG;
+    // The elevated child is the step that writes the target, so the request
+    // travels with it.
+    if (dropConfigMirror) {
+        params += std::wstring(L" ") + DROP_CONFIG_MIRROR_FLAG;
+    }
     if (!g_logPath.empty()) {
         params += L" --log-file \"" + g_logPath + L"\"";
     }
@@ -473,8 +677,10 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     const std::wstring exeName = argv[3];
 
     bool isElevated = false;
+    bool dropConfigMirror = false;
     for (int i = 4; i < argc; ++i) {
         if (wcscmp(argv[i], L"--elevated") == 0) isElevated = true;
+        if (wcscmp(argv[i], DROP_CONFIG_MIRROR_FLAG) == 0) dropConfigMirror = true;
     }
 
     // Log where this instance can actually write.
@@ -520,6 +726,9 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         return 0;
     }
 
+    // Before the signal below: until then the app is still waiting for it.
+    HANDLE appProcess = OpenAppProcess(argc, argv, targetDir);
+
     // Safely outside the app's job object (or never in one). Tell the app it
     // may now exit: until this point, its exit would close the job and kill us
     // in the middle of replacing its files.
@@ -527,11 +736,27 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         LogLine(L"Signalled ready; the application may now exit.");
     }
 
-    // Wait for the app to release its single-instance mutex.
-    HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, MUTEX_NAME);
-    if (hMutex) {
-        WaitForSingleObject(hMutex, 6000);
-        CloseHandle(hMutex);
+    if (appProcess) {
+        // Its own shutdown first; WM_CLOSE and termination below are only for
+        // an app still running once this has run out.
+        const ULONGLONG waitStart = GetTickCount64();
+        if (WaitForSingleObject(appProcess, kAppExitTimeoutMs) == WAIT_OBJECT_0) {
+            LogLine(L"The application exited after " +
+                    std::to_wstring(GetTickCount64() - waitStart) + L" ms.");
+        } else {
+            LogLine(L"The application is still running after " +
+                    std::to_wstring(kAppExitTimeoutMs / 1000) + L"s; closing it.");
+        }
+        CloseHandle(appProcess);
+    } else {
+        // Wait for the app to release its single-instance mutex. Only the
+        // installed copy's has this name, so a portable copy from before
+        // --wait-pid is closed below without this wait.
+        HANDLE hMutex = OpenMutexW(SYNCHRONIZE, FALSE, MUTEX_NAME);
+        if (hMutex) {
+            WaitForSingleObject(hMutex, 6000);
+            CloseHandle(hMutex);
+        }
     }
 
     TerminateProcessesInDir(targetDir);
@@ -540,6 +765,8 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     // the relaunch, so the app never inherits the administrator token.
     if (isElevated) {
         const bool ok = PerformSwap(targetDir, stagingDir);
+        // Whatever the swap's outcome: the mirror is stale either way.
+        if (dropConfigMirror) DropConfigMirror(targetDir);
         LogLine(ok ? L"--- elevated swap ok ---" : L"--- elevated swap failed ---");
         LocalFree(argv);
         return ok ? 0 : 1;
@@ -549,8 +776,19 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     bool accessDenied = false;
     if (IsDirWritable(targetDir, &accessDenied)) {
         outcome = PerformSwap(targetDir, stagingDir) ? kSwapOk : kSwapFailed;
+        // Writable without elevation, so the app scrubs it; see
+        // DropConfigMirror.
+        if (dropConfigMirror) {
+            LogLine(L"Config mirror: left to the app, which can write the target "
+                    L"and scrubs its tokens.");
+        }
     } else if (accessDenied) {
-        outcome = RunElevatedSwap(targetDir, stagingDir, exeName);
+        if (!dropConfigMirror && LegacyAppConfigLivesInAppData(argc, argv, targetDir)) {
+            LogLine(L"Config mirror: asked for on behalf of an app from before "
+                    L"the flag, whose config is in AppData.");
+            dropConfigMirror = true;
+        }
+        outcome = RunElevatedSwap(targetDir, stagingDir, exeName, dropConfigMirror);
     } else {
         LogLine(L"Target directory is unavailable.");
     }
@@ -560,6 +798,13 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     // error - left the user with no running application at all, because the app
     // had already exited before the updater started.
     RelaunchApp(targetDir, exeName);
+
+    // After the relaunch, so the app is not kept waiting on 300 MB of deletes.
+    // Only once installed: a failed swap's copy is the one thing left to
+    // retry from, and the app's sweep reclaims it.
+    if (outcome == kSwapOk) {
+        RemoveUpdateWorkDir(stagingDir, targetDir);
+    }
 
     if (outcome == kSwapCancelled) {
         ShowError(L"The update was cancelled because administrator permission was not granted.\n\n"

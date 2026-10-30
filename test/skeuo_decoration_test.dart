@@ -34,12 +34,10 @@ void main() {
 
     test('a circle ignores the corner radius, in every layer', () async {
       // The invariant, stated exactly: a circle's shape is fixed by its box,
-      // so `radius` cannot reach the output when `circle` is true. Six of the
-      // seven layers honoured that. Layer 6 - the recess - built its hole as
-      // `RRect.fromRectAndRadius(shifted, Radius.circular(p.radius))`
-      // regardless, so a round sunken surface got a rounded-RECT recess
-      // clipped to a circle, and the corner radius leaked into a shape that
-      // has no corners.
+      // so `radius` cannot reach the output when `circle` is true. A recess
+      // layer once built its hole as a rounded rect regardless, so a round
+      // sunken surface got a rounded-RECT recess clipped to a circle, and the
+      // corner radius leaked into a shape that has no corners.
       //
       // Every channel avatar in the sidebar and the rail is one of these
       // (NeuAvatarFrame passes isCircle), and so is the circular add button.
@@ -47,7 +45,7 @@ void main() {
       // Asserted as byte equality rather than as a shading tolerance because
       // the visible error is only about two sRGB levels - a threshold that
       // catches it would be brittle, while this is exact and cannot drift.
-      final palette = MaterialSpec.of(AppMaterial.rack).palette(true);
+      final palette = softSpec.palette(true);
 
       for (final depth in [NeuElevation.d1, NeuElevation.d3, NeuElevation.d5]) {
         for (final role in [SurfaceRole.sunken, SurfaceRole.well]) {
@@ -78,7 +76,7 @@ void main() {
     test('the comparison can tell two shapes apart', () async {
       // Without this, byte equality would also pass on a painter that drew
       // nothing at all, or on a comparison that read the same buffer twice.
-      final palette = MaterialSpec.of(AppMaterial.rack).palette(true);
+      final palette = softSpec.palette(true);
       Decoration at(double radius) => SkeuoDecoration.role(
             palette: palette,
             role: SurfaceRole.sunken,
@@ -214,10 +212,11 @@ void main() {
         expect(mid, isNot(b));
       }
 
-      // Monotonic through the transition rather than jumping.
-      expect(quarter.params.insetStrength, closeTo(0.25, 1e-9));
-      expect(half.params.insetStrength, closeTo(0.5, 1e-9));
-      expect(threeQuarter.params.insetStrength, closeTo(0.75, 1e-9));
+      // Monotonic through the transition rather than jumping: raised ramps
+      // its fill, a recess fills flat.
+      expect(quarter.params.fillRamp, closeTo(0.75, 1e-9));
+      expect(half.params.fillRamp, closeTo(0.5, 1e-9));
+      expect(threeQuarter.params.fillRamp, closeTo(0.25, 1e-9));
 
       // And the endpoints are exact.
       expect(Decoration.lerp(a, b, 0.0), a);
@@ -228,14 +227,7 @@ void main() {
       final a = deco(SurfaceRole.raised); // fills from surface
       final b = deco(SurfaceRole.sunken); // fills from well
       final half = Decoration.lerp(a, b, 0.5)! as SkeuoDecoration;
-      // Through the palette's own overlay: dark Soft lifts every ground by
-      // elevation before the gradient sees it (the 2026-08-25 dark depth
-      // redesign), so the endpoints are the OVERLAID grounds.
-      final surface =
-          soft.withElevationOverlay(soft.surface, depth: NeuElevation.d3);
-      final well =
-          soft.withElevationOverlay(soft.well, depth: NeuElevation.d3);
-      expect(half.params.base, Color.lerp(surface, well, 0.5));
+      expect(half.params.base, Color.lerp(soft.surface, soft.well, 0.5));
     });
 
     test('interpolating from null scales out rather than popping', () {

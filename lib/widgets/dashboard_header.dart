@@ -12,7 +12,6 @@ import 'neumorphic/neu_badge.dart';
 import 'neumorphic/neu_led_indicator.dart';
 import 'shell/app_layout.dart';
 import 'shell/motion.dart';
-import 'neumorphic/neu_progress.dart';
 import '../theme/theme_notifier.dart';
 
 class DashboardHeader extends StatefulWidget {
@@ -78,38 +77,43 @@ class _DashboardHeaderState extends State<DashboardHeader> {
     final playing = widget.isPlaying;
     final subtext = NeuTheme.subtext(isDark);
 
+    // The wide header's button is a fixed 90px: a label that needs more - a
+    // wider label face, larger system text - shrinks to fit instead of
+    // running out of the button, and is never enlarged. The compact button
+    // sizes to its label, and its row gives way as a whole.
+    Widget label(Text text) => compact
+        ? text
+        : Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: text));
+
     final List<Widget> content;
     if (playing) {
+      // A still glyph, not a spinner. "The player is open" is a state that
+      // lasts the whole viewing session, and an indeterminate ring here
+      // repainted every frame for hours - re-recording the header around it
+      // while the GPU was busy decoding the stream - and announced itself to
+      // screen readers as "Refreshing", which it never was.
       content = [
-        SizedBox(
-          width: compact ? 10 : 12,
-          height: compact ? 10 : 12,
-          child: NeuProgressRing(
-            size: NeuProgressRingSize.xs,
-            color: subtext,
-            semanticLabel: 'Refreshing',
-          ),
-        ),
-        SizedBox(width: compact ? 4 : 6),
-        Text('OPEN', style: NeuType.plate(isDark, color: subtext)),
+        Icon(Icons.ondemand_video, size: compact ? 12 : 14, color: subtext),
+        SizedBox(width: compact ? NeuSpace.s4 : NeuSpace.s6),
+        label(Text('OPEN', style: NeuType.plate(isDark, color: subtext))),
       ];
     } else if (!live) {
       final disabled = NeuTheme.disabledText(isDark);
       content = [
         Icon(Icons.videocam_off, size: compact ? 12 : 14, color: disabled),
         const SizedBox(width: NeuSpace.s4),
-        Text('OFFLINE', style: NeuType.plate(isDark, color: disabled)),
+        label(Text('OFFLINE', style: NeuType.plate(isDark, color: disabled))),
       ];
     } else {
       content = [
         Icon(Icons.play_arrow, size: compact ? 14 : 16),
-        SizedBox(width: compact ? 2 : 4),
-        Text(
+        SizedBox(width: compact ? NeuSpace.s2 : NeuSpace.s4),
+        label(const Text(
           'PLAY',
           // No ink: ElevatedButton supplies the foreground, including its
           // disabled and hover states.
           style: NeuType.microMetrics,
-        ),
+        )),
       ];
     }
 
@@ -301,14 +305,21 @@ class _DashboardHeaderState extends State<DashboardHeader> {
         // fixed-width, so the Expanded beside it was handed less space than
         // the status pill inside it needs.
         //
-        // Below 440 the Stats control drops its label and the gaps between the
-        // mini actions halve. Nothing is removed: the popover still opens from
-        // the icon, and the word it loses is repeated inside the popover it
-        // opens. 440 is the measured point where the untightened row stops
-        // fitting.
+        // Below that point the Stats control drops its label and the gaps
+        // between the mini actions halve. Nothing is removed: the popover
+        // still opens from the icon, and the word it loses is repeated inside
+        // the popover it opens. The point is where the untightened row stops
+        // fitting, measured at 100% text on the widest label face and held a
+        // few px over: 490 live or open, 557 offline, whose pill and launch
+        // label are both the long OFFLINE. It was one 440 for every state,
+        // and the pill overran the name's room in windows 498 to 614 wide
+        // (header_width_sweep_test). It grows with Windows' Text size
+        // (textGrowthOf), or at 150% the untightened row overflowed a
+        // 700-wide window.
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final tight = constraints.maxWidth < 440;
+            final fits = widget.channel.isLive ? 492 : 560;
+            final tight = constraints.maxWidth < fits * textGrowthOf(context);
             final miniGap = SizedBox(width: tight ? NeuSpace.s4 : NeuSpace.s6);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -320,130 +331,154 @@ class _DashboardHeaderState extends State<DashboardHeader> {
                       _buildAvatar(radius: 18, strokeWidth: 2.0),
                     ),
                     const SizedBox(width: NeuSpace.s8),
+                    // The action group never pushes the row past its edge. Its icons
+                    // are fixed and only the launch label varies, and OFFLINE overran
+                    // the 380px minimum by 5 to 22px, depending on the material's
+                    // label face. When it does not fit, the group scales down as a
+                    // whole into the room the avatar leaves; the name still gives way
+                    // first.
                     Expanded(
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              widget.channel.username,
-                              style: NeuType.headingMd(
-                                themeNotifier.isDarkTheme,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          // The status pill rides beside the name only where the
-                          // name has room for company. At 380 the Expanded around
-                          // this Row measured 28 logical pixels - less than the
-                          // pill alone - so the pill drops to the line below
-                          // rather than pushing a name that has nowhere to go.
-                          if (!tight) ...[
-                            const SizedBox(width: NeuSpace.s8),
-                            _buildStatusBadge(compact: true),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: NeuSpace.s8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildMiniActionBtn(
-                          icon: Icons.open_in_new,
-                          tooltip: 'Open Twitch channel',
-                          onPressed: () => widget.openExternalLink(
-                            'https://twitch.tv/${widget.channel.username}',
-                          ),
-                        ),
-                        miniGap,
-                        _buildMiniActionBtn(
-                          icon: Icons.chat_bubble_outline,
-                          tooltip: 'Open Twitch chat popout',
-                          onPressed: () => widget.openExternalLink(
-                            'https://twitch.tv/${widget.channel.username}/chat',
-                          ),
-                        ),
-                        miniGap,
-                        _buildMiniActionBtn(
-                          icon: Icons.refresh,
-                          tooltip: 'Refresh statistics',
-                          isLoading: widget.channel.isLoading,
-                          onPressed: widget.channel.isLoading
-                              ? null
-                              : widget.onRefresh,
-                        ),
-                        miniGap,
-                        InteractivePopover(
-                          targetAnchor: Alignment.bottomRight,
-                          followerAnchor: Alignment.topRight,
-                          offset: const Offset(0, 6),
-                          popover: Container(
-                            width: 200,
-                            padding: const EdgeInsets.all(NeuSpace.s8),
-                            decoration: NeuTheme.raisedDecoration(
-                              themeNotifier.isDarkTheme,
-                              radius: NeuRadius.r8,
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: statsChips
-                                  .map(
-                                    (chip) => Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: NeuSpace.s6,
-                                      ),
-                                      child: chip,
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: NeuSpace.s8,
-                              vertical: NeuSpace.s4,
-                            ),
-                            decoration: NeuTheme.raisedDecoration(
-                              themeNotifier.isDarkTheme,
-                              radius: NeuRadius.r6,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.analytics_outlined,
-                                  // 15, like every popover-trigger chip; the
-                                  // four triggers ranged 12..16 for one job.
-                                  size: 15,
-                                  color: themeNotifier.accentInk,
-                                ),
-                                if (!tight) ...[
-                                  const SizedBox(width: NeuSpace.s4),
-                                  Text(
-                                    'Stats',
-                                    style: NeuType.captionStrong(
-                                      themeNotifier.isDarkTheme,
-                                      color: NeuTheme.text(
+                      child: LayoutBuilder(
+                        builder: (context, rest) => Row(
+                          children: [
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      widget.channel.username,
+                                      style: NeuType.headingMd(
                                         themeNotifier.isDarkTheme,
                                       ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
+                                  // The status pill rides beside the name only where the
+                                  // name has room for company. At 380 the Expanded around
+                                  // this Row measured 28 logical pixels - less than the
+                                  // pill alone - so the pill drops to the line below
+                                  // rather than pushing a name that has nowhere to go.
+                                  if (!tight) ...[
+                                    const SizedBox(width: NeuSpace.s8),
+                                    _buildStatusBadge(compact: true),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
+                            const SizedBox(width: NeuSpace.s8),
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: (rest.maxWidth - NeuSpace.s8)
+                                    .clamp(0.0, double.infinity),
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerRight,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildMiniActionBtn(
+                                      icon: Icons.open_in_new,
+                                      tooltip: 'Open Twitch channel',
+                                      onPressed: () => widget.openExternalLink(
+                                        'https://twitch.tv/${widget.channel.username}',
+                                      ),
+                                    ),
+                                    miniGap,
+                                    _buildMiniActionBtn(
+                                      icon: Icons.chat_bubble_outline,
+                                      tooltip: 'Open Twitch chat popout',
+                                      onPressed: () => widget.openExternalLink(
+                                        'https://twitch.tv/${widget.channel.username}/chat',
+                                      ),
+                                    ),
+                                    miniGap,
+                                    _buildMiniActionBtn(
+                                      icon: Icons.refresh,
+                                      tooltip: 'Refresh statistics',
+                                      isLoading: widget.channel.isLoading,
+                                      onPressed: widget.channel.isLoading
+                                          ? null
+                                          : widget.onRefresh,
+                                    ),
+                                    miniGap,
+                                    InteractivePopover(
+                                      targetAnchor: Alignment.bottomRight,
+                                      followerAnchor: Alignment.topRight,
+                                      offset: const Offset(0, 6),
+                                      popover: Container(
+                                        width: 200,
+                                        padding: const EdgeInsets.all(NeuSpace.s8),
+                                        decoration: NeuTheme.raisedDecoration(
+                                          themeNotifier.isDarkTheme,
+                                          radius: NeuRadius.r8,
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: statsChips
+                                              .map(
+                                                (chip) => Padding(
+                                                  padding: const EdgeInsets.only(
+                                                    bottom: NeuSpace.s6,
+                                                  ),
+                                                  child: chip,
+                                                ),
+                                              )
+                                              .toList(),
+                                        ),
+                                      ),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: NeuSpace.s8,
+                                          vertical: NeuSpace.s4,
+                                        ),
+                                        decoration: NeuTheme.raisedDecoration(
+                                          themeNotifier.isDarkTheme,
+                                          radius: NeuRadius.r6,
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.analytics_outlined,
+                                              // 15, like every popover-trigger chip; the
+                                              // four triggers ranged 12..16 for one job.
+                                              size: 15,
+                                              color: themeNotifier.accentInk,
+                                            ),
+                                            if (!tight) ...[
+                                              const SizedBox(width: NeuSpace.s4),
+                                              Text(
+                                                'Stats',
+                                                style: NeuType.captionStrong(
+                                                  themeNotifier.isDarkTheme,
+                                                  color: NeuTheme.text(
+                                                    themeNotifier.isDarkTheme,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ),
 
-                        miniGap,
-                        _withLivePreview(
-                          SizedBox(
-                            height: 28,
-                            child: _buildPlayButton(compact: true),
-                          ),
+                                    miniGap,
+                                    _withLivePreview(
+                                      SizedBox(
+                                        height: 28,
+                                        child: _buildPlayButton(compact: true),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ],
                 ),

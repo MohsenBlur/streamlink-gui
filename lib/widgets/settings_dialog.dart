@@ -1,13 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/app_settings.dart';
+import '../services/file_dialogs.dart';
 import '../services/player_service.dart';
 import '../services/twitch_api_service.dart';
 import '../services/update_service.dart';
 import '../utils/color_utils.dart';
 import '../theme/neu_material_themes.dart';
-import '../theme/material/app_material.dart';
 import '../state/twitch_auth_notifier.dart';
 import '../theme/neu_theme.dart';
 import '../utils/twitch_auth_status.dart';
@@ -34,16 +36,7 @@ abstract class ThemeUpdateListener extends ChangeNotifier {
   Color get darkAccentColor;
   bool get isDarkTheme;
 
-  /// Which material world the app is wearing.
-  ///
-  /// On this interface rather than only on the notifier because the settings
-  /// dialog never sees `AppThemeNotifier` - it is handed a
-  /// `ThemeUpdateListener`. Without these two members the material picker
-  /// cannot be built at all.
-  AppMaterial get material;
-
   void setDarkTheme(bool isDark);
-  void setMaterial(AppMaterial material);
   void setLightAccent(Color color);
   void setDarkAccent(Color color);
 
@@ -51,6 +44,110 @@ abstract class ThemeUpdateListener extends ChangeNotifier {
     Color? activeProgress,
     Color? watchedProgress,
   });
+}
+
+/// Whether an account-token Test probed the credentials the app is using.
+///
+/// The Test button validates whatever is TYPED, but `twitchAuth.helix`
+/// describes the SAVED token and Client ID - the pair every Helix call sends.
+/// Publishing a probe of anything else rewrote the app-wide verdict about a
+/// token nothing was using. Testing a typo and pressing Cancel raised the
+/// "rejected" banner over a working account. Testing a good token over a dead
+/// saved one cleared the banner and fired the recovery refresh, with the dead
+/// token, which failed again a minute later.
+///
+/// Trimmed on both sides because Save trims what it stores.
+bool accountTestDescribesSavedToken(
+  AppSettings saved, {
+  required String token,
+  required String clientId,
+}) =>
+    token.trim() == saved.twitchOauthToken.trim() &&
+    clientId.trim() == saved.twitchClientId.trim();
+
+/// What the Simultaneous downloads setting at [n] does, in a sentence.
+String simultaneousDownloadsLabel(int n) =>
+    n <= 1 ? 'One download at a time.' : 'Up to $n downloads at once.';
+
+/// What running several at once does to the speed, as measured: real VODs,
+/// the app's own yt-dlp arguments, about a minute per run. One alone ran at
+/// 8 to 59 MiB/s by the moment and the server, two at once 34 to 74 in
+/// total, three 69 to 78 and four 77 - where the connection measured on
+/// filled up. The total never fell; each download's own share did.
+const String simultaneousDownloadsHelp =
+    'Twitch sends each download at its own pace, often below what your '
+    'connection can take. Measured: one alone averaged 35 MiB/s (8 to 59), '
+    'two at once 61 MiB/s in total, and three or four filled that connection '
+    'at about 75 MiB/s. Each download is slower while they share it, but '
+    'the queue as a whole finishes sooner.';
+
+/// Whether the custom player path names a file: checked off the UI thread,
+/// and only once the typing stops.
+///
+/// This was `File(path).existsSync()`, called six times per rebuild, and the
+/// dialog rebuilds on every keystroke and every slider tick. Free on a local
+/// disk. For a player kept on a share (`\\nas\tools\mpv.exe`) that is slow or
+/// offline, every one of those stats blocked the UI thread, and the dialog
+/// froze for seconds per character typed.
+class PlayerPathCheck {
+  PlayerPathCheck({
+    required String path,
+    required bool exists,
+    Future<bool> Function(String path)? probe,
+    this.debounce = const Duration(milliseconds: 350),
+  })  : _path = normalize(path),
+        _exists = exists,
+        _probe = probe ?? ((path) => File(path).exists());
+
+  /// The launcher's own normalisation, so the verdict is about the file that
+  /// would actually run. Explorer's "Copy as path" wraps a path in quotes;
+  /// the launcher strips them and the old check did not, so a player that
+  /// played fine was labelled "File not found".
+  static String normalize(String raw) => raw.trim().replaceAll('"', '');
+
+  final Duration debounce;
+  final Future<bool> Function(String path) _probe;
+  String _path;
+  bool? _exists;
+  Timer? _pending;
+  bool _disposed = false;
+
+  /// The normalised path the verdict is about. Empty when none is set.
+  String get path => _path;
+
+  /// Whether [path] names a file; null while an edit waits to be checked.
+  bool? get exists => _path.isEmpty ? false : _exists;
+
+  /// Records the field's text.
+  ///
+  /// Free when the path has not changed, so it is safe on every keystroke.
+  /// [onSettled] runs once the latest edit's verdict lands, and never for an
+  /// edit a later one has replaced.
+  void update(String rawPath, VoidCallback onSettled) {
+    final next = normalize(rawPath);
+    if (next == _path) return;
+    _path = next;
+    _exists = null;
+    _pending?.cancel();
+    if (next.isEmpty) return;
+    _pending = Timer(debounce, () async {
+      bool found;
+      try {
+        found = await _probe(next);
+      } catch (_) {
+        found = false;
+      }
+      // Replaced by a later edit while the stat ran, or the dialog is gone.
+      if (_disposed || next != _path) return;
+      _exists = found;
+      onSettled();
+    });
+  }
+
+  void dispose() {
+    _disposed = true;
+    _pending?.cancel();
+  }
 }
 
 class SettingsDialog {
@@ -66,7 +163,11 @@ class SettingsDialog {
     /// go stale because it never consulted anything.
     required Future<void> Function() onRevalidateHelix,
     required VoidCallback onConnectAccount,
-    required void Function(AppSettings) onSave,
+
+    /// Persists the staged settings. Save does not wait for it. Connect
+    /// Account does: the OAuth flow reads the settings the app holds, so it
+    /// must not start until the typed Client ID and port are the ones held.
+    required FutureOr<void> Function(AppSettings) onSave,
     required void Function(String) openExternalLink,
     required VoidCallback onClearWatchHistory,
     required VoidCallback onOpenLogs,
@@ -74,7 +175,13 @@ class SettingsDialog {
     /// app can offer to install it. Without this the dialog told the user to
     /// "check the main window prompt", which only ever appears at startup.
     void Function(UpdateInfo)? onUpdateAvailable,
+
+    /// What the two token Test buttons validate through. A fresh service when
+    /// omitted, which is what the app does; tests pass a fake so a validation
+    /// can be held open while the dialog closes underneath it.
+    TwitchApiService? apiService,
   }) {
+    final api = apiService ?? TwitchApiService();
     String tempQuality = settings.defaultQuality;
     bool tempLowLatency = settings.twitchLowLatency;
     String tempPlayerType = settings.playerType;
@@ -86,6 +193,12 @@ class SettingsDialog {
     bool tempStartMinimized = settings.startMinimized;
     bool tempTrayLiveMenu = settings.trayLiveMenuEnabled;
     final tokenController = TextEditingController(text: settings.twitchOauthToken);
+    // The account token the field opened with. A Connect Account that
+    // finishes while the dialog is open writes its token into `settings`
+    // itself, and the untouched field still holds the old one: staging the
+    // field put that back on Save - and, no longer matching, blanked the
+    // Client ID that minted the new one and signed the account out.
+    final openedToken = settings.twitchOauthToken.trim();
     final webTokenController = TextEditingController(text: settings.twitchWebOauthToken);
     final playerPathController = TextEditingController(text: settings.customPlayerPath);
     final playerArgsController = TextEditingController(text: settings.customPlayerArgs);
@@ -95,6 +208,7 @@ class SettingsDialog {
     final maxDownloadsController = TextEditingController(
       text: settings.maxDownloadsToKeep == 0 ? '' : settings.maxDownloadsToKeep.toString()
     );
+    int tempSimultaneousDownloads = settings.simultaneousDownloads;
     bool tempDisableVodPostProcessing = settings.disableVodPostProcessing;
     bool tempSeekableVodStreaming = settings.seekableVodStreaming;
     final customVodArgsController = TextEditingController(text: settings.customVodArgs);
@@ -102,21 +216,19 @@ class SettingsDialog {
     bool tempNotifyAutoPlay = settings.notifyAutoPlay;
     bool tempNotifyAutoDownloadStart = settings.notifyAutoDownloadStart;
     bool tempNotifyDownloadComplete = settings.notifyDownloadComplete;
+    bool tempNotifyNewVod = settings.notifyNewVod;
+    bool tempNotifyFollowedWentLive = settings.notifyFollowedWentLive;
 
     // One probe per dialog open. This used to run 8x on EVERY rebuild (each
     // probe shells out / stats the filesystem for four players).
     final detectedPlayers = PlayerService().detectInstalledPlayers(settings);
     // The custom-path entry is the exception: it must react to what the user
-    // is typing, not to the last saved settings.
-    bool customPathValid() {
-      final path = playerPathController.text.trim();
-      if (path.isEmpty) return false;
-      try {
-        return File(path).existsSync();
-      } catch (_) {
-        return false;
-      }
-    }
+    // is typing, not to the last saved settings. Seeded from the probe above,
+    // which already stat'ed the saved path, so opening costs no second stat.
+    final playerPathCheck = PlayerPathCheck(
+      path: settings.customPlayerPath,
+      exists: detectedPlayers['custom'] == true,
+    );
 
     String? portError;
     String? maxDownloadsError;
@@ -152,6 +264,11 @@ class SettingsDialog {
     bool isTestingAccount = false;
     String? accountTestResult;
     bool isAccountValid = false;
+    // A file dialog is open for that field. It no longer blocks the app
+    // (file_picker 13), so each Browse stayed pressable and opened another
+    // dialog per click, the last to answer overwriting the field.
+    bool isPickingPlayer = false;
+    bool isPickingFolder = false;
 
     // Opening Settings is itself the check.
     WidgetsBinding.instance.addPostFrameCallback((_) => onRevalidateHelix());
@@ -162,28 +279,114 @@ class SettingsDialog {
     final originalIsDarkTheme = themeNotifier.isDarkTheme;
     final originalLightAccent = themeNotifier.lightAccentColor;
     final originalDarkAccent = themeNotifier.darkAccentColor;
-    final originalMaterial = themeNotifier.material;
 
     void restoreLiveThemeEdits() {
       themeNotifier.setLightAccent(originalLightAccent);
       themeNotifier.setDarkAccent(originalDarkAccent);
       themeNotifier.setDarkTheme(originalIsDarkTheme);
-      // Cancel has to undo the material too. Without this, previewing a
-      // material and then cancelling left the app wearing it until the next
-      // launch, at which point it silently reverted - which reads as the app
-      // forgetting a choice rather than as Cancel working.
-      themeNotifier.setMaterial(originalMaterial);
     }
+
+    // Save and Connect Account both persist exactly this, so it is built in
+    // one place. Connect used to leave without saving at all.
+    bool stagedIsValid() => portError == null && maxDownloadsError == null;
+
+    AppSettings stagedSettings() {
+      // copyWith, not a fresh AppSettings: constructing a new
+      // instance from only the fields this dialog knows about
+      // silently reset every other persisted field to its
+      // default, so saving wiped the theme mode, window
+      // geometry, the VOD watch exclusion threshold and the
+      // auto-play preemption toggle.
+      //
+      // An account token the user did not edit is the one in force now,
+      // whatever the field still says (see openedToken).
+      final typedToken = tokenController.text.trim();
+      final token =
+          typedToken == openedToken ? settings.twitchOauthToken : typedToken;
+      return settings.copyWith(
+        defaultQuality: tempQuality,
+        twitchLowLatency: tempLowLatency,
+        playerType: tempPlayerType,
+        watchedThreshold: tempWatchedThreshold,
+        twitchOauthToken: token,
+        twitchTokenClientId: token == settings.twitchOauthToken
+            ? settings.twitchTokenClientId
+            : '',
+        twitchWebOauthToken: webTokenController.text.trim(),
+        customPlayerPath: playerPathController.text.trim(),
+        customPlayerArgs: playerArgsController.text.trim(),
+        seekableVodStreaming: tempSeekableVodStreaming,
+        twitchClientId: clientIdController.text.trim(),
+        localServerPort: int.tryParse(portController.text.trim()) ?? settings.localServerPort,
+        vodDownloadFolder: downloadFolderController.text.trim(),
+        maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
+        simultaneousDownloads: tempSimultaneousDownloads,
+        maxRecentlyWatched: tempMaxRecentlyWatched,
+        closeAction: tempCloseAction,
+        minimizeAction: tempMinimizeAction,
+        launchAtStartup: tempLaunchAtStartup,
+        startMinimized: tempStartMinimized,
+        trayLiveMenuEnabled: tempTrayLiveMenu,
+        notifyWentLive: tempNotifyWentLive,
+        notifyAutoPlay: tempNotifyAutoPlay,
+        notifyAutoDownloadStart: tempNotifyAutoDownloadStart,
+        notifyDownloadComplete: tempNotifyDownloadComplete,
+        notifyNewVod: tempNotifyNewVod,
+        notifyFollowedWentLive: tempNotifyFollowedWentLive,
+        disableVodPostProcessing: tempDisableVodPostProcessing,
+        customVodArgs: customVodArgsController.text.trim(),
+        // The Styling tab edits these on the notifier directly;
+        // persist what it currently holds so the choice survives
+        // a restart instead of reverting to Dark + default accent.
+        isDarkTheme: themeNotifier.isDarkTheme,
+        lightAccentColorHex: colorToHex(themeNotifier.lightAccentColor),
+        darkAccentColorHex: colorToHex(themeNotifier.darkAccentColor),
+      );
+    }
+
+    // What the dialog stages before anything is touched. "Were there edits"
+    // compares against this, not against `settings`: the two disagree with no
+    // edit at all, because the stored default accent is '#FF6584' and
+    // colorToHex writes '#FFFF6584', so every unsaved install would compare as
+    // changed.
+    final uneditedJson = jsonEncode(stagedSettings().toJson());
+    bool hasStagedEdits() => jsonEncode(stagedSettings().toJson()) != uneditedJson;
 
     // Not dismissible: the dialog stages every edit and applies theme changes
     // live, so a click on the scrim would discard typed tokens and paths while
     // leaving the accent it had already previewed.
+    void disposeControllers() {
+      tokenController.dispose();
+      webTokenController.dispose();
+      playerPathController.dispose();
+      playerArgsController.dispose();
+      clientIdController.dispose();
+      portController.dispose();
+      downloadFolderController.dispose();
+      maxDownloadsController.dispose();
+      customVodArgsController.dispose();
+      playerPathCheck.dispose();
+    }
+
     return NeuDialog.show<void>(
       context,
       dismissible: false,
       builder: (context) {
-        return StatefulBuilder(
+        final dialog = StatefulBuilder(
           builder: (context, setDialogState) {
+            // Null while an edit to the custom path waits to be checked.
+            final playerPathFound = playerPathCheck.exists;
+            final playerPathInk = playerPathFound == null
+                ? NeuTheme.subtext(themeNotifier.isDarkTheme)
+                : (playerPathFound
+                    ? NeuTheme.liveText(themeNotifier.isDarkTheme)
+                    : NeuTheme.dangerText(themeNotifier.isDarkTheme));
+            void recheckPlayerPath() => playerPathCheck.update(
+                  playerPathController.text,
+                  () {
+                    if (context.mounted) setDialogState(() {});
+                  },
+                );
             return DefaultTabController(
               length: 5,
               child: NeuDialog(
@@ -252,18 +455,30 @@ class SettingsDialog {
                             const SizedBox(height: NeuSpace.s8),
                             DropdownButtonFormField<String>(
                               initialValue: tempQuality,
+                              // Expanded, so the field bounds its items and a
+                              // narrow window ellipsizes them. Unexpanded, the
+                              // widest item sets the width and overflows the
+                              // field instead. The arrow is the decoration's
+                              // suffix either way, so nothing moves.
+                              isExpanded: true,
                               decoration: const InputDecoration(
                                 contentPadding: EdgeInsets.symmetric(horizontal: NeuSpace.s12),
                               ),
-                              items: const [
-                                DropdownMenuItem(value: 'best', child: Text('Best Available')),
-                                DropdownMenuItem(value: '1080p60', child: Text('1080p60 (Source)')),
-                                DropdownMenuItem(value: '1080p', child: Text('1080p')),
-                                DropdownMenuItem(value: '720p60', child: Text('720p60')),
-                                DropdownMenuItem(value: '720p', child: Text('720p')),
-                                DropdownMenuItem(value: '480p', child: Text('480p')),
-                                DropdownMenuItem(value: '360p', child: Text('360p')),
-                                DropdownMenuItem(value: 'worst', child: Text('Worst Available')),
+                              items: [
+                                for (final (value, label) in const [
+                                  ('best', 'Best Available'),
+                                  ('1080p60', '1080p60 (Source)'),
+                                  ('1080p', '1080p'),
+                                  ('720p60', '720p60'),
+                                  ('720p', '720p'),
+                                  ('480p', '480p'),
+                                  ('360p', '360p'),
+                                  ('worst', 'Worst Available'),
+                                ])
+                                  DropdownMenuItem(
+                                    value: value,
+                                    child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  ),
                               ],
                               onChanged: (val) {
                                 if (val != null) {
@@ -274,23 +489,30 @@ class SettingsDialog {
                               },
                             ),
                             const SizedBox(height: NeuSpace.s16),
+                            // Label-and-control rows keep the label in an
+                            // Expanded, so a narrow window wraps the words
+                            // instead of pushing the control past the edge,
+                            // where it was clipped and could not be reached.
+                            // This one overflowed at the 380px minimum window.
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Low Latency Streams', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
-                                    const SizedBox(height: NeuSpace.s4),
-                                    // Streamlink's own help warns this can
-                                    // cause buffering, so the trade-off
-                                    // belongs on the switch, not in a wiki.
-                                    Text(
-                                      'Cuts delay on live streams. May buffer more.',
-                                      style: NeuType.caption(themeNotifier.isDarkTheme),
-                                    ),
-                                  ],
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Low Latency Streams', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
+                                      const SizedBox(height: NeuSpace.s4),
+                                      // Streamlink's own help warns this can
+                                      // cause buffering, so the trade-off
+                                      // belongs on the switch, not in a wiki.
+                                      Text(
+                                        'Cuts delay on live streams. May buffer more.',
+                                        style: NeuType.caption(themeNotifier.isDarkTheme),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempLowLatency,
                                   activeColor: themeNotifier.primaryColor,
@@ -361,6 +583,11 @@ class SettingsDialog {
                             const SizedBox(height: NeuSpace.s8),
                             DropdownButtonFormField<String>(
                               initialValue: tempPlayerType,
+                              // Expanded for the quality field's reason. Each
+                              // name is Flexible so the status plate keeps its
+                              // room and the name ellipsizes; the plate is the
+                              // part that answers the question.
+                              isExpanded: true,
                               decoration: const InputDecoration(
                                 contentPadding: EdgeInsets.symmetric(horizontal: NeuSpace.s12),
                               ),
@@ -370,7 +597,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Default System Player'),
+                                      Flexible(child: Text('Default System Player', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: NeuSpace.s8),
                                       Text('(Available)', style: NeuType.plate(themeNotifier.isDarkTheme, color: NeuTheme.liveText(themeNotifier.isDarkTheme))),
                                     ],
@@ -381,7 +608,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('VLC Media Player'),
+                                      Flexible(child: Text('VLC Media Player', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['vlc'] == true ? '(Detected)' : '(Not Found)',
@@ -395,7 +622,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('MPV Player'),
+                                      Flexible(child: Text('MPV Player', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['mpv'] == true ? '(Detected)' : '(Not Found)',
@@ -409,7 +636,7 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('MPC-HC Player'),
+                                      Flexible(child: Text('MPC-HC Player', maxLines: 1, overflow: TextOverflow.ellipsis)),
                                       const SizedBox(width: NeuSpace.s8),
                                       Text(
                                         detectedPlayers['mpc-hc'] == true ? '(Detected)' : '(Not Found)',
@@ -423,12 +650,12 @@ class SettingsDialog {
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Custom Executable Path'),
-                                      if (playerPathController.text.trim().isNotEmpty) ...[
+                                      Flexible(child: Text('Custom Executable Path', maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                      if (playerPathCheck.path.isNotEmpty && playerPathFound != null) ...[
                                         const SizedBox(width: NeuSpace.s8),
                                         Text(
-                                          customPathValid() ? '(Valid Path)' : '(File Missing)',
-                                          style: NeuType.plate(themeNotifier.isDarkTheme, color: customPathValid() ? NeuTheme.liveText(themeNotifier.isDarkTheme) : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                          playerPathFound ? '(Valid Path)' : '(File Missing)',
+                                          style: NeuType.plate(themeNotifier.isDarkTheme, color: playerPathInk),
                                         ),
                                       ],
                                     ],
@@ -453,7 +680,7 @@ class SettingsDialog {
                                     child: TextField(
                                       controller: playerPathController,
                                       style: NeuType.bodySm(themeNotifier.isDarkTheme),
-                                      onChanged: (_) => setDialogState(() {}),
+                                      onChanged: (_) => setDialogState(recheckPlayerPath),
                                       decoration: const InputDecoration(
                                         hintText: 'e.g. C:\\Program Files\\MPV\\mpv.exe',
                                       ),
@@ -465,14 +692,32 @@ class SettingsDialog {
                                       backgroundColor: themeNotifier.primaryColor,
                                       padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s16),
                                     ),
-                                    onPressed: () async {
-                                      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+                                    onPressed: isPickingPlayer ? null : () async {
+                                      final route = ModalRoute.of(context);
+                                      setDialogState(() => isPickingPlayer = true);
+                                      // pickFile, not pickFiles: since
+                                      // file_picker 12, pickFiles allows a
+                                      // multi-pick by default, and one
+                                      // player is wanted here.
+                                      final PlatformFile? picked = await FileDialogs.pickFile(
                                         type: FileType.custom,
                                         allowedExtensions: ['exe', 'app', 'sh', 'bat', 'cmd'],
-                                      );
-                                      if (result != null && result.files.single.path != null) {
+                                      ).whenComplete(() {
+                                        if (context.mounted) setDialogState(() => isPickingPlayer = false);
+                                      });
+                                      // The same guard as the token tests:
+                                      // nothing here may touch the dialog,
+                                      // or its disposed controllers, once it
+                                      // has closed - nor fill in a field of
+                                      // one that Cancel or Save already
+                                      // closed and is only animating out.
+                                      if (!context.mounted || route?.isActive == false) return;
+                                      final pickedPath = picked?.path;
+                                      if (pickedPath != null) {
                                         setDialogState(() {
-                                          playerPathController.text = result.files.single.path!;
+                                          playerPathController.text = pickedPath;
+                                          // Assigning .text fires no onChanged.
+                                          recheckPlayerPath();
                                         });
                                       }
                                     },
@@ -484,23 +729,25 @@ class SettingsDialog {
                                   ),
                                 ],
                               ),
-                              if (playerPathController.text.trim().isNotEmpty) ...[
+                              if (playerPathCheck.path.isNotEmpty) ...[
                                 const SizedBox(height: NeuSpace.s6),
                                 Row(
                                   children: [
                                     Icon(
-                                      customPathValid() ? Icons.check_circle : Icons.error_outline,
+                                      playerPathFound == null
+                                          ? Icons.hourglass_empty
+                                          : (playerPathFound ? Icons.check_circle : Icons.error_outline),
                                       size: 13,
-                                      color: customPathValid()
-                                          ? NeuTheme.liveText(themeNotifier.isDarkTheme)
-                                          : NeuTheme.dangerText(themeNotifier.isDarkTheme),
+                                      color: playerPathInk,
                                     ),
                                     const SizedBox(width: NeuSpace.s6),
-                                    Text(
-                                      customPathValid() ? 'Executable found' : 'File not found at this path',
-                                      style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: customPathValid()
-                                            ? NeuTheme.liveText(themeNotifier.isDarkTheme)
-                                            : NeuTheme.dangerText(themeNotifier.isDarkTheme)),
+                                    Expanded(
+                                      child: Text(
+                                        playerPathFound == null
+                                            ? 'Checking path...'
+                                            : (playerPathFound ? 'Executable found' : 'File not found at this path'),
+                                        style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: playerPathInk),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -577,8 +824,16 @@ class SettingsDialog {
                                     backgroundColor: themeNotifier.primaryColor,
                                     padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12, vertical: NeuSpace.s16),
                                   ),
-                                  onPressed: () async {
-                                    final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+                                  onPressed: isPickingFolder ? null : () async {
+                                    final route = ModalRoute.of(context);
+                                    setDialogState(() => isPickingFolder = true);
+                                    final String? selectedDirectory =
+                                        await FileDialogs.pickFolder().whenComplete(() {
+                                      if (context.mounted) setDialogState(() => isPickingFolder = false);
+                                    });
+                                    // As the player Browse above: not into
+                                    // a dialog that has closed or is closing.
+                                    if (!context.mounted || route?.isActive == false) return;
                                     if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
                                       setDialogState(() {
                                         downloadFolderController.text = selectedDirectory;
@@ -608,6 +863,39 @@ class SettingsDialog {
                                 hintText: 'e.g. 5, 10, or leave empty',
                                 errorText: maxDownloadsError,
                               ),
+                            ),
+                            const SizedBox(height: NeuSpace.s16),
+                            Text('Simultaneous downloads', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
+                            const SizedBox(height: NeuSpace.s4),
+                            Text(
+                              '${simultaneousDownloadsLabel(tempSimultaneousDownloads)} '
+                              '$simultaneousDownloadsHelp',
+                              style: NeuType.caption(themeNotifier.isDarkTheme),
+                            ),
+                            const SizedBox(height: NeuSpace.s8),
+                            Row(
+                              children: [
+                                Text('1', style: NeuType.caption(themeNotifier.isDarkTheme)),
+                                Expanded(
+                                  child: SliderTheme(
+                                    data: neuSliderTheme(context, accent: themeNotifier.primaryColor),
+                                    child: Slider(
+                                      value: tempSimultaneousDownloads.toDouble(),
+                                      min: 1,
+                                      max: AppSettings.maxSimultaneousDownloads.toDouble(),
+                                      divisions: AppSettings.maxSimultaneousDownloads - 1,
+                                      semanticFormatterCallback: (val) =>
+                                          simultaneousDownloadsLabel(val.round()),
+                                      onChanged: (val) {
+                                        setDialogState(() {
+                                          tempSimultaneousDownloads = val.round();
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                Text('${AppSettings.maxSimultaneousDownloads}', style: NeuType.caption(themeNotifier.isDarkTheme)),
+                              ],
                             ),
                             const SizedBox(height: NeuSpace.s16),
                             Row(
@@ -667,20 +955,6 @@ class SettingsDialog {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Material', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
-                            const SizedBox(height: NeuSpace.s4),
-                            Text(
-                              'What the app is made of. Changes the surfaces, '
-                              'the light and the ornament - never the layout.',
-                              style: NeuType.caption(themeNotifier.isDarkTheme,
-                                  color: themeNotifier.subtextColor),
-                            ),
-                            const SizedBox(height: NeuSpace.s12),
-                            _MaterialPicker(
-                              themeNotifier: themeNotifier,
-                              onChanged: () => setDialogState(() {}),
-                            ),
-                            const SizedBox(height: NeuSpace.s24),
                             Text('Application Theme Mode', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s4),
                             Text('Choose between Soft Light and Deep Dark Neumorphic themes.', style: NeuType.caption(themeNotifier.isDarkTheme, color: themeNotifier.subtextColor)),
@@ -853,8 +1127,15 @@ class SettingsDialog {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  // A Wrap, not a Row: in a narrow window the button
+                                  // drops under the status instead of squeezing it to
+                                  // nothing. On one line, spaceBetween keeps the old
+                                  // status-left, button-right arrangement.
+                                  Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: NeuSpace.s8,
+                                    runSpacing: NeuSpace.s8,
                                     children: [
                                       // The indicator used to be
                                       // `twitchOauthToken.isNotEmpty`, which
@@ -863,39 +1144,37 @@ class SettingsDialog {
                                       // shows what Twitch last said about the
                                       // ACCOUNT token, and says which token
                                       // that is.
-                                      Flexible(
-                                        child: ValueListenableBuilder<TwitchAuthStatus>(
-                                          valueListenable: twitchAuth.helix,
-                                          builder: (context, status, _) {
-                                            final ok = status.isUsable;
-                                            final bad = status.needsReconnect;
-                                            final ink = ok
-                                                ? NeuTheme.liveText(themeNotifier.isDarkTheme)
-                                                : (bad
-                                                    ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
-                                                    : NeuTheme.warningText(themeNotifier.isDarkTheme));
-                                            return Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                  ok
-                                                      ? Icons.check_circle
-                                                      : (bad ? Icons.link_off : Icons.help_outline),
-                                                  color: ink,
-                                                  size: 16,
+                                      ValueListenableBuilder<TwitchAuthStatus>(
+                                        valueListenable: twitchAuth.helix,
+                                        builder: (context, status, _) {
+                                          final ok = status.isUsable;
+                                          final bad = status.needsReconnect;
+                                          final ink = ok
+                                              ? NeuTheme.liveText(themeNotifier.isDarkTheme)
+                                              : (bad
+                                                  ? NeuTheme.dangerText(themeNotifier.isDarkTheme)
+                                                  : NeuTheme.warningText(themeNotifier.isDarkTheme));
+                                          return Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                ok
+                                                    ? Icons.check_circle
+                                                    : (bad ? Icons.link_off : Icons.help_outline),
+                                                color: ink,
+                                                size: 16,
+                                              ),
+                                              const SizedBox(width: NeuSpace.s8),
+                                              Flexible(
+                                                child: Text(
+                                                  connectionLabel(status),
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: NeuType.label(themeNotifier.isDarkTheme, color: ink),
                                                 ),
-                                                const SizedBox(width: NeuSpace.s8),
-                                                Flexible(
-                                                  child: Text(
-                                                    connectionLabel(status),
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: NeuType.label(themeNotifier.isDarkTheme, color: ink),
-                                                  ),
-                                                ),
-                                              ],
-                                            );
-                                          },
-                                        ),
+                                              ),
+                                            ],
+                                          );
+                                        },
                                       ),
                                       ElevatedButton.icon(
                                         style: ElevatedButton.styleFrom(
@@ -904,26 +1183,45 @@ class SettingsDialog {
                                           minimumSize: Size.zero,
                                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                         ),
-                                        onPressed: () {
-                                          onConnectAccount();
-                                          // Restore before popping: this exits
-                                          // the dialog without saving, so the
-                                          // live theme edits from the
-                                          // Appearance tab have to come back
-                                          // the way Cancel brings them back.
-                                          // Without it the session runs on a
-                                          // material the config does not
-                                          // record and the next launch
-                                          // silently reverts - the exact
-                                          // symptom the restore exists to
-                                          // prevent. Escape and the scrim are
-                                          // both disabled, so this was the
-                                          // only unguarded exit.
-                                          restoreLiveThemeEdits();
-                                          Navigator.pop(context);
-                                        },
-                                        icon: Icon(Icons.login, size: 12, color: NeuTheme.onAccent(themeNotifier.primaryColor)),
-                                        label: Text('Connect Account', style: NeuType.captionStrong(themeNotifier.isDarkTheme, color: NeuTheme.onAccent(themeNotifier.primaryColor))),
+                                        // Disabled whenever Save is: an invalid
+                                        // port cannot be saved, and the sign-in
+                                        // flow listens on it.
+                                        onPressed: !stagedIsValid()
+                                            ? null
+                                            : () async {
+                                                // Connect is Save, then sign in.
+                                                // It used to leave without
+                                                // saving, so a Client ID or port
+                                                // typed a few lines below was
+                                                // ignored: the flow bound the
+                                                // OLD port for the OLD client,
+                                                // Twitch rejected the redirect,
+                                                // and every other staged edit
+                                                // was lost without a word.
+                                                // Saving also settles the live
+                                                // Appearance edits, which this
+                                                // exit used to restore - every
+                                                // exit still saves or restores.
+                                                //
+                                                // Built before the pop, which
+                                                // disposes the controllers it
+                                                // reads. Skipped when nothing is
+                                                // staged, so a plain Connect
+                                                // does not rewrite the config.
+                                                final staged = stagedSettings();
+                                                final changed = hasStagedEdits();
+                                                Navigator.pop(context);
+                                                if (changed) await onSave(staged);
+                                                onConnectAccount();
+                                              },
+                                        icon: Icon(Icons.login, size: 12,
+                                            color: stagedIsValid()
+                                                ? NeuTheme.onAccent(themeNotifier.primaryColor)
+                                                : NeuTheme.disabledText(themeNotifier.isDarkTheme)),
+                                        label: Text('Connect Account', style: NeuType.captionStrong(themeNotifier.isDarkTheme,
+                                            color: stagedIsValid()
+                                                ? NeuTheme.onAccent(themeNotifier.primaryColor)
+                                                : NeuTheme.disabledText(themeNotifier.isDarkTheme))),
                                       ),
                                     ],
                                   ),
@@ -988,9 +1286,14 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s12),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Account token \u2014 followed channels, VOD lists, ad-free', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                // The longest label in the dialog: below about
+                                // 555px it pushed "Get Token Manually" out of
+                                // reach.
+                                Expanded(
+                                  child: Text('Account token \u2014 followed channels, VOD lists, ad-free', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                ),
+                                const SizedBox(width: NeuSpace.s8),
                                 TextButton(
                                   style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                                   onPressed: () => openExternalLink('https://twitchapps.com/tmi/'),
@@ -1036,22 +1339,47 @@ class SettingsDialog {
                                     onPressed: isTestingAccount
                                         ? null
                                         : () async {
+                                            // Taken before the await: the
+                                            // fields stay editable during the
+                                            // round trip, and what matters
+                                            // below is what was TESTED.
+                                            final testedToken = tokenController.text;
+                                            final testedClientId = clientIdController.text;
+                                            final route = ModalRoute.of(context);
                                             setDialogState(() {
                                               isTestingAccount = true;
                                               accountTestResult = null;
                                             });
-                                            final status = await TwitchApiService()
-                                                .validateHelixToken(
-                                                    tokenController.text,
-                                                    clientIdController.text);
+                                            final status = await api.validateHelixToken(
+                                                testedToken, testedClientId);
+                                            // Cancel, Save and Connect all stay
+                                            // live while this runs. Returning
+                                            // once any of them has popped also
+                                            // skips publishing: after a Save,
+                                            // `settings` is no longer what the
+                                            // app is using. `mounted` alone is
+                                            // not that test - the builder
+                                            // outlives the pop by the whole
+                                            // exit animation - but the route
+                                            // stops being active at the pop.
+                                            if (!context.mounted || route?.isActive == false) return;
+                                            final testedIsSaved = accountTestDescribesSavedToken(
+                                                settings,
+                                                token: testedToken,
+                                                clientId: testedClientId);
                                             setDialogState(() {
                                               isTestingAccount = false;
                                               isAccountValid = status.isUsable;
                                               accountTestResult = status.isUsable
                                                   ? 'Account token OK \u2014 signed in as ${status.login}, follows permission granted'
+                                                      '${testedIsSaved ? '' : '. Save to start using it.'}'
                                                   : (connectionDetail(status) ?? connectionLabel(status));
                                             });
-                                            twitchAuth.recordHelixProbe(status);
+                                            if (testedIsSaved) {
+                                              twitchAuth.recordHelixProbe(status,
+                                                  credential: TwitchApiService.helixCredential(
+                                                      testedToken, testedClientId));
+                                            }
                                           },
                                     child: isTestingAccount
                                         ? SizedBox(
@@ -1090,9 +1418,11 @@ class SettingsDialog {
                             ],
                             const SizedBox(height: NeuSpace.s12),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Browser token \u2014 watch-progress sync only', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                Expanded(
+                                  child: Text('Browser token \u2014 watch-progress sync only', style: NeuType.label(themeNotifier.isDarkTheme)),
+                                ),
+                                const SizedBox(width: NeuSpace.s8),
                                 IconButton(
                                   icon: const Icon(Icons.help_outline, size: 16),
                                   color: themeNotifier.accentInk,
@@ -1143,8 +1473,9 @@ class SettingsDialog {
                                               isTestingToken = true;
                                               tokenTestResult = null;
                                             });
-                                            final result = await TwitchApiService()
+                                            final result = await api
                                                 .validateOAuthToken(webTokenController.text);
+                                            if (!context.mounted) return;
                                             setDialogState(() {
                                               isTestingToken = false;
                                               isTokenValid = result.isValid;
@@ -1206,41 +1537,71 @@ class SettingsDialog {
                           children: [
                             Text('Window & Tray', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            // A Wrap and an intrinsically sized dropdown, not
+                            // the Expanded label the switch rows use. A
+                            // dropdown is as wide as its longest choice, so
+                            // beside an Expanded label it still overflows once
+                            // that choice outgrows the row. Here it keeps its
+                            // natural width while there is room, drops to its
+                            // own line when there is not, and ellipsizes only
+                            // when a whole line is too short for it.
+                            Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: NeuSpace.s8,
                               children: [
                                 Text('Close button', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
-                                DropdownButton<String>(
-                                  value: tempCloseAction,
-                                  underline: const SizedBox.shrink(),
-                                  style: NeuType.bodySm(themeNotifier.isDarkTheme),
-                                  dropdownColor: themeNotifier.surfaceColor,
-                                  items: const [
-                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
-                                    DropdownMenuItem(value: 'exit', child: Text('Exit the app')),
-                                  ],
-                                  onChanged: (val) {
-                                    if (val != null) setDialogState(() => tempCloseAction = val);
-                                  },
+                                IntrinsicWidth(
+                                  child: DropdownButton<String>(
+                                    value: tempCloseAction,
+                                    isExpanded: true,
+                                    underline: const SizedBox.shrink(),
+                                    style: NeuType.bodySm(themeNotifier.isDarkTheme),
+                                    dropdownColor: themeNotifier.surfaceColor,
+                                    items: [
+                                      for (final (value, label) in const [
+                                        ('tray', 'Minimize to tray'),
+                                        ('exit', 'Exit the app'),
+                                      ])
+                                        DropdownMenuItem(
+                                          value: value,
+                                          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        ),
+                                    ],
+                                    onChanged: (val) {
+                                      if (val != null) setDialogState(() => tempCloseAction = val);
+                                    },
+                                  ),
                                 ),
                               ],
                             ),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: NeuSpace.s8,
                               children: [
                                 Text('Minimize button', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
-                                DropdownButton<String>(
-                                  value: tempMinimizeAction,
-                                  underline: const SizedBox.shrink(),
-                                  style: NeuType.bodySm(themeNotifier.isDarkTheme),
-                                  dropdownColor: themeNotifier.surfaceColor,
-                                  items: const [
-                                    DropdownMenuItem(value: 'taskbar', child: Text('Minimize to taskbar')),
-                                    DropdownMenuItem(value: 'tray', child: Text('Minimize to tray')),
-                                  ],
-                                  onChanged: (val) {
-                                    if (val != null) setDialogState(() => tempMinimizeAction = val);
-                                  },
+                                IntrinsicWidth(
+                                  child: DropdownButton<String>(
+                                    value: tempMinimizeAction,
+                                    isExpanded: true,
+                                    underline: const SizedBox.shrink(),
+                                    style: NeuType.bodySm(themeNotifier.isDarkTheme),
+                                    dropdownColor: themeNotifier.surfaceColor,
+                                    items: [
+                                      for (final (value, label) in const [
+                                        ('taskbar', 'Minimize to taskbar'),
+                                        ('tray', 'Minimize to tray'),
+                                      ])
+                                        DropdownMenuItem(
+                                          value: value,
+                                          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                        ),
+                                    ],
+                                    onChanged: (val) {
+                                      if (val != null) setDialogState(() => tempMinimizeAction = val);
+                                    },
+                                  ),
                                 ),
                               ],
                             ),
@@ -1266,9 +1627,9 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Start minimized to tray', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                Expanded(child: Text('Start minimized to tray', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempStartMinimized,
                                   activeColor: themeNotifier.primaryColor,
@@ -1302,9 +1663,9 @@ class SettingsDialog {
                             Text('Notifications', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s8),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Favorite channel goes live', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                Expanded(child: Text('Favorite channel goes live', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempNotifyWentLive,
                                   activeColor: themeNotifier.primaryColor,
@@ -1314,9 +1675,35 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Auto-play starts a stream', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                Expanded(child: Text('Favorite channel has a new VOD', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
+                                NeuSwitch(
+                                  value: tempNotifyNewVod,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyNewVod = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: NeuSpace.s6),
+                            Row(
+                              children: [
+                                // Off by default: with a large followed list
+                                // this is a toast every few minutes.
+                                Expanded(child: Text('Followed channel goes live', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
+                                NeuSwitch(
+                                  value: tempNotifyFollowedWentLive,
+                                  activeColor: themeNotifier.primaryColor,
+                                  onChanged: (val) => setDialogState(() => tempNotifyFollowedWentLive = val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: NeuSpace.s6),
+                            Row(
+                              children: [
+                                Expanded(child: Text('Auto-play starts a stream', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempNotifyAutoPlay,
                                   activeColor: themeNotifier.primaryColor,
@@ -1326,9 +1713,9 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Auto-download starts', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                Expanded(child: Text('Auto-download starts', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempNotifyAutoDownloadStart,
                                   activeColor: themeNotifier.primaryColor,
@@ -1338,13 +1725,14 @@ class SettingsDialog {
                             ),
                             const SizedBox(height: NeuSpace.s6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 // Not "Download completes": it governs the
-                                // failure notification too, and none of these
-                                // rows can wrap, so the label has to be both
-                                // true and no longer than its siblings.
-                                Text('Download completes or fails', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
+                                // failure notification too. These rows wrap
+                                // now rather than overflow, but a label that
+                                // breaks where its siblings do not still
+                                // reads as the odd one out, so it stays short.
+                                Expanded(child: Text('Download completes or fails', style: NeuType.bodySm(themeNotifier.isDarkTheme))),
+                                const SizedBox(width: NeuSpace.s8),
                                 NeuSwitch(
                                   value: tempNotifyDownloadComplete,
                                   activeColor: themeNotifier.primaryColor,
@@ -1393,7 +1781,7 @@ class SettingsDialog {
                             EngravedRule(),
                             const SizedBox(height: NeuSpace.s12),
                             Text('Diagnostics', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
-                            const SizedBox(height: NeuSpace.s4),
+                            const SizedBox(height: NeuSpace.s8),
                             Text(
                               'Output from downloads, streams and players. Useful when something fails.',
                               style: NeuType.caption(themeNotifier.isDarkTheme),
@@ -1526,66 +1914,10 @@ class SettingsDialog {
                   // hand on ElevatedButton.onPressed.
                   NeuDialogAction.primary(
                     'Save changes',
-                    (portError != null || maxDownloadsError != null)
+                    !stagedIsValid()
                         ? null
                         : () {
-                              // copyWith, not a fresh AppSettings: constructing a new
-                              // instance from only the fields this dialog knows about
-                              // silently reset every other persisted field to its
-                              // default, so saving wiped the theme mode, window
-                              // geometry, the VOD watch exclusion threshold and the
-                              // auto-play preemption toggle.
-                              final updated = settings.copyWith(
-                                defaultQuality: tempQuality,
-                                twitchLowLatency: tempLowLatency,
-                                playerType: tempPlayerType,
-                                watchedThreshold: tempWatchedThreshold,
-                                twitchOauthToken: tokenController.text.trim(),
-                                twitchTokenClientId:
-                                    tokenController.text.trim() == settings.twitchOauthToken
-                                        ? settings.twitchTokenClientId
-                                        : '',
-                                twitchWebOauthToken: webTokenController.text.trim(),
-                                customPlayerPath: playerPathController.text.trim(),
-                                customPlayerArgs: playerArgsController.text.trim(),
-                                seekableVodStreaming: tempSeekableVodStreaming,
-                                twitchClientId: clientIdController.text.trim(),
-                                localServerPort: int.tryParse(portController.text.trim()) ?? settings.localServerPort,
-                                vodDownloadFolder: downloadFolderController.text.trim(),
-                                maxDownloadsToKeep: int.tryParse(maxDownloadsController.text.trim()) ?? 0,
-                                maxRecentlyWatched: tempMaxRecentlyWatched,
-                                closeAction: tempCloseAction,
-                                minimizeAction: tempMinimizeAction,
-                                launchAtStartup: tempLaunchAtStartup,
-                                startMinimized: tempStartMinimized,
-                                trayLiveMenuEnabled: tempTrayLiveMenu,
-                                notifyWentLive: tempNotifyWentLive,
-                                notifyAutoPlay: tempNotifyAutoPlay,
-                                notifyAutoDownloadStart: tempNotifyAutoDownloadStart,
-                                notifyDownloadComplete: tempNotifyDownloadComplete,
-                                disableVodPostProcessing: tempDisableVodPostProcessing,
-                                customVodArgs: customVodArgsController.text.trim(),
-                                // The Styling tab edits these on the notifier directly;
-                                // persist what it currently holds so the choice survives
-                                // a restart instead of reverting to Dark + default accent.
-                                isDarkTheme: themeNotifier.isDarkTheme,
-                                lightAccentColorHex: colorToHex(themeNotifier.lightAccentColor),
-                                darkAccentColorHex: colorToHex(themeNotifier.darkAccentColor),
-                                // Only written when the user actually changed
-                                // it. `themeNotifier.material` is the RESOLVED
-                                // value, and main.dart deliberately leaves it
-                                // at the fallback for a key this build does not
-                                // implement - so writing it unconditionally
-                                // turns "open Settings, press Save" into
-                                // "silently destroy the material a newer build
-                                // chose". Every autosave path already got this
-                                // right; this was the one that did not.
-                                material: themeNotifier.material == originalMaterial
-                                    ? settings.material
-                                    : themeNotifier.material.key,
-                              );
-
-                              onSave(updated);
+                              onSave(stagedSettings());
                               Navigator.pop(context);
                             },
                   ),
@@ -1594,19 +1926,15 @@ class SettingsDialog {
             );
           },
         );
+        // The controllers go when the dialog's widgets do, not when its
+        // future completes. The future completes at the pop, but the route
+        // stays on screen through its exit animation, and the focus change
+        // at the pop rebuilds whichever field held the caret - which then
+        // re-subscribed to a controller already disposed, and asserted on
+        // every Save or Cancel made straight after typing.
+        return _DisposeWhenUnmounted(onDispose: disposeControllers, child: dialog);
       },
-    ).whenComplete(() {
-      // The dialog is gone; nothing can be typing into these anymore.
-      tokenController.dispose();
-      webTokenController.dispose();
-      playerPathController.dispose();
-      playerArgsController.dispose();
-      clientIdController.dispose();
-      portController.dispose();
-      downloadFolderController.dispose();
-      maxDownloadsController.dispose();
-      customVodArgsController.dispose();
-    });
+    );
   }
 
   static void _showBrowserTokenHelp(BuildContext context, ThemeUpdateListener themeNotifier) {
@@ -1686,159 +2014,27 @@ class SettingsDialog {
   }
 }
 
-/// The material picker: one tile per implemented material, each rendered by
-/// the shipping painter.
+/// Runs [onDispose] once, when it leaves the tree for good.
 ///
-/// The preview is the real thing, not a swatch. Every tile paints with
-/// `SkeuoDecoration` at that material's own palette, so a tile cannot show a
-/// surface the app would not actually draw — which is the failure mode of a
-/// hand-drawn preview, and the one that survives longest because it looks
-/// fine right up until the material changes.
-///
-/// The previewed palette is taken at the **active brightness**, matching the
-/// convention the theme-mode tiles below already use in reverse: those show
-/// the other theme's own colours on purpose, and these show the current one,
-/// because brightness is a separate axis the user is not choosing here.
-///
-/// Selection applies immediately rather than on Save. That is deliberate and
-/// it is why Cancel restores the entry material: a material is a whole-app
-/// change and judging it from a 120px tile is not possible. What is **not**
-/// done is preview-on-hover by assigning `themeNotifier.material` and
-/// restoring it — that fires `notifyListeners()` and rebuilds the entire app
-/// on every pointer move across the row.
-class _MaterialPicker extends StatelessWidget {
-  const _MaterialPicker({
-    required this.themeNotifier,
-    required this.onChanged,
-  });
+/// Children are unmounted before their parent, so by the time this runs every
+/// field below it has already let go of its controller.
+class _DisposeWhenUnmounted extends StatefulWidget {
+  const _DisposeWhenUnmounted({required this.onDispose, required this.child});
 
-  final ThemeUpdateListener themeNotifier;
-  final VoidCallback onChanged;
+  final VoidCallback onDispose;
+  final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    final isDark = themeNotifier.isDarkTheme;
-    return Wrap(
-      spacing: NeuSpace.s12,
-      runSpacing: NeuSpace.s12,
-      children: [
-        for (final spec in MaterialSpec.available)
-          _MaterialTile(
-            spec: spec,
-            isDark: isDark,
-            selected: themeNotifier.material == spec.id,
-            accent: themeNotifier.accentInk,
-            onTap: () {
-              themeNotifier.setMaterial(spec.id);
-              onChanged();
-            },
-          ),
-      ],
-    );
-  }
+  State<_DisposeWhenUnmounted> createState() => _DisposeWhenUnmountedState();
 }
 
-class _MaterialTile extends StatelessWidget {
-  const _MaterialTile({
-    required this.spec,
-    required this.isDark,
-    required this.selected,
-    required this.accent,
-    required this.onTap,
-  });
-
-  final MaterialSpec spec;
-  final bool isDark;
-  final bool selected;
-  final Color accent;
-  final VoidCallback onTap;
+class _DisposeWhenUnmountedState extends State<_DisposeWhenUnmounted> {
+  @override
+  void dispose() {
+    widget.onDispose();
+    super.dispose();
+  }
 
   @override
-  Widget build(BuildContext context) {
-    // No Tooltip, and the absence is a fix: the framework tooltip's overlay
-    // is hit-testable (RawTooltip.ignorePointer defaults false and Material's
-    // Tooltip does not expose it), and it spawns below the TARGET CENTRE -
-    // which for a tile this tall is exactly where the pointer hovers. The
-    // first press then dismissed the tooltip instead of selecting the
-    // material. The blurb is already printed on the tile face and spoken by
-    // the Semantics label, so the tooltip only ever duplicated it - at the
-    // cost of eating the click it sat under. Icon-sized targets elsewhere
-    // keep their tooltips: a small target cannot overlap its own tooltip.
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: '${spec.name}. ${spec.blurb}',
-      child: GestureDetector(
-          onTap: onTap,
-          child: SizedBox(
-            width: 168,
-            child: Container(
-              padding: const EdgeInsets.all(NeuSpace.s12),
-              // The tile IS the material — `panel` with that material's own
-              // palette, passed explicitly rather than read from the active
-              // one. Reading the active material here is the bug that makes
-              // every tile look identical and nobody notices until a second
-              // material ships.
-              decoration: NeuTheme.panel(
-                isDark,
-                radius: NeuRadius.r12,
-                material: spec.id,
-                border: selected
-                    ? Border.all(color: accent, width: 2)
-                    : Border.all(color: NeuTheme.border(isDark, material: spec.id)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // A raised chip and a recessed well side by side: the two
-                  // surfaces that carry almost every control in the app, and
-                  // the pair that actually distinguishes one material from
-                  // another. A flat swatch would show only the ground.
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          height: 26,
-                          decoration: NeuTheme.raised(isDark,
-                              radius: NeuRadius.r8, material: spec.id),
-                        ),
-                      ),
-                      const SizedBox(width: NeuSpace.s8),
-                      Expanded(
-                        child: Container(
-                          height: 26,
-                          decoration: NeuTheme.sunken(isDark,
-                              radius: NeuRadius.r8, material: spec.id),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: NeuSpace.s8),
-                  Text(
-                    spec.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: NeuType.label(
-                      isDark,
-                      color: NeuTheme.text(isDark, material: spec.id),
-                    ),
-                  ),
-                  const SizedBox(height: NeuSpace.s2),
-                  Text(
-                    spec.blurb,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: NeuType.caption(
-                      isDark,
-                      color: NeuTheme.subtext(isDark, material: spec.id),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-    );
-  }
+  Widget build(BuildContext context) => widget.child;
 }

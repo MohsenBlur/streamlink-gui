@@ -1,3 +1,25 @@
+/// Whether [login] can be a Twitch login name: 1-25 letters, digits and
+/// underscores.
+///
+/// Checked before a name goes anywhere near a URL. Names were interpolated
+/// raw, so adding "foo&login=bar" as a favourite sent a two-user query and
+/// silently bound whichever account came back first to the typed name, and
+/// "foo bar" produced a malformed request instead of a clear "that is not a
+/// username".
+bool isValidTwitchLogin(String login) => _twitchLoginPattern.hasMatch(login);
+
+final RegExp _twitchLoginPattern = RegExp(r'^[A-Za-z0-9_]{1,25}$');
+
+/// Whether [id] is shaped like a Twitch user id: a decimal string.
+///
+/// DecAPI answers many errors with status 200 and plain text, and that text
+/// used to be stored as the channel id, persisted, and reused by every later
+/// Helix call - which then failed with a 400 on every poll, forever.
+bool isValidTwitchUserId(String? id) =>
+    id != null && _twitchUserIdPattern.hasMatch(id);
+
+final RegExp _twitchUserIdPattern = RegExp(r'^\d{1,20}$');
+
 class TwitchChannel {
   final String username;
   String? id;
@@ -60,7 +82,7 @@ class TwitchChannel {
 
   factory TwitchChannel.fromJson(Map<String, dynamic> json) => TwitchChannel(
         username: (json['username'] as String).toLowerCase().trim(),
-        id: json['id'] as String?,
+        id: _persistedUserId(json['id']),
         avatarUrl: json['avatarUrl'] as String?,
         autoPlayLive: json['autoPlayLive'] as bool? ?? false,
         autoPlayPriority: json['autoPlayPriority'] as int? ?? 0,
@@ -69,6 +91,17 @@ class TwitchChannel {
         stopAtLastWatchedVod: json['stopAtLastWatchedVod'] as bool? ?? true,
         autoDownloadFastDownload: json['autoDownloadFastDownload'] as bool? ?? false,
       );
+
+  /// A stored id, or null when it is not one.
+  ///
+  /// Null rather than kept, so a config already carrying a DecAPI error
+  /// string as an id heals on the next launch: a missing id is re-resolved,
+  /// a wrong one was trusted forever. A bare number is accepted too, since a
+  /// hand-edited config should not lose the whole channel to a type check.
+  static String? _persistedUserId(Object? raw) {
+    final text = raw is int ? raw.toString() : (raw is String ? raw.trim() : null);
+    return isValidTwitchUserId(text) ? text : null;
+  }
 
   /// Lenient parser for persisted entries.
   ///

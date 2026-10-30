@@ -44,6 +44,27 @@ class SidebarSearchPopover extends StatefulWidget {
 class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
   static const int _maxResults = 8;
 
+  /// Focus is asked for explicitly once the panel is up. `autofocus` alone
+  /// never took: the page's own `Focus(autofocus: true)` already holds focus
+  /// in the scope, and Flutter drops an autofocus request when the scope has
+  /// a focused child - so the panel opened with the caret nowhere and the
+  /// first keystrokes went to the page shortcuts instead of the field.
+  final FocusNode _fieldFocus = FocusNode(debugLabel: 'sidebar search popover');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fieldFocus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _fieldFocus.dispose();
+    super.dispose();
+  }
+
   void _submit() {
     final action = resolveSearchSubmit(
       tab: widget.tab,
@@ -69,12 +90,15 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
   @override
   Widget build(BuildContext context) {
     final isDark = themeNotifier.isDarkTheme;
-    final theme = Theme.of(context);
     final query = widget.controller.text.trim();
     final results = filterChannels(widget.channels, query);
     final hasExactMatch =
         widget.channels.any((c) => c.username.toLowerCase() == query.toLowerCase());
-    final showAddRow = widget.tab == 0 && query.isNotEmpty && !hasExactMatch;
+    // Only for something that could be a login (see SidebarPanel).
+    final showAddRow = widget.tab == 0 &&
+        query.isNotEmpty &&
+        !hasExactMatch &&
+        isValidTwitchLogin(query);
 
     return Container(
       width: 300,
@@ -91,6 +115,7 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                 ? 'Search or add username...'
                 : 'Search channels...',
             prefixIcon: Icons.search,
+            focusNode: _fieldFocus,
             autofocus: true,
             onChanged: (_) => setState(() {}),
             onSubmitted: (_) => _submit(),
@@ -106,7 +131,9 @@ class _SidebarSearchPopoverState extends State<SidebarSearchPopover> {
                     leading: Icon(Icons.add_circle_outline,
                         color: themeNotifier.accentInk, size: 18),
                     title: "Add '$query' to Favorites",
-                    titleColor: theme.primaryColor,
+                    // Ink, as the inline sidebar's same prompt: the raw
+                    // accent is unreadable as text on light grounds.
+                    titleColor: themeNotifier.accentInk,
                     onTap: () {
                       widget.onAdd(query);
                       widget.close();

@@ -21,6 +21,9 @@
 /// | MPC-HC `/start` on a local file         | honoured, landed 60s      |
 /// | MPC-HC `wm_command=-1` seek             | works, 90s asked → 92s    |
 /// | VLC `--start-time` on an HLS URL        | works, 60s asked → 58s    |
+///
+/// MPC-HC is now corrected over its /slave API rather than the web interface
+/// the third row used (see mpc_slave_protocol.dart).
 library;
 
 import 'player_args.dart';
@@ -44,10 +47,12 @@ const int kMaxSeekCorrections = 2;
 
 /// Whether a player can be told to seek while it is running, and how.
 enum SeekChannel {
-  /// MPC-HC's web interface: `command.html?wm_command=-1&position=hh:mm:ss`.
-  /// `-1` is `CMD_SETPOS`, read out of the shipped binary along with the
-  /// request map, then measured against the running player.
-  mpcHcWeb,
+  /// MPC-HC's /slave API: `CMD_SETPOSITION` with the position in seconds,
+  /// acknowledged by the `CMD_NOTIFYSEEK` the player sends once it has moved.
+  /// An absolute time, never a percentage: a percentage is resolved against
+  /// the duration the player loaded - under passthrough the HLS manifest's,
+  /// not the Twitch metadata this app holds - and the two need not agree.
+  mpcHcSlave,
 
   /// VLC's HTTP interface: `/requests/status.json?command=seek&val=<seconds>`.
   vlcHttp,
@@ -62,7 +67,7 @@ enum SeekChannel {
 SeekChannel seekChannelFor(PlayerKind kind) {
   switch (kind) {
     case PlayerKind.mpcHc:
-      return SeekChannel.mpcHcWeb;
+      return SeekChannel.mpcHcSlave;
     case PlayerKind.vlc:
       return SeekChannel.vlcHttp;
     case PlayerKind.mpv:
@@ -72,57 +77,38 @@ SeekChannel seekChannelFor(PlayerKind kind) {
   }
 }
 
-/// `hh:mm:ss`, which is what MPC-HC's own parser expects.
-String formatSeekClock(int totalSeconds) {
-  final t = totalSeconds < 0 ? 0 : totalSeconds;
-  final h = t ~/ 3600;
-  final m = (t % 3600) ~/ 60;
-  final sec = t % 60;
-  String two(int v) => v < 10 ? '0$v' : '$v';
-  return '${two(h)}:${two(m)}:${two(sec)}';
-}
-
 /// The request path for an HTTP-controlled player, or null for the rest.
-///
-/// MPC-HC is asked in **absolute time, not percent**, and that distinction is
-/// load-bearing. Its web UI sends `percent`, but percent is resolved against
-/// the duration the *player* loaded — under passthrough that is the HLS
-/// manifest's duration, not the Twitch metadata this app holds, and the two
-/// need not agree. Its command handler reads `position` first and parses it
-/// exactly, so an absolute clock cannot drift with a denominator we do not own.
 String? seekRequestPath(
   SeekChannel channel, {
   required int targetSeconds,
   required int durationSeconds,
 }) {
   switch (channel) {
-    case SeekChannel.mpcHcWeb:
-      return 'command.html?wm_command=-1&position=${formatSeekClock(targetSeconds)}';
     case SeekChannel.vlcHttp:
       return 'requests/status.json?command=seek&val=$targetSeconds';
+    case SeekChannel.mpcHcSlave:
     case SeekChannel.mpvIpc:
     case SeekChannel.none:
       return null;
   }
 }
 
-/// The percent form, kept as a fallback for a build whose `position` handler
-/// does not take. Needs a duration, and is only meaningful if the player's
-/// loaded duration matches ours — hence second choice, not first.
-String? seekRequestPathByPercent(
-  SeekChannel channel, {
-  required int targetSeconds,
-  required int durationSeconds,
-}) {
-  if (channel != SeekChannel.mpcHcWeb || durationSeconds <= 0) return null;
-  final pct = (targetSeconds / durationSeconds) * 100;
-  final clamped = pct < 0 ? 0.0 : (pct > 100 ? 100.0 : pct);
-  return 'command.html?wm_command=-1&percent=${clamped.toStringAsFixed(6)}';
-}
-
 /// The mpv IPC command, newline-terminated as the socket protocol requires.
 String mpvSeekCommand(int targetSeconds) =>
     '{"command":["seek",$targetSeconds,"absolute"]}\n';
+
+/// Whether [replies] holds mpv's whole answer to [mpvSeekCommand].
+///
+/// mpv's own socket stays open after it answers, unlike the Windows bridge,
+/// so the exchange has to recognise the answer to stop waiting for more: a
+/// complete line with an "error" member, which events never carry - the
+/// test the bridge itself applies before relaying a line.
+bool mpvSeekAnswered(String replies) {
+  final lines = replies.split('\n');
+  // The last piece has no newline yet, so it may be half a reply.
+  return lines.take(lines.length - 1).any(
+      (line) => line.contains('"error":') && !line.startsWith('{"event"'));
+}
 
 /// Tracks whether a session has landed where it was told to.
 ///

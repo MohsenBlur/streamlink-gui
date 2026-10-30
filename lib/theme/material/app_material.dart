@@ -2,183 +2,41 @@ import 'package:flutter/widgets.dart';
 
 import '../neu_theme.dart';
 import 'material_palette.dart';
-import 'analogue.dart';
-import 'deck.dart';
-import 'rack.dart';
 
 export 'material_palette.dart';
 
-/// What the app is made of.
+/// The app's one material: a palette per brightness.
 ///
-/// The name is a `String` on disk, not an index, and it is validated at the
-/// point of use rather than clamped on load — the pattern the accent colour
-/// already follows. `StorageService.saveConfig` rebuilds the whole file with no
-/// merge and a window resize triggers a save, so an older build does not
-/// "ignore" an unknown key: it deletes it within seconds. The case that matters
-/// is a v1.8.0 config met by a v1.7.0 build, inside this plan's own release
-/// train.
-enum AppMaterial {
-  rack('rack'),
-  analogue('analogue'),
-  deck('deck'),
-  glass('glass'),
-  soft('soft');
-
-  const AppMaterial(this.key);
-
-  final String key;
-
-  static AppMaterial? fromKey(String? key) {
-    for (final m in AppMaterial.values) {
-      if (m.key == key) return m;
-    }
-    return null;
-  }
-}
-
-/// Typography axes, per material.
+/// There were four - Soft (classic), Broadcast rack, Warm analogue and Retro
+/// AV deck - chosen in Settings and stored under the config's `material`
+/// key. Only Soft is left, so nothing here is chosen any more and the key is
+/// written only for older builds (see `AppSettings.toJson`).
 ///
-/// Separate from the palette because they vary with the material's *character*
-/// rather than its brightness, except [labelWeightDark], which exists precisely
-/// because it must differ between the two.
-@immutable
-class MaterialType {
-  const MaterialType({
-    this.labelFamily,
-    this.labelWidth = 87.5,
-    this.labelWeightLight = 400,
-    this.labelWeightDark = 375,
-    this.labelTracking = 0.6,
-  });
-
-  /// Null means the app's default face. `Bahnschrift` for panel materials.
-  final String? labelFamily;
-
-  /// The `wdth` axis. Bahnschrift ships 75–100.
-  final double labelWidth;
-
-  /// The `wght` axis, per brightness.
-  ///
-  /// Light-on-dark strokes bloom, so a dark theme reads heavier and blurrier
-  /// than a light one at identical nominal weight. Compensating is standard
-  /// practice on real instrument panels and costs one field.
-  final double labelWeightLight, labelWeightDark;
-
-  final double labelTracking;
-
-  double weightFor(bool isDark) => isDark ? labelWeightDark : labelWeightLight;
-}
-
-/// How a material renders live values.
-enum MeterStyle {
-  /// The milled slot with an emissive fill - the v1.8.0 default, and Soft's
-  /// forever.
-  slot,
-
-  /// Discrete LED segments in visible sockets, the top of the scale amber -
-  /// the broadcast console's channel meter.
-  ledSegments,
-
-  /// An engraved scale with a metal pointer at the value - the receiver's
-  /// tuning needle. No fill at all: position IS the reading.
-  needle,
-
-  /// Fluorescent segments with dim ghosts and a bloom - the deck's VFD bar.
-  vfdSegments,
-}
-
-/// The ring a lamp sits in.
-enum LampCollar { none, machined, brass }
-
-/// The per-material instrument treatments, resolved by the widgets that own
-/// meters, lamps and readouts. Defaults are the v1.8.0 behaviour, so Soft
-/// (and any material that declares nothing) is untouched by construction.
-@immutable
-class InstrumentSpec {
-  const InstrumentSpec({
-    this.meterStyle = MeterStyle.slot,
-    this.lampCollar = LampCollar.none,
-    this.vfdReadout = false,
-  });
-
-  final MeterStyle meterStyle;
-  final LampCollar lampCollar;
-
-  /// Deck: readout figures spread like a fluorescent display's fixed cells.
-  final bool vfdReadout;
-}
-
-/// One material world: two palettes, its ornament, and its type.
+/// Kept as a value rather than folded into `NeuTheme` because the contrast
+/// tests and the fidelity gate hand a palette straight to the painter, with
+/// no widget tree and no theme notifier.
 @immutable
 class MaterialSpec {
-  const MaterialSpec({
-    required this.id,
-    required this.name,
-    required this.blurb,
-    required this.light,
-    required this.dark,
-    this.furniture = const Furniture.none(),
-    this.type = const MaterialType(),
-    this.instruments = const InstrumentSpec(),
-    this.overlayBlur,
-  });
-
-  final AppMaterial id;
-
-  /// Shown in the picker.
-  final String name, blurb;
+  const MaterialSpec({required this.light, required this.dark});
 
   final MaterialPalette light, dark;
-  final Furniture furniture;
-  final MaterialType type;
-  final InstrumentSpec instruments;
 
-  /// Null for every material that does not refract its backdrop.
-  ///
-  /// Declared in v1.7.0 even though only one material will ever set it, because
-  /// a `GlassSurface` with a null spec is a plain `DecoratedBox` — so the six
-  /// overlay sites can adopt the widget now, with zero visual change, and the
-  /// glass release only fills the field in. Adding the field later would make
-  /// that release a redesign.
-  final GlassSpec? overlayBlur;
-
-  /// Pure, and deliberately so: the contrast matrix and the Settings preview
-  /// tiles both need a palette for a material that is not the active one.
   MaterialPalette palette(bool isDark) => isDark ? dark : light;
-
-  static MaterialSpec of(AppMaterial m) => _registry[m]!;
-
-  static final Map<AppMaterial, MaterialSpec> _registry = {
-    AppMaterial.rack: rackSpec,
-    AppMaterial.analogue: analogueSpec,
-    AppMaterial.deck: deckSpec,
-    AppMaterial.soft: softSpec,
-  };
-
-  /// Materials that actually exist. The picker renders this, not
-  /// `AppMaterial.values` — two real choices are an honest picker, three
-  /// disabled tiles are an advertisement.
-  static List<MaterialSpec> get available => _registry.values.toList();
-
-  static bool isImplemented(AppMaterial m) => _registry.containsKey(m);
 }
 
 // ---------------------------------------------------------------------------
 // Soft — the app's look through v1.6.0, preserved exactly.
 //
-// This is the gate. If the engine cannot reproduce the old material from data,
-// the abstraction is a rack-gear special case wearing a coat of paint, and
-// every later material is built on a lie. Two things it forced into the schema
-// that no new material needs, and that a schema designed only for the new
-// worlds would have omitted:
+// Every value below is transcribed from `neu_theme.dart` at v1.6.0, and
+// `soft_fidelity_test` paints it against a frozen copy of that recipe. Two
+// things about it look like mistakes and are not:
 //
-//   * `RecessStyle.outerFake` — Soft's recess is an outer shadow pair with a
-//     negative spread, not an inset at all.
+//   * The recess is an outer shadow pair with a negative spread, not an inset
+//     at all - the painter casts the `inset` layers outward.
 //   * `diagonalCompensation: false` — Soft's Offset(d, d) genuinely travels
 //     1.414 * d, and correcting it would be a redesign rather than a fix.
 //
-// Every value below is transcribed from `neu_theme.dart` at v1.6.0. The
-// shadow layers are depth-relative because the originals were: offsets of
+// The shadow layers are depth-relative because the originals were: offsets of
 // +-depth with `blurRadius: depth * 2`.
 // ---------------------------------------------------------------------------
 
@@ -199,17 +57,14 @@ const double _sunkenShA = 0.70, _sunkenHiA = 0.85; // light
 const double _sunkenShADark = 0.85, _sunkenHiADark = 0.45;
 
 final MaterialSpec softSpec = MaterialSpec(
-  id: AppMaterial.soft,
-  name: 'Soft (classic)',
-  blurb: 'The look the app had before materials. Nothing added.',
   light: _soft(false),
   dark: _soft(true),
 );
 
 /// Builds a Soft palette from the **raw** v1.6.0 tokens.
 ///
-/// Raw, not the public accessors: those now resolve through the active
-/// palette, and a palette that read them would recurse on its first colour.
+/// Raw, not the public accessors: those resolve through this palette, and a
+/// palette that read them would recurse on its first colour.
 ///
 /// Deriving instead of copying removes the whole class of transcription bug —
 /// and the hand-written version was already wrong: `0xE6` encodes alpha
@@ -254,8 +109,17 @@ MaterialPalette _soft(bool isDark) {
     ],
     bevelLight: hi.withValues(alpha: isDark ? 0.12 : 0.60),
     bevelShade: const Color(0xFF000000).withValues(alpha: isDark ? 0.45 : 0.045),
-    bevelUniform: true,
-    bevelAmbientFloor: 1.0, // uniform: no sweep at all
+    // Depth lives in the CASTS, never in the face. The first dark-depth fix
+    // added an elevation overlay - raised faces lightening with depth - and
+    // the user's verdict was exact: "raised elements look like floating
+    // panels instead of 3d raised portions of the same slab". A lighter face
+    // on a darker ground is the layered-paper read; EXTRUSION means the face
+    // keeps the slab's own value and the edges carry the light. What made
+    // the overlay seem necessary was that the original cast had no headroom
+    // (#12151B on a #1D212A canvas); with the pair deepened to #07090D /
+    // #39415A the dark cast lands ~20 levels below the canvas and the light
+    // cast ~25 above it, and the casts alone do what the overlay was
+    // compensating for.
     contact: [
       ShadowLayer(
           color: hi.withValues(alpha: isDark ? _raisedHiADark : _raisedHiA),
@@ -285,21 +149,5 @@ MaterialPalette _soft(bool isDark) {
             'warningText': Color(0xFF8A5000),
             'favoriteText': Color(0xFFA56D00),
           },
-    recessStyle: RecessStyle.outerFake,
-    // No gloss, no texture. The two facts that make Soft soft.
-    gloss: 0,
-    // Depth lives in the CASTS, never in the face. The first dark-depth fix
-    // added an elevation overlay - raised faces lightening with depth - and
-    // the user's verdict was exact: "raised elements look like floating
-    // panels instead of 3d raised portions of the same slab". A lighter face
-    // on a darker ground is the layered-paper read; EXTRUSION means the face
-    // keeps the slab's own value and the edges carry the light. What made
-    // the overlay seem necessary was that the original cast had no headroom
-    // (#12151B on a #1D212A canvas); with the pair deepened to #07090D /
-    // #39415A the dark cast lands ~20 levels below the canvas and the light
-    // cast ~25 above it, and the casts alone do what the overlay was
-    // compensating for.
-    darkDepth: DarkDepth.lightSideCast,
-    boundaryStrategy: BoundaryStrategy.focusRingOnly,
   );
 }

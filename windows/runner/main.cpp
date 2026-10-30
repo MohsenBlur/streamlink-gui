@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include "flutter_window.h"
+#include "single_instance.h"
 #include "utils.h"
 
 namespace {
@@ -42,19 +43,49 @@ void AssignSelfToKillOnCloseJob() {
   // lifetime of the process; the OS closes it on exit, which is the trigger.
 }
 
+// The show command whoever started this process asked for in STARTUPINFO (a
+// shortcut set to run minimized or maximized, a launcher's
+// SW_SHOWNOACTIVATE), or -1 if it asked for none. The window's first show
+// at launch applies it (Win32Window::SetLaunchShowCommand).
+int LauncherShowCommand() {
+  STARTUPINFOW startup = {};
+  startup.cb = sizeof(startup);
+  ::GetStartupInfoW(&startup);
+  if ((startup.dwFlags & STARTF_USESHOWWINDOW) == 0) {
+    return -1;
+  }
+  return startup.wShowWindow;
+}
+
+// Whether the launcher's |command| leaves the foreground alone. That command
+// is for the first show, and nothing before it, so the window asks to start
+// in the background too (Win32Window::SetStartInBackground).
+bool LauncherAskedNotToActivate(int command) {
+  switch (command) {
+    case SW_HIDE:
+    case SW_SHOWNOACTIVATE:
+    case SW_MINIMIZE:
+    case SW_SHOWMINNOACTIVE:
+    case SW_SHOWNA:
+      return true;
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
-  // Enforce single instance via named Win32 Mutex
-  HANDLE hMutex = ::CreateMutexW(nullptr, TRUE, L"Local\\TwitchStreamlinkGUIUniqueMutexName");
+  // Enforce single instance via named Win32 Mutex, one per config: see
+  // single_instance.h for why a portable copy gets its own.
+  HANDLE hMutex =
+      ::CreateMutexW(nullptr, TRUE, single_instance::MutexName().c_str());
   if (hMutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
-    HWND hwnd = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
-    if (hwnd != nullptr) {
-      ::ShowWindow(hwnd, SW_SHOW);
-      ::ShowWindow(hwnd, SW_RESTORE);
-      ::SetForegroundWindow(hwnd);
-    }
+    // Hand over to the running instance and leave. It brings itself forward,
+    // content view included, and tells Dart; see single_instance.h for why it
+    // is found by a property rather than by window class.
+    single_instance::ActivateRunningInstance();
     ::CloseHandle(hMutex);
     return EXIT_SUCCESS;
   }
@@ -88,50 +119,39 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       break;
     }
   }
+  // A launcher asking for no window at all (SW_HIDE: a script's hidden
+  // start, Start-Process -WindowStyle Hidden) gets what that means for a
+  // tray app: the same start. Windows only kept the first show hidden, and
+  // the check a moment after the first frame (lib/app_startup.dart), seeing
+  // a window nobody had meant to hide, showed it and took the foreground.
+  // Dart hears of it through the window channel's "startsHidden".
+  const int launch_show_command = LauncherShowCommand();
+  if (launch_show_command == SW_HIDE) {
+    start_hidden = true;
+  }
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
-  int x = 10;
-  int y = 10;
-  int width = 1280;
-  int height = 720;
-  
-  HKEY hKey;
-  if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\TwitchStreamlinkGUI", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-    DWORD dwType = REG_DWORD;
-    DWORD dwSize = sizeof(DWORD);
-    DWORD dwVal = 0;
-    
-    if (RegQueryValueExW(hKey, L"WindowX", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
-      x = static_cast<int>(dwVal);
-    }
-    if (RegQueryValueExW(hKey, L"WindowY", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
-      y = static_cast<int>(dwVal);
-    }
-    if (RegQueryValueExW(hKey, L"WindowW", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
-      width = static_cast<int>(dwVal);
-    }
-    if (RegQueryValueExW(hKey, L"WindowH", nullptr, &dwType, reinterpret_cast<LPBYTE>(&dwVal), &dwSize) == ERROR_SUCCESS) {
-      height = static_cast<int>(dwVal);
-    }
-    
-    RegCloseKey(hKey);
-  }
-
-  // This pre-Flutter positioning happens before the Dart-side geometry
-  // sanitizer can run, so apply the same guard here: if the saved rectangle
-  // touches no live monitor (undocked laptop, changed layout), fall back to
-  // the defaults instead of materializing the window off-screen.
-  RECT probe = {x, y, x + width, y + height};
-  if (::MonitorFromRect(&probe, MONITOR_DEFAULTTONULL) == nullptr) {
-    x = 10;
-    y = 10;
-  }
-
+  // Always created at the template defaults, hidden until the first frame.
+  // Geometry has one owner, the Dart side (settings.windowPlacement, planned
+  // by lib/utils/window_bounds.dart), which moves the still-hidden window
+  // through the window channel before that frame. This used to restore a
+  // second, native copy from HKCU\Software\TwitchStreamlinkGUI first, which
+  // only added one more geometry change before the first frame, the startup
+  // race behind the invisible-window bug. It was also wrong: it saved
+  // physical pixels and restored them as logical ones, so Create() scaled
+  // them by the monitor DPI again and the window grew by that factor on every
+  // launch, while the off-screen guard checked the rectangle before that
+  // scaling.
   FlutterWindow window(project);
   window.SetStartHidden(start_hidden);
-  Win32Window::Point origin(x, y);
-  Win32Window::Size size(width, height);
+  window.SetLaunchShowCommand(launch_show_command);
+  // Neither a launch at login (--start-minimized) nor one asked to show
+  // without activation may take the foreground while the window is hidden.
+  window.SetStartInBackground(
+      start_hidden || LauncherAskedNotToActivate(launch_show_command));
+  Win32Window::Point origin(10, 10);
+  Win32Window::Size size(1280, 720);
   if (!window.Create(L"streamlink_gui", origin, size)) {
     return EXIT_FAILURE;
   }
@@ -142,6 +162,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::TranslateMessage(&msg);
     ::DispatchMessage(&msg);
   }
+
+  // Tear the window down here, explicitly, while COM is still initialized.
+  //
+  // Quitting from Dart (windowManager.destroy()) is a bare PostQuitMessage:
+  // it ends the loop above without destroying the window, so the engine and
+  // every plugin used to be torn down by destructors when this function
+  // returned, after CoUninitialize. That is wrong twice over. The engine
+  // releases COM objects (DirectManipulation, among others) into an apartment
+  // that no longer exists, and the destructor path routed the teardown's own
+  // window messages into the half-destroyed view controller (see
+  // FlutterWindow::OnDestroy). The second one is the recurring exit crash:
+  // every quit through this path faulted in flutter_windows.dll at +0x1d7b0,
+  // the offset in the crash log, inside a window procedure (exit status
+  // 0xC000041D, an exception during a user callback). Destroy() runs the same
+  // ordered teardown as a real close: engine and plugins first, then the HWND.
+  window.Destroy();
 
   ::CoUninitialize();
   if (hMutex != nullptr) {

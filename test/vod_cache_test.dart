@@ -76,6 +76,33 @@ void main() {
       expect(cache.length, 1);
     });
 
+    test('an entry knows when it was fetched, and goes stale', () {
+      // Entries were timeless: a list prefetched at startup was what the
+      // channel showed hours later, with nothing to say it was old.
+      var now = DateTime(2026, 10, 28, 12);
+      final cache = VodCache(clock: () => now)..store('shroud', [vod('1')]);
+
+      expect(cache.fetchedAt('shroud'), now);
+      expect(cache.isFresh('shroud'), isTrue);
+
+      now = now.add(VodCache.ttl);
+      expect(cache.isFresh('shroud'), isFalse);
+      expect(cache.has('shroud'), isTrue, reason: 'stale is not gone');
+      expect(cache.isFresh('nobody'), isFalse);
+    });
+
+    test('a slower, older answer does not overwrite a newer one', () {
+      final t = DateTime(2026, 10, 28, 12);
+      final cache = VodCache(clock: () => t)
+        ..store('shroud', [vod('new'), vod('old')], fetchedAt: t);
+
+      final stored = cache.store('shroud', [vod('old')],
+          fetchedAt: t.subtract(const Duration(seconds: 5)));
+
+      expect(stored, isFalse);
+      expect(cache.read('shroud'), hasLength(2));
+    });
+
     test('remove and clear drop entries', () {
       final cache = VodCache()
         ..store('a', [vod('1')])

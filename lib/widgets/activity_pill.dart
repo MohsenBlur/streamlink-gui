@@ -5,6 +5,7 @@ import '../state/activity_state.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_progress.dart';
 import 'neumorphic/neu_icon_action.dart';
+import 'neumorphic/neu_title_bar.dart';
 import '../theme/theme_notifier.dart';
 import 'interactive_popover.dart';
 
@@ -42,14 +43,19 @@ class ActivityPill extends StatelessWidget {
           targetAnchor: Alignment.bottomRight,
           followerAnchor: Alignment.topRight,
           offset: const Offset(0, 6),
-          popoverBuilder: (context, close) => ActivityPopover(
-            snapshot: snapshot,
-            onStop: (item) {
-              // Close first: the popover installs a full-screen barrier that
-              // would otherwise sit over the confirm dialog.
-              close();
-              onStop(item);
-            },
+          // At Windows' own Text size, not the title bar's 125% cap: that
+          // is for the fixed strip the pill sits in.
+          popoverBuilder: (context, close) => NeuTitleBar.unclamped(
+            context,
+            child: ActivityPopover(
+              snapshot: snapshot,
+              onStop: (item) {
+                // Close first: the popover installs a full-screen barrier
+                // that would otherwise sit over the confirm dialog.
+                close();
+                onStop(item);
+              },
+            ),
           ),
           child: _pill(context, snapshot),
         );

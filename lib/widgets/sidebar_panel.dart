@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../models/twitch_channel.dart';
 import '../state/channel_search.dart';
 import 'hover_overlay_menu.dart';
+import 'horizontal_mouse_scrollable.dart';
 import 'live_rainbow_border.dart';
 import 'favorites_automation_dialog.dart';
 import 'shell/neu_dialog.dart';
@@ -12,12 +15,12 @@ import 'sidebar_search_popover.dart';
 import 'neumorphic/neu_button.dart';
 import 'neumorphic/neu_text_field.dart';
 import 'neumorphic/neu_segmented_control.dart';
-import 'package:flutter/gestures.dart';
 import '../theme/neu_theme.dart';
 import 'neumorphic/neu_avatar.dart';
 import 'neumorphic/neu_icon_action.dart';
 import 'shell/nav_scope.dart';
 import 'shell/context_menu.dart';
+import 'shell/double_click_listener.dart';
 import 'shell/engraved_rule.dart';
 import 'neumorphic/neu_badge.dart';
 import 'neumorphic/neu_led_indicator.dart';
@@ -189,9 +192,9 @@ class SidebarPanelState extends State<SidebarPanel> {
 
     return Container(
       width: sidebarWidth,
-      // The faceplate. A flat `color:` was the right call while every material
-      // was the same soft plastic; a panel carries the material's grain and its
-      // bevelled edge, which is where a rack's brush actually reads.
+      // The faceplate: a panel, not a flat `color:`, so it carries the fill
+      // ramp and bevelled edge every other panel has. (It was made one for the
+      // grained materials, since removed; Soft paints no grain.)
       //
       // Radius zero: this panel is the full height of the window and its edges
       // are the window's own, so rounding them would float it inside itself.
@@ -345,7 +348,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                 // Global Actions Toolbar
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: NeuSpace.s12),
-                  child: Row(
+                  child: LayoutBuilder(builder: (context, toolbar) => Row(
                     children: [
                       Expanded(
                         child: NeuButton(
@@ -379,13 +382,21 @@ class SidebarPanelState extends State<SidebarPanel> {
                         ),
                       ),
                       const SizedBox(width: NeuSpace.s8),
-                      _PinnedFavoritesAutomationButton(
-                        onPressed: _openFavoritesAutomationDialog,
-                        enabled: widget.sidebarTab == 0,
-                        expanded: true,
+                      // Never so wide that Refresh loses its icon: at 175%
+                      // Windows Text size the label pushed this row past the
+                      // sidebar. Held to what is left, the word ellipsizes.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                            maxWidth: math.max(
+                                0, toolbar.maxWidth - NeuSpace.s8 - 48)),
+                        child: _PinnedFavoritesAutomationButton(
+                          onPressed: _openFavoritesAutomationDialog,
+                          enabled: widget.sidebarTab == 0,
+                          expanded: true,
+                        ),
                       ),
                     ],
-                  ),
+                  )),
                 ),
                 const SizedBox(height: NeuSpace.s8),
 
@@ -399,7 +410,12 @@ class SidebarPanelState extends State<SidebarPanel> {
                           : (widget.sidebarTab == 1 ? widget.isLoadingFollowed : (widget.isGlobalLoading || widget.isLoadingFollowed));
                       final query = widget.searchController.text.toLowerCase().trim();
                       final hasExactMatch = listToDisplay.any((c) => c.username.toLowerCase().trim() == query);
-                      final showAddPrompt = query.isNotEmpty && !hasExactMatch && widget.sidebarTab == 0;
+                      // Only for something that could be a login: offering
+                      // to add "foo bar" led to a lookup that could only fail.
+                      final showAddPrompt = query.isNotEmpty &&
+                          !hasExactMatch &&
+                          widget.sidebarTab == 0 &&
+                          isValidTwitchLogin(query);
 
                       if (isLoading && listToDisplay.isEmpty) {
                         return const Center(
@@ -479,14 +495,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                           final cleanUsername = channel.username.toLowerCase().trim();
                           final isFavorite = widget.channels.any((c) => c.username == cleanUsername);
 
-                          // The console's channel-strip divider: an
-                          // engraved groove in the panel between rows. Null
-                          // on every material but the railed one, so the
-                          // wrapper is inert elsewhere.
-                          final row = Container(
-                            foregroundDecoration: NeuTheme.stripSeparator(
-                                themeNotifier.isDarkTheme),
-                            child: _SidebarChannelRow(
+                          final row = _SidebarChannelRow(
                             // Keyed by identity so hover state survives the
                             // 60s poll rebuild (it previously lived in a
                             // per-item closure and reset on every poll).
@@ -510,7 +519,6 @@ class SidebarPanelState extends State<SidebarPanel> {
                             onDoubleTapped: widget.onChannelDoubleTapped,
                             onPlayPressed: widget.onChannelPlayPressed,
                             onToggleFavorite: widget.onToggleFavorite,
-                          ),
                           );
 
                           return channel.isLive
@@ -660,9 +668,11 @@ class SidebarPanelState extends State<SidebarPanel> {
                   padding: const EdgeInsets.symmetric(vertical: NeuSpace.s8),
                   child: Tooltip(
                     message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
-                    child: GestureDetector(
+                    child: DoubleClickListener(
                     onTap: () => widget.onChannelSelected(ch),
                     onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch) : null,
+                    builder: (onTap) => GestureDetector(
+                    onTap: onTap,
                     child: _buildAvatarBorder(
                       channel: ch,
                       isSelected: isSelected,
@@ -691,6 +701,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                         ],
                       ),
                     ),
+                  ),
                   ),
                 ),
               ),
@@ -894,8 +905,10 @@ class SidebarPanelState extends State<SidebarPanel> {
           ),
           if (!tight) ...[
             const SizedBox(width: NeuSpace.s8),
-            const SizedBox(
-                height: 24, child: EngravedRule(vertical: true)),
+            // Not const: the rule reads the theme in build, and under a
+            // const parent it kept the old palette after a toggle
+            // (const_theme_reader_test).
+            SizedBox(height: NeuSpace.s24, child: EngravedRule(vertical: true)),
           ],
           gap,
           // Flexible with a floor, not Expanded.
@@ -918,24 +931,10 @@ class SidebarPanelState extends State<SidebarPanel> {
                 return const SizedBox.shrink();
               }
               return Listener(
-              onPointerSignal: (pointerSignal) {
-                if (pointerSignal is PointerScrollEvent) {
-                  GestureBinding.instance.pointerSignalResolver.register(pointerSignal, (event) {
-                    if (event is PointerScrollEvent && _horizontalScrollController.hasClients) {
-                      final delta = event.scrollDelta.dy != 0.0
-                          ? event.scrollDelta.dy
-                          : event.scrollDelta.dx;
-                      if (delta != 0.0) {
-                        final newOffset = (_horizontalScrollController.offset + delta).clamp(
-                          0.0,
-                          _horizontalScrollController.position.maxScrollExtent,
-                        );
-                        _horizontalScrollController.jumpTo(newOffset);
-                      }
-                    }
-                  });
-                }
-              },
+              // Claims the wheel only when the rail can actually move, so a
+              // rail that fits (or is at its end) no longer eats the event.
+              onPointerSignal: (signal) => routeWheelToHorizontalStrip(
+                  signal, _horizontalScrollController),
               child: ListView.builder(
                 controller: _horizontalScrollController,
                 scrollDirection: Axis.horizontal,
@@ -950,9 +949,11 @@ class SidebarPanelState extends State<SidebarPanel> {
                       margin: const EdgeInsets.symmetric(horizontal: NeuSpace.s6, vertical: NeuSpace.s8),
                       child: Tooltip(
                         message: '${ch.username} (${ch.isLive ? "LIVE: " + (ch.game ?? "Streaming") : "Offline"})',
-                        child: GestureDetector(
+                        child: DoubleClickListener(
                           onTap: () => widget.onChannelSelected(ch),
                           onDoubleTap: ch.isLive ? () => widget.onChannelDoubleTapped(ch) : null,
+                          builder: (onTap) => GestureDetector(
+                          onTap: onTap,
                           child: _buildAvatarBorder(
                             channel: ch,
                             isSelected: isSelected,
@@ -983,6 +984,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                             ),
                           ),
                         ),
+                        ),
                       ),
                     ),
                   );
@@ -1007,8 +1009,8 @@ class SidebarPanelState extends State<SidebarPanel> {
           ],
           if (!tight) ...[
             const SizedBox(width: NeuSpace.s8),
-            const SizedBox(
-                height: 24, child: EngravedRule(vertical: true)),
+            // Not const, as the rule above.
+            SizedBox(height: NeuSpace.s24, child: EngravedRule(vertical: true)),
           ],
           gap,
           NeuIconAction(
@@ -1087,11 +1089,16 @@ class _PinnedFavoritesAutomationButton extends StatelessWidget {
                   ? NeuTheme.text(isDark)
                   : NeuTheme.disabledText(isDark)),
           const SizedBox(width: NeuSpace.s6),
-          Text('Automation',
-              style: NeuType.bodySm(isDark).copyWith(
-                  color: enabled
-                      ? NeuTheme.text(isDark)
-                      : NeuTheme.disabledText(isDark))),
+          // Gives way where the toolbar holds it back (see its row).
+          Flexible(
+            child: Text('Automation',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: NeuType.bodySm(isDark).copyWith(
+                    color: enabled
+                        ? NeuTheme.text(isDark)
+                        : NeuTheme.disabledText(isDark))),
+          ),
         ],
       ),
     );
@@ -1187,12 +1194,18 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
             : (_hovered
                 ? NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r12)
                 // At rest a row is a REGION OF THE PLATE, not a part on it.
-                // The old flat surface-token fill sat on the grained panel
-                // with no bevel, ramp or grain of its own - every idle row
-                // read as a paper sticker on metal, in the most-looked-at
+                // The old flat surface-token fill sat on the ramped panel
+                // with no bevel or ramp of its own - every idle row read as a
+                // paper sticker on the plate, in the most-looked-at
                 // region of the app. Hover and selection still raise the row
                 // through the engine.
-                : null),
+                //
+                // An EMPTY decoration, not null. Null drops the DecoratedBox
+                // from the Container's output, so every hover changed the
+                // shape of the tree and remounted everything below it - the
+                // double-click window and the InkWell's focus with it, which
+                // made the first click of a double on an idle row vanish.
+                : const BoxDecoration()),
         child: NeuContextMenu(
           // The app had no right-click menus at all, so every action lived in
           // a hover-reveal or nowhere. This is where a desktop user already
@@ -1213,13 +1226,14 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               isDestructive: widget.isFavorite,
             ),
           ],
-          child: GestureDetector(
+          child: DoubleClickListener(
+          onTap: () => widget.onSelected(channel),
           onDoubleTap:
               channel.isLive ? () => widget.onDoubleTapped(channel) : null,
           // See the note on the other ListTile in this file: the splash paints
           // on the nearest Material ancestor, and the row's own decorated
           // Container sits between them.
-          child: Material(
+          builder: (onTap) => Material(
             type: MaterialType.transparency,
             child: ListTile(
             contentPadding: const EdgeInsets.only(left: NeuSpace.s12, right: NeuSpace.s4),
@@ -1241,7 +1255,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                 ),
               ],
             ),
-            title: Row(
+            title: LayoutBuilder(builder: (context, title) => Row(
               children: [
                 Expanded(
                   child: Text(
@@ -1261,12 +1275,22 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
                   // end (its stale comment even claimed 'the expanded
                   // sidebar uses the real badge': it did not, this IS the
                   // expanded sidebar). One window, one way of saying LIVE.
-                  LiveBadge(pulse: widget.pulseController),
+                  //
+                  // Never wider than the title: at 175% Windows Text size
+                  // the badge alone overran it. It scales down only then.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: title.maxWidth),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: LiveBadge(pulse: widget.pulseController),
+                    ),
+                  ),
               ],
-            ),
+            )),
             subtitle: channel.isLoading
-                ? const Padding(
-                    padding: EdgeInsets.only(top: NeuSpace.s4),
+                // Not const: NeuProgressBar reads the theme global too.
+                ? Padding(
+                    padding: const EdgeInsets.only(top: NeuSpace.s4),
                     child: NeuProgressBar(size: NeuProgressSize.xs, semanticLabel: 'Loading'),
                   )
                 : Text(
@@ -1278,7 +1302,7 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
               mainAxisSize: MainAxisSize.min,
               children: [playSlot, starSlot],
             ),
-            onTap: () => widget.onSelected(channel),
+            onTap: onTap,
           ),
           ),
         ),

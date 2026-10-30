@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../theme/material/app_material.dart';
 import '../../theme/neu_theme.dart';
 import '../shell/motion.dart';
+import 'neu_pulse.dart';
 
 class NeuLedIndicator extends StatefulWidget {
   /// The dimmest a live LED ever gets, as a fraction of full brightness.
@@ -16,6 +16,14 @@ class NeuLedIndicator extends StatefulWidget {
   final Color? inactiveColor;
   final bool isPulsing;
 
+  /// The heartbeat to breathe with: this, else the nearest [NeuPulse], and
+  /// only outside both a controller of the LED's own.
+  ///
+  /// Shared is the point. One controller per LED drifted out of phase with
+  /// the app's pulse and with every other LED, and ran whether or not the
+  /// shell's gate - something live, window visible - said anything should.
+  final Animation<double>? pulse;
+
   const NeuLedIndicator({
     Key? key,
     this.size = 12.0,
@@ -23,6 +31,7 @@ class NeuLedIndicator extends StatefulWidget {
     this.activeColor,
     this.inactiveColor,
     this.isPulsing = true,
+    this.pulse,
   }) : super(key: key);
 
   @override
@@ -31,8 +40,28 @@ class NeuLedIndicator extends StatefulWidget {
 
 class _NeuLedIndicatorState extends State<NeuLedIndicator>
     with SingleTickerProviderStateMixin {
+  /// The breath, as a function of a 0..1 heartbeat. One mapping for the
+  /// shared pulse and the LED's own, so the two paths look identical.
+  ///
+  /// 0.75, not 0.4. The FadeTransition wraps the whole indicator - core as
+  /// well as bloom - so the floor is how dim the lamp itself gets, not just
+  /// its glow. At 0.4 a lit LED spends part of every cycle looking unlit,
+  /// which reads as flickering rather than as a heartbeat; `NeuBadge` had the
+  /// same defect and fixed it at 0.75 with the same reasoning, and this one
+  /// was left behind. On a graphite panel it reads as a fault.
+  static final Animatable<double> _breath =
+      Tween<double>(begin: NeuLedIndicator.pulseFloor, end: 1.0)
+          .chain(CurveTween(curve: Curves.easeInOut));
+
+  /// Only for an LED outside any shared heartbeat. Its ticker is muted by an
+  /// enclosing `TickerMode`, like every ticker in the app.
   AnimationController? _controller;
-  Animation<double>? _pulseAnimation;
+  Animation<double>? _ownPulse;
+
+  Animation<double>? _sharedSource;
+  Animation<double>? _sharedPulse;
+
+  Animation<double>? get _pulseAnimation => _sharedPulse ?? _ownPulse;
 
   bool get _shouldPulse => widget.isLive && widget.isPulsing;
 
@@ -51,7 +80,8 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
   @override
   void didUpdateWidget(NeuLedIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_shouldPulse != (oldWidget.isLive && oldWidget.isPulsing)) {
+    if (_shouldPulse != (oldWidget.isLive && oldWidget.isPulsing) ||
+        !identical(widget.pulse, oldWidget.pulse)) {
       _syncAnimation();
     }
   }
@@ -59,21 +89,32 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
   void _syncAnimation() {
     // A live dot that half-vanishes twice a second is exactly what the
     // reduced-motion setting exists to stop.
-    if (_shouldPulse && !NeuMotion.reduced(context)) {
+    final reduced = NeuMotion.reduced(context);
+    final shared = widget.pulse ?? NeuPulse.maybeOf(context);
+    if (_shouldPulse && !reduced && shared != null) {
+      // Breathe with the app. Nothing of this LED's own runs: the shell
+      // starts and stops the heartbeat, and parks it at 1.0 - bright - when
+      // nothing is live or the window is hidden.
+      _controller?.stop();
+      if (!identical(shared, _sharedSource)) {
+        _sharedSource = shared;
+        // `drive`, not a CurvedAnimation: it adds nothing to the shared
+        // controller until the FadeTransition listens, and the transition
+        // removes its own listener when it goes - so a disposed LED leaves no
+        // listener behind on a controller that outlives it.
+        _sharedPulse = shared.drive(_breath);
+      }
+      return;
+    }
+    _sharedSource = null;
+    _sharedPulse = null;
+
+    if (_shouldPulse && !reduced) {
       _controller ??= AnimationController(
         vsync: this,
         duration: const Duration(milliseconds: 1200),
       );
-      // 0.75, not 0.4. The FadeTransition wraps the whole indicator - core as
-      // well as bloom - so the floor is how dim the lamp itself gets, not just
-      // its glow. At 0.4 a lit LED spends part of every cycle looking unlit,
-      // which reads as flickering rather than as a heartbeat; `NeuBadge` had
-      // the same defect and fixed it at 0.75 with the same reasoning, and this
-      // one was left behind. On a graphite panel it reads as a fault.
-      _pulseAnimation ??=
-          Tween<double>(begin: NeuLedIndicator.pulseFloor, end: 1.0).animate(
-        CurvedAnimation(parent: _controller!, curve: Curves.easeInOut),
-      );
+      _ownPulse ??= _controller!.drive(_breath);
       _controller!.repeat(reverse: true);
     } else {
       _controller?.stop();
@@ -135,36 +176,6 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
               ],
       ),
     );
-
-    // The collar: the ring the lamp is mounted in, per material. A machined
-    // socket on the rack, a brass bezel on the receiver, bare on the deck
-    // and on Soft. Painted INSIDE the existing box - the lamp's core gives
-    // up a hair of diameter rather than the layout giving up a pixel.
-    final collar =
-        MaterialSpec.of(NeuTheme.activeMaterial).instruments.lampCollar;
-    if (collar != LampCollar.none) {
-      final palette = NeuTheme.palette(isDark);
-      final ring = switch (collar) {
-        LampCollar.brass =>
-            palette.accentMetal ?? palette.border,
-        _ => palette.border,
-      };
-      ledContent = Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: ring, width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: NeuTheme.shadow(isDark).withValues(alpha: 0.4),
-              blurRadius: 1.5,
-              offset: const Offset(0, 0.5),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(NeuSpace.s1),
-        child: ledContent,
-      );
-    }
 
     if (_shouldPulse && _pulseAnimation != null) {
       // FadeTransition + RepaintBoundary keep the large glow shadows

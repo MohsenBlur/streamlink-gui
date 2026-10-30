@@ -17,14 +17,6 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
   /// "LIVE" chip unrelated to any actual stream state.
   final int liveCount;
 
-  /// Extra horizontal room held back at both ends, for the chassis screws that
-  /// sit in the window's top corners.
-  ///
-  /// Zero unless the active material draws ornament, so the classic look does
-  /// not pay for a screw it never shows. The value belongs to the furniture
-  /// rather than to this widget: see `ChassisFurniture.edgeClearance`.
-  final double edgeInset;
-
   const NeuTitleBar({
     Key? key,
     this.title = 'TWITCH STREAMLINK GUI',
@@ -33,21 +25,55 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
     this.leading,
     this.actions,
     this.liveCount = 0,
-    this.edgeInset = 0,
   }) : super(key: key);
 
   @override
   Size get preferredSize => const Size.fromHeight(40.0);
 
+  /// The largest text scale the title bar draws at.
+  static const double maxTextScale = 1.25;
+
   @override
   Widget build(BuildContext context) {
+    // A fixed 40px strip, so its text cannot follow Windows' Text size past
+    // what fits in it: at 175% the activity pill's two lines overflowed its
+    // slot at the bottom, and at 150% the plate, live count and pill overran
+    // a 380px window. Up to 125% it follows the setting; everything under
+    // the title bar follows it all the way.
+    return _WindowTextScale(
+      scaler: MediaQuery.textScalerOf(context),
+      child: MediaQuery.withClampedTextScaling(
+        maxScaleFactor: maxTextScale,
+        child: _bar(),
+      ),
+    );
+  }
+
+  /// [child] at the window's own text scale, for what the title bar opens
+  /// rather than draws in its strip. A popover is an OverlayPortal child and
+  /// inherits from where it is declared, so the activity pill's list of
+  /// downloads and players was held to 125% with the strip, though it has
+  /// no fixed height to keep. Outside a title bar, [child] as it is.
+  static Widget unclamped(BuildContext context, {required Widget child}) {
+    final window =
+        context.dependOnInheritedWidgetOfExactType<_WindowTextScale>();
+    if (window == null) return child;
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: window.scaler),
+      child: child,
+    );
+  }
+
+  Widget _bar() {
     return Container(
       height: 40.0,
       // The device's top edge. It takes the panel treatment rather than a flat
       // canvas fill, and keeps its hairline: the seam where the faceplate meets
       // the chassis is a real edge, not a decoration.
-      decoration: NeuTheme.titleBarSurface(
+      decoration: NeuTheme.panel(
         isDarkTheme,
+        radius: 0,
+        base: NeuTheme.canvas(isDarkTheme),
         border: Border(
           bottom: BorderSide(
             color: NeuTheme.shadow(isDarkTheme).withValues(alpha: 0.3),
@@ -55,13 +81,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
           ),
         ),
       ),
-      child: Padding(
-        // Clearance for the chassis screws, which sit in the two top corners
-        // and would otherwise land on the live badge at one end and the close
-        // button at the other. Zero on any material that draws no ornament, so
-        // this is not a cost the classic look pays.
-        padding: EdgeInsets.symmetric(horizontal: edgeInset),
-        child: Row(
+      child: Row(
         children: [
           // Drag handle region for title bar
           Expanded(
@@ -102,18 +122,13 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                         title.toUpperCase(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        // The engraved brand plate. `plated` swaps the face
-                        // and nothing else, so the title keeps its own size,
-                        // weight and the 1.1 tracking it was already carrying
-                        // - this is a face change, not a metrics change. The
-                        // `plate` STEP is 10px and would have shrunk the app's
-                        // own name by two points, which is a different edit
-                        // wearing the same word.
-                        style: NeuType.plated(
-                            NeuType.label(isDarkTheme,
-                                    color: NeuTheme.text(isDarkTheme))
-                                .copyWith(letterSpacing: 1.1),
-                            isDarkTheme),
+                        // The label step with the 1.1 tracking the brand
+                        // plate has always carried. Not the `plate` step,
+                        // which is 10px and would shrink the app's own name
+                        // by two points.
+                        style: NeuType.label(isDarkTheme,
+                                color: NeuTheme.text(isDarkTheme))
+                            .copyWith(letterSpacing: 1.1),
                       ),
                     ),
                   ],
@@ -142,10 +157,20 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
           // Frameless Window Controls
           const _WindowControls(),
         ],
-        ),
       ),
     );
   }
+}
+
+/// The text scale above the title bar's clamp (see [NeuTitleBar.unclamped]).
+class _WindowTextScale extends InheritedWidget {
+  const _WindowTextScale({required this.scaler, required super.child});
+
+  final TextScaler scaler;
+
+  @override
+  bool updateShouldNotify(_WindowTextScale oldWidget) =>
+      oldWidget.scaler != scaler;
 }
 
 /// Minimize / maximize / close, with the maximize button tracking the actual

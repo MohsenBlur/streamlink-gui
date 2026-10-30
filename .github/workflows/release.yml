@@ -78,8 +78,10 @@ jobs:
           flutter-version: ${{ steps.sdk.outputs.flutter }}
           cache: true
 
+      # A release builds exactly what pubspec.lock records, or nothing: see the
+      # --enforce-lockfile note in ci.yml.
       - name: Install Dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       - name: Analyze Project Code
         run: flutter analyze
@@ -148,8 +150,13 @@ jobs:
           # LF, no BOM. Out-File wrote CRLF, which leaves a stray \r on the
           # filename field and makes `sha256sum -c SHA256SUMS` report the file
           # as unreadable - the digest was fine, but anyone verifying the
-          # download by hand saw a failure. (The in-app updater is unaffected:
-          # it extracts the digest by regex and ignores the filename.)
+          # download by hand saw a failure. The in-app updater reads this file
+          # as well (UpdateService.expectedDigestFor): it takes the line that
+          # names the asset it downloaded, streamlink-gui-windows.zip, matched
+          # by file name with any stray \r trimmed, and accepts a lone digest
+          # whatever it names. Keep the name on the line below equal to the
+          # asset's own: a mismatch only passes while this file holds a single
+          # line.
           $line = "$hash  streamlink-gui-windows.zip`n"
           [System.IO.File]::WriteAllText(
             (Join-Path (Get-Location) "SHA256SUMS"),

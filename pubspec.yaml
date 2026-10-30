@@ -32,21 +32,36 @@ dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
   http: ^1.2.1
   # Verifies the SHA-256 of a downloaded update against the release's
   # published SHA256SUMS before it is applied.
   crypto: ^3.0.3
   window_manager: ^0.5.2
-  # Display geometry for restoring the window on a monitor that still exists.
-  # Already shipped as a transitive dependency of window_manager; promoting it
-  # adds no weight.
-  screen_retriever: ^0.2.0
   system_tray: ^2.0.3
   local_notifier: ^0.1.6
-  file_picker: ^8.0.0
+  # 13.x since audit I7. The API is static (FilePicker.getDirectoryPath()),
+  # and pickFiles() returns a list and multi-picks by default, so the player
+  # picker in Settings uses pickFile(). On Windows it is pure Dart FFI
+  # (windows_file_picker, on win32 6.x, which nothing else here depends on);
+  # every dialog now runs off the UI isolate, and the file picker is the
+  # modern IFileOpenDialog. Still owed: a real launch through the four
+  # pickers (Settings x2, onboarding, the download-folder prompt).
+  file_picker: ^13.3.0
+  # file_picker's Windows implementation, named directly for one type it does
+  # not re-export: FilePickerWindowsOptions, the only way to give a dialog an
+  # owner window (lib/services/file_dialogs.dart). Moves with file_picker.
+  windows_file_picker: ^2.0.1
   path: ^1.9.0
-  archive: ^3.6.1
+  # 4.x since audit I7. This is the updater's zip extraction, so the bump came
+  # with test/update_service_zip_test.dart, which extracts a real ZipEncoder
+  # archive through UpdateService and checks every byte, and checks that Zip
+  # Slip entries are refused. 4.x decompresses an entry when it is read
+  # (readBytes(), null for an empty one) and renamed decodeBuffer to
+  # decodeStream and InputStream/OutputStream to InputMemoryStream/
+  # OutputMemoryStream (none used here); since 4.5.0 a malformed header throws
+  # ArchiveException rather than RangeError. Still owed: one real update apply
+  # from a 4.x build.
+  archive: ^4.5.2
 
 dev_dependencies:
   flutter_test:
@@ -73,11 +88,6 @@ flutter:
   assets:
     - assets/app_icon.ico
     - assets/app_icon_live.ico
-
-  # Fragment shaders. Compiled to SkSL at build time by impellerc and loaded
-  # with ui.FragmentProgram.fromAsset.
-  shaders:
-    - shaders/surface.frag
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

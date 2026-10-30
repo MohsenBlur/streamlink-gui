@@ -5,9 +5,6 @@ import 'package:flutter/rendering.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:streamlink_gui/theme/material/app_material.dart';
-import 'package:streamlink_gui/theme/material/lit_surface.dart';
-import 'package:streamlink_gui/theme/material/texture_cache.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_badge.dart';
@@ -20,45 +17,11 @@ import 'package:streamlink_gui/widgets/shell/engraved_rule.dart';
 /// The app holds a single-instance mutex, so while the user's installed copy
 /// is running the dev build cannot launch at all - and screenshots taken
 /// then silently show the WRONG binary. This harness is the loop that works
-/// regardless: it mounts real widget subtrees over the real material engine
-/// (shader included - `FragmentProgram.fromAsset` works under flutter test)
+/// regardless: it mounts real widget subtrees over the real surface engine
 /// and writes what actually painted.
 ///
 ///   flutter test test/tools/render_composite_preview.dart
 void main() {
-  setUpAll(() async {
-    await LitSurfaceProgram.load();
-    // Prime every hairline tile, or the preview paints the one layer this
-    // harness exists to judge as MISSING - the calibration eye would be
-    // tuning the shader grain while believing it was seeing the brush.
-    for (final spec in MaterialSpec.available) {
-      for (final isDark in [false, true]) {
-        final t = spec.palette(isDark).texture;
-        if (t == null) continue;
-        for (final role in SurfaceRole.values) {
-          final amp = t.amplitudeFor(role);
-          final scale = RoleModifier.of(role).textureScale;
-          if (amp <= 0 || scale <= 0) continue;
-          await TextureCache.prime(TileKey(
-            kind: t.kind,
-            width: t.tileDevicePx.width.round(),
-            height: t.tileDevicePx.height.round(),
-            amplitude: (amp * scale).round(),
-            seed: t.seed,
-          ));
-          // The full-range twin the lit path samples as its micro-normal.
-          await TextureCache.prime(TileKey(
-            kind: t.kind,
-            width: t.tileDevicePx.width.round(),
-            height: t.tileDevicePx.height.round(),
-            amplitude: 255,
-            seed: t.seed,
-          ));
-        }
-      }
-    }
-  });
-
   Future<void> snap(WidgetTester tester, Widget scene, Size size, String name,
       {bool dark = true}) async {
     themeNotifier.isDarkTheme = dark;

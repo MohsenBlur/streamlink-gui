@@ -17,9 +17,12 @@ extract, run — there is nothing to install.
 - **Seekable VOD streaming.** VODs stream with a working seek bar, so you can
   drag around the timeline without downloading the file first. Your position is
   remembered and playback resumes where you left off. (Settings → Player)
-- **VOD downloads.** Queue any number; they download one at a time so a batch
-  cannot saturate your connection. Progress shows in the title bar and in the
-  Library.
+- **VOD downloads.** Queue any number. By default they download one at a time,
+  so a batch cannot saturate your connection; up to four can run at once
+  instead (Settings → Downloads → Simultaneous downloads). Twitch sends each
+  download at its own pace, so in a measurement two at once moved about 1.8x as
+  much as one, and three filled the connection. Progress shows in the title bar
+  and in the Library.
 - **Library.** Everything you have downloaded in one place, with size, watch
   progress, and filters by channel.
 - **Favorites automation.**
