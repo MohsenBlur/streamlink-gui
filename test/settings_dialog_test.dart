@@ -421,6 +421,55 @@ void main() {
       expect(saves.single.isDarkTheme, !entry);
       expect(themeNotifier.isDarkTheme, !entry);
     });
+
+    testWidgets('Cancel puts back a previewed theme mode and both accents',
+        (tester) async {
+      // The Appearance tab applies its edits live, before Save. Cancel has to
+      // undo all three, or the app keeps a look the config never recorded and
+      // the next launch quietly drops it.
+      final entry = themeNotifier.isDarkTheme;
+      final lightEntry = themeNotifier.lightAccentColor;
+      final darkEntry = themeNotifier.darkAccentColor;
+      addTearDown(() {
+        themeNotifier.setLightAccent(lightEntry);
+        themeNotifier.setDarkAccent(darkEntry);
+        themeNotifier.setDarkTheme(entry);
+      });
+
+      // Swatches that appear in one list only (Emerald is in both).
+      const twitchPurple = Color(0xFF7C3AED), cyan = Color(0xFF00F2FE);
+      const electricPurple = Color(0xFF8B5CF6), skyBlue = Color(0xFF38BDF8);
+      final lightPick =
+          lightEntry.toARGB32() == twitchPurple.toARGB32() ? cyan : twitchPurple;
+      final darkPick = darkEntry.toARGB32() == electricPurple.toARGB32()
+          ? skyBlue
+          : electricPurple;
+      Finder swatch(Color color) => find.byWidgetPredicate((w) =>
+          w is Container &&
+          w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).shape == BoxShape.circle &&
+          (w.decoration as BoxDecoration).color?.toARGB32() ==
+              color.toARGB32());
+
+      await openSettings(tester, _savedSettings());
+      await showTab(tester, 'Appearance');
+      await tapVisible(tester, find.text(entry ? 'Soft Light' : 'Deep Dark'));
+      await tapVisible(tester, swatch(lightPick));
+      await tapVisible(tester, swatch(darkPick));
+      expect(themeNotifier.isDarkTheme, !entry, reason: 'precondition');
+      expect(themeNotifier.lightAccentColor.toARGB32(), lightPick.toARGB32(),
+          reason: 'precondition');
+      expect(themeNotifier.darkAccentColor.toARGB32(), darkPick.toARGB32(),
+          reason: 'precondition');
+
+      await tester.tap(find.text('Cancel'));
+      await _settle(tester);
+
+      expect(saves, isEmpty);
+      expect(themeNotifier.isDarkTheme, entry);
+      expect(themeNotifier.lightAccentColor.toARGB32(), lightEntry.toARGB32());
+      expect(themeNotifier.darkAccentColor.toARGB32(), darkEntry.toARGB32());
+    });
   });
 
   group('notification toggles', () {
