@@ -54,6 +54,18 @@ int resumeSeconds({
 /// seek bar and transport controls visible; minimal hides them.
 const List<String> mpcViewPresetCompact = ['/viewpreset', '2'];
 
+/// Whether [playerExe] is MPC-BE rather than MPC-HC.
+///
+/// Both classify as [PlayerKind.mpcHc] - they share the command line the app
+/// uses and the /slave API - except for `/viewpreset`, which MPC-BE does not
+/// know: it answers any switch it does not know with its command-line help
+/// window and never opens the file.
+bool isMpcBe(String? playerExe) {
+  if (playerExe == null) return false;
+  final name = playerExe.replaceAll('"', '').split(RegExp(r'[\\/]')).last;
+  return name.toLowerCase().startsWith('mpc-be');
+}
+
 String mpvIpcPath(String ipcName, bool isWindows) =>
     isWindows ? r'\\.\pipe\mpv-socket-' + ipcName : '/tmp/mpv-socket-$ipcName';
 
@@ -237,9 +249,14 @@ String encodePowerShellCommand(String script) {
 /// [httpPassword] guards VLC's HTTP interface: one per session, never a
 /// constant - "streamlink" was in the public source, so any program on the
 /// machine, another account's included, could drive VLC through it (list
-/// folders, open any file). [mpcWebInterface] false leaves MPC-HC's web
-/// interface off: it has no password at all (see
-/// PlayerService._limitMpcHcWebInterface).
+/// folders, open any file).
+///
+/// [mpcSlaveWindow] is the session's control window (MpcSlaveSession), which
+/// MPC-HC reports to over its /slave API; null launches it without one, and
+/// so without progress tracking. MPC-HC never gets `/webport`: its web
+/// interface has no authentication, and any web page could drive it with a
+/// plain GET while a VOD played (see mpc_slave_protocol.dart). [mpcBe] leaves
+/// out the switch MPC-BE refuses (see [isMpcBe]).
 List<String> buildPlayerArgs({
   required PlayerKind kind,
   required int startSeconds,
@@ -248,7 +265,8 @@ List<String> buildPlayerArgs({
   required bool isWindows,
   required String httpPassword,
   bool keepOpen = false,
-  bool mpcWebInterface = true,
+  String? mpcSlaveWindow,
+  bool mpcBe = false,
 }) {
   final args = <String>[];
   switch (kind) {
@@ -274,55 +292,18 @@ List<String> buildPlayerArgs({
       if (keepOpen) args.add('--keep-open=yes');
     case PlayerKind.mpcHc:
       if (startSeconds > 0) args.addAll(['/start', '${startSeconds * 1000}']);
-      if (mpcWebInterface) args.addAll(['/webport', '$port']);
-      args.addAll(mpcViewPresetCompact);
+      // A player of its own. With MPC-HC's default "use the same player for
+      // each media file", a launch while another MPC-HC is open hands its
+      // command line - /slave included - to that one and exits. The app
+      // took that exit for the end of playback, and the connect would come
+      // from a process this session never started, which the runner refuses.
+      args.add('/new');
+      if (mpcSlaveWindow != null) args.addAll(['/slave', mpcSlaveWindow]);
+      if (!mpcBe) args.addAll(mpcViewPresetCompact);
     case PlayerKind.other:
       break;
   }
   return args;
-}
-
-/// [text], an INI file, with [key] in [section] set to [value]: replaced
-/// where it is, added at the end of its section, or in a new section at the
-/// end. Names compare case-insensitively, as the Windows profile API does.
-String setIniValue(String text, String section, String key, String value) {
-  final newline = text.contains('\r\n') ? '\r\n' : '\n';
-  final endsWithNewline = text.endsWith('\n');
-  final lines = text.isEmpty ? <String>[] : text.split(RegExp(r'\r?\n'));
-  if (endsWithNewline) lines.removeLast();
-  bool isHeader(String line) {
-    final t = line.trim();
-    return t.startsWith('[') && t.endsWith(']');
-  }
-
-  final start = lines.indexWhere((l) =>
-      isHeader(l) &&
-      l.trim().substring(1, l.trim().length - 1).trim().toLowerCase() ==
-          section.toLowerCase());
-  final entry = '$key=$value';
-  if (start == -1) {
-    if (lines.isNotEmpty && lines.last.trim().isNotEmpty) lines.add('');
-    lines
-      ..add('[$section]')
-      ..add(entry);
-    return lines.join(newline) + newline;
-  }
-  var end = lines.indexWhere(isHeader, start + 1);
-  if (end == -1) end = lines.length;
-  for (var i = start + 1; i < end; i++) {
-    final eq = lines[i].indexOf('=');
-    if (eq > 0 &&
-        lines[i].substring(0, eq).trim().toLowerCase() == key.toLowerCase()) {
-      lines[i] = entry;
-      return lines.join(newline) + (endsWithNewline ? newline : '');
-    }
-  }
-  var at = end;
-  while (at > start + 1 && lines[at - 1].trim().isEmpty) {
-    at--;
-  }
-  lines.insert(at, entry);
-  return lines.join(newline) + (endsWithNewline ? newline : '');
 }
 
 /// Quotes one token so it survives streamlink's `--player-args` parsing.
@@ -430,7 +411,7 @@ VodStreamCommand buildVodStreamlinkArgs({
   required int resume, // already through resumeSeconds()
   required bool isWindows,
   required String httpPassword,
-  bool mpcWebInterface = true,
+  String? mpcSlaveWindow,
 }) {
   final args = <String>['--title', titleString];
 
@@ -465,7 +446,8 @@ VodStreamCommand buildVodStreamlinkArgs({
     ipcName: vodId,
     isWindows: isWindows,
     httpPassword: httpPassword,
-    mpcWebInterface: mpcWebInterface,
+    mpcSlaveWindow: mpcSlaveWindow,
+    mpcBe: isMpcBe(playerExe),
   );
 
   final parts = <String>[

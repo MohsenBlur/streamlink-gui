@@ -34,8 +34,9 @@ class PlayerStatus {
   /// believe it, not the parser.
   final int? positionSeconds;
 
-  /// mpv only: the `eof-reached` property. With `--keep-open=yes` an mpv that
-  /// hit end-of-file idles here instead of exiting, which is what lets the app
+  /// mpv's `eof-reached` property, or MPC-HC sitting at the end of what it
+  /// opened (MpcSlaveState.status). With `--keep-open=yes` an mpv that hit
+  /// end-of-file idles here instead of exiting, which is what lets the app
   /// distinguish "the stream died" from "the user closed the player".
   final bool eofReached;
 }
@@ -168,50 +169,4 @@ PlayerStatus? parseMpvStatus(String raw) {
     positionSeconds: position,
     eofReached: eof,
   );
-}
-
-/// MPC-HC's web interface: `GET /variables.html`.
-///
-/// Position and duration are in milliseconds, and `statestring` is a human
-/// string ("Playing", "Paused", "Stopped") rather than a code.
-///
-/// MPC-HC never says "Stopped" at end-of-file - measured against 2.7.4 with
-/// an instrumented HLS server: it pauses on the last frame, and when a live
-/// source DIES it plays ~10s of frozen position while the buffer drains and
-/// then JUMPS THE POSITION TO THE FULL DURATION and pauses there. That jump
-/// is the dying gasp that used to mark a half-watched VOD ~100% complete. So
-/// "paused at (or slightly past - a few hundred ms of overshoot is normal)
-/// the duration" is MPC-HC's end-of-file signal, the exact analogue of mpv's
-/// keep-open idle: a real user pause never moves the position, only EOF
-/// parks a player at the very end.
-PlayerStatus? parseMpcHcStatus(String html) {
-  final posMatch = RegExp(r'id="position">(\d+)<').firstMatch(html);
-  final durMatch = RegExp(r'id="duration">(\d+)<').firstMatch(html);
-  final stateMatch = RegExp(r'id="statestring">([^<]+)<').firstMatch(html);
-
-  final state = stateMatch?.group(1)?.toLowerCase();
-  if (state == null) return null;
-
-  final posMs = posMatch == null ? null : int.tryParse(posMatch.group(1)!);
-  final durMs = durMatch == null ? null : int.tryParse(durMatch.group(1)!);
-  final position = posMs == null ? null : (posMs / 1000).round();
-
-  final pausedAtEnd = state.contains('pause') &&
-      posMs != null &&
-      durMs != null &&
-      durMs > 0 &&
-      posMs >= durMs - 1000;
-  if (pausedAtEnd) {
-    return PlayerStatus(
-        activity: PlayerActivity.stopped,
-        positionSeconds: position,
-        eofReached: true);
-  }
-
-  final activity = state.contains('play')
-      ? PlayerActivity.playing
-      : (state.contains('pause')
-            ? PlayerActivity.paused
-            : PlayerActivity.stopped);
-  return PlayerStatus(activity: activity, positionSeconds: position);
 }

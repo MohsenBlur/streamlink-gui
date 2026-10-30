@@ -146,6 +146,9 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  mpc_slave_channel_ = std::make_unique<MpcSlaveChannel>(
+      flutter_controller_->engine()->messenger());
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     // Re-assert the content view's visibility before the frame appears:
     // showing only the frame is how the window came up empty. See
@@ -180,6 +183,7 @@ void FlutterWindow::OnDestroy() {
   instance_channel_ = nullptr;
   window_channel_ = nullptr;
   session_channel_ = nullptr;
+  mpc_slave_channel_ = nullptr;
 
   if (flutter_controller_) {
     // The engine is about to destroy the view HWND, so stop tracking it first.

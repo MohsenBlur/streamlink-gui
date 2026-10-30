@@ -11,6 +11,8 @@ import '../utils/player_progress.dart';
 import '../utils/player_seek.dart';
 import '../utils/vod_playback_monitor.dart';
 import '../models/twitch_video.dart';
+import '../utils/mpc_slave_protocol.dart';
+import 'mpc_slave.dart';
 import 'twitch_api_service.dart';
 
 /// Starts a child process; `Process.start`, in production.
@@ -31,20 +33,33 @@ class PlayerService {
   ///
   /// [progressPollInterval] is how often a playing VOD's player is asked
   /// where it is; tests shorten it to drive the tracker in milliseconds.
-  /// [apiService] is where watch positions are synced to Twitch.
+  /// [apiService] is where watch positions are synced to Twitch. [mpcSlave]
+  /// is MPC-HC's control channel; by default the runner's, on Windows.
+  /// [mpcConnectGrace] is how long MPC-HC has to connect to it before the
+  /// session log says it has not.
   PlayerService({
     ProcessStarter? startProcess,
     ProcessRunner? runProcess,
     this.progressPollInterval = const Duration(seconds: 2),
     TwitchApiService? apiService,
+    MpcSlaveChannel? mpcSlave,
+    this.mpcConnectGrace = const Duration(seconds: 20),
   })  : _startProcess = startProcess ?? Process.start,
         _runProcess = runProcess ?? Process.run,
-        _apiService = apiService ?? TwitchApiService();
+        _apiService = apiService ?? TwitchApiService(),
+        _mpcSlaveChannel = mpcSlave;
 
   final TwitchApiService _apiService;
   final ProcessStarter _startProcess;
   final ProcessRunner _runProcess;
   final Duration progressPollInterval;
+  final Duration mpcConnectGrace;
+
+  /// Made on first use, not with the service: nothing about a service that
+  /// never plays MPC-HC should touch a platform channel.
+  MpcSlaveChannel? _mpcSlaveChannel;
+  MpcSlaveChannel? get _mpcSlave =>
+      _mpcSlaveChannel ??= Platform.isWindows ? MethodChannelMpcSlave() : null;
 
   /// Ends [procs] and everything they started, with one taskkill.
   ///
@@ -301,67 +316,80 @@ class PlayerService {
   String _basicAuthFor(String vodId) =>
       'Basic ${base64Encode(utf8.encode(':${_httpPasswords[vodId] ?? ''}'))}';
 
-  /// The registry key MPC-HC keeps its settings under, when no .ini beside
-  /// its exe holds them.
-  static const String mpcHcSettingsKey = r'HKCU\Software\MPC-HC\MPC-HC\Settings';
+  /// Each playing VOD's MPC-HC control session (see mpc_slave.dart), by VOD
+  /// id. It replaced the web interface the app used to turn on, which has no
+  /// authentication: any web page could drive the player with a plain GET
+  /// while a VOD played. Nothing here reads or writes MPC-HC's own settings.
+  final Map<String, MpcSlaveSession> _mpcSessions = {};
 
-  /// Sets MPC-HC's "allow access from localhost only" before a launch that
-  /// turns its web interface on; returns why it could not, or null.
-  ///
-  /// `/webport` starts that interface for the session, and it has no
-  /// password. With the option off - MPC-HC's default - it listens on every
-  /// interface: anyone on the network the firewall let in could list the
-  /// user's drives, open any file (a UNC path leaks the account's NTLM
-  /// hash), send any command and take snapshots. Set where MPC-HC reads it:
-  /// the .ini beside its exe when there is one, the registry otherwise.
-  Future<String?> _limitMpcHcWebInterface(String exe) async {
+  /// A control session for an MPC-HC launch of [key], or why there is none -
+  /// the player then plays, untracked. The reason is the caller's to log,
+  /// once the session's log has begun.
+  Future<(MpcSlaveSession?, String?)> _openMpcSession(String key) async {
+    final channel = _mpcSlave;
+    if (channel == null) return (null, 'there is no control channel here');
     try {
-      final ini = File(path.setExtension(exe, '.ini'));
-      if (ini.existsSync()) {
-        final bytes = ini.readAsBytesSync();
-        final utf16 = bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE;
-        final text = utf16
-            ? String.fromCharCodes([
-                for (var i = 2; i + 1 < bytes.length; i += 2)
-                  bytes[i] | (bytes[i + 1] << 8),
-              ])
-            : latin1.decode(bytes);
-        final updated =
-            setIniValue(text, 'Settings', 'WebServerLocalhostOnly', '1');
-        if (updated != text) {
-          ini.writeAsBytesSync(utf16
-              ? [
-                  0xFF,
-                  0xFE,
-                  for (final unit in updated.codeUnits) ...[unit & 0xFF, unit >> 8],
-                ]
-              : latin1.encode(updated));
+      final session = await MpcSlaveSession.open(channel);
+      var rejectionLogged = false;
+      session
+        ..onEvent = (event) {
+          if (event.command == MpcCommand.connect &&
+              identical(_mpcSessions[key], session)) {
+            log(key,
+                '[System] MPC-HC connected to the app over its /slave interface.');
+          }
         }
-        return null;
-      }
-      final result = await _runProcess('reg', [
-        'add',
-        mpcHcSettingsKey,
-        '/v',
-        'WebServerLocalhostOnly',
-        '/t',
-        'REG_DWORD',
-        '/d',
-        '1',
-        '/f',
-      ]);
-      return result.exitCode == 0
-          ? null
-          : 'reg exited with ${result.exitCode}: ${'${result.stderr}'.trim()}';
+        ..onRejected = (rejection) {
+          if (rejectionLogged || !identical(_mpcSessions[key], session)) {
+            return;
+          }
+          rejectionLogged = true;
+          final sender = rejection.pid == 0
+              ? 'an unknown process'
+              : 'process ${rejection.pid}';
+          log(key,
+              '[System] Ignored a control message from $sender, which this '
+              'session did not start (further ones are ignored silently).');
+        };
+      // A displaced session would keep its window until the app exits.
+      final displaced = _mpcSessions.remove(key);
+      if (displaced != null) unawaited(displaced.close());
+      _mpcSessions[key] = session;
+      return (session, null);
     } catch (e) {
-      return '$e';
+      return (null, '$e');
     }
   }
 
-  static String _mpcWebInterfaceOff(String why) =>
-      '[System] MPC-HC\'s web interface stays off for this session, so its '
-      'position is not tracked: it could not be limited to this computer '
-      '($why).';
+  /// Hands [session] the process just started for it; false, with the reason
+  /// logged and the session closed, if it cannot be held to one.
+  Future<bool> _bindMpcSession(
+      String key, MpcSlaveSession session, int pid) async {
+    var bound = false;
+    try {
+      bound = await session.bind(pid);
+    } catch (_) {}
+    if (!bound) {
+      log(key,
+          _mpcUntracked('the process it started could not be held on to'));
+      _closeMpcSession(key, session);
+    }
+    return bound;
+  }
+
+  /// Ends [key]'s control session - [only] that one, when given, so a late
+  /// exit handler cannot end its relaunch's.
+  void _closeMpcSession(String key, [MpcSlaveSession? only]) {
+    final session = _mpcSessions[key];
+    if (session == null || (only != null && !identical(session, only))) {
+      return;
+    }
+    _mpcSessions.remove(key);
+    unawaited(session.close());
+  }
+
+  static String _mpcUntracked(String why) =>
+      "[System] MPC-HC's position is not tracked this session: $why.";
 
   /// Frees [vodId]'s port, though not for immediate reuse: see _coolingPorts.
   void _releasePlayerPort(String vodId) {
@@ -426,8 +454,8 @@ class PlayerService {
   /// player before building arguments. Only local playback did this, so the
   /// two streamlink paths fell through every branch and passed no --player at
   /// all - leaving Streamlink to guess, and skipping the player-specific
-  /// arguments (VLC's HTTP interface, MPV's IPC socket, MPC-HC's web port)
-  /// that watch-progress tracking depends on.
+  /// arguments (VLC's HTTP interface, MPV's IPC socket, MPC-HC's control
+  /// window) that watch-progress tracking depends on.
   String resolveEffectivePlayerType(AppSettings settings) {
     if (settings.playerType != 'default') return settings.playerType;
     if (findVlcPath() != null) return 'vlc';
@@ -1339,7 +1367,8 @@ class PlayerService {
       final path = file.path;
       final args = <String>[];
       String exe = '';
-      String? mpcWebOff;
+      MpcSlaveSession? mpc;
+      String? mpcUntracked;
 
       final finalSeek = resumeSeconds(
         watchPosition: vod.watchPosition,
@@ -1362,7 +1391,7 @@ class PlayerService {
       } else {
         exe = resolvedExe;
         if (kind == PlayerKind.mpcHc) {
-          mpcWebOff = await _limitMpcHcWebInterface(resolvedExe);
+          (mpc, mpcUntracked) = await _openMpcSession(key);
         }
         final httpPassword = _newHttpPassword();
         _httpPasswords[vod.id] = httpPassword;
@@ -1375,7 +1404,8 @@ class PlayerService {
           ipcName: key,
           isWindows: Platform.isWindows,
           httpPassword: httpPassword,
-          mpcWebInterface: mpcWebOff == null,
+          mpcSlaveWindow: mpc?.window,
+          mpcBe: isMpcBe(resolvedExe),
         ));
         args.add(path);
       }
@@ -1387,12 +1417,15 @@ class PlayerService {
       onPlayerStarted?.call(key, title);
       log(key, '[System] Initializing local player for VOD ${vod.id}...');
       log(key, '[System] Seek time offset: ${finalSeek}s');
-      if (mpcWebOff != null) log(key, _mpcWebInterfaceOff(mpcWebOff));
+      if (mpcUntracked != null) log(key, _mpcUntracked(mpcUntracked));
       log(key, '[System] Running local file command: $exe ${args.join(" ")}');
 
       final proc = await _startProcess(exe, args);
 
       activePlayerProcesses[vod.id] = proc;
+      if (mpc != null && !await _bindMpcSession(key, mpc, proc.pid)) {
+        mpc = null;
+      }
 
       // Drain and log the player's own output. Without listeners dart:io
       // still creates the pipes, so a chatty player can fill the 64KB OS
@@ -1425,8 +1458,11 @@ class PlayerService {
         }
       }
 
-      if (mpcWebOff == null) _startVODProgressTracker(vod, port, settings);
+      if (kind != PlayerKind.mpcHc || mpc != null) {
+        _startVODProgressTracker(vod, port, settings);
+      }
 
+      final session = mpc;
       proc.exitCode.then((exitCode) {
         log(key, '[System] Local player process exited with code $exitCode');
         playingVodIds.remove(vod.id);
@@ -1438,12 +1474,14 @@ class PlayerService {
         _releasePlayerPort(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
+        if (session != null) _closeMpcSession(key, session);
         onPlayerStopped?.call(key, exitCode, _stoppedByUser.remove(key));
       });
     } catch (e) {
       playingVodIds.remove(vod.id);
       playingVodFilePaths.remove(vod.id);
       activePlayerPorts.remove(vod.id);
+      _closeMpcSession(key);
       log(key, '[System Error] Failed to launch local player: $e');
       onPlayerStopped?.call(key, -1, _stoppedByUser.remove(key));
     }
@@ -1480,9 +1518,9 @@ class PlayerService {
 
       final port = await getNextAvailablePlayerPort();
       final title = 'VOD: ${vod.title}';
-      final mpcWebOff = kind == PlayerKind.mpcHc && playerExe != null
-          ? await _limitMpcHcWebInterface(playerExe)
-          : null;
+      var (mpc, mpcUntracked) = kind == PlayerKind.mpcHc && playerExe != null
+          ? await _openMpcSession(key)
+          : (null, null);
       final httpPassword = _newHttpPassword();
       _httpPasswords[vod.id] = httpPassword;
 
@@ -1509,7 +1547,7 @@ class PlayerService {
             ),
         isWindows: Platform.isWindows,
         httpPassword: httpPassword,
-        mpcWebInterface: mpcWebOff == null,
+        mpcSlaveWindow: mpc?.window,
       );
       final args = cmd.args;
 
@@ -1532,7 +1570,7 @@ class PlayerService {
         log(key, '[System] This player has no known start-position flag, so playback begins at 0. '
             'Drag the seek bar to ${vod.watchPosition}s.');
       }
-      if (mpcWebOff != null) log(key, _mpcWebInterfaceOff(mpcWebOff));
+      if (mpcUntracked != null) log(key, _mpcUntracked(mpcUntracked));
       log(key, '[System] Arguments: ${argsForLog(args)}');
 
       // A Stop that landed while the relaunch was finding a port: see
@@ -1542,6 +1580,7 @@ class PlayerService {
         log(key, '[System] Stopped before the relaunch began.');
         playingVodIds.remove(vod.id);
         _releasePlayerPort(vod.id);
+        _closeMpcSession(key);
         _vodRestartLedgers.remove(vod.id);
         onPlayerStopped?.call(key, _vodsRelaunching.remove(vod.id) ?? -1, true);
         return;
@@ -1560,12 +1599,18 @@ class PlayerService {
       _vodsRelaunching.remove(vod.id);
       final stoppedWhileStarting = isRestart && _relaunchStops.remove(vod.id);
 
+      // streamlink's process, not the player's: streamlink starts the player
+      // itself, and the runner accepts the player as its descendant.
+      if (mpc != null && !await _bindMpcSession(key, mpc, proc.pid)) {
+        mpc = null;
+      }
+
       // Spawn Windows Named Pipe to TCP Bridge for MPV players
       if (kind == PlayerKind.mpv && Platform.isWindows) {
         await _startWindowsIpcBridge(key, port);
       }
 
-      if (mpcWebOff == null) {
+      if (kind != PlayerKind.mpcHc || mpc != null) {
         _startVODProgressTracker(vod, port, settings,
           channelName: channelName,
           selfHeal: true,
@@ -1598,6 +1643,7 @@ class PlayerService {
         }
       });
 
+      final session = mpc;
       proc.exitCode.then((exitCode) {
         log(key, '[System] Streamlink process for VOD ${vod.id} exited with code $exitCode');
         playingVodIds.remove(vod.id);
@@ -1605,6 +1651,7 @@ class PlayerService {
         _releasePlayerPort(vod.id);
         _stopWindowsIpcBridge(key);
         _stopVODProgressTracker(vod.id);
+        if (session != null) _closeMpcSession(key, session);
         // A premature-EOF verdict parked a resume position here before
         // killing the tree. This death is the supervisor's own doing:
         // relaunch quietly instead of announcing a stop the user never made.
@@ -1627,6 +1674,7 @@ class PlayerService {
       log(key, '[System Error] Failed to start Streamlink: $e');
       playingVodIds.remove(vod.id);
       activePlayerPorts.remove(vod.id);
+      _closeMpcSession(key);
       _pendingVodRestarts.remove(vod.id);
       _vodRestartLedgers.remove(vod.id);
       _vodsRelaunching.remove(vod.id);
@@ -1766,6 +1814,7 @@ class PlayerService {
     final durationSeconds = _apiService.parseDurationToSeconds(vod.duration);
     final monitor = VodPlaybackMonitor(durationSeconds: durationSeconds);
     bool pollErrorLogged = false;
+    bool mpcSilenceLogged = false;
 
     // Did the player actually start where it was told to?
     //
@@ -1809,7 +1858,11 @@ class PlayerService {
       for (final event in events) {
         switch (event) {
           case MonitorEvent.firstContact:
-            log(vod.id, '[System] Player interface responding on port $port.');
+            log(
+                vod.id,
+                isMpc
+                    ? '[System] Player answering over its control window.'
+                    : '[System] Player interface responding on port $port.');
           case MonitorEvent.firstConfirmedPosition:
             log(vod.id,
                 '[System] Watch position corroborated at ${confirmed}s; '
@@ -1909,20 +1962,30 @@ class PlayerService {
           }
         }
       } else if (isMpc) {
+        // Over the session's /slave window. Until MPC-HC connects there is
+        // nobody to ask and the tick has no facts, as a refused HTTP poll had
+        // none; one that never connects is said so once, rather than
+        // tracking nothing in silence.
+        final session = _mpcSessions[vod.id];
         try {
-          final response = await http.get(
-            Uri.parse('http://127.0.0.1:$port/variables.html'),
-          ).timeout(const Duration(seconds: 2));
-
-          if (response.statusCode == 200) {
-            status = parseMpcHcStatus(response.body);
-          }
+          status = session == null ? null : await session.poll();
         } catch (e) {
           if (!pollErrorLogged && isLive()) {
             pollErrorLogged = true;
             log(vod.id,
                 '[System] Progress poll error (further ones suppressed): $e');
           }
+        }
+        if (session != null &&
+            !session.state.connected &&
+            !mpcSilenceLogged &&
+            isLive() &&
+            DateTime.now().millisecondsSinceEpoch - sessionStartedMs >
+                mpcConnectGrace.inMilliseconds) {
+          mpcSilenceLogged = true;
+          log(vod.id,
+              '[System] MPC-HC has not connected to the app, so its position '
+              'is not being tracked.');
         }
       } else {
         // PlayerKind.other: no polling interface, no gate, no self-heal.
@@ -2316,18 +2379,31 @@ class PlayerService {
         }
         return true;
       }
+      if (channel == SeekChannel.mpcHcSlave) {
+        final session = _mpcSessions[logKey];
+        if (session == null || !session.connected) {
+          log(logKey,
+              '[System] Could not correct the playback position: MPC-HC has '
+              'not connected to the app.');
+          return false;
+        }
+        // True only once MPC-HC reports the seek: it takes the command even
+        // when it has nothing loaded to seek in.
+        if (!await session.seek(target)) {
+          log(logKey,
+              '[System] Could not correct the playback position: MPC-HC did '
+              'not confirm the seek.');
+          return false;
+        }
+        return true;
+      }
       final path = seekRequestPath(channel,
           targetSeconds: target, durationSeconds: durationSeconds);
       if (path == null) return false;
       final uri = Uri.parse('http://127.0.0.1:$port/$path');
-      final http.Response response;
-      if (channel == SeekChannel.vlcHttp) {
-        response = await http.get(uri,
-                headers: {'Authorization': _basicAuthFor(logKey)})
-            .timeout(const Duration(seconds: 2));
-      } else {
-        response = await http.get(uri).timeout(const Duration(seconds: 2));
-      }
+      final response = await http
+          .get(uri, headers: {'Authorization': _basicAuthFor(logKey)})
+          .timeout(const Duration(seconds: 2));
       // A refusal (VLC's 401 for a wrong password, say) is an answer, not a
       // seek.
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -2474,6 +2550,11 @@ class PlayerService {
       timer.cancel();
     }
     activePlayerTimers.clear();
+
+    // Their windows go with them, rather than with the app.
+    for (final key in _mpcSessions.keys.toList()) {
+      _closeMpcSession(key);
+    }
 
     // One call for the lot, rather than one blocking taskkill per process.
     // Its exit code is not worth reading: any tree that ended on its own in
