@@ -84,12 +84,6 @@ String buildSessionKey(TwitchChannel channel) {
   return '$name#live';
 }
 
-/// Whether [sessionKey], from [buildSessionKey], names one broadcast by its
-/// stream id - so no later broadcast can share it, and it need not be
-/// forgotten when the channel goes offline for the next one to count as new.
-bool sessionKeyNamesBroadcast(String sessionKey) =>
-    sessionKey.contains('#') && !sessionKey.endsWith('#live');
-
 /// Decides which favourite (if any) should be auto-played.
 ///
 /// [runningChannels] are the lowercased names of channels already playing.

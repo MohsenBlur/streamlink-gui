@@ -189,21 +189,18 @@ class AutomationService {
   Future<void> _runAutoPlayPass() async {
     final channels = favorites();
 
-    // Forget sessions that could be mistaken for the channel's next
-    // broadcast once it is over, so that one is treated as new. A session
-    // keyed by its stream id never can be, so it is kept - and so is any
-    // session of a channel only presumed offline because its refreshes kept
-    // failing. Forgetting those relaunched the same broadcast, unasked, as
-    // soon as requests worked again.
+    // Forget the sessions of channels that are no longer live, so the next
+    // broadcast is treated as new - but not of one only presumed offline
+    // because its refreshes kept failing: forgetting those relaunched the
+    // same broadcast, unasked, as soon as requests worked again. One Twitch
+    // reported offline is forgotten even when its session is keyed by a
+    // stream id: a stream that drops and reconnects can come back on the
+    // same id, and it is relaunched, as it always was.
     final keep = <String>{
       for (final c in channels)
         if (c.isLive || isPresumedOffline(c)) c.username.toLowerCase().trim(),
     };
-    final favoriteNames =
-        channels.map((c) => c.username.toLowerCase().trim()).toSet();
-    _playedSessions.removeWhere((name, key) =>
-        !favoriteNames.contains(name) ||
-        (!keep.contains(name) && !sessionKeyNamesBroadcast(key)));
+    _playedSessions.removeWhere((name, _) => !keep.contains(name));
 
     final decision = decideAutoPlay(
       channels: channels,

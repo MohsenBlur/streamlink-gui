@@ -201,8 +201,11 @@ void main() {
       expect(rig.notifications, ['Auto-Playing Live Stream']);
     });
 
-    test('nor is one keyed by its stream id that Twitch briefly reported '
-        'offline', () async {
+    test('one Twitch reported offline is relaunched when it comes back, '
+        'even on the same stream id', () async {
+      // A stream that drops and reconnects can come back on its stream id.
+      // Its session was kept across the reported offline, so the reconnect
+      // stayed closed; only failing refreshes keep it now.
       final rig = Rig();
       final alpha = channel('alpha', live: true, streamId: '1');
       rig.favorites.add(alpha);
@@ -213,11 +216,14 @@ void main() {
         ..isLive = false
         ..streamId = null;
       await rig.service.runPass();
+      expect(rig.service.playedSessions, isEmpty);
       alpha
         ..isLive = true
         ..streamId = '1';
       await rig.service.runPass();
-      expect(rig.played, ['alpha']);
+      expect(rig.played, ['alpha', 'alpha']);
+      expect(rig.notifications,
+          ['Auto-Playing Live Stream', 'Auto-Playing Live Stream']);
 
       // Removing the favourite still forgets it.
       rig.favorites.clear();

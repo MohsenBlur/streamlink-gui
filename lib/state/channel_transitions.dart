@@ -68,8 +68,9 @@ class LiveTransitions {
   /// The clean usernames now known to be live; pass it back next time.
   final Set<String> announced;
 
-  /// The broadcast last known live on each clean username: its stream id, or
-  /// '' when its refresh named none (DecAPI's). Pass it back next time.
+  /// The broadcast last known live on each clean username - its stream id, or
+  /// '' when its refresh named none (DecAPI's) - while it is live or only
+  /// presumed offline. Pass it back next time.
   final Map<String, String> knownBroadcasts;
 }
 
@@ -85,8 +86,7 @@ class LiveTransitions {
 /// - the channel had never been refreshed before this pass ([before] says it
 ///   was not observed): a new follow, or one only just added, may have been
 ///   live for hours;
-/// - it is the broadcast [knownBroadcasts] already holds for it: the same
-///   stream id, or - with no id to tell broadcasts apart - one that only
+/// - it is the broadcast [knownBroadcasts] already holds for it, which only
 ///   seemed to end because its refreshes kept failing.
 ///
 /// An offline channel leaves the set. Nothing here reads a rate-limited
@@ -96,6 +96,11 @@ class LiveTransitions {
 /// auto-played it again - as soon as requests worked: an outage of three
 /// polls, a refused token signed in again, or a Wi-Fi drop during a few
 /// presses of Refresh.
+///
+/// Only then. Once Twitch itself has said the channel is offline, its return
+/// is announced, and auto-played, again - even on the same stream id, which
+/// a stream that drops and reconnects can come back on. Kept across that
+/// too, a reconnect came back silently and auto-play left it closed.
 LiveTransitions detectLiveTransitions({
   required List<TwitchChannel> channels,
   required Map<TwitchChannel, ChannelSnapshot> before,
@@ -121,10 +126,9 @@ LiveTransitions detectLiveTransitions({
       }
     } else {
       if (next.remove(name)) wentOffline.add(channel);
-      // A stream id tells the next broadcast apart by itself. Without one,
-      // only Twitch saying the channel is offline (an answer, so no error)
-      // ends the broadcast it knew.
-      if (!isPresumedOffline(channel) && known[name] == '') known.remove(name);
+      // Twitch saying the channel is offline (an answer, so no error) ends
+      // the broadcast it knew, stream id or none; failing refreshes do not.
+      if (!isPresumedOffline(channel)) known.remove(name);
     }
   }
   return LiveTransitions(

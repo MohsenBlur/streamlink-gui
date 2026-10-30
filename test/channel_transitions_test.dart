@@ -185,6 +185,45 @@ void main() {
       expect(next.wentLive, [a]);
     });
 
+    test('a broadcast Twitch reported offline is announced again when it '
+        'comes back, even on the same stream id', () {
+      // A stream that drops and reconnects can come back on its stream id.
+      // Remembered across the reported offline, the reconnect came back
+      // silently; only failing refreshes keep the broadcast now.
+      final a = ch('a', live: true, streamId: 's1');
+      final seen = detectLiveTransitions(
+          channels: [a],
+          before: snapshotChannels([a]),
+          announced: {},
+          isInitialLoad: true);
+
+      var before = snapshotChannels([a]);
+      a
+        ..isLive = false
+        ..streamId = null; // Twitch: offline - an answer, so no error
+      final ended = detectLiveTransitions(
+          channels: [a],
+          before: before,
+          announced: seen.announced,
+          isInitialLoad: false,
+          knownBroadcasts: seen.knownBroadcasts);
+      expect(ended.wentOffline, [a]);
+      expect(ended.knownBroadcasts, isEmpty);
+
+      before = snapshotChannels([a]);
+      a
+        ..isLive = true
+        ..streamId = 's1';
+      final back = detectLiveTransitions(
+          channels: [a],
+          before: before,
+          announced: ended.announced,
+          isInitialLoad: false,
+          knownBroadcasts: ended.knownBroadcasts);
+      expect(back.wentLive, [a]);
+      expect(back.knownBroadcasts, {'a': 's1'});
+    });
+
     test('with no stream id, only a reported offline ends the broadcast', () {
       // DecAPI names no stream id, so nothing tells a broadcast that came
       // back after failing refreshes from a new one; Twitch saying the
