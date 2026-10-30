@@ -123,7 +123,9 @@ class PlayerService {
   final Map<String, TwitchVideo> queuedDownloadTasks = {};
   final Map<String, String> downloadChannelNames = {};
   final Map<String, String> downloadTitles = {};
-  bool isQueueProcessing = false;
+
+  /// Whether any queued download is being run (see [_processDownloadQueue]).
+  bool get isQueueProcessing => _runningQueueEntries.isNotEmpty;
 
   /// VOD ids whose download the user cancelled, so the exit handler can tell a
   /// deliberate cancel apart from a genuine failure.
@@ -1062,6 +1064,7 @@ class PlayerService {
     // forever, showing "Queued" and never starting.
     _shuttingDown = false;
     _latestSettings = settings;
+    _latestChannelName = channelName;
     final vodId = vod.id;
     if (queuedDownloadTasks.containsKey(vodId) || activeDownloadProcesses.containsKey(vodId)) {
       return;
@@ -1085,6 +1088,17 @@ class PlayerService {
     onDownloadQueued?.call(vod, channelName);
 
     _processDownloadQueue(settings, channelName);
+  }
+
+  /// Starts queued downloads up to the number allowed now, for a Settings
+  /// save that raised it. Otherwise only a queueing or a download ending
+  /// starts one, and the extra room stood empty until either happened.
+  /// Lowering it stops nothing: the downloads running finish, and fewer
+  /// start after them.
+  void startQueuedDownloads() {
+    final settings = currentSettings?.call() ?? _latestSettings;
+    if (settings == null || downloadQueue.isEmpty) return;
+    _processDownloadQueue(settings, _latestChannelName);
   }
 
   /// Which queueing of a VOD each queue entry is.
@@ -1112,6 +1126,9 @@ class PlayerService {
   AppSettings Function()? currentSettings;
   AppSettings? _latestSettings;
 
+  /// The channel the latest queueing named; see [_runQueueEntry].
+  String _latestChannelName = '';
+
   AppSettings _settingsNow(AppSettings fallback) =>
       currentSettings?.call() ?? _latestSettings ?? fallback;
 
@@ -1121,44 +1138,80 @@ class PlayerService {
   /// while the app was shutting down, leaving a stray partial file behind.
   bool _shuttingDown = false;
 
-  Future<void> _processDownloadQueue(AppSettings settings, String channelName) async {
-    if (isQueueProcessing) return;
-    isQueueProcessing = true;
+  /// The queue entries being run now, by VOD id, each with the ticket (see
+  /// [_queueTickets]) of the queueing its run started from.
+  ///
+  /// One run per VOD at most. A run cancelled while its yt-dlp is still
+  /// dying, or in the gap before its ffmpeg retry, keeps its place until it
+  /// is over, and the VOD queued again meanwhile waits for it, as it did
+  /// behind the one loop that used to drain the queue: two runs of a VOD
+  /// would write the same partial file, and the cancel and retry markers
+  /// above, kept by VOD id, cannot tell two runs apart.
+  final Map<String, int?> _runningQueueEntries = {};
 
-    // Nothing may leave this loop with the flag still set: every later
-    // download would return at the guard above and sit at "Queued" for good.
+  /// Starts queued downloads, in queue order, while fewer are running than
+  /// Settings allows at once ([AppSettings.simultaneousDownloads]).
+  ///
+  /// One loop used to drain the queue, a download at a time. Each entry now
+  /// runs on its own ([_runQueueEntry]), and each one ending, like each
+  /// queueing, comes back here to start the next.
+  void _processDownloadQueue(AppSettings settings, String channelName) {
+    // Read now, like the rest of the settings: lowering it lets the
+    // downloads running finish, and fewer start after them.
+    final limit = _settingsNow(settings)
+        .simultaneousDownloads
+        .clamp(1, AppSettings.maxSimultaneousDownloads);
+    while (!_shuttingDown && _runningQueueEntries.length < limit) {
+      String? next;
+      for (final vodId in downloadQueue) {
+        if (!_runningQueueEntries.containsKey(vodId)) {
+          next = vodId;
+          break;
+        }
+      }
+      if (next == null) return;
+      _runningQueueEntries[next] = _queueTickets[next];
+      unawaited(_runQueueEntry(next, settings, channelName));
+    }
+  }
+
+  /// Runs [vodId]'s queue entry to its end, its ffmpeg retry included, then
+  /// gives its place to the next.
+  Future<void> _runQueueEntry(
+      String vodId, AppSettings settings, String channelName) async {
+    final ticket = _runningQueueEntries[vodId];
+    // Still the queueing this run started from, after the await: see
+    // _queueTickets. A re-queue since then is left for a later run.
+    bool stillOurs() => _queueTickets[vodId] == ticket;
+
+    // Nothing may end a run with its place still taken: with every place
+    // taken, each later download would sit at "Queued" for good.
     // startVodDownload reports its own failures; this is the backstop for
     // anything it did not anticipate.
     try {
-      while (downloadQueue.isNotEmpty && !_shuttingDown) {
-        final vodId = downloadQueue.first;
-        final vod = queuedDownloadTasks[vodId];
-        final chName = downloadChannelNames[vodId] ?? channelName;
-        final overridePostProc = downloadTaskFastDownloadOverrides[vodId];
-        final ticket = _queueTickets[vodId];
-        // Still the queueing this pass started, after the await: see
-        // _queueTickets. A re-queue since then is left for a later pass.
-        bool stillOurs() => _queueTickets[vodId] == ticket;
-        try {
-          if (vod != null) {
-            // Read for each download as it starts (see currentSettings).
-            await startVodDownload(vod, chName, _settingsNow(settings),
-                overrideDisablePostProcessing: overridePostProc);
-          }
-        } catch (e) {
-          log(logKeyForDownload(vodId),
-              '[System Error] The download stopped unexpectedly: $e');
-          if (stillOurs()) _cleanupDownloadState(vodId);
+      final vod = queuedDownloadTasks[vodId];
+      final chName = downloadChannelNames[vodId] ?? channelName;
+      final overridePostProc = downloadTaskFastDownloadOverrides[vodId];
+      try {
+        if (vod != null) {
+          // Read for each download as it starts (see currentSettings).
+          await startVodDownload(vod, chName, _settingsNow(settings),
+              overrideDisablePostProcessing: overridePostProc);
         }
-        if (stillOurs()) {
-          _queueTickets.remove(vodId);
-          downloadQueue.remove(vodId);
-          queuedDownloadTasks.remove(vodId);
-          downloadTaskFastDownloadOverrides.remove(vodId);
-        }
+      } catch (e) {
+        log(logKeyForDownload(vodId),
+            '[System Error] The download stopped unexpectedly: $e');
+        if (stillOurs()) _cleanupDownloadState(vodId);
+      }
+      if (stillOurs()) {
+        _queueTickets.remove(vodId);
+        downloadQueue.remove(vodId);
+        queuedDownloadTasks.remove(vodId);
+        downloadTaskFastDownloadOverrides.remove(vodId);
       }
     } finally {
-      isQueueProcessing = false;
+      _runningQueueEntries.remove(vodId);
+      _processDownloadQueue(settings, channelName);
     }
   }
 
@@ -1283,6 +1336,16 @@ class PlayerService {
           }
           // Never delete a file that is open in a player right now.
           if (playingVodFilePaths.values.any((p) => _isSamePath(p, entity.path))) {
+            continue;
+          }
+          // Nor one another download is still writing. One at a time, none
+          // was running when this ran; with several, one finishing runs it
+          // while another may be past its .part, its file under the final
+          // name while yt-dlp fixes it up - and a VOD downloaded before is
+          // the app's own by its history. Deleted then, that download
+          // "completed" with no file.
+          if (activeDownloadProcesses.containsKey(digits) ||
+              activeDownloadProcesses.containsKey('v$digits')) {
             continue;
           }
           allFiles.add(entity);
@@ -2439,7 +2502,7 @@ class PlayerService {
   /// can, to know the children are gone.
   Future<void> stopAll() async {
     // Stop the queue drain before killing anything, so terminating the active
-    // download cannot cause the next queued one to start.
+    // downloads cannot cause the next queued ones to start.
     _shuttingDown = true;
     downloadQueue.clear();
     queuedDownloadTasks.clear();

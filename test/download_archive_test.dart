@@ -122,6 +122,40 @@ void main() {
       expect(archive.readAsLinesSync(), ['twitchvod v2']);
     });
 
+    test('several at once each take their line out before their yt-dlp '
+        'starts, and leave the rest', () async {
+      // With Simultaneous downloads, the starts await the rewrites side by
+      // side; one yt-dlp reading the archive before its own line was gone
+      // would skip its VOD as done and exit 0 with no file.
+      archive.writeAsStringSync(
+          [for (var i = 1; i <= 4; i++) 'twitchvod v$i'].join('\n'));
+      final settings = AppSettings(vodDownloadFolder: temp.path)
+        ..simultaneousDownloads = 3;
+      final seen = <String, List<String>>{};
+      final checking = PlayerService(
+        startProcess: (executable, arguments, {environment}) {
+          seen[arguments.last] = archive.readAsLinesSync();
+          return launcher.start(executable, arguments, environment: environment);
+        },
+        runProcess: FakeTaskkill(launcher).run,
+      )..downloadArchiveFilePath = archive.path;
+      addTearDown(checking.stopAll);
+      for (final id in ['1', '2', '3']) {
+        checking.queueVodDownload(vod(id), 'chan', settings, byHand: true);
+      }
+      for (var i = 0; i < 500 && launcher.launched.length < 3; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(launcher.launched, hasLength(3));
+      for (final id in ['1', '2', '3']) {
+        expect(seen['https://twitch.tv/videos/$id'],
+            isNot(contains('twitchvod v$id')),
+            reason: 'VOD $id started with its line still there');
+      }
+      expect(archive.readAsLinesSync(), ['twitchvod v4']);
+    });
+
     test('but one the auto-download pass queues leaves it there', () async {
       archive.writeAsStringSync('twitchvod v1\n');
       service.queueVodDownload(

@@ -28,6 +28,7 @@ AppSettings buildNonDefaultSettings() {
     material: 'soft',
     vodDownloadFolder: r'D:\Vods',
     maxDownloadsToKeep: 7,
+    simultaneousDownloads: 3,
     unfinishedDownloads: const [
       {'vod': {'id': '123'}, 'channelName': 'somechannel'},
     ],
@@ -78,6 +79,7 @@ void main() {
       expect(restored.watchedThreshold, 88);
       expect(restored.vodDownloadFolder, r'D:\Vods');
       expect(restored.maxDownloadsToKeep, 7);
+      expect(restored.simultaneousDownloads, 3);
       expect(restored.maxRecentlyWatched, 15);
       expect(restored.activeSidebarTab, 2);
       expect(restored.windowWidth, 1600.0);
@@ -105,6 +107,8 @@ void main() {
       expect(restored.vodWatchExclusionThreshold, 15);
       expect(restored.isDarkTheme, isTrue);
       expect(restored.maxDownloadsToKeep, 0);
+      expect(restored.simultaneousDownloads, 1,
+          reason: 'one at a time, as before the setting existed');
       expect(restored.windowWidth, 1280.0);
       expect(restored.windowHeight, 720.0);
       expect(restored.windowX, isNull);
@@ -224,6 +228,7 @@ void main() {
         'vod_watch_exclusion_threshold': 200,
         'local_server_port': 0,
         'max_downloads_to_keep': -5,
+        'simultaneous_downloads': 99,
         'vod_card_scale': 5000,
         'vod_title_font_size': 2,
         'close_action': 'explode',
@@ -235,6 +240,9 @@ void main() {
       expect(restored.vodWatchExclusionThreshold, 90);
       expect(restored.localServerPort, 1);
       expect(restored.maxDownloadsToKeep, 0);
+      expect(restored.simultaneousDownloads, AppSettings.maxSimultaneousDownloads);
+      expect(AppSettings.fromJson({'simultaneous_downloads': 0}).simultaneousDownloads,
+          1);
       expect(restored.vodCardScale, 600.0);
       // Clamped to the old floor of 11, then converted to what that was
       // actually rendering at scale 600: 11 * 1.8. See _vodTitleFontSize.

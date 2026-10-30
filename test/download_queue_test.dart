@@ -601,4 +601,215 @@ void main() {
     expect(cancelled, isEmpty);
     expect(done.existsSync(), isTrue);
   });
+
+  group('several downloads at once', () {
+    // Simultaneous downloads in Settings: the queue used to be drained by
+    // one loop, a download at a time, whatever the connection could take.
+    AppSettings atOnce(int n) =>
+        AppSettings(vodDownloadFolder: temp.path)..simultaneousDownloads = n;
+
+    List<String> urls() =>
+        [for (final run in launcher.launched) run.arguments.last];
+    String url(String id) => 'https://twitch.tv/videos/$id';
+
+    test('start up to the number allowed, and the next when one ends',
+        () async {
+      final settings = atOnce(2);
+      for (final id in ['1', '2', '3']) {
+        service.queueVodDownload(vod(id), 'chan', settings);
+      }
+      await pumpEventQueue();
+
+      expect(urls(), [url('1'), url('2')]);
+      expect(service.activeDownloadProcesses.keys, ['1', '2']);
+      expect(service.activeDownloadTasks['3'], 'Queued');
+
+      // Not necessarily the first to finish.
+      await launcher.launched[1].exit(0);
+      await pumpEventQueue();
+      expect(urls(), [url('1'), url('2'), url('3')]);
+      expect(service.downloadQueue, ['1', '3']);
+
+      await launcher.launched[0].exit(0);
+      await launcher.launched[2].exit(0);
+      await pumpEventQueue();
+      expect(service.downloadQueue, isEmpty);
+      expect(service.activeDownloadTasks, isEmpty);
+      expect(service.isQueueProcessing, isFalse);
+      expect(ended, unorderedEquals(['1', '2', '3']), reason: 'each ends once');
+    });
+
+    test('one at a time by default, as before', () async {
+      final settings = AppSettings(vodDownloadFolder: temp.path);
+      service.queueVodDownload(vod('1'), 'chan', settings);
+      service.queueVodDownload(vod('2'), 'chan', settings);
+      await pumpEventQueue();
+      expect(urls(), [url('1')]);
+    });
+
+    test('lowered while they run: the running ones finish, and fewer start '
+        'after them', () async {
+      var current = atOnce(3);
+      service.currentSettings = () => current;
+      for (final id in ['1', '2', '3', '4']) {
+        service.queueVodDownload(vod(id), 'chan', current);
+      }
+      await pumpEventQueue();
+      expect(launcher.launched, hasLength(3));
+
+      current = current.copyWith(simultaneousDownloads: 1);
+      service.startQueuedDownloads();
+      await launcher.launched[0].exit(0);
+      await pumpEventQueue();
+      expect(launcher.launched.where((p) => p.hasExited), hasLength(1),
+          reason: 'none is stopped for it');
+      expect(launcher.launched, hasLength(3), reason: 'two still run');
+
+      await launcher.launched[1].exit(0);
+      await pumpEventQueue();
+      expect(launcher.launched, hasLength(3), reason: 'one still runs');
+
+      await launcher.launched[2].exit(0);
+      await pumpEventQueue();
+      expect(urls().last, url('4'));
+    });
+
+    test('raised while they wait: more start at once, without waiting for '
+        'one to end', () async {
+      var current = atOnce(1);
+      service.currentSettings = () => current;
+      for (final id in ['1', '2', '3']) {
+        service.queueVodDownload(vod(id), 'chan', current);
+      }
+      await pumpEventQueue();
+      expect(launcher.launched, hasLength(1));
+
+      current = current.copyWith(simultaneousDownloads: 3);
+      service.startQueuedDownloads();
+      await pumpEventQueue();
+      expect(urls(), [url('1'), url('2'), url('3')]);
+    });
+
+    test('a VOD cancelled and queued again waits for its old run, with room '
+        'to spare', () async {
+      // Its yt-dlp outlives the cancel (taskkill returns before its target
+      // is gone). A second one for the same VOD would write the same partial
+      // file, and the cancel and retry markers, kept by VOD id, cannot tell
+      // the two runs apart.
+      final lateDeaths = PlayerService(
+        startProcess: launcher.start,
+        runProcess: (executable, arguments) async => ProcessResult(0, 0, '', ''),
+      );
+      addTearDown(lateDeaths.stopAll);
+      final settings = atOnce(3);
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      await pumpEventQueue();
+      final cancelledRun = launcher.launched.single;
+
+      await lateDeaths.cancelVodDownload('1', 'chan', temp.path);
+      lateDeaths.queueVodDownload(vod('1'), 'chan', settings);
+      lateDeaths.queueVodDownload(vod('2'), 'chan', settings);
+      await pumpEventQueue();
+      expect(urls(), [url('1'), url('2')],
+          reason: 'the other VOD starts; the re-queue waits');
+      expect(lateDeaths.activeDownloadTasks['1'], 'Queued');
+
+      await cancelledRun.exit(1);
+      await pumpEventQueue();
+      expect(urls(), [url('1'), url('2'), url('1')]);
+      expect(lateDeaths.activeDownloadProcesses['1'], same(launcher.launched.last));
+    });
+
+    test('cancelling one leaves the others running, and gives its place to '
+        'the next', () async {
+      final settings = atOnce(2);
+      for (final id in ['1', '2', '3']) {
+        service.queueVodDownload(vod(id), 'chan', settings);
+      }
+      await pumpEventQueue();
+      launcher.launched[1]
+          .printOut('[download]  42.0% of ~1.00GiB at 2.00MiB/s ETA 05:00\n');
+      await pumpEventQueue();
+
+      await service.cancelVodDownload('1', 'chan', temp.path);
+      await pumpEventQueue();
+
+      expect(cancelled, ['1']);
+      expect(launcher.launched[1].hasExited, isFalse);
+      expect(service.activeDownloadTasks['2'],
+          'Downloading: 42.0% (2.00MiB/s)');
+      expect(urls().last, url('3'));
+      expect(service.activeDownloadProcesses.keys, ['2', '3']);
+      expect(failed, isEmpty);
+    });
+
+    test('the ffmpeg retry keeps its place in the gap before it', () async {
+      final settings = atOnce(2);
+      for (final id in ['1', '2', '3']) {
+        service.queueVodDownload(vod(id), 'chan', settings);
+      }
+      await pumpEventQueue();
+      final first = launcher.launched.first;
+      first.printErr('ERROR: Initialization fragment found after media fragments\n');
+      await first.exit(1);
+      await pumpEventQueue();
+      expect(launcher.launched, hasLength(2),
+          reason: 'the third waits through the gap, not in its place');
+
+      await Future<void>.delayed(const Duration(milliseconds: 1300));
+      expect(urls(), [url('1'), url('2'), url('1')]);
+      expect(launcher.launched.last.arguments,
+          containsAllInOrder(['--downloader', 'ffmpeg']));
+      expect(service.activeDownloadTasks['3'], 'Queued');
+    });
+
+    test('stopping everything ends them all, as neither failed nor '
+        'cancelled, and starts none after', () async {
+      final settings = atOnce(3);
+      for (final id in ['1', '2', '3', '4']) {
+        service.queueVodDownload(vod(id), 'chan', settings);
+      }
+      await pumpEventQueue();
+      expect(launcher.launched, hasLength(3));
+
+      await service.stopAll();
+      await pumpEventQueue();
+
+      expect(launcher.launched, hasLength(3), reason: 'the fourth never starts');
+      expect(launcher.launched.every((p) => p.hasExited), isTrue);
+      expect(failed, isEmpty);
+      expect(cancelled, isEmpty,
+          reason: 'not cancelled: the saved queue resumes them next launch');
+      expect(ended, unorderedEquals(['1', '2', '3']));
+      expect(service.isQueueProcessing, isFalse);
+    });
+
+    test("retention spares a file another download is still writing",
+        () async {
+      // The second run is past its .part: its file is under its final name
+      // while yt-dlp fixes it up. A VOD downloaded before is the app's own by
+      // its history, so retention, run by the first one finishing, deleted
+      // it - and the second "completed" with no file.
+      service.isOwnDownload = (_) => true;
+      File make(String name, DateTime at) =>
+          File(p.join(temp.path, 'chan', name))
+            ..createSync(recursive: true)
+            ..writeAsStringSync('video')
+            ..setLastModifiedSync(at);
+      final settings = atOnce(2)..maxDownloadsToKeep = 1;
+      final kept = make('Kept - v100.mp4', DateTime(2021));
+      service.queueVodDownload(vod('1', title: 'First'), 'chan', settings);
+      service.queueVodDownload(vod('2', title: 'Second'), 'chan', settings);
+      await pumpEventQueue();
+
+      final second = make('Second - v2.mp4', DateTime(2020));
+      make('First - v1.mp4', DateTime.now());
+      await launcher.launched.first.exit(0);
+      await pumpEventQueue();
+
+      expect(second.existsSync(), isTrue);
+      expect(kept.existsSync(), isFalse,
+          reason: 'retention still keeps to the limit with what is finished');
+    });
+  });
 }
