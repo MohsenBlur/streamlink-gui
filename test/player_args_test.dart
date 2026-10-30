@@ -66,10 +66,47 @@ void main() {
           port: 8089,
           ipcName: '123',
           isWindows: true,
-          httpPassword: 'pw');
+          httpPassword: 'pw',
+          mpcSlaveWindow: '197380');
       expect(args, containsAllInOrder(['/start', '600000']));
-      expect(args, containsAllInOrder(['/webport', '8089']));
+      expect(args, containsAllInOrder(['/slave', '197380']));
       expect(args, containsAllInOrder(['/viewpreset', '2']));
+    });
+
+    test("MPC-HC's web interface is never turned on", () {
+      // It has no authentication: while a VOD played, any web page could
+      // drive the player with a plain GET (a UNC path leaks the NTLM hash).
+      for (final window in ['197380', null]) {
+        final args = buildPlayerArgs(
+            kind: PlayerKind.mpcHc,
+            startSeconds: 60,
+            port: 8089,
+            ipcName: '1',
+            isWindows: true,
+            httpPassword: 'pw',
+            mpcSlaveWindow: window);
+        expect(args, isNot(contains('/webport')));
+        expect(args, isNot(contains('8089')));
+      }
+    });
+
+    test('MPC-HC gets a player of its own, with or without a control window',
+        () {
+      // With "use the same player for each media file" (MPC-HC's default) a
+      // launch while another MPC-HC is open hands the file, /slave and all,
+      // to that one and exits.
+      for (final window in ['197380', null]) {
+        final args = buildPlayerArgs(
+            kind: PlayerKind.mpcHc,
+            startSeconds: 0,
+            port: 8089,
+            ipcName: '1',
+            isWindows: true,
+            httpPassword: 'pw',
+            mpcSlaveWindow: window);
+        expect(args, contains('/new'));
+        expect(args.contains('/slave'), window != null);
+      }
     });
 
     test('no start flag when starting from the beginning', () {
@@ -148,45 +185,6 @@ void main() {
       expect(args.join(' '), isNot(contains('=streamlink')));
       expect(args, contains('--http-host=127.0.0.1'));
     });
-
-    test("MPC-HC's web interface can be left off", () {
-      final args = buildPlayerArgs(
-          kind: PlayerKind.mpcHc,
-          startSeconds: 0,
-          port: 8089,
-          ipcName: '1',
-          isWindows: true,
-          httpPassword: 'pw',
-          mpcWebInterface: false);
-      expect(args, isNot(contains('/webport')));
-    });
-  });
-
-  group('setIniValue', () {
-    test('replaces a key where it is, case aside', () {
-      expect(
-          setIniValue('[Settings]\r\nwebserverlocalhostonly=0\r\nOther=1\r\n',
-              'Settings', 'WebServerLocalhostOnly', '1'),
-          '[Settings]\r\nWebServerLocalhostOnly=1\r\nOther=1\r\n');
-    });
-
-    test('adds it at the end of its section, before the next one', () {
-      expect(
-          setIniValue('[settings]\nA=1\n\n[Other]\nB=2\n', 'Settings',
-              'WebServerLocalhostOnly', '1'),
-          '[settings]\nA=1\nWebServerLocalhostOnly=1\n\n[Other]\nB=2\n');
-    });
-
-    test('adds the section when there is none', () {
-      expect(setIniValue('[Other]\nB=2\n', 'Settings', 'K', '1'),
-          '[Other]\nB=2\n\n[Settings]\nK=1\n');
-      expect(setIniValue('', 'Settings', 'K', '1'), '[Settings]\nK=1\n');
-    });
-
-    test('a key of the same name in another section is not it', () {
-      expect(setIniValue('[Other]\nK=0\n[Settings]\n', 'Settings', 'K', '1'),
-          '[Other]\nK=0\n[Settings]\nK=1\n');
-    });
   });
 
   group('buildPlayerArgs keepOpen', () {
@@ -232,7 +230,7 @@ void main() {
 
     test('leaves ordinary tokens untouched', () {
       expect(shlexQuote('--http-port=8089'), '--http-port=8089');
-      expect(shlexQuote('/webport'), '/webport');
+      expect(shlexQuote('/slave'), '/slave');
       expect(shlexQuote('2'), '2');
     });
 

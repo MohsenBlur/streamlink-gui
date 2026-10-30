@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 
+#include "mpc_slave_channel.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -104,6 +105,10 @@ class FlutterWindow : public Win32Window {
   // so it must be released before flutter_controller_.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       instance_channel_;
+
+  // MPC-HC's /slave control windows ("streamlink_gui/mpc_slave"). Uses the
+  // engine's messenger, so it must be released before flutter_controller_.
+  std::unique_ptr<MpcSlaveChannel> mpc_slave_channel_;
 
   bool start_hidden_ = false;
 };

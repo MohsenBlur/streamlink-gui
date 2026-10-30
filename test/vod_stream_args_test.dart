@@ -11,6 +11,7 @@ VodStreamCommand build({
   String customPlayerArgs = '',
   String oauthToken = '',
   String clientId = _defaultClientId,
+  String? mpcSlaveWindow = '197380',
 }) {
   return buildVodStreamlinkArgs(
     vodId: '12345',
@@ -26,6 +27,7 @@ VodStreamCommand build({
     resume: resume,
     isWindows: true,
     httpPassword: 'pw',
+    mpcSlaveWindow: mpcSlaveWindow,
   );
 }
 
@@ -181,7 +183,22 @@ void main() {
     final cmd = build(customPlayerArgs: '  --fullscreen  ');
     final pa = playerArgsOf(cmd.args)!;
     expect(pa.startsWith('--fullscreen'), isTrue);
-    expect(pa, contains('/webport 8089'));
+    expect(pa, contains('/slave 197380'));
+  });
+
+  group('MPC-HC', () {
+    test('is handed its control window, and no web interface', () {
+      final pa = playerArgsOf(build().args)!;
+      expect(pa, contains('/new /slave 197380'));
+      expect(pa, isNot(contains('/webport')));
+      expect(pa, isNot(contains('8089')));
+    });
+
+    test('without a control window it still plays, untracked', () {
+      final pa = playerArgsOf(build(mpcSlaveWindow: null).args)!;
+      expect(pa, isNot(contains('/slave')));
+      expect(pa, contains('/new'));
+    });
   });
 
   test('MPV pipe path is quoted so streamlink\'s shlex cannot eat it', () {
