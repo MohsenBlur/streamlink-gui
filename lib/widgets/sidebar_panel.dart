@@ -495,14 +495,7 @@ class SidebarPanelState extends State<SidebarPanel> {
                           final cleanUsername = channel.username.toLowerCase().trim();
                           final isFavorite = widget.channels.any((c) => c.username == cleanUsername);
 
-                          // The console's channel-strip divider: an
-                          // engraved groove in the panel between rows. Null
-                          // on every material but the railed one, so the
-                          // wrapper is inert elsewhere.
-                          final row = Container(
-                            foregroundDecoration: NeuTheme.stripSeparator(
-                                themeNotifier.isDarkTheme),
-                            child: _SidebarChannelRow(
+                          final row = _SidebarChannelRow(
                             // Keyed by identity so hover state survives the
                             // 60s poll rebuild (it previously lived in a
                             // per-item closure and reset on every poll).
@@ -526,7 +519,6 @@ class SidebarPanelState extends State<SidebarPanel> {
                             onDoubleTapped: widget.onChannelDoubleTapped,
                             onPlayPressed: widget.onChannelPlayPressed,
                             onToggleFavorite: widget.onToggleFavorite,
-                          ),
                           );
 
                           return channel.isLive

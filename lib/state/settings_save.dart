@@ -17,17 +17,13 @@ class SettingsChange {
             before.twitchClientId.trim() != after.twitchClientId.trim(),
         browserTokenChanged = before.twitchWebOauthToken.trim() !=
             after.twitchWebOauthToken.trim(),
-        launchAtStartupChanged = before.launchAtStartup != after.launchAtStartup,
-        canvasEngineTurnedOn = after.canvasEngine && !before.canvasEngine;
+        launchAtStartupChanged = before.launchAtStartup != after.launchAtStartup;
 
   /// Another account token, or none.
   final bool accountTokenChanged;
   final bool clientIdChanged;
   final bool browserTokenChanged;
   final bool launchAtStartupChanged;
-
-  /// Simple rendering was turned on.
-  final bool canvasEngineTurnedOn;
 
   /// The pair Helix requests go out with: the account token and the Client
   /// ID it is sent with.
@@ -54,7 +50,6 @@ class SettingsSaveCoordinator {
     required VoidCallback rebuildTrayMenu,
     required VoidCallback loadFollowed,
     required VoidCallback signedOut,
-    required VoidCallback canvasTurnedOn,
     required void Function(String message) showMessage,
   })  : _settings = settings,
         _adopt = adopt,
@@ -67,7 +62,6 @@ class SettingsSaveCoordinator {
         _rebuildTrayMenu = rebuildTrayMenu,
         _loadFollowed = loadFollowed,
         _signedOut = signedOut,
-        _canvasTurnedOn = canvasTurnedOn,
         _showMessage = showMessage;
 
   final AppSettings Function() _settings;
@@ -91,18 +85,10 @@ class SettingsSaveCoordinator {
 
   /// There is no account token any more: no followed list, no account.
   final VoidCallback _signedOut;
-
-  /// Simple rendering was turned on: the surfaces switch to Canvas now.
-  final VoidCallback _canvasTurnedOn;
   final void Function(String message) _showMessage;
 
   Future<void> save(AppSettings updated) async {
     final change = SettingsChange.between(_settings(), updated);
-    // Simple rendering takes effect at once when turned on: lit painters
-    // repaint through Canvas the moment the engine is disabled. Turning it
-    // off needs the shader loaded and self-tested, which happens at launch,
-    // so that half waits for the next start.
-    if (change.canvasEngineTurnedOn) _canvasTurnedOn();
     _adopt(updated);
     await _save();
     if (!_mounted()) return;

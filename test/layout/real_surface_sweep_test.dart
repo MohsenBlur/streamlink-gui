@@ -34,10 +34,7 @@ import 'overflow_sweep_test.dart' show channel, sweepSizes;
 /// covering this work.
 ///
 /// So this pumps `SidebarPanel`, `DashboardHeader`, `LibraryView` and
-/// `NeuDialog` at every reachable window size, once per material. It exists
-/// specifically to run **before** furniture lands: screws, seams and engraved
-/// plates all add widgets inside surfaces that are already tight at 380px, and
-/// a green sweep beforehand is what makes a red one afterwards mean something.
+/// `NeuDialog` at every reachable window size.
 ///
 /// The brightness axis is collapsed deliberately — see the last test. Light and
 /// dark palettes differ only in colour, and a sweep is about geometry, so
@@ -48,43 +45,37 @@ void main() {
 
   group('the brightness axis is collapsed on purpose', () {
     test('light and dark palettes declare identical geometry', () {
-      // The justification for sweeping dark only. A material's two palettes
-      // may differ in every colour and in nothing that occupies space — if one
+      // The justification for sweeping dark only. The two palettes may
+      // differ in every colour and in nothing that occupies space — if one
       // ever grew a wider bevel than the other, the sweep above would be
       // covering half the app and saying so in neither direction.
-      for (final spec in MaterialSpec.available) {
-        final light = spec.palette(false);
-        final dark = spec.palette(true);
-        final where = spec.id.key;
+      final light = softSpec.palette(false);
+      final dark = softSpec.palette(true);
 
-        expect(light.bevelWidth, dark.bevelWidth, reason: '$where bevelWidth');
-        expect(light.fill.length, dark.fill.length,
-            reason: '$where fill stop count');
-        for (var i = 0; i < light.fill.length; i++) {
-          expect(light.fill[i].at, dark.fill[i].at,
-              reason: '$where fill stop $i position');
-        }
-        expect(light.contact.length, dark.contact.length,
-            reason: '$where contact layer count');
-        expect(light.inset.length, dark.inset.length,
-            reason: '$where inset layer count');
-        expect(light.recessStyle, dark.recessStyle,
-            reason: '$where recessStyle — a true inset and an outer fake do '
-                'not occupy the same box');
-        expect(light.lightAzimuthDeg, dark.lightAzimuthDeg,
-            reason: '$where light direction');
-
-        // Shadow extents, which is where a difference would actually move a
-        // pixel: a cast layer's reach is offset plus blur plus spread.
-        double reach(List<ShadowLayer> layers) => layers.fold(0.0, (max, l) {
-              final r = Offset(l.dx, l.dy).distance + l.blur + l.spread;
-              return r > max ? r : max;
-            });
-        expect(reach(light.contact), closeTo(reach(dark.contact), 1e-9),
-            reason: '$where contact reach');
-        expect(reach(light.inset), closeTo(reach(dark.inset), 1e-9),
-            reason: '$where inset reach');
+      expect(light.bevelWidth, dark.bevelWidth, reason: 'bevelWidth');
+      expect(light.fill.length, dark.fill.length,
+          reason: 'fill stop count');
+      for (var i = 0; i < light.fill.length; i++) {
+        expect(light.fill[i].at, dark.fill[i].at,
+            reason: 'fill stop $i position');
       }
+      expect(light.contact.length, dark.contact.length,
+          reason: 'contact layer count');
+      expect(light.inset.length, dark.inset.length,
+          reason: 'inset layer count');
+      expect(light.lightAzimuthDeg, dark.lightAzimuthDeg,
+          reason: 'light direction');
+
+      // Shadow extents, which is where a difference would actually move a
+      // pixel: a cast layer's reach is offset plus blur plus spread.
+      double reach(List<ShadowLayer> layers) => layers.fold(0.0, (max, l) {
+            final r = Offset(l.dx, l.dy).distance + l.blur + l.spread;
+            return r > max ? r : max;
+          });
+      expect(reach(light.contact), closeTo(reach(dark.contact), 1e-9),
+          reason: 'contact reach');
+      expect(reach(light.inset), closeTo(reach(dark.inset), 1e-9),
+          reason: 'inset reach');
     });
   });
 }
@@ -108,18 +99,16 @@ void sweepRealSurfaces(
 }
 
 void _sweepRealSurfaces(double textScale, List<Size> sizes) {
-  /// Pumps [build] at [size] under [material] and fails on any overflow.
+  /// Pumps [build] at [size] and fails on any overflow.
   ///
   /// Not shared with `overflow_sweep_test.expectNoOverflow`: this one has to
-  /// set the active material and the global theme notifier, which that harness
-  /// knows nothing about.
+  /// set the global theme notifier, which that harness knows nothing about.
   ///
   /// [framed]: [build] is a whole [AppFrame], which brings its own layout,
   /// Scaffold and chassis.
   Future<void> sweep(
     WidgetTester tester,
     Size size,
-    AppMaterial material,
     Widget Function() build, {
     bool framed = false,
   }) async {
@@ -134,8 +123,6 @@ void _sweepRealSurfaces(double textScale, List<Size> sizes) {
       }
     };
 
-    final previousMaterial = NeuTheme.activeMaterial;
-    NeuTheme.activeMaterial = material;
     themeNotifier.isDarkTheme = true;
 
     tester.view.physicalSize = size;
@@ -146,7 +133,6 @@ void _sweepRealSurfaces(double textScale, List<Size> sizes) {
     }
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(() => NeuTheme.activeMaterial = previousMaterial);
 
     try {
       await tester.pumpWidget(MaterialApp(
@@ -179,7 +165,7 @@ void _sweepRealSurfaces(double textScale, List<Size> sizes) {
     }
 
     expect(overflows, isEmpty,
-        reason: '${material.key} at ${size.width.toInt()}x'
+        reason: '${size.width.toInt()}x'
             '${size.height.toInt()}:\n${overflows.join('\n')}');
   }
 
@@ -465,90 +451,86 @@ void _sweepRealSurfaces(double textScale, List<Size> sizes) {
         ],
       );
 
-  group('real surfaces survive every size, on every material', () {
-    for (final spec in MaterialSpec.available) {
-      final m = spec.id;
-      for (final size in sizes) {
-        final label = '${m.key} ${size.width.toInt()}x${size.height.toInt()}';
+  group('real surfaces survive every size', () {
+    for (final size in sizes) {
+      final label = '${size.width.toInt()}x${size.height.toInt()}';
 
-        testWidgets('the sidebar — $label', (tester) async {
-          // Both roots. The expanded sidebar and the horizontal rail are
-          // separate returns reached by an early return, and the rail is the
-          // branch that only appears in portrait — exactly the window shapes
-          // least likely to be looked at by hand.
-          final isRail = AppLayoutData.fromSize(size).isRail;
-          await sweep(tester, size, m,
-              () => sidebar(horizontal: isRail, collapsed: false));
-        });
+      testWidgets('the sidebar — $label', (tester) async {
+        // Both roots. The expanded sidebar and the horizontal rail are
+        // separate returns reached by an early return, and the rail is the
+        // branch that only appears in portrait — exactly the window shapes
+        // least likely to be looked at by hand.
+        final isRail = AppLayoutData.fromSize(size).isRail;
+        await sweep(tester, size,
+            () => sidebar(horizontal: isRail, collapsed: false));
+      });
 
-        // The collapsed VERTICAL sidebar, at the sizes where it exists. Below
-        // 700 wide, and in any portrait window, the layout picks the rail
-        // instead - so pumping a collapsed vertical sidebar at 380x500 would
-        // be asserting about a state the app cannot reach, and the 46px
-        // vertical overflow it reports is an artefact of the harness rather
-        // than a defect. Stated here rather than silently skipped.
-        if (!AppLayoutData.fromSize(size).isRail) {
-          testWidgets('the collapsed sidebar — $label', (tester) async {
-            await sweep(tester, size, m,
-                () => sidebar(horizontal: false, collapsed: true));
-          });
-        }
-
-        testWidgets('the dashboard header — $label', (tester) async {
-          await sweep(tester, size, m, header);
-        });
-
-        // The launch button is a fixed width in the wide header, and only
-        // the live face of it was swept: OFFLINE, its longest label, never.
-        testWidgets('the dashboard header, offline — $label', (tester) async {
-          await sweep(tester, size, m, () => header(live: false));
-        });
-
-        testWidgets('the dashboard header, playing — $label', (tester) async {
-          await sweep(tester, size, m, () => header(playing: true));
-        });
-
-        // Home and the open channel are widgets of their own now, so they are
-        // swept where the app shows them: inside the frame, beside the
-        // sidebar, at the width that leaves.
-        testWidgets('home — $label', (tester) async {
-          await sweep(tester, size, m, () => framed(size, home()),
-              framed: true);
-        });
-
-        testWidgets('an open live channel — $label', (tester) async {
-          await sweep(tester, size, m,
-              () => framed(size, dashboard(live: true)), framed: true);
-        });
-
-        testWidgets('an offline channel, selecting VODs — $label',
-            (tester) async {
-          await sweep(tester, size, m,
-              () => framed(size, dashboard(live: false, selecting: true)),
-              framed: true);
-        });
-
-        testWidgets('the library — $label', (tester) async {
-          await sweep(tester, size, m, library);
-        });
-
-        testWidgets('the library under a bulk download queue — $label',
-            (tester) async {
-          await sweep(tester, size, m, () => library(activity: bulkQueue));
-        });
-
-        testWidgets('a dialog with leading actions — $label', (tester) async {
-          await sweep(
-              tester, size, m, () => Center(child: dialogWithLeading()));
-        });
-
-        testWidgets('a dialog — $label', (tester) async {
-          // Dialogs are the surface most likely to break on this work: they
-          // just changed from a flat sheet to a panel, which means they now
-          // carry a bevel and a border that claim real padding.
-          await sweep(tester, size, m, () => Center(child: dialog()));
+      // The collapsed VERTICAL sidebar, at the sizes where it exists. Below
+      // 700 wide, and in any portrait window, the layout picks the rail
+      // instead - so pumping a collapsed vertical sidebar at 380x500 would
+      // be asserting about a state the app cannot reach, and the 46px
+      // vertical overflow it reports is an artefact of the harness rather
+      // than a defect. Stated here rather than silently skipped.
+      if (!AppLayoutData.fromSize(size).isRail) {
+        testWidgets('the collapsed sidebar — $label', (tester) async {
+          await sweep(tester, size,
+              () => sidebar(horizontal: false, collapsed: true));
         });
       }
+
+      testWidgets('the dashboard header — $label', (tester) async {
+        await sweep(tester, size, header);
+      });
+
+      // The launch button is a fixed width in the wide header, and only
+      // the live face of it was swept: OFFLINE, its longest label, never.
+      testWidgets('the dashboard header, offline — $label', (tester) async {
+        await sweep(tester, size, () => header(live: false));
+      });
+
+      testWidgets('the dashboard header, playing — $label', (tester) async {
+        await sweep(tester, size, () => header(playing: true));
+      });
+
+      // Home and the open channel are widgets of their own now, so they are
+      // swept where the app shows them: inside the frame, beside the
+      // sidebar, at the width that leaves.
+      testWidgets('home — $label', (tester) async {
+        await sweep(tester, size, () => framed(size, home()),
+            framed: true);
+      });
+
+      testWidgets('an open live channel — $label', (tester) async {
+        await sweep(tester, size,
+            () => framed(size, dashboard(live: true)), framed: true);
+      });
+
+      testWidgets('an offline channel, selecting VODs — $label',
+          (tester) async {
+        await sweep(tester, size,
+            () => framed(size, dashboard(live: false, selecting: true)),
+            framed: true);
+      });
+
+      testWidgets('the library — $label', (tester) async {
+        await sweep(tester, size, library);
+      });
+
+      testWidgets('the library under a bulk download queue — $label',
+          (tester) async {
+        await sweep(tester, size, () => library(activity: bulkQueue));
+      });
+
+      testWidgets('a dialog with leading actions — $label', (tester) async {
+        await sweep(tester, size, () => Center(child: dialogWithLeading()));
+      });
+
+      testWidgets('a dialog — $label', (tester) async {
+        // Dialogs are the surface most likely to break on this work: they
+        // just changed from a flat sheet to a panel, which means they now
+        // carry a bevel and a border that claim real padding.
+        await sweep(tester, size, () => Center(child: dialog()));
+      });
     }
   });
 }

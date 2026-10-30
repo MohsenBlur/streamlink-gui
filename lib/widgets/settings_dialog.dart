@@ -10,7 +10,6 @@ import '../services/twitch_api_service.dart';
 import '../services/update_service.dart';
 import '../utils/color_utils.dart';
 import '../theme/neu_material_themes.dart';
-import '../theme/material/app_material.dart';
 import '../state/twitch_auth_notifier.dart';
 import '../theme/neu_theme.dart';
 import '../utils/twitch_auth_status.dart';
@@ -37,16 +36,7 @@ abstract class ThemeUpdateListener extends ChangeNotifier {
   Color get darkAccentColor;
   bool get isDarkTheme;
 
-  /// Which material world the app is wearing.
-  ///
-  /// On this interface rather than only on the notifier because the settings
-  /// dialog never sees `AppThemeNotifier` - it is handed a
-  /// `ThemeUpdateListener`. Without these two members the material picker
-  /// cannot be built at all.
-  AppMaterial get material;
-
   void setDarkTheme(bool isDark);
-  void setMaterial(AppMaterial material);
   void setLightAccent(Color color);
   void setDarkAccent(Color color);
 
@@ -186,7 +176,6 @@ class SettingsDialog {
     bool tempLaunchAtStartup = settings.launchAtStartup;
     bool tempStartMinimized = settings.startMinimized;
     bool tempTrayLiveMenu = settings.trayLiveMenuEnabled;
-    bool tempCanvasEngine = settings.canvasEngine;
     final tokenController = TextEditingController(text: settings.twitchOauthToken);
     // The account token the field opened with. A Connect Account that
     // finishes while the dialog is open writes its token into `settings`
@@ -273,17 +262,11 @@ class SettingsDialog {
     final originalIsDarkTheme = themeNotifier.isDarkTheme;
     final originalLightAccent = themeNotifier.lightAccentColor;
     final originalDarkAccent = themeNotifier.darkAccentColor;
-    final originalMaterial = themeNotifier.material;
 
     void restoreLiveThemeEdits() {
       themeNotifier.setLightAccent(originalLightAccent);
       themeNotifier.setDarkAccent(originalDarkAccent);
       themeNotifier.setDarkTheme(originalIsDarkTheme);
-      // Cancel has to undo the material too. Without this, previewing a
-      // material and then cancelling left the app wearing it until the next
-      // launch, at which point it silently reverted - which reads as the app
-      // forgetting a choice rather than as Cancel working.
-      themeNotifier.setMaterial(originalMaterial);
     }
 
     // Save and Connect Account both persist exactly this, so it is built in
@@ -326,7 +309,6 @@ class SettingsDialog {
         launchAtStartup: tempLaunchAtStartup,
         startMinimized: tempStartMinimized,
         trayLiveMenuEnabled: tempTrayLiveMenu,
-        canvasEngine: tempCanvasEngine,
         notifyWentLive: tempNotifyWentLive,
         notifyAutoPlay: tempNotifyAutoPlay,
         notifyAutoDownloadStart: tempNotifyAutoDownloadStart,
@@ -341,18 +323,6 @@ class SettingsDialog {
         isDarkTheme: themeNotifier.isDarkTheme,
         lightAccentColorHex: colorToHex(themeNotifier.lightAccentColor),
         darkAccentColorHex: colorToHex(themeNotifier.darkAccentColor),
-        // Only written when the user actually changed
-        // it. `themeNotifier.material` is the RESOLVED
-        // value, and main.dart deliberately leaves it
-        // at the fallback for a key this build does not
-        // implement - so writing it unconditionally
-        // turns "open Settings, press Save" into
-        // "silently destroy the material a newer build
-        // chose". Every autosave path already got this
-        // right; this was the one that did not.
-        material: themeNotifier.material == originalMaterial
-            ? settings.material
-            : themeNotifier.material.key,
       );
     }
 
@@ -934,20 +904,6 @@ class SettingsDialog {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Material', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
-                            const SizedBox(height: NeuSpace.s4),
-                            Text(
-                              'What the app is made of. Changes the surfaces, '
-                              'the light and the ornament - never the layout.',
-                              style: NeuType.caption(themeNotifier.isDarkTheme,
-                                  color: themeNotifier.subtextColor),
-                            ),
-                            const SizedBox(height: NeuSpace.s12),
-                            _MaterialPicker(
-                              themeNotifier: themeNotifier,
-                              onChanged: () => setDialogState(() {}),
-                            ),
-                            const SizedBox(height: NeuSpace.s24),
                             Text('Application Theme Mode', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s4),
                             Text('Choose between Soft Light and Deep Dark Neumorphic themes.', style: NeuType.caption(themeNotifier.isDarkTheme, color: themeNotifier.subtextColor)),
@@ -1775,40 +1731,6 @@ class SettingsDialog {
                             const SizedBox(height: NeuSpace.s12),
                             Text('Diagnostics', style: NeuType.headingSm(themeNotifier.isDarkTheme)),
                             const SizedBox(height: NeuSpace.s8),
-                            // The rendering kill switch (audit L32). Here
-                            // rather than beside the material picker: it is
-                            // for a machine where the lighting shader is
-                            // slow or draws nothing, which is a fault to
-                            // work around, not a look to choose.
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Simple rendering', style: NeuType.bodySm(themeNotifier.isDarkTheme)),
-                                      Text(
-                                        // Turning it ON applies at once (main
-                                        // disables the shader on save);
-                                        // turning it OFF needs the shader
-                                        // loaded and tested, at launch.
-                                        !tempCanvasEngine && settings.canvasEngine
-                                            ? 'Back to full lighting the next time the app starts.'
-                                            : 'Draws surfaces without the lighting shader. Try it if the window is slow or surfaces look blank.',
-                                        style: NeuType.caption(themeNotifier.isDarkTheme),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: NeuSpace.s8),
-                                NeuSwitch(
-                                  value: tempCanvasEngine,
-                                  activeColor: themeNotifier.primaryColor,
-                                  onChanged: (val) => setDialogState(() => tempCanvasEngine = val),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: NeuSpace.s12),
                             Text(
                               'Output from downloads, streams and players. Useful when something fails.',
                               style: NeuType.caption(themeNotifier.isDarkTheme),
@@ -2064,161 +1986,4 @@ class _DisposeWhenUnmountedState extends State<_DisposeWhenUnmounted> {
 
   @override
   Widget build(BuildContext context) => widget.child;
-}
-
-/// The material picker: one tile per implemented material, each rendered by
-/// the shipping painter.
-///
-/// The preview is the real thing, not a swatch. Every tile paints with
-/// `SkeuoDecoration` at that material's own palette, so a tile cannot show a
-/// surface the app would not actually draw — which is the failure mode of a
-/// hand-drawn preview, and the one that survives longest because it looks
-/// fine right up until the material changes.
-///
-/// The previewed palette is taken at the **active brightness**, matching the
-/// convention the theme-mode tiles below already use in reverse: those show
-/// the other theme's own colours on purpose, and these show the current one,
-/// because brightness is a separate axis the user is not choosing here.
-///
-/// Selection applies immediately rather than on Save. That is deliberate and
-/// it is why Cancel restores the entry material: a material is a whole-app
-/// change and judging it from a 120px tile is not possible. What is **not**
-/// done is preview-on-hover by assigning `themeNotifier.material` and
-/// restoring it — that fires `notifyListeners()` and rebuilds the entire app
-/// on every pointer move across the row.
-class _MaterialPicker extends StatelessWidget {
-  const _MaterialPicker({
-    required this.themeNotifier,
-    required this.onChanged,
-  });
-
-  final ThemeUpdateListener themeNotifier;
-  final VoidCallback onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = themeNotifier.isDarkTheme;
-    return Wrap(
-      spacing: NeuSpace.s12,
-      runSpacing: NeuSpace.s12,
-      children: [
-        for (final spec in MaterialSpec.available)
-          _MaterialTile(
-            spec: spec,
-            isDark: isDark,
-            selected: themeNotifier.material == spec.id,
-            accent: themeNotifier.accentInk,
-            onTap: () {
-              themeNotifier.setMaterial(spec.id);
-              onChanged();
-            },
-          ),
-      ],
-    );
-  }
-}
-
-class _MaterialTile extends StatelessWidget {
-  const _MaterialTile({
-    required this.spec,
-    required this.isDark,
-    required this.selected,
-    required this.accent,
-    required this.onTap,
-  });
-
-  final MaterialSpec spec;
-  final bool isDark;
-  final bool selected;
-  final Color accent;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    // No Tooltip, and the absence is a fix: the framework tooltip's overlay
-    // is hit-testable (RawTooltip.ignorePointer defaults false and Material's
-    // Tooltip does not expose it), and it spawns below the TARGET CENTRE -
-    // which for a tile this tall is exactly where the pointer hovers. The
-    // first press then dismissed the tooltip instead of selecting the
-    // material. The blurb is already printed on the tile face and spoken by
-    // the Semantics label, so the tooltip only ever duplicated it - at the
-    // cost of eating the click it sat under. Icon-sized targets elsewhere
-    // keep their tooltips: a small target cannot overlap its own tooltip.
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: '${spec.name}. ${spec.blurb}',
-      child: GestureDetector(
-          onTap: onTap,
-          child: SizedBox(
-            width: 168,
-            child: Container(
-              padding: const EdgeInsets.all(NeuSpace.s12),
-              // The tile IS the material — `panel` with that material's own
-              // palette, passed explicitly rather than read from the active
-              // one. Reading the active material here is the bug that makes
-              // every tile look identical and nobody notices until a second
-              // material ships.
-              decoration: NeuTheme.panel(
-                isDark,
-                radius: NeuRadius.r12,
-                material: spec.id,
-                border: selected
-                    ? Border.all(color: accent, width: 2)
-                    : Border.all(color: NeuTheme.border(isDark, material: spec.id)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // A raised chip and a recessed well side by side: the two
-                  // surfaces that carry almost every control in the app, and
-                  // the pair that actually distinguishes one material from
-                  // another. A flat swatch would show only the ground.
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          height: 26,
-                          decoration: NeuTheme.raised(isDark,
-                              radius: NeuRadius.r8, material: spec.id),
-                        ),
-                      ),
-                      const SizedBox(width: NeuSpace.s8),
-                      Expanded(
-                        child: Container(
-                          height: 26,
-                          decoration: NeuTheme.sunken(isDark,
-                              radius: NeuRadius.r8, material: spec.id),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: NeuSpace.s8),
-                  Text(
-                    spec.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: NeuType.label(
-                      isDark,
-                      color: NeuTheme.text(isDark, material: spec.id),
-                    ),
-                  ),
-                  const SizedBox(height: NeuSpace.s2),
-                  Text(
-                    spec.blurb,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: NeuType.caption(
-                      isDark,
-                      color: NeuTheme.subtext(isDark, material: spec.id),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-    );
-  }
 }

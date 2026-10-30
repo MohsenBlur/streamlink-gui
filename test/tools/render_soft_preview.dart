@@ -7,8 +7,7 @@ import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/material/skeuo_decoration.dart';
 
 /// Renders Soft's roles to `shots/material/soft-*.png`, for the dark-depth
-/// tuning loop. Same harness shape as render_material_preview, which skips
-/// unlit materials.
+/// tuning loop.
 void main() {
   test('render', () async {
     for (final isDark in [true, false]) {

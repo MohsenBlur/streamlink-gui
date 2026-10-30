@@ -7,7 +7,6 @@ import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/services/player_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
-import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/utils/twitch_auth_status.dart';
 import 'package:streamlink_gui/widgets/neumorphic/neu_switch.dart';
@@ -17,8 +16,8 @@ import 'support/held_file_picker.dart';
 
 /// The real settings dialog, pumped and driven.
 ///
-/// `settings_tabs_test` and `material_picker_test` call this dialog "not
-/// practical to pump" and assert its source instead. It is practical: the
+/// `settings_tabs_test` calls this dialog "not practical to pump" and asserts
+/// its source instead. It is practical: the
 /// static `show` needs a context under a Navigator and a set of callbacks. The
 /// behaviour below is what a source scan cannot see - which credential a Test
 /// result is published for, what happens when the dialog closes under a
@@ -403,24 +402,24 @@ void main() {
           reason: 'it would save nothing and listen on a port that is not one');
     });
 
-    testWidgets('a previewed material is saved, not reverted', (tester) async {
+    testWidgets('a previewed theme mode is saved, not reverted',
+        (tester) async {
       // Connect used to restore the live Appearance edits, which was right for
       // an exit that discarded everything else. An exit that saves has to
       // keep them, or the session and the config disagree the other way.
-      final entry = themeNotifier.material;
-      addTearDown(() => themeNotifier.setMaterial(entry));
-      final other = MaterialSpec.available.firstWhere((m) => m.id != entry);
+      final entry = themeNotifier.isDarkTheme;
+      addTearDown(() => themeNotifier.setDarkTheme(entry));
 
       await openSettings(tester, _savedSettings());
       await showTab(tester, 'Appearance');
-      await tapVisible(tester, find.text(other.name));
-      expect(themeNotifier.material, other.id, reason: 'precondition');
+      await tapVisible(tester, find.text(entry ? 'Soft Light' : 'Deep Dark'));
+      expect(themeNotifier.isDarkTheme, !entry, reason: 'precondition');
       await showTab(tester, 'Twitch');
       await tapVisible(tester, find.text('Connect Account'));
       await _settle(tester);
 
-      expect(saves.single.material, other.id.key);
-      expect(themeNotifier.material, other.id);
+      expect(saves.single.isDarkTheme, !entry);
+      expect(themeNotifier.isDarkTheme, !entry);
     });
   });
 

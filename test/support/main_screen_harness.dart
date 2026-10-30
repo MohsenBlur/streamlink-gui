@@ -17,7 +17,6 @@ import 'package:streamlink_gui/services/player_service.dart';
 import 'package:streamlink_gui/services/storage_service.dart';
 import 'package:streamlink_gui/services/twitch_api_service.dart';
 import 'package:streamlink_gui/state/twitch_auth_notifier.dart';
-import 'package:streamlink_gui/theme/neu_theme.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/sidebar_panel.dart';
 
@@ -129,14 +128,12 @@ class ScreenHarness {
 
     // The global look, as main() seeds it before runApp, and put back
     // afterwards for the next test.
-    final material = NeuTheme.activeMaterial;
     final dark = themeNotifier.isDarkTheme;
     final light = themeNotifier.lightAccentColor;
     final darkAccent = themeNotifier.darkAccentColor;
     final active = themeNotifier.activeProgressColor;
     final watched = themeNotifier.watchedProgressColor;
     addTearDown(() {
-      NeuTheme.activeMaterial = material;
       themeNotifier
         ..isDarkTheme = dark
         ..lightAccentColor = light

@@ -25,7 +25,6 @@ AppSettings buildNonDefaultSettings() {
     watchedProgressColorHex: '#80556677',
     lightAccentColorHex: '#10B981',
     darkAccentColorHex: '#38BDF8',
-    material: 'soft',
     vodDownloadFolder: r'D:\Vods',
     maxDownloadsToKeep: 7,
     unfinishedDownloads: const [
@@ -44,7 +43,6 @@ AppSettings buildNonDefaultSettings() {
       monitorName: r'\\.\DISPLAY1',
       monitorBounds: Rect.fromLTWH(-2160, -813, 2160, 3840),
     ),
-    canvasEngine: true,
     showGamesOnThumbnails: false,
     vodWatchExclusionThreshold: 42,
     autoPlayPreemptLowerPriority: true,
@@ -313,32 +311,44 @@ void main() {
       expect(s.vodCardScale, 350.0);
       expect(s.closeAction, 'tray');
       expect(s.notifyWentLive, isTrue);
-      expect(s.material, 'rack');
+      expect(s.toJson()['material'], 'soft');
     });
 
-    test('a material key from a newer build survives the round trip', () {
-      // The case inside this plan's own release train: a v1.8.0 config met by
-      // a v1.7.0 build. `material` is stored as a String and validated where
-      // it is USED, so an unrecognised key is carried through untouched rather
-      // than clamped to a known one.
-      //
-      // That matters because `saveConfig` rebuilds the whole file with no
-      // merge and `_saveWindowState` fires on every window resize. A build
-      // that clamped on read would not merely ignore the newer choice - it
-      // would overwrite it within seconds of launching, and downgrading for
-      // ten minutes would silently destroy the setting.
-      final s = AppSettings.fromJson(<String, dynamic>{'material': 'deck'});
-      expect(s.material, 'deck');
-      expect(s.toJson()['material'], 'deck');
+    test('every look an older build could have saved loads as Soft', () {
+      // Builds since v1.7.0 stored the chosen look as `material`, and
+      // pre-release builds of this one the "Simple rendering" switch as
+      // `canvas_engine`. This build has one look and no engine to switch, so
+      // whatever they hold has to load without complaint - and the keys must
+      // not survive as dead settings that the next save writes back.
+      for (final saved in <Object?>[
+        'rack', 'analogue', 'deck', 'glass', 'soft', 'not-a-material', 17,
+        null,
+      ]) {
+        late AppSettings s;
+        expect(
+            () => s = AppSettings.fromJson(<String, dynamic>{
+                  'material': saved,
+                  'canvas_engine': true,
+                  'is_dark_theme': false,
+                }),
+            returnsNormally,
+            reason: 'material $saved');
+        final written = s.toJson();
+        expect(written['material'], 'soft', reason: 'material $saved');
+        expect(written.containsKey('canvas_engine'), isFalse,
+            reason: 'the switch is gone, so its key is not written back');
+        // Only the dead keys are affected: the rest of the file reads as it
+        // always did.
+        expect(s.isDarkTheme, isFalse, reason: 'material $saved');
+      }
     });
 
-    test('an absent material key means rack', () {
-      // Every config written before v1.7.0 has no such key. The default is the
-      // new material rather than the old look, which is the release decision:
-      // Broadcast rack on fresh install AND on upgrade, with the picker named
-      // in the release notes as the way back.
-      final s = AppSettings.fromJson(<String, dynamic>{});
-      expect(s.material, 'rack');
+    test('what this build writes still opens on Soft in v1.10.0', () {
+      // v1.7.0 to v1.10.0 read `material` with Broadcast rack as the
+      // default for a missing key, so a rollback after this build has saved
+      // must find Soft's key there - not nothing.
+      expect(AppSettings().toJson()['material'], 'soft');
+      expect(AppSettings.softMaterialKey, 'soft');
     });
 
     test('an out-of-range sidebar tab cannot strand the user', () {

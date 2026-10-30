@@ -13,11 +13,8 @@ import 'services/startup_service.dart';
 import 'services/storage_service.dart';
 import 'services/update_service.dart';
 import 'state/app_shell_controller.dart';
-import 'theme/material/app_material.dart';
-import 'theme/material/lit_surface.dart';
 import 'theme/neu_theme.dart';
 import 'theme/theme_notifier.dart';
-import 'theme/type_probe.dart';
 import 'utils/color_utils.dart';
 import 'utils/window_bounds.dart';
 
@@ -28,26 +25,21 @@ import 'utils/window_bounds.dart';
 /// Seeds the look from the settings main() already parsed, BEFORE the first
 /// frame.
 ///
-/// `NeuTheme.activeMaterial` defaults to rack and `themeNotifier.isDarkTheme`
-/// to true, and both were only corrected later, inside `_loadChannels`'s
-/// second config read. The window is shown from the first-frame callback
-/// (`flutter_window.cpp`), so a user on Soft, or on the light theme, saw at
-/// least one fully presented frame of the wrong look before it snapped -
-/// a flash of a different material, not just a different colour.
+/// `themeNotifier.isDarkTheme` defaults to true, and was only corrected
+/// later, inside `_loadChannels`'s second config read. The window is shown
+/// from the first-frame callback (`flutter_window.cpp`), so a user on the
+/// light theme saw at least one fully presented frame of the wrong look
+/// before it snapped.
 ///
-/// The first load's own `setMaterial`/`setDarkTheme`/accent/progress calls
-/// then no-op, because every setter early-returns when the value is
-/// unchanged. They have to: the first load runs from MainScreen's initState,
-/// inside the build, and a notification from there marks the app's own
+/// The first load's own `setDarkTheme`/accent/progress calls then no-op,
+/// because every setter early-returns when the value is unchanged. They have
+/// to: the first load runs from MainScreen's initState, inside the build,
+/// and a notification from there marks the app's own
 /// ListenableBuilder dirty mid-build. The progress colours were left out of
 /// this seeding and `updateTheme` notified unconditionally, so every launch
 /// did exactly that - an assertion on each debug launch, and a second build
 /// of the whole MaterialApp in the first frame of a release one.
 void seedStoredLook(AppSettings settings) {
-  final storedMaterial = AppMaterial.fromKey(settings.material);
-  if (storedMaterial != null && MaterialSpec.isImplemented(storedMaterial)) {
-    NeuTheme.activeMaterial = storedMaterial;
-  }
   themeNotifier.isDarkTheme = settings.isDarkTheme;
   themeNotifier.lightAccentColor = parseHexColor(
       settings.lightAccentColorHex, NeuTheme.defaultLightAccent);
@@ -68,14 +60,6 @@ void seedStoredLook(AppSettings settings) {
 /// notifies nothing (see [seedStoredLook]).
 void applyStoredLook(AppSettings settings) {
   themeNotifier.setDarkTheme(settings.isDarkTheme);
-  // Resolved, not clamped. An unknown key - a material this build does not
-  // have, from a newer one that did - falls back for the session and is left
-  // alone in the file, rather than being rewritten to `rack` by the next
-  // window resize.
-  final storedMaterial = AppMaterial.fromKey(settings.material);
-  if (storedMaterial != null && MaterialSpec.isImplemented(storedMaterial)) {
-    themeNotifier.setMaterial(storedMaterial);
-  }
 
   // Restore the accent the user actually picked. Previously this read
   // `primaryColorHex`, a field no code path ever wrote, so it was always the
@@ -219,9 +203,9 @@ Future<void> checkWindowAfterFirstFrame({
 
 /// Everything main() does before and around runApp, inside its guarded
 /// zone: the crash log and the startup milestones, the one read of the
-/// config, the surface engine, toasts, the Run key, the window and the
-/// look - then [app], the app itself, built from the config read and
-/// whether the window starts hidden.
+/// config, toasts, the Run key, the window and the look - then [app], the
+/// app itself, built from the config read and whether the window starts
+/// hidden.
 ///
 /// Here rather than in main.dart, which holds the app; [app] is how it is
 /// handed over without this file importing that one.
@@ -279,24 +263,6 @@ Future<void> startApp(
   }
   final settings = startup?.parseSettings() ?? AppSettings();
 
-  // The material engine's fragment program, before the first frame so the
-  // first paint is already lit. Milliseconds; degrades to the Canvas engine
-  // on failure rather than to a blank window. Settings' "Simple rendering"
-  // and --canvas-engine skip the shader outright - the switch for a machine
-  // where it renders, but slowly or wrongly, which no self-test can see.
-  final canvasReason = args.contains('--canvas-engine')
-      ? '--canvas-engine flag'
-      : (settings.canvasEngine ? 'Simple rendering setting' : null);
-  await LitSurfaceProgram.load(
-      forceCanvas: canvasReason != null, forceCanvasReason: canvasReason);
-  milestone('surface engine: ${LitSurfaceProgram.status}');
-
-  // The typography gate. Off unless asked for, and it cannot be a unit test:
-  // `flutter test` has no system fonts and CI is ubuntu, so an assertion about
-  // Bahnschrift there would measure the fallback against itself and pass.
-  if (TypeProbe.enabled) {
-    await TypeProbe.run();
-  }
   try {
     await localNotifier.setup(
       appName: 'Twitch Streamlink GUI',

@@ -91,10 +91,6 @@ class AppFrame extends StatelessWidget {
           child: Column(
         children: [
           NeuTitleBar(
-            // The chassis ornament lands here. Asking the chassis rather than
-            // recomputing the predicate keeps the clearance and the ornament
-            // from ever disagreeing about what is drawn at the edges.
-            edgeInset: AppChassis.edgeClearance(context),
             liveCount: liveCount,
             actions: [
               ActivityPill(

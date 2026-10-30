@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../theme/material/app_material.dart';
 import '../../theme/neu_theme.dart';
 import '../shell/motion.dart';
 import 'neu_pulse.dart';
@@ -177,36 +176,6 @@ class _NeuLedIndicatorState extends State<NeuLedIndicator>
               ],
       ),
     );
-
-    // The collar: the ring the lamp is mounted in, per material. A machined
-    // socket on the rack, a brass bezel on the receiver, bare on the deck
-    // and on Soft. Painted INSIDE the existing box - the lamp's core gives
-    // up a hair of diameter rather than the layout giving up a pixel.
-    final collar =
-        MaterialSpec.of(NeuTheme.activeMaterial).instruments.lampCollar;
-    if (collar != LampCollar.none) {
-      final palette = NeuTheme.palette(isDark);
-      final ring = switch (collar) {
-        LampCollar.brass =>
-            palette.accentMetal ?? palette.border,
-        _ => palette.border,
-      };
-      ledContent = Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: ring, width: 1.2),
-          boxShadow: [
-            BoxShadow(
-              color: NeuTheme.shadow(isDark).withValues(alpha: 0.4),
-              blurRadius: 1.5,
-              offset: const Offset(0, 0.5),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(NeuSpace.s1),
-        child: ledContent,
-      );
-    }
 
     if (_shouldPulse && _pulseAnimation != null) {
       // FadeTransition + RepaintBoundary keep the large glow shadows

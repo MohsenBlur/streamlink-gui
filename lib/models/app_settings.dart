@@ -61,11 +61,6 @@ class AppSettings {
   /// form) so an older build finds a position, and are migrated from when
   /// this is absent.
   SavedWindowPlacement? windowPlacement;
-
-  /// Paint surfaces with the Canvas engine instead of the lighting shader
-  /// ("Simple rendering" in Settings). For GPUs or remote sessions where the
-  /// shader is slow or draws nothing; read at startup.
-  bool canvasEngine;
   bool showGamesOnThumbnails;
   int vodWatchExclusionThreshold; // default 15%
   bool autoPlayPreemptLowerPriority;
@@ -119,17 +114,6 @@ class AppSettings {
   String lightAccentColorHex;
   String darkAccentColorHex;
 
-  /// Which material world the app wears, as the material's own key.
-  ///
-  /// A `String`, not the enum, and validated where it is used rather than
-  /// where it is read. `StorageService.saveConfig` rebuilds the whole file
-  /// with no merge and `saveWindowState` fires on every resize, so an older
-  /// build does not *ignore* a key it does not know - it deletes it within
-  /// seconds. Storing the raw string and resolving via `AppMaterial.fromKey`
-  /// means a v1.7.0 build meeting a v1.8.0 config falls back for the session
-  /// instead of clamping the value and destroying the choice on the next save.
-  String material;
-
   AppSettings({
     this.defaultQuality = 'best',
     this.twitchLowLatency = false,
@@ -148,7 +132,6 @@ class AppSettings {
     this.watchedProgressColorHex = '#804CAF50',
     this.lightAccentColorHex = '#FF6584',
     this.darkAccentColorHex = '#FF3B30',
-    this.material = 'rack',
     this.vodDownloadFolder = '',
     this.maxDownloadsToKeep = 0,
     this.unfinishedDownloads = const [],
@@ -160,7 +143,6 @@ class AppSettings {
     this.windowY,
     this.isWindowMaximized = false,
     this.windowPlacement,
-    this.canvasEngine = false,
     this.showGamesOnThumbnails = true,
     this.vodWatchExclusionThreshold = 15,
     this.autoPlayPreemptLowerPriority = false,
@@ -223,7 +205,6 @@ class AppSettings {
     String? watchedProgressColorHex,
     String? lightAccentColorHex,
     String? darkAccentColorHex,
-    String? material,
     String? vodDownloadFolder,
     int? maxDownloadsToKeep,
     List<dynamic>? unfinishedDownloads,
@@ -235,7 +216,6 @@ class AppSettings {
     double? windowY,
     bool? isWindowMaximized,
     SavedWindowPlacement? windowPlacement,
-    bool? canvasEngine,
     bool? showGamesOnThumbnails,
     int? vodWatchExclusionThreshold,
     bool? autoPlayPreemptLowerPriority,
@@ -277,7 +257,6 @@ class AppSettings {
       watchedProgressColorHex: watchedProgressColorHex ?? this.watchedProgressColorHex,
       lightAccentColorHex: lightAccentColorHex ?? this.lightAccentColorHex,
       darkAccentColorHex: darkAccentColorHex ?? this.darkAccentColorHex,
-      material: material ?? this.material,
       vodDownloadFolder: vodDownloadFolder ?? this.vodDownloadFolder,
       maxDownloadsToKeep: maxDownloadsToKeep ?? this.maxDownloadsToKeep,
       unfinishedDownloads: unfinishedDownloads ?? this.unfinishedDownloads,
@@ -291,7 +270,6 @@ class AppSettings {
       windowPlacement: clearWindowPosition
           ? null
           : (windowPlacement ?? this.windowPlacement),
-      canvasEngine: canvasEngine ?? this.canvasEngine,
       showGamesOnThumbnails: showGamesOnThumbnails ?? this.showGamesOnThumbnails,
       vodWatchExclusionThreshold: vodWatchExclusionThreshold ?? this.vodWatchExclusionThreshold,
       autoPlayPreemptLowerPriority: autoPlayPreemptLowerPriority ?? this.autoPlayPreemptLowerPriority,
@@ -327,6 +305,10 @@ class AppSettings {
     'twitch_web_oauth_token',
   ];
 
+  /// What [toJson] writes under `material`: Soft (classic)'s key in the
+  /// builds that offered a choice of looks.
+  static const String softMaterialKey = 'soft';
+
   Map<String, dynamic> toJson() => {
         'default_quality': defaultQuality,
         'twitch_low_latency': twitchLowLatency,
@@ -345,7 +327,11 @@ class AppSettings {
         'watched_progress_color_hex': watchedProgressColorHex,
         'light_accent_color_hex': lightAccentColorHex,
         'dark_accent_color_hex': darkAccentColorHex,
-        'material': material,
+        // The look, for builds that still choose one. v1.7.0 to v1.10.0 read
+        // this key and wear Broadcast rack when it is missing, so a rollback
+        // to one of them keeps the only look this build has. Never read back:
+        // there is nothing left to choose.
+        'material': softMaterialKey,
         'vod_download_folder': vodDownloadFolder,
         'max_downloads_to_keep': maxDownloadsToKeep,
         'unfinished_downloads': unfinishedDownloads,
@@ -357,7 +343,6 @@ class AppSettings {
         'window_y': windowY,
         'is_window_maximized': isWindowMaximized,
         'window_placement': windowPlacement?.toJson(),
-        'canvas_engine': canvasEngine,
         'show_games_on_thumbnails': showGamesOnThumbnails,
         'vod_watch_exclusion_threshold': vodWatchExclusionThreshold,
         'auto_play_preempt_lower_priority': autoPlayPreemptLowerPriority,
@@ -469,7 +454,6 @@ class AppSettings {
             _str(json['watched_progress_color_hex'], '#804CAF50'),
         lightAccentColorHex: _str(json['light_accent_color_hex'], '#FF6584'),
         darkAccentColorHex: _str(json['dark_accent_color_hex'], '#FF3B30'),
-        material: _str(json['material'], 'rack'),
         vodDownloadFolder: _str(json['vod_download_folder'], ''),
         maxDownloadsToKeep: _clampInt(json['max_downloads_to_keep'], 0, 0, 1 << 30),
         unfinishedDownloads: _list(json['unfinished_downloads']),
@@ -481,7 +465,6 @@ class AppSettings {
         windowY: _maybeDouble(json['window_y']),
         isWindowMaximized: _flag(json['is_window_maximized'], false),
         windowPlacement: SavedWindowPlacement.fromJson(json['window_placement']),
-        canvasEngine: _flag(json['canvas_engine'], false),
         showGamesOnThumbnails: _flag(json['show_games_on_thumbnails'], true),
         vodWatchExclusionThreshold:
             _clampInt(json['vod_watch_exclusion_threshold'], 15, 5, 90),

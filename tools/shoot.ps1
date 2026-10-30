@@ -45,7 +45,7 @@
   new window the active one: this script is the invisible-window check
   (audit C1), and that is the startup path it exists to test. -NoActivate
   launches it with SW_SHOWNOACTIVATE instead, for scripts that launch many
-  times (shoot-matrix.ps1 and shoot-materials.ps1 do by default). That keeps
+  times (shoot-matrix.ps1 does by default). That keeps
   the show from activating the window, and the runner keeps the hidden
   window from taking the foreground before it (shoot-common.ps1,
   Start-AppNoActivate). A config that opens the window maximized defeats it
