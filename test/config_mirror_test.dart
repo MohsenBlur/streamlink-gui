@@ -311,6 +311,45 @@ void main() {
           contains('RunElevatedSwap(targetDir, stagingDir, exeName, dropConfigMirror)'));
     });
 
+    test('an app from before the flag gets it asked for on its behalf', () {
+      // v1.10.0 starts the updater this release ships with neither the flag
+      // nor --wait-pid. Without this, its update kept the mirror under
+      // Program Files, tokens in plaintext, for one more release.
+      final cpp = File('windows/runner/win32_updater/main.cpp')
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      String body(String signature) {
+        final start = cpp.indexOf(signature);
+        expect(start, isNonNegative, reason: signature);
+        return cpp.substring(start, cpp.indexOf('\n}\n', start));
+      }
+
+      final rule = body('bool LegacyAppConfigLivesInAppData(');
+      expect(rule, contains('L"--wait-pid") == 0) return false;'),
+          reason: 'an app that passes --wait-pid answered for itself');
+      expect(rule, contains('L"portable.txt"'),
+          reason: "a portable copy's file is its config");
+      expect(rule, contains('{L"APPDATA", L"LOCALAPPDATA"}'),
+          reason: 'where StorageService looks, in the same order');
+      expect(rule, contains('L"TwitchStreamlinkGUI" / L"channels_config.json"'),
+          reason: 'no AppData config yet: the mirror is what the migration reads');
+      expect(rule, contains('fs::equivalent(mirror, config, ec)'));
+
+      final main = body('int APIENTRY wWinMain(');
+      final elevated = main.indexOf('} else if (accessDenied) {');
+      expect(elevated, isNonNegative);
+      final branch = main.substring(elevated, main.indexOf('\n    } else {', elevated));
+      final asked = branch.indexOf(
+          'if (!dropConfigMirror && LegacyAppConfigLivesInAppData(argc, argv, targetDir)) {');
+      expect(asked, isNonNegative,
+          reason: 'asked in the non-elevated parent, whose %APPDATA% is the user\'s');
+      expect(asked,
+          lessThan(branch.indexOf('RunElevatedSwap(targetDir, stagingDir, exeName, dropConfigMirror)')),
+          reason: 'before the elevated child is started, so it travels with it');
+      expect('LegacyAppConfigLivesInAppData('.allMatches(main), hasLength(1),
+          reason: 'never for a folder the user can write: that one is the scrub\'s');
+    });
+
     test("and only that child deletes it: a folder the user can write is the scrub's", () {
       // Where the user can write, the file may be a portable copy's real
       // config that lost its portable.txt, and the app keeps everything in

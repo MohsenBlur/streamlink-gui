@@ -324,6 +324,48 @@ void DropConfigMirror(const fs::path& targetDir) {
     }
 }
 
+// Whether an app from before --drop-config-mirror started this update, from
+// a copy whose config lives in AppData: the request it would have made.
+//
+// v1.10.0 and earlier pass neither that flag nor --wait-pid, which came with
+// it. Without this the update that first ships this updater kept the mirror,
+// tokens in plaintext under Program Files, for one more release: the app it
+// installs cannot write that folder to scrub it. The test is the app's own
+// (StorageService.configLivesInAppData): no portable.txt, and a config in
+// %APPDATA%\TwitchStreamlinkGUI, or %LOCALAPPDATA%'s when APPDATA is unset,
+// that is not the mirror itself. Asked here, in the non-elevated parent: the
+// elevated child's %APPDATA% can be another account's. An app that passes
+// --wait-pid has answered for itself, with or without the flag.
+bool LegacyAppConfigLivesInAppData(int argc, LPWSTR* argv, const fs::path& targetDir) {
+    for (int i = 4; i < argc; ++i) {
+        if (wcscmp(argv[i], L"--wait-pid") == 0) return false;
+    }
+    std::error_code ec;
+    if (fs::exists(targetDir / L"portable.txt", ec) || ec) return false;
+
+    std::wstring base;
+    for (const wchar_t* name : {L"APPDATA", L"LOCALAPPDATA"}) {
+        const DWORD size = GetEnvironmentVariableW(name, nullptr, 0);
+        if (size == 0) continue;  // unset: the next one, as the app does
+        std::vector<wchar_t> value(size);
+        const DWORD length = GetEnvironmentVariableW(name, value.data(), size);
+        if (length > 0 && length < size) base.assign(value.data(), length);
+        break;  // set, even if empty: the app looks no further either
+    }
+    if (base.empty()) return false;
+
+    const fs::path config = fs::path(base) / L"TwitchStreamlinkGUI" / L"channels_config.json";
+    ec.clear();
+    if (!fs::exists(config, ec) || ec) return false;
+    const fs::path mirror = targetDir / L"channels_config.json";
+    ec.clear();
+    if (fs::exists(mirror, ec) && !ec) {
+        const bool same = fs::equivalent(mirror, config, ec);
+        if (same || ec) return false;
+    }
+    return true;
+}
+
 void ClearReadOnly(const fs::path& p) {
     DWORD attrs = GetFileAttributesW(p.c_str());
     if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_READONLY)) {
@@ -741,6 +783,11 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                     L"and scrubs its tokens.");
         }
     } else if (accessDenied) {
+        if (!dropConfigMirror && LegacyAppConfigLivesInAppData(argc, argv, targetDir)) {
+            LogLine(L"Config mirror: asked for on behalf of an app from before "
+                    L"the flag, whose config is in AppData.");
+            dropConfigMirror = true;
+        }
         outcome = RunElevatedSwap(targetDir, stagingDir, exeName, dropConfigMirror);
     } else {
         LogLine(L"Target directory is unavailable.");
