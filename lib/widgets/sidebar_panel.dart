@@ -192,9 +192,9 @@ class SidebarPanelState extends State<SidebarPanel> {
 
     return Container(
       width: sidebarWidth,
-      // The faceplate. A flat `color:` was the right call while every material
-      // was the same soft plastic; a panel carries the material's grain and its
-      // bevelled edge, which is where a rack's brush actually reads.
+      // The faceplate: a panel, not a flat `color:`, so it carries the fill
+      // ramp and bevelled edge every other panel has. (It was made one for the
+      // grained materials, since removed; Soft paints no grain.)
       //
       // Radius zero: this panel is the full height of the window and its edges
       // are the window's own, so rounding them would float it inside itself.
@@ -1194,9 +1194,9 @@ class _SidebarChannelRowState extends State<_SidebarChannelRow> {
             : (_hovered
                 ? NeuTheme.raisedDecoration(isDark, radius: NeuRadius.r12)
                 // At rest a row is a REGION OF THE PLATE, not a part on it.
-                // The old flat surface-token fill sat on the grained panel
-                // with no bevel, ramp or grain of its own - every idle row
-                // read as a paper sticker on metal, in the most-looked-at
+                // The old flat surface-token fill sat on the ramped panel
+                // with no bevel or ramp of its own - every idle row read as a
+                // paper sticker on the plate, in the most-looked-at
                 // region of the app. Hover and selection still raise the row
                 // through the engine.
                 //

@@ -45,7 +45,7 @@ class SaveFailureBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = themeNotifier.isDarkTheme;
-    // The translucent wash lets the panel grain through; the engraved cut at
+    // The translucent wash lets the panel's fill ramp through; the engraved cut at
     // its bottom is what makes it read as a milled warning band of the
     // chassis rather than a highlighter stroke across the plate.
     return Column(mainAxisSize: MainAxisSize.min, children: [

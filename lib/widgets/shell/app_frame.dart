@@ -59,7 +59,7 @@ class AppFrame extends StatelessWidget {
     final isNarrow = layout.isCompact;
     final contentArea = Expanded(
       // No fill of its own. AppChassis already paints the whole window body
-      // as a lit panel - grain, ramp and light - and a flat token fill here
+      // as a panel - fill ramp and bevel - and a flat token fill here
       // was covering it across the largest region of the app, so the
       // machined ground existed only behind the sidebar and title bar while
       // every card floated on flat paper.

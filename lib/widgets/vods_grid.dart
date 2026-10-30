@@ -193,7 +193,7 @@ class _VodsGridState extends State<VodsGrid> {
           },
           // The fade is applied to the chips, not painted over them. See
           // EdgeFade: a strip of ground colour only ever matched a flat ground,
-          // and a panel with a grain on it is not one.
+          // and a panel with a fill ramp on it is not one.
           child: EdgeFade(
             left: _showLeftIndicator,
             right: _showRightIndicator,
