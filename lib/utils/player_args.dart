@@ -22,10 +22,17 @@ PlayerKind classifyPlayer(String effectivePlayerType, String customPlayerPath) {
     case 'mpc-hc':
       return PlayerKind.mpcHc;
     case 'custom':
-      final p = customPlayerPath.toLowerCase();
-      if (p.contains('vlc')) return PlayerKind.vlc;
-      if (p.contains('mpv')) return PlayerKind.mpv;
-      if (p.contains('mpc')) return PlayerKind.mpcHc;
+      // Only the executable's own name is sniffed, as [isMpcBe] does. The
+      // folders above it say nothing about the player: MPC-HC kept under
+      // `D:\vlc-and-mpv\` was classified as VLC and got VLC's switches.
+      final name = customPlayerPath
+          .replaceAll('"', '')
+          .split(RegExp(r'[\\/]'))
+          .last
+          .toLowerCase();
+      if (name.contains('vlc')) return PlayerKind.vlc;
+      if (name.contains('mpv')) return PlayerKind.mpv;
+      if (name.contains('mpc')) return PlayerKind.mpcHc;
       return PlayerKind.other;
     default:
       return PlayerKind.other;

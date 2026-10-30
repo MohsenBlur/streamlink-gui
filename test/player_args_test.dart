@@ -17,6 +17,19 @@ void main() {
       expect(classifyPlayer('custom', r'D:\mpv\mpv.exe'), PlayerKind.mpv);
     });
 
+    test('only the executable name is sniffed, not the folders above it', () {
+      // A user's own folder name, or a random temp folder (Linux mkdtemp can
+      // hand out `aVlC9q`), must not turn MPC-HC into VLC or mpv.
+      expect(classifyPlayer('custom', r'D:\vlc-and-mpv\mpc-hc64.exe'),
+          PlayerKind.mpcHc);
+      expect(
+          classifyPlayer('custom', '/tmp/streamlink_gui_mpc_aVlC9q/mpc-hc64.exe'),
+          PlayerKind.mpcHc);
+      expect(classifyPlayer('custom', r'"C:\mpv stuff\vlc.exe"'), PlayerKind.vlc);
+      expect(classifyPlayer('custom', r'C:\VLC\PotPlayerMini64.exe'),
+          PlayerKind.other);
+    });
+
     test('unknown custom player and unresolved default are "other"', () {
       expect(classifyPlayer('custom', r'C:\PotPlayer\PotPlayerMini64.exe'),
           PlayerKind.other);
