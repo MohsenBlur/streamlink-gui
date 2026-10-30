@@ -805,6 +805,13 @@ class PlayerService {
       }
 
       activeDownloadProcesses[vodId] = proc;
+      // Running from here, and said so: the activity pill and Home tell a
+      // running download from a queued one by its process, and heard of it
+      // only at yt-dlp's first progress line - after it has read the VOD's
+      // formats and slept whatever a yt-dlp config asks, half a minute with
+      // some. Every download started at once showed as queued until then.
+      onDownloadProgress?.call(vodId, activeDownloadsProgress[vodId] ?? 0.0,
+          activeDownloadTasks[vodId] ?? 'Starting...');
 
       // Line by line, not pipe read by pipe read. One read can hold several
       // progress updates (yt-dlp separates them with a bare \r, which

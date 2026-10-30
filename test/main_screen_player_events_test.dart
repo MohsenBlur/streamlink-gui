@@ -236,10 +236,13 @@ void main() {
         ];
 
     /// A config whose saved queue holds [titles], in order, on alpha - what
-    /// the last run left unfinished.
+    /// the last run left unfinished. With [holdStarts], each yt-dlp's start
+    /// waits at the launcher's gate.
     Future<(ScreenHarness, List<String>)> resumed(
-        WidgetTester tester, List<String> titles, AppSettings settings) async {
+        WidgetTester tester, List<String> titles, AppSettings settings,
+        {bool holdStarts = false}) async {
       final h = ScreenHarness();
+      if (holdStarts) h.launcher.startGate = Completer<void>();
       h.helix.user('alpha');
       final ids = [for (final title in titles) h.helix.addVideo('alpha', title: title)];
       settings.unfinishedDownloads = [
@@ -279,7 +282,6 @@ void main() {
           withFolder()..simultaneousDownloads = 3);
 
       expect(started(h), ids.take(3).toList());
-      // A process is downloading, to the pill, once yt-dlp says how far.
       for (final run in h.launcher.launched) {
         run.printOut('[download]  10.0% of ~1.00GiB at 2.00MiB/s ETA 05:00\n');
       }
@@ -305,6 +307,35 @@ void main() {
       expect(started(h), [...ids.take(3), ids[3]]);
       await h.advance(tester, const Duration(seconds: 2));
       expect(savedQueue(h), [ids[0], ids[2], ids[3]]);
+
+      await h.close(tester);
+    });
+
+    testWidgets(
+        'each shows as downloading once its yt-dlp starts, before it prints '
+        'any progress', (tester) async {
+      // yt-dlp prints no progress until it has read the VOD's formats, and
+      // slept for as long as a yt-dlp config asks - up to half a minute with
+      // some. Until then the pill counted the downloads started at once as
+      // queued, and Home listed none of them.
+      final (h, ids) = await resumed(tester, ['One', 'Two', 'Three', 'Four'],
+          withFolder()..simultaneousDownloads = 3,
+          holdStarts: true);
+      expect(h.launcher.starting, 3);
+      expect(onHome('One'), findsNothing, reason: 'no yt-dlp yet');
+
+      // The screen has drawn everything else by now: these starts are all
+      // that is left to show.
+      h.launcher.startGate!.complete();
+      h.launcher.startGate = null;
+      await h.settle(tester);
+      expect(started(h), ids.take(3).toList());
+
+      expect(find.byTooltip('3 downloading · 1 queued'), findsOneWidget);
+      for (final title in ['One', 'Two', 'Three']) {
+        expect(onHome(title), findsOneWidget, reason: '"$title" runs');
+      }
+      expect(onHome('Four'), findsNothing, reason: 'queued, not running');
 
       await h.close(tester);
     });
