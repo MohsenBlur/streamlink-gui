@@ -365,7 +365,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// The log viewer's entry for the app itself, beside the per-process ones.
   static const String _appLogKey = 'app';
 
-  /// Puts what support asks first, where the crash log is, where "Copy all"
+  /// Puts what support asks first - where the crash log is - where "Copy all"
   /// in the log viewer picks it up.
   void _logAppDiagnostics() {
     _logNotifier.beginSession(_appLogKey, 'App');

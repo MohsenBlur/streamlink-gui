@@ -11,9 +11,9 @@ import 'log_store.dart';
 /// disk to diagnose, and every report started from "it just does not show".
 /// This records uncaught errors from all three places Flutter can surface
 /// them (the framework, the platform dispatcher, the root zone) plus a
-/// handful of startup milestones - config loaded, surface engine, window
-/// placement, first frame, what the window looked like a moment later - so
-/// the next startup failure leaves evidence of how far it got.
+/// handful of startup milestones - config loaded, window placement, first
+/// frame, what the window looked like a moment later - so the next startup
+/// failure leaves evidence of how far it got.
 ///
 /// Small on purpose. Each launch writes about a dozen lines; the file rotates
 /// at [maxBytes] to one previous copy, so it can never grow without bound.

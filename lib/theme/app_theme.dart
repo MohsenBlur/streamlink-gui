@@ -10,9 +10,9 @@ import 'theme_notifier.dart';
 /// filled outline fields add a suffix margin to every dropdown, and a sweep
 /// under the stock theme measures narrower controls than users get.
 ///
-/// Reads the live [themeNotifier] (accent, surfaces) and the active material
-/// through [NeuTheme], so it must be rebuilt whenever either changes - the
-/// app widget does, per notification.
+/// Reads the live [themeNotifier] (accent, surfaces) and the palette through
+/// [NeuTheme], so it must be rebuilt whenever the notifier changes - the app
+/// widget does, per notification.
 ThemeData buildAppTheme({required bool isDark}) {
   return ThemeData(
     brightness: isDark ? Brightness.dark : Brightness.light,
@@ -34,8 +34,8 @@ ThemeData buildAppTheme({required bool isDark}) {
             error: NeuTheme.danger,
           ),
     // Not const: a const expression cannot invoke a function, and these must
-    // resolve through the active material rather than pinning Soft's ink
-    // into every Material widget in the app.
+    // resolve through the palette rather than pinning a copy of its ink into
+    // every Material widget in the app.
     textTheme: TextTheme(
       titleLarge:
           TextStyle(fontWeight: FontWeight.bold, color: NeuTheme.text(isDark)),

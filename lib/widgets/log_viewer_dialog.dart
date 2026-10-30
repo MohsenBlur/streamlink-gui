@@ -126,9 +126,9 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
   ///
   /// Every one of these used to be a colour calibrated against a panel, drawn
   /// on a near-black terminal. In the dark theme that was survivable by luck -
-  /// both grounds are dark, so inks meant for one worked on the other. In a
-  /// light material it is not: a lit readout stays dark in a lit room, so
-  /// `text(false)` and `screen` are both dark and the plain lines measured
+  /// both grounds are dark, so inks meant for one worked on the other. On a
+  /// light look with a dark readout (the removed Broadcast rack) it was not:
+  /// `text(false)` and `screen` were both dark and the plain lines measured
   /// 1.08:1. The two hand-picked hexes are the source colours the walk starts
   /// from, and it only moves them if they do not already clear the bar.
   Color _colorFor(LogLineKind kind, bool isDark, Color accent) {
