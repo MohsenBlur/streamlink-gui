@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/models/app_settings.dart';
 import 'package:streamlink_gui/theme/app_theme.dart';
-import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/theme_notifier.dart';
 import 'package:streamlink_gui/widgets/settings_dialog.dart';
 
@@ -25,8 +24,7 @@ void main() {
   /// The dark theme the app ships, not a copy of it: the input decoration
   /// is the part that matters, since filled outline fields add a suffix
   /// margin to every dropdown, and a sweep under the stock theme (or a copy
-  /// that drifted) would measure narrower controls than users get. Built
-  /// after the material is set, because it reads the active material.
+  /// that drifted) would measure narrower controls than users get.
   ThemeData appTheme() => buildAppTheme(isDark: true);
 
   /// Hostile settings: every optional row that can appear, appears.
@@ -43,13 +41,9 @@ void main() {
 
   const tabs = ['Playback', 'Downloads', 'Appearance', 'Twitch', 'System'];
 
-  /// Opens the real dialog at [size] under [material], visits every tab, and
-  /// returns each overflow with the dialog source line that raised it.
-  Future<List<String>> sweepTabs(
-    WidgetTester tester,
-    Size size,
-    AppMaterial material,
-  ) async {
+  /// Opens the real dialog at [size], visits every tab, and returns each
+  /// overflow with the dialog source line that raised it.
+  Future<List<String>> sweepTabs(WidgetTester tester, Size size) async {
     final overflows = <String>[];
     final previous = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -64,18 +58,13 @@ void main() {
       }
     };
 
-    final previousMaterial = themeNotifier.material;
     final previousDark = themeNotifier.isDarkTheme;
-    themeNotifier.setMaterial(material);
     themeNotifier.isDarkTheme = true;
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(() {
-      themeNotifier.setMaterial(previousMaterial);
-      themeNotifier.isDarkTheme = previousDark;
-    });
+    addTearDown(() => themeNotifier.isDarkTheme = previousDark);
 
     try {
       await tester.pumpWidget(MaterialApp(
@@ -125,16 +114,13 @@ void main() {
     return overflows;
   }
 
-  group('every settings tab fits every window size, on every material', () {
-    for (final spec in MaterialSpec.available) {
-      for (final size in sweepSizes) {
-        final label =
-            '${spec.id.key} ${size.width.toInt()}x${size.height.toInt()}';
-        testWidgets(label, (tester) async {
-          final overflows = await sweepTabs(tester, size, spec.id);
-          expect(overflows, isEmpty, reason: '$label:\n${overflows.join('\n')}');
-        });
-      }
+  group('every settings tab fits every window size', () {
+    for (final size in sweepSizes) {
+      final label = '${size.width.toInt()}x${size.height.toInt()}';
+      testWidgets(label, (tester) async {
+        final overflows = await sweepTabs(tester, size);
+        expect(overflows, isEmpty, reason: '$label:\n${overflows.join('\n')}');
+      });
     }
   });
 }

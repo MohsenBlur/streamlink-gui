@@ -32,11 +32,8 @@ const double kNonTextAA = 3.0;
 /// where darkening the fill costs dark ink contrast. The dark theme is immune
 /// for the same reason inverted: darkening the fill *helps* light ink. That
 /// asymmetry is why the light palette has so much less gradient headroom.
-List<({String name, Color color})> groundsFor(
-  bool isDark, {
-  AppMaterial? material,
-}) {
-  final p = NeuTheme.palette(isDark, material: material);
+List<({String name, Color color})> groundsFor(bool isDark) {
+  final p = NeuTheme.palette(isDark);
   final seen = <int>{};
   final out = <({String name, Color color})>[];
   void add(String name, Color c) {
@@ -44,8 +41,7 @@ List<({String name, Color color})> groundsFor(
   }
 
   // Every role's ground, and the worst point that role's fill reaches. `screen`
-  // is excluded: it is dark in both brightnesses, so it is not a ground the
-  // ordinary inks are ever asked to survive - it has its own derivation.
+  // is excluded: it is the log pane's ground and has its own derivation.
   for (final role in SurfaceRole.values) {
     if (RoleModifier.of(role).fill == Ground.screen) continue;
     final base = p.groundFor(RoleModifier.of(role).fill);
@@ -54,14 +50,6 @@ List<({String name, Color color})> groundsFor(
   }
   return out;
 }
-
-/// The materials the matrix runs over.
-///
-/// Read through `MaterialSpec.available` rather than `AppMaterial.values`, so
-/// the suite covers what actually exists and grows on its own as materials
-/// land.
-List<AppMaterial> get materialsUnderTest =>
-    MaterialSpec.available.map((s) => s.id).toList();
 
 /// Every accent the picker offers.
 const Map<String, Color> kAccentPresets = <String, Color>{
@@ -80,16 +68,10 @@ const Map<String, Color> kAccentPresets = <String, Color>{
 
 /// The screen's own grounds - flat, and the worst point its fill reaches.
 ///
-/// Kept apart from [groundsFor] on purpose. A screen is dark in **both**
-/// brightnesses, so it is not a ground the ordinary inks are ever asked to
-/// survive, and folding it in would make every light palette unsatisfiable. It
-/// is the ground for exactly one family of inks, and this is that family's
-/// matrix.
-List<({String name, Color color})> screenGroundsFor(
-  bool isDark, {
-  AppMaterial? material,
-}) {
-  final p = NeuTheme.palette(isDark, material: material);
+/// Kept apart from [groundsFor] on purpose: it is the ground for exactly one
+/// family of inks - the log pane's - and this is that family's matrix.
+List<({String name, Color color})> screenGroundsFor(bool isDark) {
+  final p = NeuTheme.palette(isDark);
   final worst = p.worstGround(SurfaceRole.screen);
   return [
     (name: 'screen', color: p.screen),
@@ -103,16 +85,14 @@ void expectInkOnScreen(
   Color ink,
   bool isDark, {
   double min = kTextAA,
-  AppMaterial? material,
 }) {
-  for (final ground in screenGroundsFor(isDark, material: material)) {
+  for (final ground in screenGroundsFor(isDark)) {
     final ratio = NeuTheme.contrastRatio(ink, ground.color);
     expect(
       ratio,
       greaterThanOrEqualTo(min),
       reason:
-          '$label on ${ground.name} '
-          '(${material?.key ?? 'active'}, ${isDark ? 'dark' : 'light'}) '
+          '$label on ${ground.name} (${isDark ? 'dark' : 'light'}) '
           'measured ${ratio.toStringAsFixed(2)}:1, needs $min:1',
     );
   }
@@ -123,16 +103,14 @@ void expectInk(
   Color ink,
   bool isDark, {
   double min = kTextAA,
-  AppMaterial? material,
 }) {
-  for (final ground in groundsFor(isDark, material: material)) {
+  for (final ground in groundsFor(isDark)) {
     final ratio = NeuTheme.contrastRatio(ink, ground.color);
     expect(
       ratio,
       greaterThanOrEqualTo(min),
       reason:
-          '$label on ${ground.name} '
-          '(${material?.key ?? 'active'}, ${isDark ? 'dark' : 'light'}) '
+          '$label on ${ground.name} (${isDark ? 'dark' : 'light'}) '
           'measured ${ratio.toStringAsFixed(2)}:1, needs $min:1',
     );
   }
@@ -140,75 +118,61 @@ void expectInk(
 
 void main() {
   group('text inks clear AA on every ground', () {
-    // The material axis, added because a suite that only ever exercised the
-    // default would report green for every other material. Selected by
-    // parameter rather than by mutating the notifier in a loop: the accessors
-    // are still the real ones, so this certifies colours the app actually
-    // paints.
-    for (final m in materialsUnderTest) {
-      for (final isDark in [false, true]) {
-        final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
+    for (final isDark in [false, true]) {
+      final mode = isDark ? 'dark' : 'light';
 
-        test('primary text — $mode', () {
-          expectInk(
-            'text',
-            NeuTheme.text(isDark, material: m),
-            isDark,
-            material: m,
-          );
-        });
+      test('primary text — $mode', () {
+        expectInk(
+          'text',
+          NeuTheme.text(isDark),
+          isDark,
+        );
+      });
 
-        test('subtext — $mode', () {
-          // The regression that mattered most: this is subtextStyle's default
-          // ink at 11px, the most-used size in the app, and it measured 3.40:1.
-          expectInk(
-            'subtext',
-            NeuTheme.subtext(isDark, material: m),
-            isDark,
-            material: m,
-          );
-        });
+      test('subtext — $mode', () {
+        // The regression that mattered most: this is subtextStyle's default
+        // ink at 11px, the most-used size in the app, and it measured 3.40:1.
+        expectInk(
+          'subtext',
+          NeuTheme.subtext(isDark),
+          isDark,
+        );
+      });
 
-        test('semantic status inks — $mode', () {
-          expectInk(
-            'liveText',
-            NeuTheme.liveText(isDark, material: m),
-            isDark,
-            material: m,
-          );
-          expectInk(
-            'dangerText',
-            NeuTheme.dangerText(isDark, material: m),
-            isDark,
-            material: m,
-          );
-          expectInk(
-            'warningText',
-            NeuTheme.warningText(isDark, material: m),
-            isDark,
-            material: m,
-          );
-        });
+      test('semantic status inks — $mode', () {
+        expectInk(
+          'liveText',
+          NeuTheme.liveText(isDark),
+          isDark,
+        );
+        expectInk(
+          'dangerText',
+          NeuTheme.dangerText(isDark),
+          isDark,
+        );
+        expectInk(
+          'warningText',
+          NeuTheme.warningText(isDark),
+          isDark,
+        );
+      });
 
-        test('non-text inks clear the 3:1 bar — $mode', () {
-          // Disabled labels and the favourite star are never body copy, so they
-          // are held to the graphics bar rather than the text bar.
-          expectInk(
-            'disabledText',
-            NeuTheme.disabledText(isDark, material: m),
-            isDark,
-            min: kNonTextAA,
-            material: m,
-          );
-          expectInk(
-            'favoriteText',
-            NeuTheme.favoriteText(isDark, material: m),
-            isDark,
-            min: kNonTextAA,
-            material: m,
-          );
-        });
-      }
+      test('non-text inks clear the 3:1 bar — $mode', () {
+        // Disabled labels and the favourite star are never body copy, so they
+        // are held to the graphics bar rather than the text bar.
+        expectInk(
+          'disabledText',
+          NeuTheme.disabledText(isDark),
+          isDark,
+          min: kNonTextAA,
+        );
+        expectInk(
+          'favoriteText',
+          NeuTheme.favoriteText(isDark),
+          isDark,
+          min: kNonTextAA,
+        );
+      });
     }
   });
 
@@ -318,22 +282,14 @@ void main() {
     test('every preset becomes readable on every ground', () {
       // Raw, several of these are unusable as a foreground: Cyan measures
       // 1.04:1 against the light well, and even the default Soft Pink 2.12:1.
-      //
-      // Run per material, not once. Without the parameter this derived the ink
-      // against the ACTIVE material and then measured it against that same
-      // material's grounds, so every other material reported green whatever it
-      // declared - the matrix was decorative for four fifths of its axis.
-      for (final m in materialsUnderTest) {
-        for (final isDark in [false, true]) {
-          kAccentPresets.forEach((name, accent) {
-            expectInk(
-              'accentInk($name)',
-              NeuTheme.accentInk(accent, isDark, material: m),
-              isDark,
-              material: m,
-            );
-          });
-        }
+      for (final isDark in [false, true]) {
+        kAccentPresets.forEach((name, accent) {
+          expectInk(
+            'accentInk($name)',
+            NeuTheme.accentInk(accent, isDark),
+            isDark,
+          );
+        });
       }
     });
 
@@ -342,34 +298,28 @@ void main() {
       // already clears the bar has to come back byte-identical, or the user's
       // choice is being altered for no gain.
       //
-      // Stated as the invariant rather than as two example colours. It USED to
-      // name Cyan and Gold, on the note that five of the eleven presets passed
-      // as-is in dark mode - and Gold stopped passing the moment the gloss
-      // layer was folded into `worstGround`, because the ground it is measured
-      // against genuinely got about twelve levels lighter. The old form would
+      // Stated as the invariant rather than as example colours, which would
       // have to be re-picked every time a palette moves; this one cannot go
-      // stale, and it covers all eleven presets on every material.
-      for (final m in materialsUnderTest) {
-        for (final isDark in [false, true]) {
-          final p = NeuTheme.palette(isDark, material: m);
-          kAccentPresets.forEach((name, accent) {
-            // The SAME set the derivation walks against, including the accent's
-            // own 15% wash - a selected control's ground. Checking a narrower
-            // set makes the derivation look like it restyled something that
-            // was already fine.
-            final grounds = NeuTheme.accentGrounds(accent, p);
-            if (grounds
-                .any((g) => NeuTheme.contrastRatio(accent, g) < kTextAA)) {
-              return;
-            }
-            expect(
-              NeuTheme.accentInk(accent, isDark, material: m),
-              accent,
-              reason: '$name already cleared the bar on ${m.key} '
-                  '${isDark ? 'dark' : 'light'} and was restyled anyway',
-            );
-          });
-        }
+      // stale, and it covers all eleven presets.
+      for (final isDark in [false, true]) {
+        final p = NeuTheme.palette(isDark);
+        kAccentPresets.forEach((name, accent) {
+          // The SAME set the derivation walks against, including the accent's
+          // own 15% wash - a selected control's ground. Checking a narrower
+          // set makes the derivation look like it restyled something that
+          // was already fine.
+          final grounds = NeuTheme.accentGrounds(accent, p);
+          if (grounds
+              .any((g) => NeuTheme.contrastRatio(accent, g) < kTextAA)) {
+            return;
+          }
+          expect(
+            NeuTheme.accentInk(accent, isDark),
+            accent,
+            reason: '$name already cleared the bar on '
+                '${isDark ? 'dark' : 'light'} and was restyled anyway',
+          );
+        });
       }
     });
 
@@ -378,17 +328,15 @@ void main() {
       // loop would pass by never running a single assertion. Dark grounds have
       // the headroom, so at least one must.
       var untouched = 0;
-      for (final m in materialsUnderTest) {
-        final p = NeuTheme.palette(true, material: m);
-        for (final accent in kAccentPresets.values) {
-          final grounds = NeuTheme.accentGrounds(accent, p);
-          if (grounds.every((g) => NeuTheme.contrastRatio(accent, g) >= kTextAA)) {
-            untouched++;
-          }
+      final p = NeuTheme.palette(true);
+      for (final accent in kAccentPresets.values) {
+        final grounds = NeuTheme.accentGrounds(accent, p);
+        if (grounds.every((g) => NeuTheme.contrastRatio(accent, g) >= kTextAA)) {
+          untouched++;
         }
       }
       expect(untouched, greaterThan(0),
-          reason: 'no preset is readable as-is on any dark material, so the '
+          reason: 'no preset is readable as-is in the dark theme, so the '
               'untouched-accent test is asserting nothing at all');
     });
 
@@ -441,12 +389,9 @@ void main() {
     });
   });
   group('screen inks clear AA on the screen', () {
-    // The hole this closes was live and total. A log pane paints on the
-    // material's `screen`, which stays dark in a lit room because a lit
-    // readout does - so in a LIGHT material both `text` and `screen` are dark,
-    // and the plain log lines measured 1.08:1. Nothing saw it: `groundsFor`
-    // deliberately excludes the screen, so the ordinary matrix could not, and
-    // no other assertion in the suite looked at this ground at all.
+    // A log pane paints on the `screen` ground, which `groundsFor`
+    // deliberately excludes, so the ordinary matrix cannot see it and no
+    // other assertion in the suite looks at this ground at all.
     //
     // The colours below are the sources the log pane walks FROM, not the inks
     // themselves. Asserting a walk's output against the ground it walked
@@ -461,61 +406,36 @@ void main() {
       'cliInfo light': Color(0xFF047857),
     };
 
-    for (final m in materialsUnderTest) {
-      for (final isDark in [false, true]) {
-        final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
+    for (final isDark in [false, true]) {
+      final mode = isDark ? 'dark' : 'light';
 
-        test('screenText and screenSubtext - $mode', () {
-          expectInkOnScreen('screenText',
-              NeuTheme.screenText(isDark, material: m), isDark, material: m);
-          expectInkOnScreen('screenSubtext',
-              NeuTheme.screenSubtext(isDark, material: m), isDark,
-              material: m);
-        });
+      test('screenText and screenSubtext - $mode', () {
+        expectInkOnScreen('screenText',
+            NeuTheme.screenText(isDark), isDark);
+        expectInkOnScreen('screenSubtext',
+            NeuTheme.screenSubtext(isDark), isDark);
+      });
 
-        test('every log-line source survives the walk - $mode', () {
-          logSources.forEach((name, source) {
-            expectInkOnScreen(
-              'inkOnScreen($name)',
-              NeuTheme.inkOnScreen(source, isDark, material: m),
-              isDark,
-              material: m,
-            );
-          });
+      test('every log-line source survives the walk - $mode', () {
+        logSources.forEach((name, source) {
+          expectInkOnScreen(
+            'inkOnScreen($name)',
+            NeuTheme.inkOnScreen(source, isDark),
+            isDark,
+          );
         });
+      });
 
-        test('every accent preset survives the walk - $mode', () {
-          kAccentPresets.forEach((name, accent) {
-            expectInkOnScreen(
-              'accentInkOnScreen($name)',
-              NeuTheme.accentInkOnScreen(accent, isDark, material: m),
-              isDark,
-              material: m,
-            );
-          });
+      test('every accent preset survives the walk - $mode', () {
+        kAccentPresets.forEach((name, accent) {
+          expectInkOnScreen(
+            'accentInkOnScreen($name)',
+            NeuTheme.accentInkOnScreen(accent, isDark),
+            isDark,
+          );
         });
-      }
+      });
     }
-
-    test('the screen ink is not interchangeable with the surface ink', () {
-      // The assertion that would have caught the 1.08:1 bug before it shipped,
-      // stated as the rule rather than as a number: on any material whose
-      // screen does not track the theme, `text` on it is a failure. If some
-      // future material makes the two safely identical this goes green by
-      // being true, not by being weakened - the reason string says how to tell
-      // the difference.
-      for (final m in materialsUnderTest) {
-        final p = NeuTheme.palette(false, material: m);
-        if (!p.screenIsEmissive) continue;
-        expect(
-          NeuTheme.contrastRatio(NeuTheme.text(false, material: m), p.screen),
-          lessThan(kTextAA),
-          reason: '${m.key} light: `text` happens to be readable on the '
-              'screen, so this guard proves nothing - check whether the '
-              'screen is still emissive',
-        );
-      }
-    });
   });
 
   group('a raw accent is never used as a foreground', () {
@@ -530,34 +450,32 @@ void main() {
     // The existing accent group could not see it, because it only ever
     // measures `accentInk`'s OUTPUT. This measures the input against the
     // ground a selected control actually paints.
-    for (final m in materialsUnderTest) {
-      for (final isDark in [false, true]) {
-        final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
+    for (final isDark in [false, true]) {
+      final mode = isDark ? 'dark' : 'light';
 
-        test('a selected control is legible on its own accent tint — $mode',
-            () {
-          final p = NeuTheme.palette(isDark, material: m);
-          kAccentPresets.forEach((name, accent) {
-            // NeuButton fills a selected surface with the accent at 15% over
-            // the sunken ground, then paints the label on top of that.
-            for (final role in [SurfaceRole.sunken, SurfaceRole.raised]) {
-              final tint = Color.alphaBlend(
-                  accent.withValues(alpha: 0.15), p.worstGround(role));
-              final ink = NeuTheme.accentInk(accent, isDark, material: m);
-              final ratio = NeuTheme.contrastRatio(ink, tint);
-              expect(ratio, greaterThanOrEqualTo(kTextAA),
-                  reason: 'selected $name on its own 15% tint over $role '
-                      '($mode) measured ${ratio.toStringAsFixed(2)}:1');
-            }
-          });
+      test('a selected control is legible on its own accent tint — $mode',
+          () {
+        final p = NeuTheme.palette(isDark);
+        kAccentPresets.forEach((name, accent) {
+          // NeuButton fills a selected surface with the accent at 15% over
+          // the sunken ground, then paints the label on top of that.
+          for (final role in [SurfaceRole.sunken, SurfaceRole.raised]) {
+            final tint = Color.alphaBlend(
+                accent.withValues(alpha: 0.15), p.worstGround(role));
+            final ink = NeuTheme.accentInk(accent, isDark);
+            final ratio = NeuTheme.contrastRatio(ink, tint);
+            expect(ratio, greaterThanOrEqualTo(kTextAA),
+                reason: 'selected $name on its own 15% tint over $role '
+                    '($mode) measured ${ratio.toStringAsFixed(2)}:1');
+          }
         });
-      }
+      });
     }
 
     test('the raw preset really is unusable, so this is not vacuous', () {
       // If the raw accent happened to be readable on its own tint, the guard
       // above would pass whether or not the app derived anything.
-      final p = NeuTheme.palette(false, material: materialsUnderTest.first);
+      final p = NeuTheme.palette(false);
       const cyan = Color(0xFF00F2FE);
       final tint = Color.alphaBlend(
           cyan.withValues(alpha: 0.15), p.worstGround(SurfaceRole.sunken));

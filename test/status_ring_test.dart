@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:streamlink_gui/theme/material/app_material.dart';
 import 'package:streamlink_gui/theme/neu_theme.dart';
 
-import 'contrast_test.dart' show kNonTextAA, materialsUnderTest;
+import 'contrast_test.dart' show kNonTextAA;
 
 /// The status dot's boundary, which used to be a colour match and is now a
 /// darkening.
@@ -12,9 +12,9 @@ import 'contrast_test.dart' show kNonTextAA, materialsUnderTest;
 /// avatar behind it. That is correct exactly while the ring's colour is the
 /// colour behind it — and a dot sits at an avatar's bottom-right corner, half
 /// over the picture and half over the panel. It was never quite true; a flat
-/// panel just made it close enough not to notice. A panel with a fill ramp and
-/// a grain on it is not close enough, and there is no replacement colour,
-/// because there is no single colour that matches a gradient.
+/// panel just made it close enough not to notice. A panel with a fill ramp on
+/// it is not close enough, and there is no replacement colour, because there
+/// is no single colour that matches a gradient.
 ///
 /// The replacement has to be judged differently as a result. A knockout ring
 /// is checked by asking whether it matches; a darkening is checked by asking
@@ -32,11 +32,8 @@ void main() {
     /// the two poles, because the other half of a dot sits over an avatar and
     /// an avatar is arbitrary user imagery. White and black are not
     /// hypothetical here — they are the actual worst cases the ring exists for.
-    List<({String name, Color color})> dotGrounds(
-      bool isDark,
-      AppMaterial m,
-    ) {
-      final p = NeuTheme.palette(isDark, material: m);
+    List<({String name, Color color})> dotGrounds(bool isDark) {
+      final p = NeuTheme.palette(isDark);
       return [
         (name: 'white avatar', color: const Color(0xFFFFFFFF)),
         (name: 'black avatar', color: const Color(0xFF000000)),
@@ -46,50 +43,48 @@ void main() {
       ];
     }
 
-    for (final m in materialsUnderTest) {
-      for (final isDark in [false, true]) {
-        final mode = '${m.key} ${isDark ? 'dark' : 'light'}';
+    for (final isDark in [false, true]) {
+      final mode = isDark ? 'dark' : 'light';
 
-        test('the live dot keeps a legible edge — $mode', () {
-          for (final g in dotGrounds(isDark, m)) {
-            final ring = flatten(NeuTheme.statusRingInk, g.color);
-            final viaRing = ratio(NeuTheme.live, ring);
-            final viaDot = ratio(NeuTheme.live, g.color);
-            expect(
-              viaRing > viaDot ? viaRing : viaDot,
-              greaterThanOrEqualTo(kNonTextAA),
-              reason:
-                  'live dot on ${g.name} ($mode): the ring gives '
-                  '${viaRing.toStringAsFixed(2)}:1 and the dot itself '
-                  '${viaDot.toStringAsFixed(2)}:1 — neither carries the edge',
-            );
-          }
-        });
+      test('the live dot keeps a legible edge — $mode', () {
+        for (final g in dotGrounds(isDark)) {
+          final ring = flatten(NeuTheme.statusRingInk, g.color);
+          final viaRing = ratio(NeuTheme.live, ring);
+          final viaDot = ratio(NeuTheme.live, g.color);
+          expect(
+            viaRing > viaDot ? viaRing : viaDot,
+            greaterThanOrEqualTo(kNonTextAA),
+            reason:
+                'live dot on ${g.name} ($mode): the ring gives '
+                '${viaRing.toStringAsFixed(2)}:1 and the dot itself '
+                '${viaDot.toStringAsFixed(2)}:1 — neither carries the edge',
+          );
+        }
+      });
 
-        test('the offline dot keeps a legible edge — $mode', () {
-          // `disabledText` is the offline fill, and it is a mid-tone, which is
-          // the hardest case: mid-tones have the least room in both
-          // directions. It is held to the same graphics bar.
-          final dot = NeuTheme.disabledText(isDark, material: m);
-          for (final g in dotGrounds(isDark, m)) {
-            final ring = flatten(NeuTheme.statusRingInk, g.color);
-            final viaRing = ratio(dot, ring);
-            final viaDot = ratio(dot, g.color);
-            expect(
-              viaRing > viaDot ? viaRing : viaDot,
-              greaterThanOrEqualTo(kNonTextAA),
-              reason:
-                  'offline dot on ${g.name} ($mode): ring '
-                  '${viaRing.toStringAsFixed(2)}:1, dot '
-                  '${viaDot.toStringAsFixed(2)}:1 — neither carries the edge',
-            );
-          }
-        });
-      }
+      test('the offline dot keeps a legible edge — $mode', () {
+        // `disabledText` is the offline fill, and it is a mid-tone, which is
+        // the hardest case: mid-tones have the least room in both
+        // directions. It is held to the same graphics bar.
+        final dot = NeuTheme.disabledText(isDark);
+        for (final g in dotGrounds(isDark)) {
+          final ring = flatten(NeuTheme.statusRingInk, g.color);
+          final viaRing = ratio(dot, ring);
+          final viaDot = ratio(dot, g.color);
+          expect(
+            viaRing > viaDot ? viaRing : viaDot,
+            greaterThanOrEqualTo(kNonTextAA),
+            reason:
+                'offline dot on ${g.name} ($mode): ring '
+                '${viaRing.toStringAsFixed(2)}:1, dot '
+                '${viaDot.toStringAsFixed(2)}:1 — neither carries the edge',
+          );
+        }
+      });
     }
 
     test('the alpha is the measured knee, not a value someone liked', () {
-      // A sweep over every (material, brightness, dot, ground) pairing shows
+      // A sweep over every (material, brightness, dot, ground) pairing showed
       // worst-case legibility climbing steeply to 0.74 and flat above it: the
       // ceiling is an offline dot on a black avatar, where the ring is black
       // too and no alpha reaches it. So 0.74 is the lightest touch that gets

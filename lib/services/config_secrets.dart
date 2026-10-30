@@ -74,9 +74,7 @@ class ConfigSecrets {
   /// running with. A config moved from another account or machine, or a
   /// portable install carried between PCs, then simply shows "not
   /// connected" here instead of destroying the token for the place it does
-  /// open - the same rule as an unknown material key, which falls back for
-  /// the session and is left alone in the file. Entering a new token
-  /// replaces it.
+  /// open. Entering a new token replaces it.
   final Map<String, String> _unopenable = {};
 
   /// Autosaves run every couple of seconds during playback, so a lasting

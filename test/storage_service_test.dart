@@ -605,17 +605,17 @@ void main() {
     test('hand-edited settings fall back field by field, a non-map wholesale', () async {
       configFile().writeAsStringSync(json.encode({
         'channels': [],
-        'settings': {'default_quality': 42, 'local_server_port': 'abc', 'material': 'soft'},
+        'settings': {'default_quality': 42, 'local_server_port': 'abc', 'close_action': 'exit'},
       }));
       final hostile = (await storage.loadStartupConfig()).parseSettings();
       expect(hostile.defaultQuality, 'best');
       expect(hostile.localServerPort, 65432);
-      expect(hostile.material, 'soft');
+      expect(hostile.closeAction, 'exit');
 
       configFile().writeAsStringSync(json.encode({'channels': [], 'settings': 'not a map'}));
       final startup = await storage.loadStartupConfig();
       expect(startup.isFirstRun, isFalse);
-      expect(startup.parseSettings().material, AppSettings().material);
+      expect(startup.parseSettings().closeAction, AppSettings().closeAction);
     });
 
     test('tokens arrive decrypted', () async {

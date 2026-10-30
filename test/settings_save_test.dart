@@ -24,14 +24,12 @@ void main() {
     String clientId = '',
     String browser = '',
     bool startup = false,
-    bool canvas = false,
   }) =>
       AppSettings(
         twitchOauthToken: token,
         twitchClientId: clientId,
         twitchWebOauthToken: browser,
         launchAtStartup: startup,
-        canvasEngine: canvas,
       );
 
   group('SettingsChange', () {
@@ -51,18 +49,6 @@ void main() {
           SettingsChange.between(settings(), settings(browser: 'b'));
       expect(browser.browserTokenChanged, isTrue);
       expect(browser.helixChanged, isFalse);
-    });
-
-    test('Simple rendering counts only when turned on', () {
-      expect(
-          SettingsChange.between(settings(), settings(canvas: true))
-              .canvasEngineTurnedOn,
-          isTrue);
-      expect(
-          SettingsChange.between(settings(canvas: true), settings())
-              .canvasEngineTurnedOn,
-          isFalse,
-          reason: 'turning it off waits for the next launch');
     });
   });
 
@@ -86,7 +72,6 @@ void main() {
           rebuildTrayMenu: () => calls.add('tray'),
           loadFollowed: () => calls.add('load followed'),
           signedOut: () => calls.add('signed out'),
-          canvasTurnedOn: () => calls.add('canvas'),
           showMessage: (m) => calls.add(m),
         );
 
@@ -126,11 +111,9 @@ void main() {
       ]);
     });
 
-    test('no account token signs out; Simple rendering switches first',
-        () async {
-      await coordinator().save(settings(token: '', canvas: true));
+    test('no account token signs out', () async {
+      await coordinator().save(settings(token: ''));
       expect(calls, [
-        'canvas',
         'adopt',
         'save',
         'probe',

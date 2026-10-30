@@ -369,20 +369,7 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
               children: [
                 AspectRatio(
                   aspectRatio: 16 / 9,
-                  // The bezel goes in FRONT of the picture, which is why it is
-                  // a foregroundDecoration and not the decoration. A background
-                  // one would paint behind the image and be invisible; the
-                  // thumbnail fills its box edge to edge.
-                  //
-                  // Null on any material that declares no bezel, and a null
-                  // foregroundDecoration paints nothing - so Soft renders this
-                  // exactly as it always has, with no branch here.
-                  child: Container(
-                    foregroundDecoration: NeuTheme.bezel(
-                      themeNotifier.isDarkTheme,
-                      radius: NeuRadius.inner(NeuRadius.r16, 1),
-                    ),
-                    child: ClipRRect(
+                  child: ClipRRect(
                     // Concentric: the card is 16 with a 1px border, so a
                     // flush child is 15. At 11 the corners left a visible
                     // crescent of card colour inside the thumbnail's edge.
@@ -781,7 +768,6 @@ class _TwitchVideoCardState extends State<TwitchVideoCard> {
                         ),
                       ],
                     ),
-                  ),
                   ),
                 ),
                 Expanded(

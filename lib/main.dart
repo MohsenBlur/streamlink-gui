@@ -49,7 +49,6 @@ import 'state/stored_config.dart';
 import 'widgets/library_view.dart';
 import 'widgets/onboarding_wizard.dart';
 import 'services/automation_service.dart';
-import 'theme/material/lit_surface.dart';
 import 'theme/app_theme.dart';
 import 'theme/neu_theme.dart';
 import 'widgets/neumorphic/neu_pulse.dart';
@@ -119,8 +118,7 @@ class _TwitchStreamlinkAppState extends State<TwitchStreamlinkApp> {
           title: 'Twitch Streamlink GUI',
           debugShowCheckedModeBanner: false,
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-          // Rebuilt per notification: both read the live accent and the
-          // active material.
+          // Rebuilt per notification: both read the live accent.
           theme: buildAppTheme(isDark: false),
           darkTheme: buildAppTheme(isDark: true),
           builder: (context, child) => NeuPulse(
@@ -367,12 +365,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// The log viewer's entry for the app itself, beside the per-process ones.
   static const String _appLogKey = 'app';
 
-  /// Puts what support asks first - which surface engine is painting, and
-  /// where the crash log is - where "Copy all" in the log viewer picks it up.
+  /// Puts what support asks first - where the crash log is - where "Copy all"
+  /// in the log viewer picks it up.
   void _logAppDiagnostics() {
     _logNotifier.beginSession(_appLogKey, 'App');
-    _logNotifier.appendLog(
-        _appLogKey, '[System] Surface engine: ${LitSurfaceProgram.status}');
     final crashLog = CrashLog.current;
     if (crashLog != null) {
       _logNotifier.appendLog(
@@ -1348,11 +1344,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         _settings.activeSidebarTab = 0;
         _settingsRepo.requestSave();
       }
-    },
-    canvasTurnedOn: () {
-      LitSurfaceProgram.disable('Simple rendering turned on in Settings');
-      _logNotifier.appendLog(
-          _appLogKey, '[System] Surface engine: ${LitSurfaceProgram.status}');
     },
     showMessage: (message) => _showSnackBar(message, isError: false),
   );

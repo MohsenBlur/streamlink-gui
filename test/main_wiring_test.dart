@@ -93,14 +93,4 @@ void main() {
     expect(call, contains('onSessionEnding: _downloads.freeze'));
     expect(call, contains('onSessionContinues: _downloads.unfreeze'));
   });
-
-  test("the surface engine's status says which switch forced Canvas", () {
-    // In the startup main() runs, before any screen (startApp).
-    final startup = File('lib/app_startup.dart')
-        .readAsStringSync()
-        .replaceAll('\r\n', '\n');
-    expect(startup, contains("'--canvas-engine flag'"));
-    expect(startup, contains("'Simple rendering setting'"));
-    expect(startup, contains('forceCanvasReason: canvasReason'));
-  });
 }

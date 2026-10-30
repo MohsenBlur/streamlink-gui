@@ -5,10 +5,10 @@
 .DESCRIPTION
   Dot-source it: . (Join-Path $PSScriptRoot 'shoot-common.ps1')
 
-  shoot-matrix.ps1 and shoot-materials.ps1 each grew their own copy of "stop
-  the app, point it at a config, relaunch", and the copies drifted: only the
-  matrix isolated its config, and both stopped processes by NAME. These are the
-  one version both use.
+  shoot-matrix.ps1 and the since-removed shoot-materials.ps1 each grew their
+  own copy of "stop the app, point it at a config, relaunch", and the copies
+  drifted: only the matrix isolated its config, and both stopped processes by
+  NAME. These are the one version.
 #>
 
 # A launch script accepts a repo-relative or absolute exe and must hand the
@@ -237,9 +237,9 @@ public class ShootCommonV1 {
 #
 # Start-Process launches it to be shown normally, and the runner's first show
 # then activates the window: keyboard focus pulled from whatever the user was
-# typing into, once per launch - and the matrix launches once per theme, the
-# materials script once per shot. The working directory is the exe's own, as
-# a shortcut or the updater's relaunch would give it.
+# typing into, once per launch - and the matrix launches once per theme. The
+# working directory is the exe's own, as a shortcut or the updater's relaunch
+# would give it.
 #
 # The show command only reaches the first show; the runner keeps everything
 # before it from taking the foreground for such a launch too

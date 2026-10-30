@@ -17,14 +17,6 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
   /// "LIVE" chip unrelated to any actual stream state.
   final int liveCount;
 
-  /// Extra horizontal room held back at both ends, for the chassis screws that
-  /// sit in the window's top corners.
-  ///
-  /// Zero unless the active material draws ornament, so the classic look does
-  /// not pay for a screw it never shows. The value belongs to the furniture
-  /// rather than to this widget: see `ChassisFurniture.edgeClearance`.
-  final double edgeInset;
-
   const NeuTitleBar({
     Key? key,
     this.title = 'TWITCH STREAMLINK GUI',
@@ -33,7 +25,6 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
     this.leading,
     this.actions,
     this.liveCount = 0,
-    this.edgeInset = 0,
   }) : super(key: key);
 
   @override
@@ -79,8 +70,10 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
       // The device's top edge. It takes the panel treatment rather than a flat
       // canvas fill, and keeps its hairline: the seam where the faceplate meets
       // the chassis is a real edge, not a decoration.
-      decoration: NeuTheme.titleBarSurface(
+      decoration: NeuTheme.panel(
         isDarkTheme,
+        radius: 0,
+        base: NeuTheme.canvas(isDarkTheme),
         border: Border(
           bottom: BorderSide(
             color: NeuTheme.shadow(isDarkTheme).withValues(alpha: 0.3),
@@ -88,13 +81,7 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
           ),
         ),
       ),
-      child: Padding(
-        // Clearance for the chassis screws, which sit in the two top corners
-        // and would otherwise land on the live badge at one end and the close
-        // button at the other. Zero on any material that draws no ornament, so
-        // this is not a cost the classic look pays.
-        padding: EdgeInsets.symmetric(horizontal: edgeInset),
-        child: Row(
+      child: Row(
         children: [
           // Drag handle region for title bar
           Expanded(
@@ -135,18 +122,13 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
                         title.toUpperCase(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        // The engraved brand plate. `plated` swaps the face
-                        // and nothing else, so the title keeps its own size,
-                        // weight and the 1.1 tracking it was already carrying
-                        // - this is a face change, not a metrics change. The
-                        // `plate` STEP is 10px and would have shrunk the app's
-                        // own name by two points, which is a different edit
-                        // wearing the same word.
-                        style: NeuType.plated(
-                            NeuType.label(isDarkTheme,
-                                    color: NeuTheme.text(isDarkTheme))
-                                .copyWith(letterSpacing: 1.1),
-                            isDarkTheme),
+                        // The label step with the 1.1 tracking the brand
+                        // plate has always carried. Not the `plate` step,
+                        // which is 10px and would shrink the app's own name
+                        // by two points.
+                        style: NeuType.label(isDarkTheme,
+                                color: NeuTheme.text(isDarkTheme))
+                            .copyWith(letterSpacing: 1.1),
                       ),
                     ),
                   ],
@@ -175,7 +157,6 @@ class NeuTitleBar extends StatelessWidget implements PreferredSizeWidget {
           // Frameless Window Controls
           const _WindowControls(),
         ],
-        ),
       ),
     );
   }
