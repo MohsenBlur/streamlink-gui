@@ -10,6 +10,10 @@ import 'package:streamlink_gui/services/player_service.dart';
 
 import 'support/fake_process.dart';
 
+/// Elsewhere a cancel is Process.kill, which ends the fake yt-dlp at once:
+/// only taskkill returns while its target still runs and prints.
+const _outlivesTheCancel = 'a yt-dlp outlives its cancel only under taskkill';
+
 /// The download queue and yt-dlp's output, driven through PlayerService's
 /// real code with a fake yt-dlp in place of the real one.
 void main() {
@@ -331,7 +335,7 @@ void main() {
 
       expect(lateDeaths.activeDownloadTasks['1'], 'Queued');
       expect(lateDeaths.activeDownloadsProgress['1'], isNull);
-    });
+    }, skip: Platform.isWindows ? false : _outlivesTheCancel);
   });
 
   group('a running download cancelled and not queued again', () {
@@ -363,7 +367,7 @@ void main() {
       expect(lateDeaths.activeDownloadTasks, isEmpty,
           reason: 'a Downloads row left showing 45% for good');
       expect(lateDeaths.activeDownloadsProgress, isEmpty);
-    });
+    }, skip: Platform.isWindows ? false : _outlivesTheCancel);
   });
 
   group('a download cancelled while its yt-dlp is starting', () {
@@ -718,7 +722,7 @@ void main() {
       await pumpEventQueue();
       expect(urls(), [url('1'), url('2'), url('1')]);
       expect(lateDeaths.activeDownloadProcesses['1'], same(launcher.launched.last));
-    });
+    }, skip: Platform.isWindows ? false : _outlivesTheCancel);
 
     test('cancelling one leaves the others running, and gives its place to '
         'the next', () async {
