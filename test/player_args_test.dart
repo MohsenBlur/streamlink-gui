@@ -109,6 +109,31 @@ void main() {
       }
     });
 
+    test('MPC-BE is not given the view preset it refuses to start with', () {
+      List<String> args({required bool mpcBe}) => buildPlayerArgs(
+          kind: PlayerKind.mpcHc,
+          startSeconds: 0,
+          port: 8089,
+          ipcName: '1',
+          isWindows: true,
+          httpPassword: 'pw',
+          mpcSlaveWindow: '42',
+          mpcBe: mpcBe);
+      expect(args(mpcBe: false), containsAllInOrder(['/viewpreset', '2']));
+      expect(args(mpcBe: true), isNot(contains('/viewpreset')));
+      expect(args(mpcBe: true), containsAllInOrder(['/new', '/slave', '42']));
+    });
+
+    test('isMpcBe tells MPC-BE from MPC-HC by its executable', () {
+      expect(isMpcBe(r'C:\Program Files\MPC-BE x64\mpc-be64.exe'), isTrue);
+      expect(isMpcBe(r'"C:\Tools\MPC-BE\MPC-BE.exe"'), isTrue);
+      expect(isMpcBe('/opt/mpc-be/mpc-be64.exe'), isTrue);
+      expect(isMpcBe(r'C:\Program Files\MPC-HC\mpc-hc64.exe'), isFalse);
+      // The folder says nothing; the program does.
+      expect(isMpcBe(r'C:\mpc-be-old\mpc-hc64.exe'), isFalse);
+      expect(isMpcBe(null), isFalse);
+    });
+
     test('no start flag when starting from the beginning', () {
       for (final kind in [PlayerKind.vlc, PlayerKind.mpv, PlayerKind.mpcHc]) {
         final args = buildPlayerArgs(

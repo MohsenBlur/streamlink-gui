@@ -151,6 +151,18 @@ void main() {
       expect(slave.closed, {1});
     });
 
+    test('in MPC-BE is launched without the view preset it refuses', () async {
+      // MPC-BE answers a switch it does not know with its help window and
+      // never opens the file. It shares MPC-HC's /slave API.
+      mpcExe = '${temp.path}${Platform.pathSeparator}mpc-be64.exe';
+      File(mpcExe).writeAsStringSync('');
+      final player = await playFile();
+      expect(player.executable, mpcExe);
+      expect(player.arguments, isNot(contains('/viewpreset')));
+      expect(player.arguments,
+          containsAllInOrder(['/new', '/slave', FakeMpcSlave.windowOf(1)]));
+    });
+
     test('plays untracked, and says why, when there is no window', () async {
       slave.openFailure = StateError('no window');
       final player = await playFile();

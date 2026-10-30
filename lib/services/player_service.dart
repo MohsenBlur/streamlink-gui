@@ -1405,6 +1405,7 @@ class PlayerService {
           isWindows: Platform.isWindows,
           httpPassword: httpPassword,
           mpcSlaveWindow: mpc?.window,
+          mpcBe: isMpcBe(resolvedExe),
         ));
         args.add(path);
       }

@@ -199,6 +199,14 @@ void main() {
       expect(pa, isNot(contains('/slave')));
       expect(pa, contains('/new'));
     });
+
+    test('MPC-BE, by its executable, gets no view preset', () {
+      final be = playerArgsOf(
+          build(playerExe: r'C:\Program Files\MPC-BE x64\mpc-be64.exe').args)!;
+      expect(be, isNot(contains('/viewpreset')));
+      expect(be, contains('/slave 197380'));
+      expect(playerArgsOf(build().args), contains('/viewpreset 2'));
+    });
   });
 
   test('MPV pipe path is quoted so streamlink\'s shlex cannot eat it', () {

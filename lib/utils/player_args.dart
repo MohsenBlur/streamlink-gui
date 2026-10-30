@@ -54,6 +54,18 @@ int resumeSeconds({
 /// seek bar and transport controls visible; minimal hides them.
 const List<String> mpcViewPresetCompact = ['/viewpreset', '2'];
 
+/// Whether [playerExe] is MPC-BE rather than MPC-HC.
+///
+/// Both classify as [PlayerKind.mpcHc] - they share the command line the app
+/// uses and the /slave API - except for `/viewpreset`, which MPC-BE does not
+/// know: it answers any switch it does not know with its command-line help
+/// window and never opens the file.
+bool isMpcBe(String? playerExe) {
+  if (playerExe == null) return false;
+  final name = playerExe.replaceAll('"', '').split(RegExp(r'[\\/]')).last;
+  return name.toLowerCase().startsWith('mpc-be');
+}
+
 String mpvIpcPath(String ipcName, bool isWindows) =>
     isWindows ? r'\\.\pipe\mpv-socket-' + ipcName : '/tmp/mpv-socket-$ipcName';
 
@@ -243,7 +255,8 @@ String encodePowerShellCommand(String script) {
 /// MPC-HC reports to over its /slave API; null launches it without one, and
 /// so without progress tracking. MPC-HC never gets `/webport`: its web
 /// interface has no authentication, and any web page could drive it with a
-/// plain GET while a VOD played (see mpc_slave_protocol.dart).
+/// plain GET while a VOD played (see mpc_slave_protocol.dart). [mpcBe] leaves
+/// out the switch MPC-BE refuses (see [isMpcBe]).
 List<String> buildPlayerArgs({
   required PlayerKind kind,
   required int startSeconds,
@@ -253,6 +266,7 @@ List<String> buildPlayerArgs({
   required String httpPassword,
   bool keepOpen = false,
   String? mpcSlaveWindow,
+  bool mpcBe = false,
 }) {
   final args = <String>[];
   switch (kind) {
@@ -285,7 +299,7 @@ List<String> buildPlayerArgs({
       // from a process this session never started, which the runner refuses.
       args.add('/new');
       if (mpcSlaveWindow != null) args.addAll(['/slave', mpcSlaveWindow]);
-      args.addAll(mpcViewPresetCompact);
+      if (!mpcBe) args.addAll(mpcViewPresetCompact);
     case PlayerKind.other:
       break;
   }
@@ -433,6 +447,7 @@ VodStreamCommand buildVodStreamlinkArgs({
     isWindows: isWindows,
     httpPassword: httpPassword,
     mpcSlaveWindow: mpcSlaveWindow,
+    mpcBe: isMpcBe(playerExe),
   );
 
   final parts = <String>[
